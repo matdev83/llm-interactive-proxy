@@ -8,7 +8,6 @@ routing, and error handling.
 import json
 
 import pytest
-
 from src.codebuff.exceptions import CodebuffMessageError, CodebuffValidationError
 from src.codebuff.message_router import MessageRouter
 from src.codebuff.schemas import (
@@ -41,7 +40,7 @@ class TestMessageRouter:
     def test_parse_json_valid_array(self):
         """Test parsing valid JSON array."""
         router = MessageRouter()
-        json_str = '[1, 2, 3]'
+        json_str = "[1, 2, 3]"
 
         result = router.parse_json(json_str)
 

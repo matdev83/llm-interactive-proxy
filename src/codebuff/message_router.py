@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -43,7 +43,6 @@ class MessageRouter:
 
     def __init__(self) -> None:
         """Initialize the message router."""
-        pass
 
     def parse_json(self, raw_message: str) -> dict[str, Any]:
         """Parse a JSON message string.
@@ -58,11 +57,11 @@ class MessageRouter:
             CodebuffMessageError: If JSON parsing fails
         """
         try:
-            return json.loads(raw_message)
+            return cast(dict[str, Any], json.loads(raw_message))
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON message: {e}")
             raise CodebuffMessageError(
-                message=f"Invalid JSON: {str(e)}",
+                message=f"Invalid JSON: {e!s}",
                 message_type="unknown",
                 details={"raw_message": raw_message[:100]},
             ) from e
@@ -110,7 +109,7 @@ class MessageRouter:
         except ValidationError as e:
             logger.error(f"Message validation failed for type '{message_type}': {e}")
             raise CodebuffValidationError(
-                message=f"Message validation failed: {str(e)}",
+                message=f"Message validation failed: {e!s}",
                 message_type=message_type,
                 validation_errors=e.errors(),
                 details={"message_data": message_data},
@@ -178,7 +177,7 @@ class MessageRouter:
             # Catch any unexpected errors
             logger.error(f"Unexpected error routing message: {e}", exc_info=True)
             error_response = format_error_response(
-                Exception(f"Internal error: {str(e)}"), txid=txid
+                Exception(f"Internal error: {e!s}"), txid=txid
             )
             ack = AckMessage(**error_response)
             return None, ack

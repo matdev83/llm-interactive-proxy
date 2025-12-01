@@ -1700,7 +1700,7 @@ def apply_cli_args(
         cli_overrides["edit_precision"] = edit_precision_overrides
 
     # Backend debugging overrides
-    if args.enable_cline_backend_debugging_override:
+    if getattr(args, "enable_cline_backend_debugging_override", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
         cline_overrides = backend_overrides.setdefault("cline", {})
         cline_overrides["extra"] = cline_overrides.get("extra", {})
@@ -1711,40 +1711,48 @@ def apply_cli_args(
             "--enable-cline-backend-debugging-override",
         )
 
-    if args.enable_antigravity_backend_debugging_override:
+    if getattr(args, "enable_antigravity_backend_debugging_override", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
-        antigravity_overrides = backend_overrides.setdefault("gemini-oauth-antigravity", {})
+        antigravity_overrides = backend_overrides.setdefault(
+            "gemini-oauth-antigravity", {}
+        )
         antigravity_overrides["extra"] = antigravity_overrides.get("extra", {})
-        antigravity_overrides["extra"]["enable_antigravity_backend_debugging_override"] = True
+        antigravity_overrides["extra"][
+            "enable_antigravity_backend_debugging_override"
+        ] = True
         record_cli(
             "backends.gemini-oauth-antigravity.extra.enable_antigravity_backend_debugging_override",
             True,
             "--enable-antigravity-backend-debugging-override",
         )
 
-    if args.enable_gemini_oauth_free_backend_debugging-override:
+    if getattr(args, "enable_gemini_oauth_free_backend_debugging_override", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
         free_overrides = backend_overrides.setdefault("gemini-oauth-free", {})
         free_overrides["extra"] = free_overrides.get("extra", {})
-        free_overrides["extra"]["enable_gemini_oauth_free_backend_debugging_override"] = True
+        free_overrides["extra"][
+            "enable_gemini_oauth_free_backend_debugging_override"
+        ] = True
         record_cli(
             "backends.gemini-oauth-free.extra.enable_gemini_oauth_free_backend_debugging_override",
             True,
             "--enable-gemini-oauth-free-backend-debugging-override",
         )
 
-    if args.enable_gemini_oauth_plan_backend_debugging_override:
+    if getattr(args, "enable_gemini_oauth_plan_backend_debugging_override", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
         plan_overrides = backend_overrides.setdefault("gemini-oauth-plan", {})
         plan_overrides["extra"] = plan_overrides.get("extra", {})
-        plan_overrides["extra"]["enable_gemini_oauth_plan_backend_debugging_override"] = True
+        plan_overrides["extra"][
+            "enable_gemini_oauth_plan_backend_debugging_override"
+        ] = True
         record_cli(
             "backends.gemini-oauth-plan.extra.enable_gemini_oauth_plan_backend_debugging_override",
             True,
             "--enable-gemini-oauth-plan-backend-debugging-override",
         )
 
-    if args.enable_qwen_oauth_backend_debugging_override:
+    if getattr(args, "enable_qwen_oauth_backend_debugging_override", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
         qwen_overrides = backend_overrides.setdefault("qwen-oauth", {})
         qwen_overrides["extra"] = qwen_overrides.get("extra", {})

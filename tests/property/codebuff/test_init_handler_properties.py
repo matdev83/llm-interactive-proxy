@@ -10,7 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.schemas import InitAction
@@ -22,21 +21,43 @@ def file_context_strategy(draw):
     """Generate a file context dictionary."""
     num_files = draw(st.integers(min_value=0, max_value=10))
     file_context = {}
-    for i in range(num_files):
+    for _ in range(num_files):
         # Use printable ASCII to avoid Unicode encoding issues in parallel test execution
-        filename = draw(st.text(min_size=1, max_size=50, alphabet=st.characters(min_codepoint=32, max_codepoint=126)))
-        content = draw(st.text(min_size=0, max_size=200, alphabet=st.characters(min_codepoint=32, max_codepoint=126)))
+        filename = draw(
+            st.text(
+                min_size=1,
+                max_size=50,
+                alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+            )
+        )
+        content = draw(
+            st.text(
+                min_size=0,
+                max_size=200,
+                alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+            )
+        )
         file_context[filename] = {"content": content}
     return file_context
 
 
 @pytest.mark.asyncio
 @given(
-    session_id=st.text(min_size=1, max_size=100, alphabet=st.characters(min_codepoint=32, max_codepoint=126)),
-    fingerprint_id=st.text(min_size=1, max_size=100, alphabet=st.characters(min_codepoint=32, max_codepoint=126)),
+    session_id=st.text(
+        min_size=1,
+        max_size=100,
+        alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+    ),
+    fingerprint_id=st.text(
+        min_size=1,
+        max_size=100,
+        alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+    ),
     file_context=file_context_strategy(),
 )
-async def test_property_17_file_context_storage(session_id, fingerprint_id, file_context):
+async def test_property_17_file_context_storage(
+    session_id, fingerprint_id, file_context
+):
     """
     Feature: codebuff-backend-compatibility, Property 17: File context storage
     Validates: Requirements 5.1
@@ -72,11 +93,21 @@ async def test_property_17_file_context_storage(session_id, fingerprint_id, file
 
 @pytest.mark.asyncio
 @given(
-    session_id=st.text(min_size=1, max_size=100, alphabet=st.characters(min_codepoint=32, max_codepoint=126)),
-    fingerprint_id=st.text(min_size=1, max_size=100, alphabet=st.characters(min_codepoint=32, max_codepoint=126)),
+    session_id=st.text(
+        min_size=1,
+        max_size=100,
+        alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+    ),
+    fingerprint_id=st.text(
+        min_size=1,
+        max_size=100,
+        alphabet=st.characters(min_codepoint=32, max_codepoint=126),
+    ),
     file_context=file_context_strategy(),
 )
-async def test_property_18_file_context_persistence(session_id, fingerprint_id, file_context):
+async def test_property_18_file_context_persistence(
+    session_id, fingerprint_id, file_context
+):
     """
     Feature: codebuff-backend-compatibility, Property 18: File context persistence
     Validates: Requirements 5.3

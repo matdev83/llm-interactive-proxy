@@ -25,11 +25,13 @@ from src.core.ports.streaming_processors import (
 from src.core.ports.streaming_processors import (
     ToolCallRepairProcessor as PortsToolCallRepairProcessor,
 )
+from src.core.interfaces.tool_call_repair_service_interface import (
+    IToolCallRepairService,
+)
+from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
 )
-from src.core.services.tool_call_repair_service import ToolCallRepairService
-from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +97,13 @@ async def integrate_streaming_pipeline(
         return PortsToolCallRepairProcessor()
 
     def _default_service_tool_call_repair_processor() -> IStreamProcessor:
-        # Fallback instance when DI provider is unavailable
         from src.core.di.services import get_or_build_service_provider
-        from src.core.interfaces.tool_call_repair_service_interface import (
-            IToolCallRepairService,
-        )
-        
+
         provider = get_or_build_service_provider()
-        tool_call_repair_service = provider.get_required_service(IToolCallRepairService)
+        repair_service = provider.get_required_service(IToolCallRepairService)
         registry = provider.get_required_service(StreamingContextRegistry)
-        
         return ServiceToolCallRepairProcessor(
-            tool_call_repair_service=tool_call_repair_service,
+            tool_call_repair_service=repair_service,
             registry=registry,
         )
 

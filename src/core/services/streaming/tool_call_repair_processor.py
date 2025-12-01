@@ -313,7 +313,12 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     if isinstance(delta, dict):
                         text_parts: list[str] = []
                         # Preserve both tool_call text (if any) and regular content
-                        for key in ("content", "_tool_call_text", "reasoning_content", "reasoning"):
+                        for key in (
+                            "content",
+                            "_tool_call_text",
+                            "reasoning_content",
+                            "reasoning",
+                        ):
                             value = delta.get(key)
                             if isinstance(value, str) and value:
                                 text_parts.append(value)

@@ -62,7 +62,6 @@ from src.connectors.gemini_base.token_manager import TokenManager
 from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
-from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -2676,7 +2675,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                                     if is_stop_chunk:
                                         if logger.isEnabledFor(TRACE_LEVEL):
-                                            logger.log(TRACE_LEVEL, "[STREAMING] Buffering stop chunk")
+                                            logger.log(
+                                                TRACE_LEVEL,
+                                                "[STREAMING] Buffering stop chunk",
+                                            )
                                         final_stop_chunk = processed_chunk
                                         # Do not yield yet - wait for usage
                                         continue
@@ -2706,7 +2708,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     if logger.isEnabledFor(TRACE_LEVEL):
                                         logger.log(
                                             TRACE_LEVEL,
-                                            "[STREAMING] Buffering stop chunk (from buffer)"
+                                            "[STREAMING] Buffering stop chunk (from buffer)",
                                         )
                                     final_stop_chunk = processed_chunk
                                     continue
@@ -2719,7 +2721,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         if logger.isEnabledFor(TRACE_LEVEL):
                             logger.log(
                                 TRACE_LEVEL,
-                                f"[STREAMING] Completed chunk loop. final_stop_chunk captured: {final_stop_chunk is not None}"
+                                f"[STREAMING] Completed chunk loop. final_stop_chunk captured: {final_stop_chunk is not None}",
                             )
 
                     except GeneratorExit:
@@ -2743,7 +2745,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             "total_tokens": (prompt_tokens or 0) + completion_tokens,
                         }
                         if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(TRACE_LEVEL, f"[STREAMING] Calculated usage: {usage}")
+                            logger.log(
+                                TRACE_LEVEL, f"[STREAMING] Calculated usage: {usage}"
+                            )
                     except Exception as e:
                         logger.warning(
                             f"Could not calculate completion tokens for streaming: {e}"
@@ -2755,7 +2759,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                     if final_stop_chunk:
                         if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(TRACE_LEVEL, "[STREAMING] Yielding final stop chunk with usage")
+                            logger.log(
+                                TRACE_LEVEL,
+                                "[STREAMING] Yielding final stop chunk with usage",
+                            )
                         # Merge usage into the final stop chunk content
                         final_content = final_stop_chunk.content
                         if isinstance(final_content, dict) and usage:

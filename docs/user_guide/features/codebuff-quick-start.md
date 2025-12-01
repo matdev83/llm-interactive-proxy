@@ -95,6 +95,7 @@ That's it! Your Codebuff client is now routing through the proxy.
 - **[Protocol Reference](../codebuff-protocol-reference.md)** - Message format specification
 - **[Configuration Guide](../configuration.md)** - Advanced configuration options
 - **[Backend Setup](../backends/overview.md)** - Configure additional backends
+- **[Session Management](session-management.md)** - Configure resilient sessions and heartbeats
 
 ## Troubleshooting
 

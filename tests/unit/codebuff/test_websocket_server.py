@@ -5,13 +5,11 @@ These tests verify the WebSocket server functionality including connection
 handling, message sending, heartbeat monitoring, and graceful shutdown.
 """
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import WebSocketDisconnect
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.init_handler import InitHandler
@@ -94,7 +92,9 @@ def server(
 
 
 @pytest.mark.asyncio
-async def test_handle_connection_accepts_websocket(server: CodebuffWebSocketServer) -> None:
+async def test_handle_connection_accepts_websocket(
+    server: CodebuffWebSocketServer,
+) -> None:
     """Test that handle_connection accepts the WebSocket connection."""
     websocket = create_mock_websocket()
 

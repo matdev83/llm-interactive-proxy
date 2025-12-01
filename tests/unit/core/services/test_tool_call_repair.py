@@ -47,9 +47,7 @@ class TestToolCallRepairService:
         self, repair_service: ToolCallRepairService
     ) -> None:
         """If JSON decoding fails, the detector should still pick up XML tools."""
-        content = (
-            '<write_to_file><path>f</path><content>{"foo": "bar"}</content></write_to_file>'
-        )
+        content = '<write_to_file><path>f</path><content>{"foo": "bar"}</content></write_to_file>'
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
         assert repaired.tool_call["function"]["name"] == "write_to_file"

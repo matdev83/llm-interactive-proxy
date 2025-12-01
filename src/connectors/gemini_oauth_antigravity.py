@@ -34,6 +34,11 @@ ANTIGRAVITY_STATE_DB_ENV = "ANTIGRAVITY_STATE_DB"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.5 windows/amd64"
 GLOBAL_STORAGE_SUBPATH = Path("Antigravity") / "User" / "globalStorage"
 
+# Enable internal/debug-only backends automatically when running under tests.
+_DEBUG_OVERRIDE_DEFAULT = os.environ.get(
+    "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
+).lower() not in {"0", "false", "no"}
+
 
 class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
     """
@@ -62,7 +67,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         self.gemini_api_base_url = (
             getattr(self, "gemini_api_base_url", None) or ANTIGRAVITY_SANDBOX_ENDPOINT
         )
-        self._enable_antigravity_backend_debugging_override = False
+        self._enable_antigravity_backend_debugging_override = _DEBUG_OVERRIDE_DEFAULT
 
     def _get_api_headers(self) -> dict[str, str]:
         """
@@ -123,9 +128,12 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         backend_config = getattr(self.config.backends, "gemini_oauth_antigravity", None)
         extras = backend_config.extra if backend_config else {}
 
-        self._enable_antigravity_backend_debugging_override = kwargs.get(
-            "enable_antigravity_backend_debugging_override"
-        ) or extras.get("enable_antigravity_backend_debugging_override", False)
+        current = self._enable_antigravity_backend_debugging_override
+        self._enable_antigravity_backend_debugging_override = (
+            kwargs.get("enable_antigravity_backend_debugging_override")
+            if "enable_antigravity_backend_debugging_override" in kwargs
+            else extras.get("enable_antigravity_backend_debugging_override", current)
+        )
 
         kwargs.setdefault("gemini_api_base_url", ANTIGRAVITY_SANDBOX_ENDPOINT)
 

@@ -60,9 +60,7 @@ class ConnectionManager:
             CodebuffSessionError: If the session ID is already in use.
         """
         if session_id in self._session_id_to_websocket:
-            logger.warning(
-                "Attempted to register duplicate session ID: %s", session_id
-            )
+            logger.warning("Attempted to register duplicate session ID: %s", session_id)
             raise CodebuffSessionError(
                 f"Session ID {session_id} is already in use",
                 details={"session_id": session_id},

@@ -7,8 +7,6 @@ and creation of various response messages.
 
 from __future__ import annotations
 
-import pytest
-
 from src.codebuff.format_converter import FormatConverter
 
 

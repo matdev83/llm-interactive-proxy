@@ -5,12 +5,10 @@ These tests verify the functionality of connection management, session tracking,
 heartbeat monitoring, and subscription management.
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.exceptions import CodebuffSessionError
 

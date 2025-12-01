@@ -10,10 +10,8 @@ from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.message_router import MessageRouter
-from src.codebuff.schemas import AckMessage, IdentifyMessage, PingMessage
 
 
 # Test strategies
@@ -32,7 +30,9 @@ def auth_token_strategy(draw):
 @st.composite
 def message_type_strategy(draw):
     """Generate message types."""
-    return draw(st.sampled_from(["identify", "ping", "subscribe", "unsubscribe", "action"]))
+    return draw(
+        st.sampled_from(["identify", "ping", "subscribe", "unsubscribe", "action"])
+    )
 
 
 # Property 22: Connection logging
@@ -49,12 +49,14 @@ def test_property_22_connection_logging(session_id):
     websocket = MagicMock()
 
     # Capture log output
-    with patch.object(logging.getLogger("src.codebuff.connection_manager"), "info") as mock_log:
+    with patch.object(
+        logging.getLogger("src.codebuff.connection_manager"), "info"
+    ) as mock_log:
         manager.connect(websocket, session_id)
 
         # Verify connection was logged with session ID
         assert mock_log.called, "Connection should be logged"
-        
+
         # Check that at least one log call contains the session_id
         # The log format is: "Connection registered: session_id=%s", session_id
         # So we need to check both the format string and the arguments
@@ -67,15 +69,12 @@ def test_property_22_connection_logging(session_id):
                 if len(args) > 1 and args[1] == session_id:
                     logged_session_id = True
                     break
-        
+
         assert logged_session_id, f"Session ID {session_id} should appear in log"
 
 
 # Property 23: Message logging
-@given(
-    session_id=session_id_strategy(),
-    message_type=message_type_strategy()
-)
+@given(session_id=session_id_strategy(), message_type=message_type_strategy())
 @settings(max_examples=100)
 def test_property_23_message_logging(session_id, message_type):
     """
@@ -87,25 +86,15 @@ def test_property_23_message_logging(session_id, message_type):
     """
     import asyncio
     import json
-    
+
     # Create a simple message based on type
     if message_type == "identify":
-        message_data = {
-            "type": "identify",
-            "txid": 1,
-            "clientSessionId": session_id
-        }
+        message_data = {"type": "identify", "txid": 1, "clientSessionId": session_id}
     elif message_type == "ping":
-        message_data = {
-            "type": "ping",
-            "txid": 2
-        }
+        message_data = {"type": "ping", "txid": 2}
     else:
         # For other types, just use a basic structure
-        message_data = {
-            "type": message_type,
-            "txid": 3
-        }
+        message_data = {"type": message_type, "txid": 3}
 
     raw_message = json.dumps(message_data)
 
@@ -113,28 +102,36 @@ def test_property_23_message_logging(session_id, message_type):
 
     async def run_test():
         # Capture log output
-        with patch.object(logging.getLogger("src.codebuff.message_router"), "error") as mock_error_log:
-            with patch.object(logging.getLogger("src.codebuff.message_router"), "info") as mock_info_log:
-                with patch.object(logging.getLogger("src.codebuff.message_router"), "debug") as mock_debug_log:
+        with patch.object(
+            logging.getLogger("src.codebuff.message_router"), "error"
+        ) as mock_error_log:
+            with patch.object(
+                logging.getLogger("src.codebuff.message_router"), "info"
+            ) as mock_info_log:
+                with patch.object(
+                    logging.getLogger("src.codebuff.message_router"), "debug"
+                ) as mock_debug_log:
                     try:
                         validated_message, ack = await router.route_message(raw_message)
-                        
+
                         # For valid messages, check that message type was logged somewhere
                         # (could be in debug, info, or error depending on the flow)
                         all_calls = (
-                            mock_error_log.call_args_list + 
-                            mock_info_log.call_args_list + 
-                            mock_debug_log.call_args_list
+                            mock_error_log.call_args_list
+                            + mock_info_log.call_args_list
+                            + mock_debug_log.call_args_list
                         )
-                        
+
                         # We expect some logging to occur during message processing
                         # The exact level depends on success/failure
-                        assert len(all_calls) >= 0, "Message processing should generate logs"
-                        
+                        assert (
+                            len(all_calls) >= 0
+                        ), "Message processing should generate logs"
+
                     except Exception:
                         # Even on error, logging should occur
                         pass
-    
+
     asyncio.run(run_test())
 
 
@@ -156,8 +153,12 @@ def test_property_24_error_logging(session_id):
     manager.connect(websocket, session_id)
 
     # Capture log output for error scenario
-    with patch.object(logging.getLogger("src.codebuff.connection_manager"), "error") as mock_log:
-        with patch.object(logging.getLogger("src.codebuff.connection_manager"), "warning") as mock_warning:
+    with patch.object(
+        logging.getLogger("src.codebuff.connection_manager"), "error"
+    ) as mock_log:
+        with patch.object(
+            logging.getLogger("src.codebuff.connection_manager"), "warning"
+        ) as mock_warning:
             # Try to connect with duplicate session ID (should cause error/warning)
             websocket2 = MagicMock()
             try:
@@ -167,7 +168,7 @@ def test_property_24_error_logging(session_id):
 
             # Verify error/warning was logged
             assert mock_log.called or mock_warning.called, "Error should be logged"
-            
+
             # Check that session_id appears in the log
             # The warning format is: "Attempted to register duplicate session ID: %s", session_id
             all_calls = mock_log.call_args_list + mock_warning.call_args_list
@@ -180,7 +181,7 @@ def test_property_24_error_logging(session_id):
                     if len(args) > 1 and args[1] == session_id:
                         logged_session_id = True
                         break
-            
+
             assert logged_session_id, "Session ID should appear in error log"
 
 
@@ -201,12 +202,14 @@ def test_property_25_disconnect_logging(session_id):
     manager.connect(websocket, session_id)
 
     # Capture log output for disconnect
-    with patch.object(logging.getLogger("src.codebuff.connection_manager"), "info") as mock_log:
+    with patch.object(
+        logging.getLogger("src.codebuff.connection_manager"), "info"
+    ) as mock_log:
         manager.disconnect(websocket)
 
         # Verify disconnection was logged
         assert mock_log.called, "Disconnection should be logged"
-        
+
         # Check that session_id appears in the log
         # The disconnect format is: "Connection disconnected: session_id=%s", session_id
         logged_session_id = False
@@ -218,15 +221,12 @@ def test_property_25_disconnect_logging(session_id):
                 if len(args) > 1 and args[1] == session_id:
                     logged_session_id = True
                     break
-        
+
         assert logged_session_id, "Session ID should appear in disconnect log"
 
 
 # Property 26: Sensitive data exclusion
-@given(
-    session_id=session_id_strategy(),
-    auth_token=auth_token_strategy()
-)
+@given(session_id=session_id_strategy(), auth_token=auth_token_strategy())
 @settings(max_examples=100)
 def test_property_26_sensitive_data_exclusion(session_id, auth_token):
     """
@@ -239,15 +239,23 @@ def test_property_26_sensitive_data_exclusion(session_id, auth_token):
     # Skip test if session_id and auth_token are the same (false positive scenario)
     if session_id == auth_token:
         return
-    
+
     manager = ConnectionManager()
     websocket = MagicMock()
 
     # Capture all log output
-    with patch.object(logging.getLogger("src.codebuff.connection_manager"), "info") as mock_info:
-        with patch.object(logging.getLogger("src.codebuff.connection_manager"), "debug") as mock_debug:
-            with patch.object(logging.getLogger("src.codebuff.connection_manager"), "warning") as mock_warning:
-                with patch.object(logging.getLogger("src.codebuff.connection_manager"), "error") as mock_error:
+    with patch.object(
+        logging.getLogger("src.codebuff.connection_manager"), "info"
+    ) as mock_info:
+        with patch.object(
+            logging.getLogger("src.codebuff.connection_manager"), "debug"
+        ) as mock_debug:
+            with patch.object(
+                logging.getLogger("src.codebuff.connection_manager"), "warning"
+            ) as mock_warning:
+                with patch.object(
+                    logging.getLogger("src.codebuff.connection_manager"), "error"
+                ) as mock_error:
                     # Perform operations
                     manager.connect(websocket, session_id)
                     manager.update_last_seen(websocket)
@@ -255,10 +263,10 @@ def test_property_26_sensitive_data_exclusion(session_id, auth_token):
 
                     # Collect all log calls
                     all_calls = (
-                        mock_info.call_args_list +
-                        mock_debug.call_args_list +
-                        mock_warning.call_args_list +
-                        mock_error.call_args_list
+                        mock_info.call_args_list
+                        + mock_debug.call_args_list
+                        + mock_warning.call_args_list
+                        + mock_error.call_args_list
                     )
 
                     # Verify that auth_token does NOT appear in any logs
@@ -266,6 +274,6 @@ def test_property_26_sensitive_data_exclusion(session_id, auth_token):
                     for call in all_calls:
                         args = call[0]
                         log_content = str(args)
-                        assert auth_token not in log_content, (
-                            f"Auth token should not appear in logs: {log_content}"
-                        )
+                        assert (
+                            auth_token not in log_content
+                        ), f"Auth token should not appear in logs: {log_content}"

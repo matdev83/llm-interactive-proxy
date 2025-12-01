@@ -447,7 +447,9 @@ class ToolCallRepairService(IToolCallRepairService):
         generic_matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
         # Sort by length (longest first) so outer wrappers like <apply_diff> are
         # evaluated before nested tags such as <content>.
-        for match in sorted(generic_matches, key=lambda m: len(m.group(0)), reverse=True):
+        for match in sorted(
+            generic_matches, key=lambda m: len(m.group(0)), reverse=True
+        ):
             snippet = match.group(0)
             # Avoid duplicates
             if snippet not in candidate_snippets:

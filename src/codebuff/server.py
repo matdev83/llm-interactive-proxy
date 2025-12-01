@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING, Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.codebuff.connection_manager import ConnectionManager
-from src.codebuff.exceptions import CodebuffError, CodebuffSessionError
+from src.codebuff.exceptions import CodebuffSessionError
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.handlers.subscription_handler import SubscriptionHandler
 from src.codebuff.message_router import MessageRouter
 from src.codebuff.schemas import (
-    ActionMessage,
     AckMessage,
+    ActionMessage,
     IdentifyMessage,
     InitAction,
     PingMessage,
@@ -181,7 +181,9 @@ class CodebuffWebSocketServer:
         except WebSocketDisconnect:
             return None
         except Exception as e:
-            logger.error("Error waiting for identify message: %s", str(e), exc_info=True)
+            logger.error(
+                "Error waiting for identify message: %s", str(e), exc_info=True
+            )
             return None
 
     async def _process_messages(self, websocket: WebSocket) -> None:
@@ -212,21 +214,17 @@ class CodebuffWebSocketServer:
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                logger.error(
-                    "Error processing message: %s", str(e), exc_info=True
-                )
+                logger.error("Error processing message: %s", str(e), exc_info=True)
                 # Try to send error ack
                 try:
                     error_ack = self._message_router.create_ack(
-                        txid=None, success=False, error=f"Internal error: {str(e)}"
+                        txid=None, success=False, error=f"Internal error: {e!s}"
                     )
                     await self.send_message(websocket, error_ack)
                 except Exception:
                     pass  # Connection may be broken
 
-    async def _handle_message(
-        self, websocket: WebSocket, message: Any
-    ) -> None:
+    async def _handle_message(self, websocket: WebSocket, message: Any) -> None:
         """Handle a validated message.
 
         Args:
@@ -240,9 +238,7 @@ class CodebuffWebSocketServer:
 
         elif isinstance(message, SubscribeMessage):
             # Handle subscription
-            await self._subscription_handler.handle_subscribe(
-                websocket, message.topics
-            )
+            await self._subscription_handler.handle_subscribe(websocket, message.topics)
 
         elif isinstance(message, UnsubscribeMessage):
             # Handle unsubscription

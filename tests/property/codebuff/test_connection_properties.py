@@ -5,14 +5,12 @@ These tests verify the correctness properties of connection management,
 session tracking, and subscription handling.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import MagicMock
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from src.codebuff.connection_manager import ConnectionManager
-from src.codebuff.exceptions import CodebuffSessionError
 
 
 # Test strategies

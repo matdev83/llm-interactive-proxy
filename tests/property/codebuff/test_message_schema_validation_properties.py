@@ -12,10 +12,9 @@ from typing import Any
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
-
 from src.codebuff.schemas import (
-    ActionMessage,
     AckMessage,
+    ActionMessage,
     IdentifyMessage,
     InitAction,
     InitResponseAction,
@@ -123,8 +122,14 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
             )
         ),
         "prompt": draw(st.one_of(st.none(), st.text(min_size=1, max_size=500))),
-        "content": draw(st.one_of(st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5))),
-        "promptParams": draw(st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))),
+        "content": draw(
+            st.one_of(
+                st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+            )
+        ),
+        "promptParams": draw(
+            st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))
+        ),
         "fingerprintId": draw(
             st.text(
                 alphabet=st.characters(
@@ -137,17 +142,21 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
         "authToken": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
         "costMode": draw(st.sampled_from(["normal", "fast", "premium"])),
         "sessionState": draw(st.dictionaries(st.text(), st.text(), max_size=10)),
-        "toolResults": draw(st.lists(st.dictionaries(st.text(), st.text()), max_size=5)),
+        "toolResults": draw(
+            st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+        ),
         "model": draw(
             st.one_of(
                 st.none(),
-                st.sampled_from([
-                    "gpt-4",
-                    "gpt-3.5-turbo",
-                    "claude-3-opus",
-                    "claude-3-sonnet",
-                    "gemini-pro",
-                ]),
+                st.sampled_from(
+                    [
+                        "gpt-4",
+                        "gpt-3.5-turbo",
+                        "claude-3-opus",
+                        "claude-3-sonnet",
+                        "gemini-pro",
+                    ]
+                ),
             )
         ),
         "repoUrl": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
@@ -170,7 +179,9 @@ def valid_init_action_strategy(draw: Any) -> dict[str, Any]:
             )
         ),
         "authToken": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
-        "fileContext": draw(st.dictionaries(st.text(), st.text(), min_size=1, max_size=10)),
+        "fileContext": draw(
+            st.dictionaries(st.text(), st.text(), min_size=1, max_size=10)
+        ),
         "repoUrl": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
     }
 
@@ -183,7 +194,11 @@ def valid_ack_message_strategy(draw: Any) -> dict[str, Any]:
         "type": "ack",
         "txid": draw(st.one_of(st.none(), st.integers(min_value=0, max_value=1000000))),
         "success": success,
-        "error": draw(st.one_of(st.none(), st.text(min_size=1, max_size=200))) if not success else None,
+        "error": (
+            draw(st.one_of(st.none(), st.text(min_size=1, max_size=200)))
+            if not success
+            else None
+        ),
     }
 
 
@@ -220,9 +235,19 @@ def valid_prompt_response_action_strategy(draw: Any) -> dict[str, Any]:
             )
         ),
         "sessionState": draw(st.dictionaries(st.text(), st.text(), max_size=10)),
-        "toolCalls": draw(st.one_of(st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5))),
-        "toolResults": draw(st.one_of(st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5))),
-        "output": draw(st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))),
+        "toolCalls": draw(
+            st.one_of(
+                st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+            )
+        ),
+        "toolResults": draw(
+            st.one_of(
+                st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+            )
+        ),
+        "output": draw(
+            st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))
+        ),
     }
 
 
@@ -242,7 +267,9 @@ def valid_prompt_error_action_strategy(draw: Any) -> dict[str, Any]:
         ),
         "message": draw(st.text(min_size=1, max_size=200)),
         "error": draw(st.one_of(st.none(), st.text(min_size=1, max_size=500))),
-        "remainingBalance": draw(st.one_of(st.none(), st.floats(min_value=0.0, max_value=1000000.0))),
+        "remainingBalance": draw(
+            st.one_of(st.none(), st.floats(min_value=0.0, max_value=1000000.0))
+        ),
     }
 
 
@@ -252,7 +279,9 @@ def valid_init_response_action_strategy(draw: Any) -> dict[str, Any]:
     return {
         "type": "init-response",
         "message": draw(st.one_of(st.none(), st.text(min_size=1, max_size=200))),
-        "agentNames": draw(st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))),
+        "agentNames": draw(
+            st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))
+        ),
         "usage": draw(st.floats(min_value=0.0, max_value=1000.0)),
         "remainingBalance": draw(st.floats(min_value=0.0, max_value=1000000.0)),
         "next_quota_reset": draw(st.one_of(st.none(), st.datetimes())),
@@ -325,7 +354,9 @@ def test_property_9_subscribe_message_validation(message_data: dict[str, Any]) -
 
 @given(message_data=valid_unsubscribe_message_strategy())
 @property_test_settings()
-def test_property_9_unsubscribe_message_validation(message_data: dict[str, Any]) -> None:
+def test_property_9_unsubscribe_message_validation(
+    message_data: dict[str, Any]
+) -> None:
     """
     Property 9: Unsubscribe Message Validation.
 
@@ -482,9 +513,7 @@ def test_property_9_prompt_response_action_validation(
 
 @given(action_data=valid_prompt_error_action_strategy())
 @property_test_settings()
-def test_property_9_prompt_error_action_validation(
-    action_data: dict[str, Any]
-) -> None:
+def test_property_9_prompt_error_action_validation(action_data: dict[str, Any]) -> None:
     """
     Property 9: Prompt Error Action Validation.
 
@@ -565,7 +594,9 @@ def test_property_9_server_action_message_validation(
         alphabet=st.characters(whitelist_categories=("Lu", "Ll")),
         min_size=1,
         max_size=20,
-    ).filter(lambda x: x not in ["identify", "ping", "subscribe", "unsubscribe", "action"])
+    ).filter(
+        lambda x: x not in ["identify", "ping", "subscribe", "unsubscribe", "action"]
+    )
 )
 @property_test_settings()
 def test_property_9_invalid_message_type_rejection(invalid_type: str) -> None:

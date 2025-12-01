@@ -8,7 +8,6 @@ Requirements: 10.4
 from __future__ import annotations
 
 import pytest
-
 from src.codebuff.exceptions import (
     CodebuffAuthenticationError,
     CodebuffConnectionError,
@@ -46,9 +45,7 @@ class TestExceptionCreation:
 
     def test_codebuff_message_error_with_message_type(self) -> None:
         """Test creating a CodebuffMessageError with message type."""
-        error = CodebuffMessageError(
-            message="Invalid message", message_type="prompt"
-        )
+        error = CodebuffMessageError(message="Invalid message", message_type="prompt")
 
         assert error.message == "Invalid message"
         assert error.message_type == "prompt"
@@ -145,9 +142,7 @@ class TestErrorResponseFormatting:
 
     def test_format_error_with_details(self) -> None:
         """Test formatting an error with details."""
-        error = CodebuffError(
-            message="Operation failed", details={"reason": "timeout"}
-        )
+        error = CodebuffError(message="Operation failed", details={"reason": "timeout"})
         response = format_error_response(error, user_input_id="prompt-456")
 
         assert response["type"] == "action"
@@ -183,9 +178,7 @@ class TestErrorPropagation:
 
     def test_exception_to_dict_includes_all_attributes(self) -> None:
         """Test that to_dict includes all exception attributes."""
-        error = CodebuffConnectionError(
-            message="Connection failed", session_id="s-456"
-        )
+        error = CodebuffConnectionError(message="Connection failed", session_id="s-456")
         error_dict = error.to_dict()
 
         assert "error" in error_dict

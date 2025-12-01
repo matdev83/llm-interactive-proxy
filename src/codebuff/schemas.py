@@ -14,7 +14,6 @@ from pydantic import Field
 
 from src.core.interfaces.model_bases import DomainModel
 
-
 # ============================================================================
 # Client Messages (sent from Codebuff client to server)
 # ============================================================================
@@ -115,7 +114,11 @@ class ActionMessage(DomainModel):
 
 # Union type for all client messages
 ClientMessage = (
-    IdentifyMessage | PingMessage | SubscribeMessage | UnsubscribeMessage | ActionMessage
+    IdentifyMessage
+    | PingMessage
+    | SubscribeMessage
+    | UnsubscribeMessage
+    | ActionMessage
 )
 
 

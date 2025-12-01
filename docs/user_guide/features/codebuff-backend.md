@@ -65,6 +65,20 @@ Configure your Codebuff client to connect to the proxy:
 codebuff --backend-url ws://localhost:8000/ws
 ```
 
+## Usage Examples
+
+- **Route all Codebuff traffic through the proxy**: Start the proxy with `codebuff.enabled: true` and point your Codebuff client to `ws://localhost:8000/ws`.
+- **Force a specific backend/model**: Configure `default_backend` in your config file (for example `openai:gpt-4o`) so every Codebuff prompt uses the selected provider.
+- **Enable debugging captures**: Start the proxy with wire capture enabled and inspect traffic using `scripts/inspect_cbor_capture.py` to debug model/tool issues.
+- **Tighten limits**: Adjust `heartbeat_timeout_seconds` and `max_message_size_bytes` to align with your infrastructure constraints.
+
+## Use Cases
+
+- **Standardizing enterprise access**: Keep Codebuff clients unmodified while enforcing backend routing, quotas, and audit logging centrally.
+- **Tooling validation**: Safely test new tool-call behaviors (like file editing) by capturing and replaying streams without touching client code.
+- **Session-aware assistance**: Preserve file context and conversation history for multi-turn coding flows, even when Codebuff reconnects.
+- **Compliance and observability**: Capture usage, logs, and wire data in one place to support governance and debugging.
+
 ## Protocol Overview
 
 The Codebuff protocol uses JSON messages over WebSocket. All messages follow a structured format with type-based routing.

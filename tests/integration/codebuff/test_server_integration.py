@@ -8,7 +8,6 @@ with the existing FastAPI infrastructure.
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from src.anthropic_server import create_anthropic_app_async
 from src.core.config.app_config import AppConfig
 

@@ -6,24 +6,12 @@ The LLM Interactive Proxy supports multiple configuration methods with a clear p
 
 Configuration values are resolved in the following order (highest to lowest priority):
 
-1. **CLI Arguments** - Command-line flags (highest priority)
-2. **Environment Variables** - Shell environment variables
-3. **YAML Configuration File** - Configuration file specified with `--config`
-4. **Default Values** - Built-in defaults (lowest priority)
+1.  **CLI Arguments** - Command-line flags (highest priority)
+2.  **Environment Variables** - Shell environment variables
+3.  **YAML Configuration File** - Configuration file specified with `--config`
+4.  **Default Values** - Built-in defaults (lowest priority)
 
 When the same setting is specified in multiple places, the higher priority source wins.
-
-### Example
-
-```bash
-# Config file sets temperature to 0.7
-# Environment variable sets temperature to 0.5
-export TEMPERATURE=0.5
-# CLI argument sets temperature to 0.3
-python -m src.core.cli --temperature 0.3 --config config.yaml
-
-# Result: temperature = 0.3 (CLI wins)
-```
 
 ## Configuration Methods
 
@@ -42,7 +30,6 @@ python -m src.core.cli \
   --default-backend openai \
   --host 0.0.0.0 \
   --port 8000 \
-  --force-model gpt-4o-mini \
   --enable-edit-precision \
   --disable-auth
 ```
@@ -66,36 +53,24 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export GEMINI_API_KEY=...
 export OPENROUTER_API_KEY=sk-or-...
 
+# Backend Selection
+export LLM_BACKEND=openai
+export STATIC_ROUTE="gemini-oauth-plan:gemini-2.5-pro"
+
 # Proxy Configuration
-export LLM_INTERACTIVE_PROXY_API_KEY=your-proxy-key
-export ANTHROPIC_PORT=8001
-export FORCE_CONTEXT_WINDOW=8000
+export APP_HOST=0.0.0.0
+export APP_PORT=8000
+export PROXY_TIMEOUT=120
+
+# Auth
+export DISABLE_AUTH=false
+export AUTH_TOKEN=your-secret-token
 
 # Feature Toggles
-export DANGEROUS_COMMAND_PREVENTION_ENABLED=true  # [Dangerous Command Protection](features/dangerous-command-protection.md)
-export EDIT_PRECISION_ENABLED=true                # [Edit Precision](features/edit-precision.md)
-export FIX_THINK_TAGS_ENABLED=true                # [Think Tags Fix](features/think-tags-fix.md)
-export STRICT_COMMAND_DETECTION=true
-
-# [LLM Assessment](features/llm-assessment.md)
-export LLM_ASSESSMENT_ENABLED=true
-export LLM_ASSESSMENT_BACKEND=openai
-export LLM_ASSESSMENT_MODEL=gpt-4o-mini
-
-# [Angel Verification](features/angel-verification.md)
-export ANGEL_MODEL="openai:gpt-4o-mini"
-export ANGEL_FREQUENCY=1
-
-# [Edit Precision](features/edit-precision.md)
-export EDIT_PRECISION_TEMPERATURE=0.1
-export EDIT_PRECISION_MIN_TOP_P=0.3
-export EDIT_PRECISION_OVERRIDE_TOP_P=false
-
-# Gemini OAuth
-export DISABLE_GEMINI_OAUTH_FALLBACK=false
-
-# GCP Gemini
-export GOOGLE_CLOUD_PROJECT=your-project-id
+export DANGEROUS_COMMAND_PREVENTION_ENABLED=true
+export EDIT_PRECISION_ENABLED=true
+export ENABLE_SANDBOXING=true
+export PLANNING_PHASE_ENABLED=true
 ```
 
 ### 3. YAML Configuration Files
@@ -107,305 +82,292 @@ YAML configuration files are best for:
 - Team-shared configurations
 - Documenting your setup
 
-**Minimal Configuration Example**:
-
-```yaml
-# config.yaml
-backends:
-  openai:
-    type: openai
-default_backend: openai
-proxy:
-  host: 0.0.0.0
-  port: 8000
-auth:
-  # Set LLM_INTERACTIVE_PROXY_API_KEY env var to enable
-  disable_auth: false
-```
-
 **Run with config file**:
 
 ```bash
 python -m src.core.cli --config config.yaml
 ```
 
-## Configuration File Structure
+## Complete Configuration Reference
 
-### Basic Structure
+The following YAML structure represents the full configuration schema.
+
+### Root Settings
 
 ```yaml
-# Backend Configuration
+host: "127.0.0.1"              # Bind host
+port: 8000                     # Bind port
+anthropic_port: 8001           # Port for Anthropic-compatible endpoints
+proxy_timeout: 120             # Global request timeout (seconds)
+command_prefix: "!/"           # Command prefix for in-chat commands
+strict_command_detection: false # Require commands to be at start of message
+context_window_override: null  # Override context window size (int)
+disable_health_checks: false   # Disable health check endpoints
+gcp_project_id: null           # Google Cloud Project ID
+gemini_credentials_path: null  # Path to Gemini credentials JSON
+```
+
+### Backend Settings (`backends`)
+
+```yaml
 backends:
+  default_backend: "openai"    # Default backend identifier
+  static_route: null           # Force all traffic to "backend:model"
+  disable_gemini_oauth_fallback: false
+  disable_hybrid_backend: false
+  hybrid_backend_repeat_messages: false
+  reasoning_injection_probability: 1.0
+  hybrid_reasoning_model_timeout: 60
+  hybrid_reasoning_force_initial_turns: 1
+  hybrid_execution_model_timeout: 120
+  
+  # Backend-specific configurations
   openai:
-    type: openai
+    api_key: ["sk-..."]        # List of API keys
+    api_url: "https://api.openai.com/v1"
+    timeout: 120
+    models: []                 # Optional list of supported models
+    
   anthropic:
-    type: anthropic
+    api_key: ["sk-ant-..."]
+    api_url: "https://api.anthropic.com/v1"
+    
   gemini:
-    type: gemini
+    api_key: ["..."]
+    api_url: "https://generativelanguage.googleapis.com"
+    
+  openrouter:
+    api_key: ["sk-or-..."]
+    api_url: "https://openrouter.ai/api/v1"
 
-# Default backend to use
-default_backend: openai
+  minimax:
+    api_key: ["..."]
+    api_url: "https://api.minimax.io/v1"
+    
+  # Custom/Other backends follow the same structure
+```
 
-# Proxy server settings
-proxy:
-  host: 0.0.0.0
-  port: 8000
+### Authentication (`auth`)
 
-# Authentication settings
+```yaml
 auth:
-  disable_auth: false
+  disable_auth: false          # Disable authentication (forces localhost)
+  auth_token: "secret-token"   # Shared secret token
+  api_keys: []                 # List of allowed client API keys
+  redact_api_keys_in_prompts: true
+  trusted_ips: []              # List of trusted IP addresses
+  
+  brute_force_protection:
+    enabled: true
+    max_failed_attempts: 5
+    ttl_seconds: 900
+    initial_block_seconds: 30
+    block_multiplier: 2.0
+    max_block_seconds: 3600
+```
 
-# Session settings
+### Session Management (`session`)
+
+```yaml
 session:
-  # [Dangerous command protection](features/dangerous-command-protection.md)
+  cleanup_enabled: true
+  cleanup_interval: 3600       # Seconds
+  max_age: 86400               # Seconds (24 hours)
+  default_interactive_mode: true
+  force_set_project: false     # Require project name
+  disable_interactive_commands: false
+  project_dir_resolution_model: null
+  project_dir_resolution_mode: "hybrid" # deterministic, llm, hybrid
+  
+  # File Access Sandboxing
+  sandboxing:
+    enabled: false
+    strict_mode: false
+    allow_parent_access: false
+
+  # Safety & Steering
   dangerous_command_prevention_enabled: true
+  dangerous_command_steering_message: null
+  force_reprocess_tool_calls: false
+  log_skipped_tool_calls: false
   
-  # Strict command detection
-  strict_command_detection: false
+  # Tool Call Repair
+  tool_call_repair_enabled: true
+  tool_call_repair_buffer_cap_bytes: 65536
   
-  # [Think tags fix](features/think-tags-fix.md)
+  # JSON Repair
+  json_repair_enabled: true
+  json_repair_buffer_cap_bytes: 65536
+  json_repair_strict_mode: false
+  json_repair_schema: null     # Optional JSON schema
+  
+  # Pytest Integration
+  pytest_compression_enabled: true
+  pytest_compression_min_lines: 30
+  pytest_full_suite_steering_enabled: false
+  pytest_full_suite_steering_message: null
+  pytest_context_saving_enabled: false
+  test_execution_reminder_enabled: false
+  test_execution_reminder_message: null
+  
+  # Fixes
   fix_think_tags_enabled: false
   fix_think_tags_streaming_buffer_size: 4096
   
-  # [Angel verification](features/angel-verification.md)
-  angel_model: null
+  # Angel Verification
+  angel_model: null            # "backend:model"
   angel_frequency: 1
   
-  # [Tool call reactor](features/tool-access-control.md)
+  # Planning Phase
+  planning_phase:
+    enabled: false
+    strong_model: null         # "backend:model"
+    max_turns: 10
+    max_file_writes: 1
+    overrides:                 # Optional overrides for strong model
+      temperature: 0.7
+      top_p: 0.9
+      
+  # Session Continuity
+  session_continuity:
+    enabled: true
+    fuzzy_matching: true
+    max_session_age_seconds: 604800
+    fingerprint_message_count: 5
+    client_key_includes_ip: true
+    
+  # Streaming Sampler (Observability)
+  streaming_sampler:
+    enabled: true
+    sample_rate: 0.01          # 1% sampling
+    max_samples: 100
+    
+  # Tool Call Reactor & Access Control
   tool_call_reactor:
     enabled: true
-    access_policies: []
+    
+    # Legacy Apply Diff Steering
+    apply_diff_steering_enabled: true
+    apply_diff_steering_rate_limit_seconds: 60
+    apply_diff_steering_message: null
+    
+    access_policies:           # List of access policies
+      - name: "block-dangerous"
+        model_pattern: ".*"
+        default_policy: "allow"
+        blocked_patterns: ["delete_.*", "rm_.*"]
+```
 
-# [Edit precision tuning](features/edit-precision.md)
+### Logging & Capture (`logging`)
+
+```yaml
+logging:
+  level: "INFO"                # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  request_logging: false       # Log full request bodies
+  response_logging: false      # Log full response bodies
+  log_file: "./var/logs/proxy.log"
+  
+  # Wire Capture (JSON)
+  capture_file: null           # Path to capture file
+  capture_max_bytes: null      # Rotation threshold
+  capture_truncate_bytes: null # Truncate payloads
+  capture_max_files: null      # Max rotated files
+  capture_rotate_interval_seconds: 86400
+  capture_total_max_bytes: 104857600
+  capture_buffer_size: 65536
+  capture_flush_interval: 1.0
+  capture_max_entries_per_flush: 100
+  
+  # Wire Capture (CBOR)
+  cbor_capture_dir: null       # Directory for CBOR captures
+  cbor_capture_session_id: null
+```
+
+### Edit Precision Tuning (`edit_precision`)
+
+```yaml
 edit_precision:
   enabled: true
   temperature: 0.1
   min_top_p: 0.3
   override_top_p: false
+  override_top_k: false
+  target_top_k: null
   exclude_agents_regex: null
+```
 
-# [LLM Assessment](features/llm-assessment.md)
-llm_assessment:
+### LLM Assessment (`assessment`)
+
+```yaml
+assessment:
   enabled: false
-  backend: openai
-  model: gpt-4o-mini
+  backend: "openai"
+  model: "gpt-4o-mini"
   turn_threshold: 30
   confidence_threshold: 0.9
   history_window: 20
-  intervals:
-    min: 5
-    max: 15
-    default: 3
+```
 
-# [Model aliases (rewrites)](features/model-name-rewrites.md)
-model_aliases: []
+### Client Identity (`identity`)
 
-# [Identity override](features/identity-override.md)
+```yaml
 identity:
+  title:
+    mode: "passthrough"        # passthrough, override, default
+    override_value: null
+    default_value: "llm-interactive-proxy"
+  url:
+    mode: "passthrough"
+    override_value: null
+    default_value: "https://github.com/matdev83/llm-interactive-proxy"
   user_agent:
-    mode: passthrough  # passthrough, override, or default
+    mode: "passthrough"
     override_value: null
-  http_referer:
-    mode: passthrough
-    override_value: null
-  x_title:
-    mode: passthrough
-    override_value: null
+    default_value: "llm-interactive-proxy"
+```
 
-# [Codebuff WebSocket Server](features/codebuff-backend.md)
+### Codebuff Server (`codebuff`)
+
+```yaml
 codebuff:
   enabled: false
   websocket_path: "/ws"
   heartbeat_timeout_seconds: 60
-  session_cleanup_hours: 24
+  session_cleanup_hours: 1
   max_connections: 1000
   max_message_size_bytes: 1048576
 ```
 
-### Backend-Specific Configuration
-
-Each backend can have its own configuration file in `config/backends/<backend-name>/backend.yaml`:
+### Model Defaults & Routing
 
 ```yaml
-# config/backends/gemini-cli-acp/backend.yaml
-project_dir: "/path/to/your/project"
-auto_accept: false
+# Default parameters for specific models
+model_defaults:
+  "gpt-4":
+    temperature: 0.7
+    max_tokens: 8192
+
+# Failover configuration
+failover_routes:
+  "primary-model-id":
+    policy: "round-robin"
+    elements: ["backup-model-1", "backup-model-2"]
 ```
 
-See the [Backend Documentation](backends/overview.md) for backend-specific configuration options.
-
-## Common Configuration Scenarios
-
-### Local Development (No Auth)
+### Other Settings
 
 ```yaml
-proxy:
-  host: 127.0.0.1
-  port: 8000
-auth:
-  disable_auth: true
-default_backend: openai
-```
-
-```bash
-python -m src.core.cli --config config.yaml
-```
-
-### Production (With Auth)
-
-```yaml
-proxy:
-  host: 0.0.0.0
-  port: 8000
-auth:
-  disable_auth: false  # Requires LLM_INTERACTIVE_PROXY_API_KEY env var
-default_backend: openai
-session:
-  dangerous_command_prevention_enabled: true
-```
-
-```bash
-export LLM_INTERACTIVE_PROXY_API_KEY=your-secure-key
-python -m src.core.cli --config config.yaml
-```
-
-### Multi-Backend Setup
-
-```yaml
-backends:
-  openai:
-    type: openai
-  anthropic:
-    type: anthropic
-  gemini:
-    type: gemini
-  openrouter:
-    type: openrouter
-
-default_backend: openai
-
-proxy:
-  host: 0.0.0.0
-  port: 8000
-```
-
-Users can switch backends at runtime with `!/backend(anthropic)`.
-
-### Force Specific Model
-
-```bash
-# Override all model requests to use gemini-2.5-pro
-python -m src.core.cli \
-  --default-backend gemini-oauth-plan \
-  --force-model gemini-2.5-pro \
-  --config config.yaml
-```
-
-### Enable All Safety Features
-
-```yaml
-session:
-  dangerous_command_prevention_enabled: true
-  strict_command_detection: true
-  tool_call_reactor:
-    enabled: true
-    access_policies:
-      - name: block_dangerous_ops
-        model_pattern: ".*"
-        default_policy: allow
-        blocked_patterns:
-          - "delete_.*"
-          - "rm_.*"
-          - "remove_.*"
-        block_message: "Destructive operations are not allowed."
-
-llm_assessment:
+# Empty Response Handling
+empty_response:
   enabled: true
-  backend: openai
-  model: gpt-4o-mini
-  turn_threshold: 30
-  confidence_threshold: 0.9
+  max_retries: 1
+
+# Model Name Rewrites
+model_aliases:
+  - pattern: "^gpt-4-(.*)"
+    replacement: "openai:gpt-4-\1"
+
+# Reasoning Aliases (Shorthands)
+reasoning_aliases:
+  reasoning_alias_settings: []
 ```
-
-### Enable Debugging
-
-```bash
-# Enable wire capture for debugging
-python -m src.core.cli \
-  --config config.yaml \
-  --capture-file var/wire_captures_json/debug.log \
-  --cbor-capture-file var/wire_captures_cbor/debug.cbor
-```
-
-### Enable Codebuff WebSocket Server
-
-The [Codebuff backend](features/codebuff-backend.md) provides a WebSocket server for real-time AI communication:
-
-```yaml
-codebuff:
-  enabled: true
-  websocket_path: "/ws"
-  heartbeat_timeout_seconds: 60
-  session_cleanup_hours: 24
-  max_connections: 1000
-  max_message_size_bytes: 1048576
-```
-
-**Configuration Parameters**:
-
-- `enabled` (boolean, default: `false`) - Enable/disable the Codebuff WebSocket server
-- `websocket_path` (string, default: `"/ws"`) - WebSocket endpoint path
-- `heartbeat_timeout_seconds` (integer, default: `60`) - Connection timeout in seconds
-- `session_cleanup_hours` (integer, default: `24`) - Session cleanup interval in hours
-- `max_connections` (integer, default: `1000`) - Maximum concurrent connections
-- `max_message_size_bytes` (integer, default: `1048576`) - Maximum message size (1MB)
-
-**Quick Start**:
-
-```bash
-# Start with Codebuff enabled
-python -m src.core.cli --config config.yaml
-```
-
-See the [Codebuff Quick Start Guide](features/codebuff-quick-start.md) and [Codebuff Protocol Reference](codebuff-protocol-reference.md) for more details.
-
-## Configuration Files Location
-
-The proxy looks for configuration files in these locations:
-
-- **Specified via CLI**: `--config /path/to/config.yaml`
-- **Backend-specific**: `config/backends/<backend-name>/backend.yaml`
-- **Example configs**: `config/config.example.yaml`
-
-## Validating Your Configuration
-
-To verify your configuration is loaded correctly:
-
-1. Start the proxy with your config file
-2. Check the startup logs for configuration values
-3. Look for any warnings about invalid settings
-4. Test with a simple request to verify behavior
-
-## Related Documentation
-
-- [Quick Start Guide](quick-start.md) - Get started quickly
-- [CLI Parameters Reference](cli-parameters.md) - Complete CLI and environment variable reference
-- [Backend Configuration](backends/overview.md) - Backend-specific setup
-- [Feature Configuration](features/) - Feature-specific settings
-- [Security Configuration](security/authentication.md) - Authentication and security
-- [Tool Access Control](features/tool-access-control.md) - Fine-grained tool permissions
-- [LLM Assessment](features/llm-assessment.md) - Conversation quality monitoring
-- [Edit Precision](features/edit-precision.md) - Automated parameter tuning
-
-## Example Configuration Files
-
-The `config/` directory includes several example configuration files:
-
-- `config.example.yaml` - Basic configuration template
-- `identity_kilocode.example.yaml` - KiloCode client identity
-- `identity_factory_droid.example.yaml` - Factory Droid client identity
-- `tool_access_control_examples.yaml` - Tool access control policies
-- `edit_precision_model_temperatures.yaml` - Per-model temperature overrides
-- `reasoning_aliases.yaml.example` - Custom reasoning aliases
-
-Copy and modify these examples to create your own configuration.

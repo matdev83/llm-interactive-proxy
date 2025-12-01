@@ -9,7 +9,6 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.exceptions import CodebuffSessionError
 from src.codebuff.message_router import MessageRouter

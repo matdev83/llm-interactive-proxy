@@ -8,7 +8,6 @@ and returning initialization responses with usage information.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from src.codebuff.exceptions import CodebuffError, CodebuffSessionError
@@ -111,7 +110,7 @@ class InitHandler:
                 exc_info=True,
             )
             raise CodebuffError(
-                f"Failed to initialize session: {str(e)}",
+                f"Failed to initialize session: {e!s}",
                 details={
                     "session_id": session.session_id,
                     "fingerprint_id": action.fingerprintId,

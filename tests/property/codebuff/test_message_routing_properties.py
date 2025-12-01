@@ -13,10 +13,8 @@ from typing import Any
 
 from hypothesis import given
 from hypothesis import strategies as st
-
 from src.codebuff.message_router import MessageRouter
 from tests.utils.hypothesis_config import property_test_settings
-
 
 # ============================================================================
 # Strategies for generating valid JSON data
@@ -411,8 +409,7 @@ async def test_property_10_invalid_json_acknowledgment_failure(
         min_size=1,
         max_size=20,
     ).filter(
-        lambda x: x
-        not in ["identify", "ping", "subscribe", "unsubscribe", "action"]
+        lambda x: x not in ["identify", "ping", "subscribe", "unsubscribe", "action"]
     ),
 )
 @property_test_settings()

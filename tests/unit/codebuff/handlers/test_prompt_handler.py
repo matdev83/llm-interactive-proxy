@@ -6,14 +6,14 @@ and cancellation.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.schemas import PromptAction, SessionState
+
 from tests.mocks.backend_factory import MockBackendFactory
 from tests.mocks.connection_manager import MockConnectionManager
 
@@ -172,6 +172,7 @@ class TestCancellation:
     @pytest.mark.asyncio
     async def test_cancel_active_request(self, prompt_handler):
         """Test cancelling an active request."""
+
         # Create a mock task
         async def mock_task():
             try:
@@ -316,4 +317,3 @@ class TestPromptProcessing:
 
             # Verify auth token was stored
             assert session.auth_token == action.authToken
-

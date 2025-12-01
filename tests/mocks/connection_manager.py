@@ -51,5 +51,3 @@ class MockConnectionManager:
 
     async def cleanup_stale_connections(self):
         """Mock cleanup."""
-        pass
-

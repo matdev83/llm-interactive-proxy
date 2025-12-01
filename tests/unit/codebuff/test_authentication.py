@@ -9,7 +9,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.init_handler import InitHandler
@@ -27,7 +26,7 @@ class TestAuthTokenHandling:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -35,25 +34,25 @@ class TestAuthTokenHandling:
             "choices": [{"message": {"content": "test response"}}]
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action with auth token
         action = PromptAction(
             type="prompt",
@@ -63,10 +62,10 @@ class TestAuthTokenHandling:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify token is stored in session
         session = connection_manager.get_session(websocket)
         assert session.auth_token == "test-auth-token-123"
@@ -78,7 +77,7 @@ class TestAuthTokenHandling:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -86,25 +85,25 @@ class TestAuthTokenHandling:
             "choices": [{"message": {"content": "test response"}}]
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action without auth token
         action = PromptAction(
             type="prompt",
@@ -114,13 +113,13 @@ class TestAuthTokenHandling:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify request was processed
         assert websocket.send_json.called
-        
+
         # Verify session has no auth token
         session = connection_manager.get_session(websocket)
         assert session.auth_token is None
@@ -130,19 +129,19 @@ class TestAuthTokenHandling:
         """Test that auth token from init action is stored in session."""
         # Setup
         connection_manager = ConnectionManager()
-        
+
         handler = InitHandler(
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create init action with auth token
         action = InitAction(
             type="init",
@@ -150,10 +149,10 @@ class TestAuthTokenHandling:
             authToken="test-auth-token-456",
             fileContext={"files": []},
         )
-        
+
         # Handle init
         await handler.handle_init(websocket, action)
-        
+
         # Verify token is stored in session
         session = connection_manager.get_session(websocket)
         assert session.auth_token == "test-auth-token-456"
@@ -169,7 +168,7 @@ class TestFingerprintTracking:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -177,25 +176,25 @@ class TestFingerprintTracking:
             "choices": [{"message": {"content": "test response"}}]
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action with fingerprint ID
         action = PromptAction(
             type="prompt",
@@ -204,10 +203,10 @@ class TestFingerprintTracking:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify fingerprint ID is stored in session
         session = connection_manager.get_session(websocket)
         assert session.fingerprint_id == "unique-fingerprint-789"
@@ -217,29 +216,29 @@ class TestFingerprintTracking:
         """Test that fingerprint ID from init is stored in session."""
         # Setup
         connection_manager = ConnectionManager()
-        
+
         handler = InitHandler(
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create init action with fingerprint ID
         action = InitAction(
             type="init",
             fingerprintId="unique-fingerprint-abc",
             fileContext={"files": []},
         )
-        
+
         # Handle init
         await handler.handle_init(websocket, action)
-        
+
         # Verify fingerprint ID is stored in session
         session = connection_manager.get_session(websocket)
         assert session.fingerprint_id == "unique-fingerprint-abc"
@@ -251,7 +250,7 @@ class TestFingerprintTracking:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -259,25 +258,25 @@ class TestFingerprintTracking:
             "choices": [{"message": {"content": "test response"}}]
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # First prompt with fingerprint ID
         action1 = PromptAction(
             type="prompt",
@@ -287,11 +286,11 @@ class TestFingerprintTracking:
             content=[{"role": "user", "content": "test 1"}],
         )
         await handler.handle_prompt(websocket, action1)
-        
+
         # Verify fingerprint ID is stored
         session = connection_manager.get_session(websocket)
         assert session.fingerprint_id == "persistent-fingerprint"
-        
+
         # Second prompt with same fingerprint ID
         action2 = PromptAction(
             type="prompt",
@@ -301,7 +300,7 @@ class TestFingerprintTracking:
             content=[{"role": "user", "content": "test 2"}],
         )
         await handler.handle_prompt(websocket, action2)
-        
+
         # Verify fingerprint ID is still the same
         session = connection_manager.get_session(websocket)
         assert session.fingerprint_id == "persistent-fingerprint"
@@ -317,7 +316,7 @@ class TestCostAttribution:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend with usage info
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -330,25 +329,25 @@ class TestCostAttribution:
             },
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action with fingerprint ID
         action = PromptAction(
             type="prompt",
@@ -357,14 +356,14 @@ class TestCostAttribution:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify session has fingerprint ID for cost attribution
         session = connection_manager.get_session(websocket)
         assert session.fingerprint_id == "cost-tracking-fingerprint"
-        
+
         # Verify backend was called (usage data available)
         assert mock_backend.chat_completions.called
 
@@ -375,7 +374,7 @@ class TestCostAttribution:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend with usage info
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -388,25 +387,25 @@ class TestCostAttribution:
             },
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session-for-cost"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action without fingerprint ID (empty string)
         action = PromptAction(
             type="prompt",
@@ -415,14 +414,14 @@ class TestCostAttribution:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify session has session_id for cost attribution
         session = connection_manager.get_session(websocket)
         assert session.session_id == session_id
-        
+
         # Verify backend was called (usage data available)
         assert mock_backend.chat_completions.called
 
@@ -433,7 +432,7 @@ class TestCostAttribution:
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
         backend_factory = MagicMock()
-        
+
         # Create mock backend with detailed usage info
         mock_backend = AsyncMock()
         mock_response = MagicMock()
@@ -446,25 +445,25 @@ class TestCostAttribution:
             },
         }
         mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-        
+
         backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
         backend_factory._config = MagicMock()
         backend_factory._config.backends = {}
-        
+
         handler = PromptHandler(
             backend_factory=backend_factory,
             format_converter=format_converter,
             connection_manager=connection_manager,
         )
-        
+
         # Create mock websocket
         websocket = MagicMock()
         websocket.send_json = AsyncMock()
-        
+
         # Register connection
         session_id = "test-session"
         connection_manager.connect(websocket, session_id)
-        
+
         # Create prompt action
         action = PromptAction(
             type="prompt",
@@ -473,13 +472,13 @@ class TestCostAttribution:
             sessionState={},
             content=[{"role": "user", "content": "test"}],
         )
-        
+
         # Handle prompt
         await handler.handle_prompt(websocket, action)
-        
+
         # Verify backend was called
         assert mock_backend.chat_completions.called
-        
+
         # Verify usage data is in the response
         assert "usage" in mock_response.response
         assert mock_response.response["usage"]["prompt_tokens"] == 250

@@ -54,6 +54,12 @@ TOKEN_REFRESH_POLL_INTERVAL_SECONDS = 1.0
 # For testing purposes, allow environment override of wait times
 import os
 
+# Enable internal/debug-only backends automatically when running under tests.
+# Allow opt-out via ENABLE_INTERNAL_BACKENDS_FOR_TESTS=0/false.
+_DEBUG_OVERRIDE_DEFAULT = os.environ.get(
+    "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
+).lower() not in {"0", "false", "no"}
+
 TOKEN_REFRESH_MAX_WAIT_SECONDS = float(
     os.getenv("QWEN_TOKEN_REFRESH_MAX_WAIT_SECONDS", TOKEN_REFRESH_MAX_WAIT_SECONDS)
 )
@@ -132,7 +138,7 @@ class QwenOAuthConnector(OpenAIConnector):
         self._last_cli_refresh_attempt = 0.0
         self._cli_refresh_process: subprocess.Popen[bytes] | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
-        self._enable_qwen_oauth_backend_debugging_override = False
+        self._enable_qwen_oauth_backend_debugging_override = _DEBUG_OVERRIDE_DEFAULT
 
     @property
     def api_base_url(self) -> str:
@@ -823,9 +829,12 @@ class QwenOAuthConnector(OpenAIConnector):
         backend_config = getattr(self.config.backends, "qwen_oauth", None)
         extras = backend_config.extra if backend_config else {}
 
-        self._enable_qwen_oauth_backend_debugging_override = kwargs.get(
-            "enable_qwen_oauth_backend_debugging_override"
-        ) or extras.get("enable_qwen_oauth_backend_debugging_override", False)
+        current = self._enable_qwen_oauth_backend_debugging_override
+        self._enable_qwen_oauth_backend_debugging_override = (
+            kwargs.get("enable_qwen_oauth_backend_debugging_override")
+            if "enable_qwen_oauth_backend_debugging_override" in kwargs
+            else extras.get("enable_qwen_oauth_backend_debugging_override", current)
+        )
 
         # Reset state
         try:

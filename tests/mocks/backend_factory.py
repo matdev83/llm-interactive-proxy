@@ -1,7 +1,7 @@
 """Mock backend factory for testing."""
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from src.core.config.app_config import AppConfig, BackendConfig
 
@@ -42,6 +42,10 @@ class MockBackendFactory:
         self._backends[backend_type] = backend
         return backend
 
+    def get_backend(self, backend_type: str) -> MockBackend:
+        """Retrieve a previously created backend for assertions."""
+        return self._backends[backend_type]
+
     async def initialize_backend(self, backend, init_config: dict[str, Any]):
         """Initialize a mock backend."""
         await backend.initialize(**init_config)
@@ -58,4 +62,3 @@ class MockBackendFactory:
             await self.initialize_backend(backend, {})
             self._backends[backend_type] = backend
         return self._backends[backend_type]
-

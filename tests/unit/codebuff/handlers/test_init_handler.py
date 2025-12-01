@@ -8,9 +8,8 @@ file context storage, and error handling.
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.codebuff.connection_manager import ConnectionManager
-from src.codebuff.exceptions import CodebuffError, CodebuffSessionError
+from src.codebuff.exceptions import CodebuffSessionError
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.schemas import InitAction
 

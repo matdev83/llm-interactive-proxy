@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.schemas import PromptAction
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ class PromptHandler:
             )
             error_msg = self._format_converter.create_error_response(
                 user_input_id=action.promptId,
-                error_message=f"Failed to process prompt: {str(e)}",
+                error_message=f"Failed to process prompt: {e!s}",
             )
             await websocket.send_json(error_msg)
 
@@ -192,12 +192,15 @@ class PromptHandler:
             CodebuffError: If streaming fails
         """
         try:
-            # Create a chat request
-            request = ChatRequest(
-                model=model,
-                messages=messages,
-                stream=True,
-            )
+            chat_messages = [
+                (
+                    msg
+                    if isinstance(msg, ChatMessage)
+                    else ChatMessage(**cast(dict[str, Any], msg))
+                )
+                for msg in messages
+            ]
+            request = ChatRequest(model=model, messages=chat_messages, stream=True)
 
             # Get the backend for this model
             backend = await self._get_backend_for_model(model)
@@ -219,7 +222,11 @@ class PromptHandler:
                 )
             else:
                 # Non-streaming response - send as single chunk
-                content = response.response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                content = (
+                    response.response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
                 if content:
                     chunk_msg = self._format_converter.create_response_chunk(
                         user_input_id=prompt_id,
@@ -242,7 +249,7 @@ class PromptHandler:
                 exc_info=True,
             )
             raise CodebuffError(
-                f"Failed to stream response: {str(e)}",
+                f"Failed to stream response: {e!s}",
                 details={"prompt_id": prompt_id, "model": model},
             )
 
@@ -262,7 +269,10 @@ class PromptHandler:
             session_state: Current session state
         """
         try:
-            async for chunk in response.stream:
+            stream = response.content
+            if stream is None:
+                return
+            async for chunk in stream:
                 # Extract text from chunk
                 if isinstance(chunk, dict):
                     # Handle dict chunks
@@ -301,7 +311,7 @@ class PromptHandler:
             # Send error response
             error_msg = self._format_converter.create_error_response(
                 user_input_id=prompt_id,
-                error_message=f"Streaming error: {str(e)}",
+                error_message=f"Streaming error: {e!s}",
             )
             await websocket.send_json(error_msg)
 
@@ -325,7 +335,6 @@ class PromptHandler:
 
         try:
             # Get backend configuration from app config
-            from src.core.config.app_config import AppConfig
 
             app_config = self._backend_factory._config
             backend_config = None
@@ -351,7 +360,7 @@ class PromptHandler:
                 exc_info=True,
             )
             raise CodebuffError(
-                f"Backend not available for model {model}: {str(e)}",
+                f"Backend not available for model {model}: {e!s}",
                 details={"model": model, "backend_type": backend_type},
             )
 
@@ -401,4 +410,3 @@ class PromptHandler:
             del self._active_requests[prompt_id]
         else:
             logger.warning("Attempted to cancel unknown request: %s", prompt_id)
-

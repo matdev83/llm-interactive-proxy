@@ -16,4 +16,3 @@ __all__ = [
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.handlers.subscription_handler import SubscriptionHandler
-

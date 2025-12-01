@@ -7,13 +7,11 @@ including session isolation, operation isolation, and disconnect isolation.
 
 import asyncio
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.init_handler import InitHandler
@@ -21,7 +19,6 @@ from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.handlers.subscription_handler import SubscriptionHandler
 from src.codebuff.message_router import MessageRouter
 from src.codebuff.server import CodebuffWebSocketServer
-
 
 # Strategy for generating session IDs
 session_id_strategy = st.text(
@@ -65,9 +62,7 @@ def create_identify_message(session_id: str, txid: int = 1) -> str:
     Returns:
         JSON string of identify message
     """
-    return json.dumps(
-        {"type": "identify", "txid": txid, "clientSessionId": session_id}
-    )
+    return json.dumps({"type": "identify", "txid": txid, "clientSessionId": session_id})
 
 
 def create_ping_message(txid: int = 2) -> str:
@@ -83,11 +78,7 @@ def create_ping_message(txid: int = 2) -> str:
 
 
 @pytest.mark.asyncio
-@given(
-    session_ids=st.lists(
-        session_id_strategy, min_size=2, max_size=5, unique=True
-    )
-)
+@given(session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True))
 @settings(max_examples=100, deadline=None)
 async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     """
@@ -125,7 +116,9 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     websockets = [create_mock_websocket(sid) for sid in session_ids]
 
     # Set up identify messages for each connection
-    for i, (websocket, session_id) in enumerate(zip(websockets, session_ids)):
+    for i, (websocket, session_id) in enumerate(
+        zip(websockets, session_ids, strict=False)
+    ):
         identify_msg = create_identify_message(session_id, txid=i + 1)
         ping_msg = create_ping_message(txid=i + 100)
 
@@ -159,9 +152,7 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
 
 @pytest.mark.asyncio
 @given(
-    session_ids=st.lists(
-        session_id_strategy, min_size=2, max_size=5, unique=True
-    ),
+    session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True),
     operation_count=st.integers(min_value=1, max_value=3),
 )
 @settings(max_examples=100, deadline=None)
@@ -212,7 +203,7 @@ async def test_property_20_operation_isolation(
 
     # Get initial state of all sessions
     initial_states = {}
-    for websocket, session_id in zip(websockets, session_ids):
+    for websocket, session_id in zip(websockets, session_ids, strict=False):
         session = connection_manager.get_session(websocket)
         assert session is not None
         initial_states[session_id] = {
@@ -229,7 +220,7 @@ async def test_property_20_operation_isolation(
         connection_manager.subscribe(first_websocket, ["test-topic"])
 
     # Verify other clients' sessions are unchanged
-    for websocket, session_id in zip(websockets[1:], session_ids[1:]):
+    for websocket, session_id in zip(websockets[1:], session_ids[1:], strict=False):
         session = connection_manager.get_session(websocket)
         assert session is not None
 
@@ -248,9 +239,7 @@ async def test_property_20_operation_isolation(
 
 @pytest.mark.asyncio
 @given(
-    session_ids=st.lists(
-        session_id_strategy, min_size=2, max_size=5, unique=True
-    ),
+    session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True),
     disconnect_index=st.integers(min_value=0, max_value=4),
 )
 @settings(max_examples=100, deadline=None)
@@ -279,7 +268,7 @@ async def test_property_21_disconnect_isolation(
         connection_manager.connect(websocket, session_id)
 
     # Verify all connections are registered
-    for websocket, session_id in zip(websockets, session_ids):
+    for websocket, session_id in zip(websockets, session_ids, strict=False):
         session = connection_manager.get_session(websocket)
         assert session is not None
         assert session.session_id == session_id
@@ -295,7 +284,9 @@ async def test_property_21_disconnect_isolation(
     assert session is None, "Disconnected session should be removed"
 
     # Verify other connections remain active
-    for i, (websocket, session_id) in enumerate(zip(websockets, session_ids)):
+    for i, (websocket, session_id) in enumerate(
+        zip(websockets, session_ids, strict=False)
+    ):
         if i == disconnect_index:
             continue  # Skip the disconnected one
 

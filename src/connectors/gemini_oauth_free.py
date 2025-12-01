@@ -7,6 +7,8 @@ which does not require a user-provided Google Cloud project.
 
 import asyncio
 import logging
+import os
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -15,10 +17,18 @@ from fastapi import HTTPException
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+# Enable internal/debug-only backends automatically when running under tests.
+_DEBUG_OVERRIDE_DEFAULT = os.environ.get(
+    "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
+).lower() not in {"0", "false", "no"}
 
 
 class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
@@ -41,27 +51,41 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             translation_service,
             name=name or self.backend_type,
         )
-        self._enable_gemini_oauth_free_backend_debugging_override = False
+        self._enable_gemini_oauth_free_backend_debugging_override = (
+            _DEBUG_OVERRIDE_DEFAULT
+        )
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the connector and check for debugging override flag."""
         backend_config = getattr(self.config.backends, "gemini_oauth_free", None)
         extras = backend_config.extra if backend_config else {}
 
-        self._enable_gemini_oauth_free_backend_debugging_override = kwargs.get(
-            "enable_gemini_oauth_free_backend_debugging_override"
-        ) or extras.get("enable_gemini_oauth_free_backend_debugging_override", False)
+        current = self._enable_gemini_oauth_free_backend_debugging_override
+        self._enable_gemini_oauth_free_backend_debugging_override = (
+            kwargs.get("enable_gemini_oauth_free_backend_debugging_override")
+            if "enable_gemini_oauth_free_backend_debugging_override" in kwargs
+            else extras.get(
+                "enable_gemini_oauth_free_backend_debugging_override", current
+            )
+        )
 
         await super().initialize(**kwargs)
 
     async def chat_completions(
         self,
-        request_data: Any,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
-        identity: Any = None,
+        identity: IAppIdentityConfig | None = None,
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
+        project: str | None = None,
+        agent: str | None = None,
+        gemini_api_base_url: str | None = None,
         **kwargs: Any,
-    ) -> Any:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions with debugging flag validation.
 
         Raises:
@@ -84,7 +108,14 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             request_data,
             processed_messages,
             effective_model,
-            identity,
+            identity=identity,
+            openrouter_api_base_url=openrouter_api_base_url,
+            openrouter_headers_provider=openrouter_headers_provider,
+            key_name=key_name,
+            api_key=api_key,
+            project=project,
+            agent=agent,
+            gemini_api_base_url=gemini_api_base_url,
             **kwargs,
         )
 
