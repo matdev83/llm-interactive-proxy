@@ -8,6 +8,7 @@ to FastAPI/Starlette response objects.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -635,12 +636,16 @@ def _ensure_usage(
             force_recalculation=requires_recalc,
         )
 
-        # Apply prompt tokens hint if we got one from metadata
-        if prompt_tokens_hint is not None and usage.get("prompt_tokens", 0) == 0:
-            usage["prompt_tokens"] = prompt_tokens_hint
-            usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
-                "completion_tokens", 0
-            )
+        # Apply prompt tokens hint if we got one from metadata.
+        # The hint (outbound_tokens) is calculated by the proxy from the actual request
+        # being sent, so it's the most accurate measure. Use it when larger than reported.
+        if prompt_tokens_hint is not None and prompt_tokens_hint > 0:
+            current_prompt = usage.get("prompt_tokens", 0) or 0
+            if prompt_tokens_hint > current_prompt:
+                usage["prompt_tokens"] = prompt_tokens_hint
+                usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
+                    "completion_tokens", 0
+                )
     else:
         # Use existing usage, ensuring it's normalized
         usage = existing_usage
@@ -1069,10 +1074,10 @@ def to_fastapi_streaming_response(
             for cost_key in ("cost", "total_cost"):
                 prev_cost = normalized_previous.get(cost_key)
                 curr_cost = normalized_current.get(cost_key)
-                if isinstance(curr_cost, (int, float)):
-                    if not isinstance(prev_cost, (int, float)) or curr_cost > prev_cost:
+                if isinstance(curr_cost, int | float):
+                    if not isinstance(prev_cost, int | float) or curr_cost > prev_cost:
                         merged[cost_key] = curr_cost
-                elif isinstance(prev_cost, (int, float)):
+                elif isinstance(prev_cost, int | float):
                     merged[cost_key] = prev_cost
 
             for detail_key in (
@@ -1213,7 +1218,7 @@ def to_fastapi_streaming_response(
                 if not isinstance(source, dict):
                     continue
                 outbound_tokens = source.get("outbound_tokens")
-                if isinstance(outbound_tokens, (int, float)):
+                if isinstance(outbound_tokens, int | float):
                     try:
                         return int(outbound_tokens)
                     except Exception:
@@ -1400,6 +1405,16 @@ def to_fastapi_streaming_response(
                         metadata = updated_metadata
 
                     metadata = _merge_metadata_from_payload(decoded_payload, metadata)
+                    if (
+                        isinstance(envelope_metadata, dict)
+                        and "outbound_tokens" in envelope_metadata
+                        and "outbound_tokens" not in metadata
+                    ):
+                        # Defensive: keep streaming even if assignment fails
+                        with contextlib.suppress(Exception):
+                            metadata["outbound_tokens"] = envelope_metadata[
+                                "outbound_tokens"
+                            ]
 
                     stream_key = _resolve_stream_key(metadata)
                     _sanitize_multiline_tool_blocks(stream_key, decoded_payload)
@@ -1482,17 +1497,24 @@ def to_fastapi_streaming_response(
                             normalized_usage = _normalize_usage(computed_usage) or {}
                             # Preserve prompt tokens from earlier hints/usages
                             if isinstance(best_usage, dict):
-                                prompt_from_best = best_usage.get("prompt_tokens", 0) or 0
+                                prompt_from_best = (
+                                    best_usage.get("prompt_tokens", 0) or 0
+                                )
                                 if prompt_from_best > normalized_usage.get(
                                     "prompt_tokens", 0
                                 ):
                                     normalized_usage["prompt_tokens"] = prompt_from_best
 
-                            if (
-                                prompt_hint > 0
-                                and normalized_usage.get("prompt_tokens", 0) == 0
-                            ):
-                                normalized_usage["prompt_tokens"] = prompt_hint
+                            # The prompt_hint (outbound_tokens) is calculated by the proxy
+                            # from the actual request being sent to the backend. This is the
+                            # most accurate measure of input tokens. Use it when it's larger
+                            # than what was reported by the backend or accumulated so far.
+                            if prompt_hint > 0:
+                                current_prompt = (
+                                    normalized_usage.get("prompt_tokens", 0) or 0
+                                )
+                                if prompt_hint > current_prompt:
+                                    normalized_usage["prompt_tokens"] = prompt_hint
 
                             # For completion tokens, honor recalculation when requested,
                             # otherwise keep the higher value to avoid regressions.
@@ -1513,22 +1535,28 @@ def to_fastapi_streaming_response(
                             completion_val = (
                                 normalized_usage.get("completion_tokens", 0) or 0
                             )
-                            normalized_usage["total_tokens"] = prompt_val + completion_val
+                            normalized_usage["total_tokens"] = (
+                                prompt_val + completion_val
+                            )
 
                             # Preserve higher cost if we had one before
                             if isinstance(best_usage, dict):
                                 for cost_key in ("cost", "total_cost"):
                                     prev_cost = best_usage.get(cost_key)
                                     curr_cost = normalized_usage.get(cost_key)
-                                    if isinstance(prev_cost, (int, float)) and (
-                                        not isinstance(curr_cost, (int, float))
+                                    if isinstance(prev_cost, int | float) and (
+                                        not isinstance(curr_cost, int | float)
                                         or prev_cost > curr_cost
                                     ):
                                         normalized_usage[cost_key] = prev_cost
 
-                            best_usage = normalized_usage if normalized_usage else best_usage
+                            best_usage = (
+                                normalized_usage if normalized_usage else best_usage
+                            )
 
-                            if isinstance(best_usage, dict) and isinstance(enriched, dict):
+                            if isinstance(best_usage, dict) and isinstance(
+                                enriched, dict
+                            ):
                                 try:
                                     enriched["usage"] = best_usage
                                 except Exception:

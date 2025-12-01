@@ -530,7 +530,15 @@ class BackendRequestManager(IBackendRequestManager):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
 
-            return StreamingResponseEnvelope(content=_single_chunk_stream())
+            # Preserve metadata from retry response if available
+            retry_metadata = (
+                retry_response.metadata
+                if isinstance(retry_response, StreamingResponseEnvelope)
+                else None
+            )
+            return StreamingResponseEnvelope(
+                content=_single_chunk_stream(), metadata=retry_metadata
+            )
 
         # Streaming retries are not currently supported; fall back to original response
         return backend_response
@@ -1004,6 +1012,7 @@ class BackendRequestManager(IBackendRequestManager):
             media_type=stream_envelope.media_type,
             headers=stream_envelope.headers,
             cancel_callback=cancel_callback,
+            metadata=stream_envelope.metadata,
         )
 
     async def _create_retry_request(
@@ -1065,6 +1074,7 @@ class BackendRequestManager(IBackendRequestManager):
             media_type=stream_envelope.media_type,
             headers=stream_envelope.headers,
             cancel_callback=stream_envelope.cancel_callback,
+            metadata=stream_envelope.metadata,
         )
 
     def _create_loop_detector(self) -> ILoopDetector:

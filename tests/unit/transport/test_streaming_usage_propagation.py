@@ -104,3 +104,57 @@ async def test_streaming_usage_recalculated_from_accumulated_content() -> None:
     assert usage["prompt_tokens"] == 120  # preserved from backend usage
     assert usage["completion_tokens"] < 500  # recalculated from accumulated content
     assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_usage_respects_outbound_token_hint_for_tool_calls() -> None:
+    """Ensure prompt tokens are populated from outbound_tokens when backend omits usage."""
+
+    async def stream():
+        # Simulate a tool-call chunk with no backend usage
+        yield ProcessedResponse(
+            content={
+                "id": "chatcmpl-test",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "<tool_call/>",
+                            "tool_calls": [],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            },
+            metadata={"stream_id": "stream-tool"},
+        )
+
+    envelope = StreamingResponseEnvelope(
+        content=stream(),
+        metadata={"outbound_tokens": 4321},
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+    body = await _collect_streaming_body(response)
+
+    data_lines = [
+        line[len("data: ") :]
+        for line in body.splitlines()
+        if line.startswith("data: ")
+        and line.strip() not in {"data: [DONE]", 'data: ["DONE"]'}
+    ]
+    payloads = [
+        json.loads(line)
+        for line in data_lines
+        if line.strip() not in {"[DONE]", '["DONE"]'}
+    ]
+    final_payload = payloads[-1]
+
+    assert "usage" in final_payload
+    usage = final_payload["usage"]
+    assert usage["prompt_tokens"] == 4321
+    assert usage["total_tokens"] >= usage["prompt_tokens"]

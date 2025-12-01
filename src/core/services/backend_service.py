@@ -1524,6 +1524,7 @@ class BackendService(IBackendService):
                                 content=_to_processed_with_capture(),
                                 media_type=result.media_type,
                                 headers=result.headers,
+                                metadata=result.metadata,
                             )
                         else:
                             await self._wire_capture.capture_inbound_response(
@@ -1584,6 +1585,7 @@ class BackendService(IBackendService):
                         content=_inject_session_id(),
                         media_type=result.media_type,
                         headers=result.headers,
+                        metadata=result.metadata,
                     )
 
                 return result

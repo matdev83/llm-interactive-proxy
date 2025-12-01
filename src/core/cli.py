@@ -7,6 +7,7 @@ CLI while maintaining clean separation of concerns through staged initialization
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -2274,7 +2275,8 @@ async def main(
 
 # Main entry point guard
 if __name__ == "__main__":
-    asyncio.run(main())
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(main())
 
 
 # Example of how this enables easy customization for different environments
