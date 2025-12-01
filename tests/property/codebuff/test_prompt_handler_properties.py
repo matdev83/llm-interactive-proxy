@@ -5,6 +5,8 @@ Tests correctness properties for prompt handling, message extraction,
 backend routing, and cancellation.
 """
 
+import contextlib
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -200,10 +202,8 @@ async def test_property_13_cancellation_cleanup(prompt_id):
     import asyncio
 
     async def mock_task():
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            pass
 
     task = asyncio.create_task(mock_task())
     handler._active_requests[prompt_id] = task
@@ -218,10 +218,8 @@ async def test_property_13_cancellation_cleanup(prompt_id):
     assert prompt_id not in handler._active_requests
 
     # Give the task a moment to process cancellation
-    try:
+    with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
         await asyncio.wait_for(task, timeout=0.1)
-    except (asyncio.CancelledError, asyncio.TimeoutError):
-        pass
 
     # Property: Task should be cancelled or done
     assert task.cancelled() or task.done()

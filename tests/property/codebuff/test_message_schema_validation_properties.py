@@ -617,7 +617,7 @@ def test_property_9_invalid_message_type_rejection(invalid_type: str) -> None:
     # Should raise ValidationError
     try:
         IdentifyMessage(**message_data)
-        assert False, f"Should have rejected invalid type '{invalid_type}'"
+        raise AssertionError(f"Should have rejected invalid type '{invalid_type}'")
     except ValidationError:
         pass  # Expected
 
@@ -642,7 +642,7 @@ def test_property_9_missing_required_field_rejection(
     # Should raise ValidationError
     try:
         IdentifyMessage(**incomplete_data)
-        assert False, "Should have rejected message missing required field"
+        raise AssertionError("Should have rejected message missing required field")
     except ValidationError:
         pass  # Expected
 
@@ -676,6 +676,8 @@ def test_property_9_invalid_field_type_rejection(
     # Should raise ValidationError
     try:
         ActionMessage(**invalid_message_data)
-        assert False, f"Should have rejected invalid txid type: {type(invalid_txid)}"
+        raise AssertionError(
+            f"Should have rejected invalid txid type: {type(invalid_txid)}"
+        )
     except (ValidationError, TypeError):
         pass  # Expected

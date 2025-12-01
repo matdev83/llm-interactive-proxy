@@ -92,6 +92,7 @@ from src.core.domain.configuration.header_config import (
 from src.core.domain.configuration.reasoning_aliases_config import (
     ReasoningAliasesConfig,
 )
+from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
@@ -934,6 +935,9 @@ class AppConfig(DomainModel, IConfig):
     # Codebuff WebSocket server settings
     codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
 
+    # Replacement settings
+    replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
+
     # FastAPI app instance
     app: Any = None
 
@@ -978,6 +982,7 @@ class AppConfig(DomainModel, IConfig):
             "model_aliases",
             "sandboxing",
             "codebuff",
+            "replacement",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
         # Ensure nested sections only include serializable primitives
@@ -2102,6 +2107,38 @@ class AppConfig(DomainModel, IConfig):
                 logger.info(
                     f"Added test API key for default backend {default_backend_type}"
                 )
+
+        # Replacement configuration
+        config["replacement"] = {
+            "enabled": _env_to_bool(
+                "REPLACEMENT_ENABLED",
+                False,
+                env,
+                path="replacement.enabled",
+                resolution=resolution,
+            ),
+            "probability": _env_to_float(
+                "REPLACEMENT_PROBABILITY",
+                0.0,
+                env,
+                path="replacement.probability",
+                resolution=resolution,
+            ),
+            "backend_model": _get_env_value(
+                env,
+                "REPLACEMENT_BACKEND_MODEL",
+                "",
+                path="replacement.backend_model",
+                resolution=resolution,
+            ),
+            "turn_count": _env_to_int(
+                "REPLACEMENT_TURN_COUNT",
+                1,
+                env,
+                path="replacement.turn_count",
+                resolution=resolution,
+            ),
+        }
 
         return cls(**config)  # type: ignore
 

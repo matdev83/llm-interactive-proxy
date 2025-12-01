@@ -34,7 +34,9 @@ The proxy exposes multiple front-end APIs that clients can use:
 |-------------|---------|-----------------|-------|
 | OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
 | OpenAI Responses | `/v1/responses` | Clients requiring structured JSON output | Provides JSON schema validation |
-| Anthropic Messages | `/anthropic/v1/messages` | Claude Code, Anthropic SDK | Also available on dedicated port |
+| OpenAI Models | `/v1/models` | OpenAI SDKs, model discovery tools | Lists available models across all backends |
+| Anthropic Messages | `/anthropic/v1/messages` | Claude Code, Anthropic SDK | Namespaced endpoint on main port |
+| Dedicated Anthropic Server | `/v1/messages` | Claude Code, Anthropic SDK | Root-level API on dedicated port (default: 8001) |
 | Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
 
 ## Choosing a Backend
@@ -118,6 +120,8 @@ For detailed configuration and usage information for each backend, see:
 - [OpenRouter Backend](openrouter.md)
 - [ZAI Backend](zai.md)
 - [Qwen Backend](qwen.md)
+- [MiniMax Backend](minimax.md)
+- [ZenMux Backend](zenmux.md)
 - [Custom Backends](custom-backends.md)
 
 ## Related Features

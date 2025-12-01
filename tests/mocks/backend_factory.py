@@ -13,9 +13,19 @@ class MockBackend:
         self.backend_type = "mock"
         self.chat_completions = AsyncMock()
         self.initialize = AsyncMock()
+        self.last_request_headers: dict[str, Any] = {}
+        self.chat_completions.side_effect = self.chat_completions_impl
 
     async def chat_completions_impl(self, *args, **kwargs):
         """Mock chat completions implementation."""
+        identity = kwargs.get("identity")
+        if identity and hasattr(identity, "get_resolved_headers"):
+            try:
+                self.last_request_headers = identity.get_resolved_headers(None)
+            except Exception:
+                self.last_request_headers = {}
+        else:
+            self.last_request_headers = {}
         return {
             "choices": [
                 {

@@ -5,6 +5,7 @@ These tests verify that logging is properly implemented across all
 Codebuff components.
 """
 
+import contextlib
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -41,7 +42,7 @@ class TestConnectionLogging:
         with patch.object(
             logging.getLogger("src.codebuff.connection_manager"), "info"
         ) as mock_log:
-            manager = ConnectionManager(heartbeat_timeout_seconds=30)
+            ConnectionManager(heartbeat_timeout_seconds=30)
 
             # Verify initialization was logged
             assert mock_log.called
@@ -62,10 +63,8 @@ class TestMessageLogging:
             logging.getLogger("src.codebuff.message_router"), "error"
         ) as mock_log:
             # This should fail to parse and log an error
-            try:
+            with contextlib.suppress(Exception):
                 router.parse_json(invalid_json)
-            except Exception:
-                pass
 
             # Verify error was logged
             assert mock_log.called
@@ -81,10 +80,8 @@ class TestMessageLogging:
         with patch.object(
             logging.getLogger("src.codebuff.message_router"), "error"
         ) as mock_log:
-            try:
+            with contextlib.suppress(Exception):
                 router.validate_message(invalid_message)
-            except Exception:
-                pass
 
             # Verify error was logged
             assert mock_log.called
@@ -190,37 +187,39 @@ class TestSensitiveDataFiltering:
         # Ensure they're different
         assert session_id != auth_token
 
-        with patch.object(
-            logging.getLogger("src.codebuff.connection_manager"), "info"
-        ) as mock_info:
-            with patch.object(
+        with (
+            patch.object(
+                logging.getLogger("src.codebuff.connection_manager"), "info"
+            ) as mock_info,
+            patch.object(
                 logging.getLogger("src.codebuff.connection_manager"), "debug"
-            ) as mock_debug:
-                # Perform operations
-                manager.connect(websocket, session_id)
-                manager.disconnect(websocket)
+            ) as mock_debug,
+        ):
+            # Perform operations
+            manager.connect(websocket, session_id)
+            manager.disconnect(websocket)
 
-                # Collect all log calls
-                all_calls = mock_info.call_args_list + mock_debug.call_args_list
+            # Collect all log calls
+            all_calls = mock_info.call_args_list + mock_debug.call_args_list
 
-                # Verify session_id appears in logs
-                session_id_found = False
-                auth_token_found = False
+            # Verify session_id appears in logs
+            session_id_found = False
+            auth_token_found = False
 
-                for call in all_calls:
-                    args = call[0]
-                    log_content = str(args)
+            for call in all_calls:
+                args = call[0]
+                log_content = str(args)
 
-                    if session_id in log_content:
-                        session_id_found = True
+                if session_id in log_content:
+                    session_id_found = True
 
-                    if auth_token in log_content:
-                        auth_token_found = True
+                if auth_token in log_content:
+                    auth_token_found = True
 
-                # Session ID should be logged
-                assert session_id_found, "Session ID should appear in logs"
-                # Auth token should NOT be logged
-                assert not auth_token_found, "Auth token should NOT appear in logs"
+            # Session ID should be logged
+            assert session_id_found, "Session ID should appear in logs"
+            # Auth token should NOT be logged
+            assert not auth_token_found, "Auth token should NOT appear in logs"
 
     def test_no_full_message_content_in_logs(self):
         """Test that full message contents are not logged."""
@@ -236,32 +235,34 @@ class TestSensitiveDataFiltering:
         }
         raw_message = json.dumps(message_data)
 
-        with patch.object(
-            logging.getLogger("src.codebuff.message_router"), "error"
-        ) as mock_error:
-            with patch.object(
+        with (
+            patch.object(
+                logging.getLogger("src.codebuff.message_router"), "error"
+            ) as mock_error,
+            patch.object(
                 logging.getLogger("src.codebuff.message_router"), "info"
-            ) as mock_info:
-                with patch.object(
-                    logging.getLogger("src.codebuff.message_router"), "debug"
-                ) as mock_debug:
-                    # Process the message
-                    import asyncio
+            ) as mock_info,
+            patch.object(
+                logging.getLogger("src.codebuff.message_router"), "debug"
+            ) as mock_debug,
+        ):
+            # Process the message
+            import asyncio
 
-                    asyncio.run(router.route_message(raw_message))
+            asyncio.run(router.route_message(raw_message))
 
-                    # Collect all log calls
-                    all_calls = (
-                        mock_error.call_args_list
-                        + mock_info.call_args_list
-                        + mock_debug.call_args_list
-                    )
+            # Collect all log calls
+            all_calls = (
+                mock_error.call_args_list
+                + mock_info.call_args_list
+                + mock_debug.call_args_list
+            )
 
-                    # Verify that the sensitive data is not in logs
-                    for call in all_calls:
-                        args = call[0]
-                        log_content = str(args)
-                        # The full message content should not be logged
-                        assert (
-                            "this-should-not-be-logged" not in log_content
-                        ), "Sensitive message content should not be logged"
+            # Verify that the sensitive data is not in logs
+            for call in all_calls:
+                args = call[0]
+                log_content = str(args)
+                # The full message content should not be logged
+                assert (
+                    "this-should-not-be-logged" not in log_content
+                ), "Sensitive message content should not be logged"

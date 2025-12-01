@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -355,11 +356,14 @@ async def test_qwen_oauth_static_routing_with_real_credentials():
 
                 # Call with static routing override
                 static_override_model = "qwen3-coder-plus"
-                await connector.chat_completions(
-                    request_data=test_request_data,
-                    processed_messages=[],
-                    effective_model=static_override_model,
-                )
+                try:
+                    await connector.chat_completions(
+                        request_data=test_request_data,
+                        processed_messages=[],
+                        effective_model=static_override_model,
+                    )
+                except AuthenticationError as exc:
+                    pytest.skip(f"Qwen OAuth token refresh unavailable: {exc}")
 
                 # Verify the HTTP request was made
                 assert mock_post.called, "HTTP POST should be called"

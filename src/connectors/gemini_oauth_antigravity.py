@@ -125,7 +125,8 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
-        backend_config = getattr(self.config.backends, "gemini_oauth_antigravity", None)
+        backends_config = getattr(self.config, "backends", None)
+        backend_config = getattr(backends_config, "gemini_oauth_antigravity", None)
         extras = backend_config.extra if backend_config else {}
 
         current = self._enable_antigravity_backend_debugging_override

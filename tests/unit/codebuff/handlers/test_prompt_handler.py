@@ -6,6 +6,7 @@ and cancellation.
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -175,10 +176,8 @@ class TestCancellation:
 
         # Create a mock task
         async def mock_task():
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.sleep(10)
-            except asyncio.CancelledError:
-                pass
 
         task = asyncio.create_task(mock_task())
         prompt_id = "test-cancel-1"
@@ -191,10 +190,8 @@ class TestCancellation:
         assert prompt_id not in prompt_handler._active_requests
 
         # Wait for task to finish
-        try:
+        with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
             await asyncio.wait_for(task, timeout=0.1)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            pass
 
         # Verify task was cancelled
         assert task.cancelled() or task.done()
@@ -276,9 +273,7 @@ class TestPromptProcessing:
         prompt_handler._connection_manager._sessions[mock_websocket] = session
 
         # Mock the backend to avoid actual API calls
-        with patch.object(
-            prompt_handler, "_stream_response", new_callable=AsyncMock
-        ) as mock_stream:
+        with patch.object(prompt_handler, "_stream_response", new_callable=AsyncMock):
             await prompt_handler.handle_prompt(mock_websocket, sample_prompt_action)
 
             # Verify fingerprint was stored
@@ -310,9 +305,7 @@ class TestPromptProcessing:
         prompt_handler._connection_manager._sessions[mock_websocket] = session
 
         # Mock the backend to avoid actual API calls
-        with patch.object(
-            prompt_handler, "_stream_response", new_callable=AsyncMock
-        ) as mock_stream:
+        with patch.object(prompt_handler, "_stream_response", new_callable=AsyncMock):
             await prompt_handler.handle_prompt(mock_websocket, action)
 
             # Verify auth token was stored

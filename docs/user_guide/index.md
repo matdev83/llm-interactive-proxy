@@ -60,6 +60,8 @@ Backend provider configuration and usage:
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration
+- **[Minimax Backend](backends/minimax.md)** - Minimax API configuration
+- **[Zenmux Backend](backends/zenmux.md)** - Zenmux API configuration
 - **[Custom Backends](backends/custom-backends.md)** - Creating and configuring custom backend connectors
 
 ## Debugging

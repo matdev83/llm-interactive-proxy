@@ -188,6 +188,13 @@ class DependencyValidator:
         non_essential_deps = {
             "pytest-timeout",  # Optional testing enhancement
             "jschema-to-python",  # Optional SARIF support
+            "pytest-xdist",  # Optional when running tests in single process environments
+            "pytest-testmon",  # Optional change-tracking test runner
+            "pymarkdownlnt",  # Optional lint helper
+            "types-pyyaml",  # Type stubs
+            "types-jsonschema",  # Type stubs
+            "types-colorama",  # Type stubs
+            "types-pytz",  # Type stubs
         }
         return package_name in non_essential_deps
 

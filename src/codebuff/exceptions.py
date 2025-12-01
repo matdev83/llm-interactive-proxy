@@ -150,7 +150,7 @@ def format_error_response(
 
     # For validation errors and message errors with txid, return ack with success=false
     if isinstance(
-        error, (CodebuffValidationError, CodebuffMessageError, ValidationError)
+        error, CodebuffValidationError | CodebuffMessageError | ValidationError
     ) or (txid is not None and not user_input_id):
         return {
             "type": "ack",

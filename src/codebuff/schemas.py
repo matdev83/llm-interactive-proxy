@@ -5,6 +5,8 @@ This module defines all client and server message types used in the
 Codebuff WebSocket protocol.
 """
 
+# ruff: noqa: N815
+
 from __future__ import annotations
 
 from datetime import datetime

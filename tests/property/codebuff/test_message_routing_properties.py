@@ -216,7 +216,7 @@ def test_property_8_invalid_json_rejection(json_string: str) -> None:
     # Should raise CodebuffMessageError
     try:
         router.parse_json(json_string)
-        assert False, f"Should have rejected invalid JSON: {json_string[:50]}"
+        raise AssertionError(f"Should have rejected invalid JSON: {json_string[:50]}")
     except CodebuffMessageError as e:
         # Verify error contains useful information
         assert "Invalid JSON" in str(e) or "JSON" in str(e)

@@ -55,11 +55,21 @@ async def test_chat_completions_http_error_streaming(
         ThinkTagsProcessor,
         ToolCallRepairProcessor,
     )
+    from src.core.services.streaming.stream_context_registry import (
+        StreamingContextRegistry,
+    )
+    from src.core.services.streaming.tool_call_repair_processor import (
+        ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
+    )
+    from src.core.services.tool_call_repair_service import ToolCallRepairService
 
     services = ServiceCollection()
     services.add_singleton(LoopDetectionProcessor)
     services.add_singleton(ToolCallRepairProcessor)
     services.add_singleton(ThinkTagsProcessor)
+    services.add_singleton(ToolCallRepairService)
+    services.add_singleton(StreamingContextRegistry)
+    services.add_singleton(ServiceToolCallRepairProcessor)
     provider = services.build_service_provider()
     set_service_provider(provider)
 

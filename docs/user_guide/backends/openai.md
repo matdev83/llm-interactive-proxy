@@ -146,6 +146,24 @@ Combine with proxy features for cost control:
 - Enable failover to switch to GPT-3.5-turbo when GPT-4 is unavailable
 - Use model name rewrites to dynamically route requests
 
+## OpenAI Responses Backend
+
+The `openai-responses` backend is a specialized connector that targets the `/v1/responses` endpoint (if available) or optimizes for structured output generation. It is primarily used for testing and specific structured data extraction workflows.
+
+### Configuration
+
+```bash
+python -m src.core.cli --default-backend openai-responses
+```
+
+### YAML Configuration
+
+```yaml
+backends:
+  openai-responses:
+    type: openai-responses
+```
+
 ## OpenAI Codex Backend
 
 The proxy also supports an `openai-codex` backend that uses ChatGPT login tokens instead of API keys. This allows you to use your ChatGPT Plus/Pro subscription with any OpenAI-compatible client.

@@ -19,19 +19,15 @@ from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )
-from src.core.ports.streaming_processors import (
-    ThinkTagsProcessor,
-)
+from src.core.ports.streaming_processors import ThinkTagsProcessor
 from src.core.ports.streaming_processors import (
     ToolCallRepairProcessor as PortsToolCallRepairProcessor,
-)
-from src.core.interfaces.tool_call_repair_service_interface import (
-    IToolCallRepairService,
 )
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
 )
+from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +96,7 @@ async def integrate_streaming_pipeline(
         from src.core.di.services import get_or_build_service_provider
 
         provider = get_or_build_service_provider()
-        repair_service = provider.get_required_service(IToolCallRepairService)
+        repair_service = provider.get_required_service(ToolCallRepairService)
         registry = provider.get_required_service(StreamingContextRegistry)
         return ServiceToolCallRepairProcessor(
             tool_call_repair_service=repair_service,

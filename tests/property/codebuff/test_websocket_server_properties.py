@@ -6,6 +6,7 @@ including session isolation, operation isolation, and disconnect isolation.
 """
 
 import asyncio
+import contextlib
 import json
 from unittest.mock import AsyncMock, Mock
 
@@ -13,7 +14,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
-from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.handlers.subscription_handler import SubscriptionHandler
@@ -91,7 +91,6 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     # Create server components
     connection_manager = ConnectionManager()
     message_router = MessageRouter()
-    format_converter = FormatConverter()
 
     # Create mock handlers
     prompt_handler = Mock(spec=PromptHandler)
@@ -132,17 +131,8 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     # Connect all clients concurrently
     tasks = [server.handle_connection(ws) for ws in websockets]
 
-    try:
+    with contextlib.suppress(Exception):
         await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception:
-        pass  # Expected due to CancelledError
-
-    # Verify each session was created independently
-    for session_id in session_ids:
-        # Session should have been registered (and then cleaned up on disconnect)
-        # We can't check the final state since they're disconnected,
-        # but we can verify the connection manager handled them
-        pass
 
     # Verify no sessions remain after disconnect
     for websocket in websockets:
@@ -168,7 +158,6 @@ async def test_property_20_operation_isolation(
     """
     # Create server components
     connection_manager = ConnectionManager()
-    message_router = MessageRouter()
 
     # Create mock handlers that track calls per session
     prompt_handler = Mock(spec=PromptHandler)
@@ -179,14 +168,6 @@ async def test_property_20_operation_isolation(
 
     subscription_handler = Mock(spec=SubscriptionHandler)
     subscription_handler.handle_subscribe = AsyncMock()
-
-    server = CodebuffWebSocketServer(
-        connection_manager=connection_manager,
-        message_router=message_router,
-        prompt_handler=prompt_handler,
-        init_handler=init_handler,
-        subscription_handler=subscription_handler,
-    )
 
     # Create and register connections
     websockets = []
@@ -199,7 +180,6 @@ async def test_property_20_operation_isolation(
 
     # Perform operations on first client
     first_websocket = websockets[0]
-    first_session_id = session_ids[0]
 
     # Get initial state of all sessions
     initial_states = {}
@@ -275,7 +255,6 @@ async def test_property_21_disconnect_isolation(
 
     # Disconnect one client
     disconnected_websocket = websockets[disconnect_index]
-    disconnected_session_id = session_ids[disconnect_index]
 
     connection_manager.disconnect(disconnected_websocket)
 

@@ -563,9 +563,10 @@ class TestConcurrentConnections:
 
     def test_session_isolation(self, client: TestClient) -> None:
         """Test that sessions are isolated from each other."""
-        with client.websocket_connect("/ws") as ws1, client.websocket_connect(
-            "/ws"
-        ) as ws2:
+        with (
+            client.websocket_connect("/ws") as ws1,
+            client.websocket_connect("/ws") as ws2,
+        ):
             # Identify both connections
             ws1.send_json(
                 {

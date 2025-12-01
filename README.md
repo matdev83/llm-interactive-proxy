@@ -97,17 +97,33 @@ For detailed setup instructions, see [Quick Start Guide](docs/user_guide/quick-s
 - **[CHANGELOG](CHANGELOG.md)** - Version history and updates
 - **[CONTRIBUTING](CONTRIBUTING.md)** - Contribution guidelines
 
+## Supported Front-end Interfaces
+
+The proxy exposes multiple standard API surfaces, allowing you to use your favorite clients with any backend:
+
+- **OpenAI Chat Completions** (`/v1/chat/completions`) - Compatible with OpenAI SDKs and most tools.
+- **OpenAI Responses** (`/v1/responses`) - Optimized for structured output generation.
+- **OpenAI Models** (`/v1/models`) - Unified model discovery across all backends.
+- **[Anthropic Messages](docs/user_guide/backends/anthropic.md#using-anthropic-messages-api-directly)** (`/anthropic/v1/messages`) - Native support for Claude clients/SDKs.
+- **Dedicated Anthropic Server** (`http://host:8001/v1/messages`) - Drop-in replacement for Anthropic API on a separate port (default: 8001).
+- **Google Gemini v1beta** (`/v1beta/models`, `:generateContent`) - Native support for Gemini tools.
+
+See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-apis) for more details.
+
 ## Supported Backends
 
-- OpenAI (GPT-4, GPT-4o, GPT-3.5-turbo)
-- Anthropic (Claude 3 family)
-- Google Gemini (all variants)
-- OpenRouter
-- ZAI
-- Qwen
-- Custom backends
+- **[OpenAI](docs/user_guide/backends/openai.md)** (GPT-4, GPT-4o, o1)
+- **[Anthropic](docs/user_guide/backends/anthropic.md)** (Claude 3.5 Sonnet, Opus, Haiku)
+- **[Google Gemini](docs/user_guide/backends/gemini.md)** (API Key, OAuth, GCP, Vertex AI)
+- **[OpenRouter](docs/user_guide/backends/openrouter.md)** (Access to 100+ models)
+- **[ZAI](docs/user_guide/backends/zai.md)** (Zhipu AI / GLM models)
+- **[Qwen](docs/user_guide/backends/qwen.md)** (Alibaba Cloud Qwen models)
+- **[MiniMax](docs/user_guide/backends/minimax.md)** (Hailuo AI reasoning models)
+- **[ZenMux](docs/user_guide/backends/zenmux.md)** (Unified model aggregator)
+- **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend)
+- **[Hybrid](docs/user_guide/features/hybrid-backend.md)** (Virtual backend for two-phase reasoning)
 
-See [Backends Overview](docs/user_guide/backends/overview.md) for details.
+See [Backends Overview](docs/user_guide/backends/overview.md) for full details and configuration.
 
 ## Support
 
