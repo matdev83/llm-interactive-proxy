@@ -238,3 +238,78 @@ class TestToolCallRepairMiddlewareContentPreservation:
         # Content should be unchanged, no tool_calls added
         assert result.content == xml_content
         assert "tool_calls" not in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_streaming_responses_skipped(
+        self, middleware: ToolCallRepairMiddleware
+    ) -> None:
+        """
+        CRITICAL REGRESSION TEST: Streaming responses must be skipped.
+
+        Streaming responses are already processed by ToolCallRepairProcessor
+        in the streaming pipeline. If this middleware also processes them,
+        the same tool call would be detected twice, resulting in duplicate
+        tool_calls with different IDs. This breaks clients that expect one
+        tool call per action.
+
+        Regression: KiloCode + Gemini OAuth backend showed duplicate tool calls
+        where each had a different ID, causing tool_use_id errors on subsequent
+        tool result submissions.
+        """
+        xml_content = (
+            "<execute_command>\n<command>git status</command>\n</execute_command>"
+        )
+        response = MockResponse(content=xml_content, metadata={})
+
+        result = await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={},
+            is_streaming=True,  # STREAMING - should be skipped
+        )
+
+        # No tool_calls should be added - streaming processor handles these
+        assert "tool_calls" not in result.metadata, (
+            "REGRESSION: Middleware processed streaming response! "
+            "This causes duplicate tool calls when combined with ToolCallRepairProcessor."
+        )
+        # Content should be unchanged
+        assert result.content == xml_content
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_existing_tool_calls_preserved(
+        self, middleware: ToolCallRepairMiddleware
+    ) -> None:
+        """
+        Test that streaming responses with existing tool_calls are passed through.
+
+        When ToolCallRepairProcessor has already added tool_calls to the metadata,
+        this middleware should NOT add more (which would create duplicates).
+        """
+        xml_content = (
+            "<execute_command>\n<command>git status</command>\n</execute_command>"
+        )
+        existing_call = {
+            "id": "call_from_processor",
+            "type": "function",
+            "function": {
+                "name": "execute_command",
+                "arguments": '{"command": "git status"}',
+            },
+        }
+        response = MockResponse(
+            content=xml_content, metadata={"tool_calls": [existing_call]}
+        )
+
+        result = await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={},
+            is_streaming=True,
+        )
+
+        # Should still have exactly ONE tool call (no duplicates added)
+        assert (
+            len(result.metadata["tool_calls"]) == 1
+        ), "REGRESSION: Middleware added duplicate tool call to streaming response!"
+        assert result.metadata["tool_calls"][0]["id"] == "call_from_processor"

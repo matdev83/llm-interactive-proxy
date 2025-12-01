@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -23,6 +24,14 @@ from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import (
+    CanonicalChatResponse,
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    FunctionCall,
+    ToolCall,
+)
+from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -30,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 ANTIGRAVITY_AUTH_KEY = "antigravityAuthStatus"
 ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+
 ANTIGRAVITY_STATE_DB_ENV = "ANTIGRAVITY_STATE_DB"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.5 windows/amd64"
 GLOBAL_STORAGE_SUBPATH = Path("Antigravity") / "User" / "globalStorage"
@@ -206,7 +216,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         self.validate_model(model_name)
 
         # Delegate to parent implementation
-        return await super().chat_completions(
+        response = await super().chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
@@ -220,6 +230,192 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             gemini_api_base_url=gemini_api_base_url,
             **kwargs,
         )
+
+        # Post-process response to handle XML tool calls for Sonnet 4.5
+        # This is a workaround for the model returning tool calls as XML text
+        if (
+            isinstance(response, ResponseEnvelope)
+            and isinstance(response.content, str)
+            and "<Tool>" in response.content
+        ):
+            content = response.content
+            tool_calls = []
+
+            # Regex to extract <Tool> block
+            # Assuming single <Tool> block containing a JSON array
+            tool_pattern = r"<Tool>(.*?)</Tool>"
+            match = re.search(tool_pattern, content, re.DOTALL)
+
+            if match:
+                tool_json = match.group(1)
+                try:
+                    tools_data = json.loads(tool_json)
+                    if isinstance(tools_data, list):
+                        for tool_data in tools_data:
+                            if tool_data.get("type") == "tool_use":
+                                tool_calls.append(
+                                    ToolCall(
+                                        id=tool_data.get("id", ""),
+                                        type="function",
+                                        function=FunctionCall(
+                                            name=tool_data.get("name", ""),
+                                            arguments=json.dumps(
+                                                tool_data.get("input", {})
+                                            ),
+                                        ),
+                                    )
+                                )
+
+                    # Remove the <Tool> block from content
+                    content = content.replace(match.group(0), "").strip()
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse XML tool call: {e}")
+
+            if tool_calls:
+                # Construct CanonicalChatResponse
+                canonical_response = CanonicalChatResponse(
+                    id=f"chatcmpl-antigravity-{int(time.time())}",
+                    object="chat.completion",
+                    created=int(time.time()),
+                    model=effective_model,
+                    choices=[
+                        ChatCompletionChoice(
+                            index=0,
+                            message=ChatCompletionChoiceMessage(
+                                role="assistant",
+                                content=content or None,
+                                tool_calls=tool_calls,
+                            ),
+                            finish_reason="tool_calls",
+                        )
+                    ],
+                    usage=response.usage,
+                )
+
+                # Update envelope content
+                response.content = canonical_response
+
+        # Handle streaming responses
+        elif (
+            isinstance(response, ResponseEnvelope)
+            and hasattr(response, "content")
+            and hasattr(response.content, "__aiter__")
+        ):
+            # We need to intercept the stream, buffer it, and check for XML tool calls
+            # This adds latency but is necessary for correctness with this model/backend combo
+            original_iterator = response.content
+
+            async def _intercept_stream():
+                buffer = []
+                async for chunk in original_iterator:
+                    buffer.append(chunk)
+
+                # Reconstruct full content
+                full_content = ""
+                for chunk in buffer:
+                    # chunk is ProcessedResponse
+                    if hasattr(chunk, "content"):
+                        chunk_content = chunk.content
+                        if isinstance(chunk_content, dict):
+                            # It might be a CanonicalStreamChunk dict
+                            choices = chunk_content.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                content_part = delta.get("content", "")
+                                if content_part:
+                                    full_content += content_part
+                        elif isinstance(chunk_content, str):
+                            full_content += chunk_content
+
+                # Check for XML tool calls
+                tool_calls = []
+                if "<Tool>" in full_content:
+                    tool_pattern = r"<Tool>(.*?)</Tool>"
+                    match = re.search(tool_pattern, full_content, re.DOTALL)
+                    if match:
+                        tool_json = match.group(1)
+                        try:
+                            tools_data = json.loads(tool_json)
+                            if isinstance(tools_data, list):
+                                for tool_data in tools_data:
+                                    if tool_data.get("type") == "tool_use":
+                                        tool_calls.append(
+                                            {
+                                                "id": tool_data.get("id", ""),
+                                                "type": "function",
+                                                "function": {
+                                                    "name": tool_data.get("name", ""),
+                                                    "arguments": json.dumps(
+                                                        tool_data.get("input", {})
+                                                    ),
+                                                },
+                                            }
+                                        )
+                            # Remove XML from content
+                            full_content = full_content.replace(
+                                match.group(0), ""
+                            ).strip()
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to parse XML tool call in stream: {e}"
+                            )
+
+                if tool_calls:
+                    # Yield tool call chunks
+                    import uuid
+
+                    (
+                        tool_calls[0]["id"]
+                        if tool_calls
+                        else f"call_{uuid.uuid4().hex[:8]}"
+                    )
+
+                    # Yield content first if any
+                    if full_content:
+                        yield type(buffer[0])(
+                            content={
+                                "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "delta": {
+                                            "role": "assistant",
+                                            "content": full_content,
+                                        },
+                                        "finish_reason": None,
+                                    }
+                                ],
+                            }
+                        )
+
+                    # Yield tool calls
+                    yield type(buffer[0])(
+                        content={
+                            "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": effective_model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"tool_calls": tool_calls},
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                        }
+                    )
+                else:
+                    # Re-yield original chunks
+                    for chunk in buffer:
+                        yield chunk
+
+            response.content = _intercept_stream()
+
+        return response
 
     async def _load_models_from_api(self) -> None:
         """

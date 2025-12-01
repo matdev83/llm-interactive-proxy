@@ -224,6 +224,19 @@
   - Implementation tasks with property-based testing requirements
   - Verification document confirming all requirements met
 
+## [2024-12-20] - Enhanced CBOR Inspection Script
+
+### inspect_cbor_capture.py Improvements
+
+- **New Command-Line Flags**:
+  - `--session-id SID`: Filter entries by specific session ID for isolated analysis
+  - `--hex`: Display raw hex dumps instead of text previews for binary protocol debugging
+  - `--max-data N`: Control maximum data bytes shown per entry (default: 200)
+- **Advanced Filtering Combinations**: Full support for combining `--session-id`, `--backend`, `--direction`, `--verbose` with all analysis modes (`--detect-issues`, `--timeline`, `--track-request`, `--analyze-streaming`)
+- **Enhanced Verbose Output** (`--verbose`): Detailed metadata display including nanosecond timestamps, backend/model info, session details, and streaming chunk information
+- **Filtered JSON Exports**: Export filtered subsets (e.g., `--backend gemini --session-id abc123 --json > filtered.json`) for external processing and automation
+- **Improved Documentation**: Updated docs/user_guide/debugging/cbor-capture.md and docs/development_guide/debugging.md with comprehensive examples and use cases
+
 ## [2025-11-27] - CBOR Wire Capture and Simulation Engine
 
 ### New Feature: Byte-Precise Wire Capture with CBOR

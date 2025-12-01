@@ -462,7 +462,14 @@ class ToolCallRepairService(IToolCallRepairService):
             try:
                 import xml.etree.ElementTree as ElementTree
 
-                root = ElementTree.fromstring(xml_snippet)
+                # Try parsing as-is first
+                try:
+                    root = ElementTree.fromstring(xml_snippet)
+                except Exception:
+                    # If that fails, try escaping common invalid XML characters
+                    # (e.g., unescaped & in text content like "Testing & Documentation")
+                    sanitized = self._sanitize_xml_for_parsing(xml_snippet)
+                    root = ElementTree.fromstring(sanitized)
             except Exception:
                 fallback = self._parse_lenient_tool_call(xml_snippet)
                 if fallback:
@@ -723,6 +730,27 @@ class ToolCallRepairService(IToolCallRepairService):
         )
 
     # Property last_tool_snippet removed as it is no longer needed
+
+    def _sanitize_xml_for_parsing(self, xml_snippet: str) -> str:
+        """Escape common invalid XML characters in text content.
+
+        XML requires certain characters to be escaped:
+        - & must be &amp; (unless part of an entity reference)
+        - < must be &lt; (unless starting a tag)
+        - > should be &gt; (for symmetry, though only required in some contexts)
+
+        This method attempts to escape standalone & characters that are not
+        already part of valid entity references (like &amp;, &lt;, &gt;, etc.)
+        """
+        # Only escape & that is NOT already part of an entity reference
+        # Entity references look like: &name; or &#123; or &#x1F;
+        # We use negative lookahead to avoid double-escaping
+        result = re.sub(
+            r"&(?!(?:amp|lt|gt|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);)",
+            "&amp;",
+            xml_snippet,
+        )
+        return result
 
     def _parse_lenient_tool_call(self, xml_snippet: str) -> ToolCallRepairResult | None:
         """Best-effort parser for malformed XML that still resembles tool calls."""

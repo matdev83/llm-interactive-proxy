@@ -3115,7 +3115,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def _extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error details.
-        
+
         Handles both 'retryDelay' (Google RPC RetryInfo) and 'quotaResetDelay'
         (Google RPC ErrorInfo metadata).
         """
@@ -3124,7 +3124,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # Get the inner error object if present (from _extract_generated_text_from_response)
         error_data = error.details.get("error", error.details)
-        
+
         # Check details list
         details_list = error_data.get("details")
         if not isinstance(details_list, list):
@@ -3133,15 +3133,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         for detail in details_list:
             if not isinstance(detail, dict):
                 continue
-                
+
             type_url = detail.get("@type", "")
-            
+
             # Case 1: RetryInfo with retryDelay
             if "RetryInfo" in type_url:
                 delay_str = detail.get("retryDelay")
                 if isinstance(delay_str, str):
                     return self._parse_duration_string(delay_str)
-            
+
             # Case 2: ErrorInfo with quotaResetDelay in metadata
             if "ErrorInfo" in type_url:
                 metadata = detail.get("metadata")
@@ -3149,7 +3149,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     reset_delay = metadata.get("quotaResetDelay")
                     if isinstance(reset_delay, str):
                         return self._parse_duration_string(reset_delay)
-                        
+
         return None
 
     @staticmethod
@@ -3159,11 +3159,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # Simple seconds format (e.g. "17493.989s")
             if duration.endswith("s") and "m" not in duration and "h" not in duration:
                 return float(duration[:-1])
-                
+
             # Complex format (e.g. "4h51m33.989s")
             total_seconds = 0.0
             current_val = ""
-            
+
             for char in duration:
                 if char.isdigit() or char == ".":
                     current_val += char
@@ -3176,22 +3176,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 elif char == "s":
                     total_seconds += float(current_val)
                     current_val = ""
-                    
+
             return total_seconds if total_seconds > 0 else None
         except Exception:
             return None
 
     def _set_cooldown(self, model: str, duration: float | None = None) -> None:
         """Put a model into cooldown state.
-        
+
         Args:
             model: The model to put in cooldown
             duration: Optional custom duration in seconds. If None, uses default config.
         """
-        cooldown = duration if duration is not None else self._degradation_config.cooldown_duration
-        set_model_cooldown(
-            model, self._model_retry_states, cooldown
+        cooldown = (
+            duration
+            if duration is not None
+            else self._degradation_config.cooldown_duration
         )
+        set_model_cooldown(model, self._model_retry_states, cooldown)
 
     @staticmethod
     def _is_rate_limit_like_error(error: BackendError) -> bool:
@@ -3406,6 +3408,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if model == original_model and fallback_model:
                 max_attempts_for_model = 1
 
+            last_error = None
             for attempt in range(max_attempts_for_model):
                 # Check per-request attempt limit (not global) to prevent premature exhaustion
                 if request_attempts >= self._degradation_config.max_total_attempts:
@@ -3454,6 +3457,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     return result
 
                 except BackendError as e:
+                    last_error = e
                     if not self._is_rate_limit_like_error(e):
                         self._graceful_metrics.record_duration(time.time() - start_time)
                         raise
@@ -3480,7 +3484,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # If we get here, all attempts for this model failed
             if model == original_model:
                 # Original model failed, put it in cooldown
-                retry_delay = self._extract_retry_delay(last_error) if last_error else None
+                retry_delay = (
+                    self._extract_retry_delay(last_error) if last_error else None
+                )
                 self._set_cooldown(model, duration=retry_delay)
 
                 if retry_delay:
@@ -3500,9 +3506,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
             elif is_fallback_model:
                 # Fallback model failed - put it in cooldown too
-                retry_delay = self._extract_retry_delay(last_error) if last_error else None
+                retry_delay = (
+                    self._extract_retry_delay(last_error) if last_error else None
+                )
                 self._set_cooldown(model, duration=retry_delay)
-                
+
                 if retry_delay:
                     logger.info(
                         "Fallback model %s put in cooldown for %.1fs based on API response",

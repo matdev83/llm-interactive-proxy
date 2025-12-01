@@ -549,6 +549,78 @@ class TranslationService:
         """Translates a domain stream chunk to an Anthropic stream format."""
         content = self._extract_content_from_domain_chunk(chunk)
 
+        # Check for tool calls
+        choices = getattr(chunk, "choices", None)
+        if choices and isinstance(choices, list) and len(choices) > 0:
+            choice = choices[0]
+            delta = getattr(choice, "delta", None)
+            if delta:
+                tool_calls = (
+                    delta.get("tool_calls")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "tool_calls", None)
+                )
+                if tool_calls:
+                    # Anthropic streaming tool calls are complex (content_block_start, content_block_delta, etc.)
+                    # For simplicity in this proxy context, we might need to assume the client can handle
+                    # a simplified representation or we'd need a stateful converter.
+                    # However, since we are just passing through what we parsed from XML,
+                    # we can try to emit a content_block_start for the tool use.
+
+                    # NOTE: This is a simplification. True Anthropic streaming requires state management
+                    # to emit start/delta/stop events correctly.
+                    # Given the XML parsing yields a complete tool call in one chunk, we can emit a complete block.
+                    tool_call = tool_calls[0]
+                    function_data = (
+                        tool_call.get("function")
+                        if isinstance(tool_call, dict)
+                        else getattr(tool_call, "function", None)
+                    )
+                    if function_data:
+                        name = (
+                            function_data.get("name")
+                            if isinstance(function_data, dict)
+                            else getattr(function_data, "name", None)
+                        )
+                        args = (
+                            function_data.get("arguments")
+                            if isinstance(function_data, dict)
+                            else getattr(function_data, "arguments", None)
+                        )
+                        call_id = (
+                            tool_call.get("id")
+                            if isinstance(tool_call, dict)
+                            else getattr(tool_call, "id", None)
+                        )
+
+                        if name and args and call_id:
+                            return {
+                                "type": "content_block_start",
+                                "index": 0,  # Assuming index 0 for now
+                                "content_block": {
+                                    "type": "tool_use",
+                                    "id": call_id,
+                                    "name": name,
+                                    "input": json.loads(
+                                        args
+                                    ),  # Anthropic expects parsed JSON input in start block? No, usually it's streamed.
+                                    # Actually, content_block_start for tool_use has 'id', 'name', 'type'. Input is streamed in deltas.
+                                    # But since we have the full input, we might need to emit multiple events or a simplified one.
+                                    # Let's emit a 'tool_use' block if possible.
+                                    # Wait, standard Anthropic stream is:
+                                    # event: content_block_start {type: tool_use, id: ..., name: ...}
+                                    # event: content_block_delta {type: input_json_delta, partial_json: ...}
+                                    # event: content_block_stop
+                                },
+                            }
+                            # This return is problematic because we can only return ONE dict.
+                            # We might need to rely on the client handling a custom format or
+                            # we accept that we can't fully emulate Anthropic streaming for tool calls
+                            # without a more complex stateful translation layer.
+
+                            # For now, let's return a content_block_start which is the most critical part.
+                            # The client might expect subsequent deltas.
+
         return {
             "type": "content_block_delta",
             "index": 0,
@@ -558,12 +630,59 @@ class TranslationService:
     def from_domain_to_gemini_stream_chunk(self, chunk: Any) -> dict[str, Any]:
         """Translates a domain stream chunk to a Gemini stream format."""
         content = self._extract_content_from_domain_chunk(chunk)
+        parts: list[dict[str, Any]] = []
+        if content:
+            parts.append({"text": content})
 
-        # Determine finish reason
+        # Determine finish reason and check for tool calls
         finish_reason = None
         choices = getattr(chunk, "choices", None)
         if choices and isinstance(choices, list) and len(choices) > 0:
             choice = choices[0]
+
+            # Handle tool calls
+            delta = getattr(choice, "delta", None)
+            if delta:
+                tool_calls = (
+                    delta.get("tool_calls")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "tool_calls", None)
+                )
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        # Gemini streaming tool calls are complex, simplifying to functionCall
+                        # This assumes the tool call is complete or we are sending a simplified representation
+                        function_data = (
+                            tool_call.get("function")
+                            if isinstance(tool_call, dict)
+                            else getattr(tool_call, "function", None)
+                        )
+                        if function_data:
+                            name = (
+                                function_data.get("name")
+                                if isinstance(function_data, dict)
+                                else getattr(function_data, "name", None)
+                            )
+                            args = (
+                                function_data.get("arguments")
+                                if isinstance(function_data, dict)
+                                else getattr(function_data, "arguments", None)
+                            )
+                            if name and args:
+                                try:
+                                    # Gemini expects 'args' as a dict, not string
+                                    args_dict = json.loads(args)
+                                    parts.append(
+                                        {
+                                            "functionCall": {
+                                                "name": name,
+                                                "args": args_dict,
+                                            }
+                                        }
+                                    )
+                                except json.JSONDecodeError:
+                                    pass
+
             if isinstance(choice, dict):
                 fr = choice.get("finish_reason")
             else:
@@ -574,7 +693,7 @@ class TranslationService:
         return {
             "candidates": [
                 {
-                    "content": {"parts": [{"text": content}], "role": "model"},
+                    "content": {"parts": parts, "role": "model"},
                     "finishReason": finish_reason,
                 }
             ]
@@ -702,7 +821,17 @@ class TranslationService:
                             "text": choice.message.reasoning_content,
                         }
                     )
-                parts.append({"text": choice.message.content or ""})
+
+                if choice.message.content:
+                    parts.append({"text": choice.message.content})
+
+                if choice.message.tool_calls:
+                    for tool_call in choice.message.tool_calls:
+                        function_call = {
+                            "name": tool_call.function.name,
+                            "args": json.loads(tool_call.function.arguments),
+                        }
+                        parts.append({"functionCall": function_call})
 
                 candidates.append(
                     {

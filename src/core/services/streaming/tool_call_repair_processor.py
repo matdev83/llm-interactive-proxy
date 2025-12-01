@@ -109,9 +109,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     suffix = buffer_text[idx + len(snippet) :]
                     if prefix.strip():
                         repaired_content_parts.append(prefix)
-                    # CRITICAL: Keep the XML in content for clients like Kilo-Code
-                    # that expect to parse tool calls from content, not from native tool_calls.
-                    # Native tool_calls are also emitted in metadata for OpenAI-compatible clients.
+                    # Keep XML in content for virtual tool calling clients (KiloCode, Cline, etc.)
+                    # that parse tool calls from content rather than using native tool_calls.
                     repaired_content_parts.append(snippet)
                     buffer_text = suffix
             buffer_state.pending_text = buffer_text
@@ -141,6 +140,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                             suffix = synthetic_buffer[idx + len(snippet) :]
                             if prefix.strip():
                                 repaired_content_parts.append(prefix)
+                            # Keep XML in content for virtual tool calling
                             repaired_content_parts.append(snippet)
                             if suffix.strip():
                                 repaired_content_parts.append(suffix)
@@ -211,9 +211,12 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 )
                 if sanitized_calls:
                     metadata["tool_calls"] = sanitized_calls
-                # NOTE: We intentionally keep the XML content alongside tool_calls.
-                # Clients like Kilo-Code parse XML from content and ignore native tool_calls.
-                # OpenAI-compatible clients can use the native tool_calls from metadata.
+                    # Mark these as "virtual" tool calls (extracted from XML content).
+                    # This flag signals downstream processors to strip tool_calls from
+                    # the final response for clients that expect XML-only (virtual mode).
+                    # The XML content is preserved, and tool_calls are used internally
+                    # for unified processing, then removed before client delivery.
+                    metadata["_virtual_tool_calls"] = True
         elif has_reasoning:
             reasoning_value = reasoning_segments[-1]
             metadata.setdefault("reasoning_content", reasoning_value)
@@ -344,11 +347,18 @@ class ToolCallRepairProcessor(IStreamProcessor):
         return str(chunk)
 
     def _track_open_tags(self, buffer_state: ToolCallBufferState, text: str) -> None:
-        """Discover and track open tag names for dynamic buffering."""
+        """Discover and track open tag names for dynamic buffering.
+
+        Handles both complete tags (e.g., '<execute_command>') and partial tags
+        that may be split across streaming chunks (e.g., '<execute' followed by
+        '_command>' in the next chunk).
+        """
         if not text:
             return
         disallowed_tags = {"think", "thought"}
-        for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\\s>/])", text):
+
+        # Track complete tags: <tagname followed by whitespace, >, or /
+        for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\s>/])", text):
             tag = match.group(1)
             if text[match.start() + 1] == "/":
                 continue
@@ -358,6 +368,14 @@ class ToolCallRepairProcessor(IStreamProcessor):
             if tag.lower() in disallowed_tags and not buffer_state.allowed_tools:
                 continue
             buffer_state.tracked_tags.add(tag)
+
+        # Also track partial tags at end of chunk that may continue in next chunk
+        # e.g., '<execute' at end of chunk, followed by '_command>' in next chunk
+        partial_match = re.search(r"<([A-Za-z0-9_\-]+)$", text)
+        if partial_match:
+            tag = partial_match.group(1)
+            if tag.lower() not in disallowed_tags or buffer_state.allowed_tools:
+                buffer_state.tracked_tags.add(tag)
 
     def _build_markers(self, buffer_state: ToolCallBufferState) -> tuple[str, ...]:
         """Build dynamic markers from allowed tools and observed tags."""

@@ -22,7 +22,7 @@ class TestDocumentationStructure:
     @pytest.fixture
     def readme_path(self) -> Path:
         """Get the README.md path."""
-        return Path(__file__).parent.parent.parent / "dev" / "README.md"
+        return Path(__file__).parent.parent.parent / "README.md"
 
     def test_required_documentation_structure_exists(
         self, docs_root: Path, readme_path: Path

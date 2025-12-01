@@ -474,7 +474,31 @@ class StreamingContent:
             ):
                 # If content is already an OpenAI-formatted chunk, emit it then [DONE]
                 if isinstance(self.content, dict) and "choices" in self.content:
-                    # Inject tool_calls from metadata into the delta if present
+                    # Check if tool_calls are "virtual" (extracted from XML content).
+                    # Virtual tool calls should NOT be sent to client - they're only
+                    # used internally for unified processing. The XML remains in content.
+                    is_virtual = self.metadata.get("_virtual_tool_calls", False)
+
+                    # Make a copy of content to potentially modify
+                    content_copy = dict(self.content)
+
+                    # If virtual, STRIP tool_calls from the delta (they're already there)
+                    if is_virtual:
+                        choices = content_copy.get("choices", [])
+                        if choices and isinstance(choices[0], dict):
+                            inner_delta = choices[0].get("delta", {})
+                            if (
+                                isinstance(inner_delta, dict)
+                                and "tool_calls" in inner_delta
+                            ):
+                                inner_delta = dict(inner_delta)
+                                del inner_delta["tool_calls"]
+                                choices[0] = dict(choices[0])
+                                choices[0]["delta"] = inner_delta
+                                content_copy["choices"] = choices
+                        return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
+
+                    # Non-virtual: Inject tool_calls from metadata into the delta if present
                     tool_calls = self.metadata.get("tool_calls")
                     if isinstance(tool_calls, list) and tool_calls:
                         # Sanitize internal markers before sending to client
@@ -485,7 +509,6 @@ class StreamingContent:
                         ]
                         if sanitized_calls:
                             # Ensure choices and delta exist
-                            content_copy = dict(self.content)
                             choices = content_copy.get("choices", [])
                             if choices and isinstance(choices[0], dict):
                                 inner_delta = choices[0].get("delta", {})
@@ -495,7 +518,9 @@ class StreamingContent:
                                     content_copy["choices"] = choices
                             return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
                     # Use dict() to safely convert StopChunkWithUsage to plain dict
-                    return f"data: {json.dumps(dict(self.content))}\n\ndata: [DONE]\n\n".encode()
+                    return (
+                        f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
+                    )
                 # Otherwise, fall through to normal content handling below
             else:
                 # No meaningful content or content is just "[DONE]", emit [DONE]
@@ -515,8 +540,10 @@ class StreamingContent:
             delta["tool_call_id"] = tool_call_id
 
         # Add tool_calls if present (sanitize internal markers before sending)
+        # BUT skip if they're "virtual" (extracted from XML content - client expects XML-only)
+        is_virtual = self.metadata.get("_virtual_tool_calls", False)
         tool_calls = self.metadata.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls:
+        if isinstance(tool_calls, list) and tool_calls and not is_virtual:
             # Remove internal markers like _already_processed before sending to client
             sanitized_calls = [
                 {k: v for k, v in tc.items() if not k.startswith("_")}
@@ -546,34 +573,53 @@ class StreamingContent:
                 # Check if this is already an OpenAI-formatted chunk
                 # If so, use it directly instead of wrapping it again
                 if "choices" in self.content or "usage" in self.content:
-                    # Inject tool_calls from metadata into the delta if present
-                    tool_calls_to_inject = self.metadata.get("tool_calls")
-                    if isinstance(tool_calls_to_inject, list) and tool_calls_to_inject:
-                        # Sanitize internal markers before sending to client
-                        sanitized_calls = [
-                            {k: v for k, v in tc.items() if not k.startswith("_")}
-                            for tc in tool_calls_to_inject
-                            if isinstance(tc, dict)
-                        ]
-                        if sanitized_calls:
-                            content_copy = dict(self.content)
-                            choices = content_copy.get("choices", [])
-                            if choices and isinstance(choices[0], dict):
-                                inner_delta = choices[0].get("delta", {})
-                                if isinstance(inner_delta, dict):
-                                    inner_delta["tool_calls"] = sanitized_calls
-                                    # NOTE: Keep content alongside tool_calls for clients like Kilo-Code
-                                    # that parse XML tool calls from content and ignore native tool_calls.
-                                    # OpenAI-compatible clients will use native tool_calls from the delta.
-                                    choices[0]["delta"] = inner_delta
-                                    content_copy["choices"] = choices
-                            result = f"data: {json.dumps(content_copy)}\n\n"
-                        else:
-                            # Use dict() to safely convert StopChunkWithUsage to plain dict
-                            result = f"data: {json.dumps(dict(self.content))}\n\n"
+                    # Check if tool_calls are "virtual" (extracted from XML content)
+                    is_virtual_tc = self.metadata.get("_virtual_tool_calls", False)
+
+                    # Make a copy of content to potentially modify
+                    content_copy = dict(self.content)
+
+                    # If virtual, STRIP tool_calls from the delta (they're already there)
+                    if is_virtual_tc:
+                        choices = content_copy.get("choices", [])
+                        if choices and isinstance(choices[0], dict):
+                            inner_delta = choices[0].get("delta", {})
+                            if (
+                                isinstance(inner_delta, dict)
+                                and "tool_calls" in inner_delta
+                            ):
+                                inner_delta = dict(inner_delta)
+                                del inner_delta["tool_calls"]
+                                choices[0] = dict(choices[0])
+                                choices[0]["delta"] = inner_delta
+                                content_copy["choices"] = choices
+                        result = f"data: {json.dumps(content_copy)}\n\n"
                     else:
-                        # Use dict() to safely convert StopChunkWithUsage to plain dict
-                        result = f"data: {json.dumps(dict(self.content))}\n\n"
+                        # Non-virtual: Inject tool_calls from metadata if present
+                        tool_calls_to_inject = self.metadata.get("tool_calls")
+                        if (
+                            isinstance(tool_calls_to_inject, list)
+                            and tool_calls_to_inject
+                        ):
+                            # Sanitize internal markers before sending to client
+                            sanitized_calls = [
+                                {k: v for k, v in tc.items() if not k.startswith("_")}
+                                for tc in tool_calls_to_inject
+                                if isinstance(tc, dict)
+                            ]
+                            if sanitized_calls:
+                                choices = content_copy.get("choices", [])
+                                if choices and isinstance(choices[0], dict):
+                                    inner_delta = choices[0].get("delta", {})
+                                    if isinstance(inner_delta, dict):
+                                        inner_delta["tool_calls"] = sanitized_calls
+                                        choices[0]["delta"] = inner_delta
+                                        content_copy["choices"] = choices
+                                result = f"data: {json.dumps(content_copy)}\n\n"
+                            else:
+                                result = f"data: {json.dumps(content_copy)}\n\n"
+                        else:
+                            result = f"data: {json.dumps(content_copy)}\n\n"
                     # Append [DONE] if this is the final chunk
                     if self.is_done:
                         result += "data: [DONE]\n\n"

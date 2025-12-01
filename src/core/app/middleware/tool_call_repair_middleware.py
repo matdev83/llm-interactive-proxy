@@ -58,8 +58,17 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
     ) -> Any:
         """
         Processes the response to detect and repair tool calls if enabled.
+
+        NOTE: For streaming responses, tool call repair is handled by
+        ToolCallRepairProcessor in the streaming pipeline. This middleware
+        only processes non-streaming responses to avoid duplicate detection.
         """
         if not self.config.session.tool_call_repair_enabled:
+            return response
+
+        # Skip streaming responses - these are handled by ToolCallRepairProcessor
+        # in the streaming pipeline to avoid duplicate tool call detection
+        if is_streaming:
             return response
 
         # Only attempt repair if the content is a string
@@ -73,12 +82,15 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
                     logger.info(
                         f"Tool call detected and repaired for session {session_id}"
                     )
-                # Add tool_calls to metadata, assuming it's a list
-                # NOTE: We intentionally keep the content (XML) for clients like Kilo-Code
-                # that parse tool calls from content and ignore native tool_calls.
+                # Add tool_calls to metadata for internal processing
                 if "tool_calls" not in response.metadata:
                     response.metadata["tool_calls"] = []
                 response.metadata["tool_calls"].append(repaired_result.tool_call)
+
+                # Mark as "virtual" tool calls (extracted from XML content).
+                # This signals downstream serialization to strip tool_calls from
+                # the response, leaving only XML content for virtual-mode clients.
+                response.metadata["_virtual_tool_calls"] = True
 
                 # Set finish_reason to "tool_calls" to signal tool call presence
                 response.metadata["finish_reason"] = "tool_calls"

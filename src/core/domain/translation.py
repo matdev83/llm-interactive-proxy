@@ -3169,6 +3169,10 @@ class Translation(BaseTranslator):
         """
         import time
 
+        # Pass-through if already in domain format
+        if isinstance(response, CanonicalChatResponse):
+            return response
+
         if not isinstance(response, dict):
             # Handle non-dict responses
             return CanonicalChatResponse(
@@ -3192,6 +3196,8 @@ class Translation(BaseTranslator):
         response_wrapper = response.get("response", {})
         candidates = response_wrapper.get("candidates", [])
         generated_text = ""
+        tool_calls = []
+        finish_reason = "stop"
 
         if candidates and len(candidates) > 0:
             candidate = candidates[0]
@@ -3199,7 +3205,30 @@ class Translation(BaseTranslator):
             parts = content.get("parts", [])
 
             if parts and len(parts) > 0:
-                generated_text = parts[0].get("text", "")
+                text_parts = []
+                for part in parts:
+                    if isinstance(part, dict):
+                        if "text" in part:
+                            text_parts.append(part.get("text", ""))
+                        elif "functionCall" in part:
+                            try:
+                                tool_calls.append(
+                                    Translation._process_gemini_function_call(
+                                        part["functionCall"], part=part
+                                    )
+                                )
+                            except Exception:
+                                continue
+                generated_text = "".join(text_parts)
+
+            if "finishReason" in candidate:
+                finish_reason = (
+                    Translation._map_gemini_finish_reason(candidate["finishReason"])
+                    or "stop"
+                )
+
+        if tool_calls:
+            finish_reason = "tool_calls"
 
         # Create canonical response
         return CanonicalChatResponse(
@@ -3211,9 +3240,11 @@ class Translation(BaseTranslator):
                 ChatCompletionChoice(
                     index=0,
                     message=ChatCompletionChoiceMessage(
-                        role="assistant", content=generated_text
+                        role="assistant",
+                        content=generated_text or None,
+                        tool_calls=tool_calls if tool_calls else None,
                     ),
-                    finish_reason="stop",
+                    finish_reason=finish_reason,
                 )
             ],
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},

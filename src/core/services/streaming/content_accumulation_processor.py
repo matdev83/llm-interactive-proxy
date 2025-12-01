@@ -77,6 +77,58 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 output_metadata = dict(content.metadata or {})
                 if usage_info:
                     output_metadata["usage"] = usage_info
+
+                # FIX: If we have buffered content, merge it into the StopChunkWithUsage
+                # to ensure it's not lost. This happens when the stream ends with a
+                # StopChunkWithUsage but we have accumulated content (e.g. from SSE strings).
+                if state.chunks:
+                    final_content = "".join(state.chunks)
+                    if final_content:
+                        logger.debug(
+                            "ContentAccumulationProcessor: Merging %d bytes of buffered content "
+                            "into StopChunkWithUsage, stream_id=%s",
+                            len(final_content),
+                            stream_id,
+                        )
+                        # Ensure structure exists
+                        if "choices" not in content.content:
+                            content.content["choices"] = [
+                                {"index": 0, "delta": {}, "finish_reason": "stop"}
+                            ]
+
+                        choices = content.content["choices"]
+                        if choices and isinstance(choices, list):
+                            first_choice = choices[0]
+                            if isinstance(first_choice, dict):
+                                if "delta" not in first_choice:
+                                    first_choice["delta"] = {}
+                                delta = first_choice["delta"]
+                                if isinstance(delta, dict):
+                                    # Append to existing content or set it
+                                    existing_content = delta.get("content", "")
+                                    delta["content"] = existing_content + final_content
+
+                                    # Also merge reasoning if available
+                                    if state.reasoning_chunks:
+                                        final_reasoning = "".join(
+                                            state.reasoning_chunks
+                                        )
+                                        existing_reasoning = delta.get(
+                                            "reasoning_content", ""
+                                        )
+                                        delta["reasoning_content"] = (
+                                            existing_reasoning + final_reasoning
+                                        )
+
+                    # Clear state since we've consumed the buffer
+                    state.chunks.clear()
+                    state.encoded_chunks.clear()
+                    state.chunk_lengths.clear()
+                    state.byte_length = 0
+                    state.reasoning_chunks.clear()
+                    state.completed = True
+                    self._registry.clear_content_state(stream_id)
+
                 # Log StopChunkWithUsage pass-through at DEBUG level
                 logger.debug(
                     "ContentAccumulationProcessor: Passing through StopChunkWithUsage "

@@ -153,6 +153,65 @@ class TestToolCallRepairProcessorBuffering:
         assert "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
 
     @pytest.mark.asyncio
+    async def test_fragmented_tag_name_across_chunks(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        CRITICAL REGRESSION TEST: Tag names split across chunk boundaries.
+
+        This test simulates a real streaming scenario where the backend sends
+        chunks that split the tag name itself, e.g.:
+        - Chunk 1: '<execute' (incomplete tag name)
+        - Chunk 2: '_command><command>git status</command></execute_command>'
+
+        The processor must properly track partial tags and buffer the content
+        until the complete tool call is received.
+        """
+        # Chunk 1: Tag name is split - only '<execute' without closing
+        chunk1 = StreamingContent(
+            content="I will check the git status.\n\n<execute",
+            is_done=False,
+            metadata={"session_id": "test-fragmented-tag"},
+        )
+
+        result1 = await processor.process(chunk1)
+        # Content should be buffered, not flushed (or minimal flush)
+        # The key is that no tool call should be detected yet
+        tool_calls1 = result1.metadata.get("tool_calls") if result1.metadata else None
+        assert (
+            tool_calls1 is None or len(tool_calls1) == 0
+        ), "Partial tag should not produce tool call"
+
+        # Chunk 2: Rest of the tag name and content
+        chunk2 = StreamingContent(
+            content="_command>\n<command>git status</command>\n</execute",
+            is_done=False,
+            metadata={"session_id": "test-fragmented-tag"},
+        )
+
+        result2 = await processor.process(chunk2)
+        tool_calls2 = result2.metadata.get("tool_calls") if result2.metadata else None
+        assert (
+            tool_calls2 is None or len(tool_calls2) == 0
+        ), "Incomplete tool call should still be buffered"
+
+        # Chunk 3: Closing tag (also split)
+        chunk3 = StreamingContent(
+            content="_command>",
+            is_done=True,
+            metadata={"session_id": "test-fragmented-tag"},
+        )
+
+        result3 = await processor.process(chunk3)
+        tool_calls3 = result3.metadata.get("tool_calls") if result3.metadata else None
+        assert (
+            tool_calls3 is not None and len(tool_calls3) > 0
+        ), "Complete tool call should be detected after final chunk"
+        assert tool_calls3[0]["function"]["name"] == "execute_command"
+        arguments = json.loads(tool_calls3[0]["function"]["arguments"])
+        assert "git status" in arguments.get("command", "")
+
+    @pytest.mark.asyncio
     async def test_truncated_read_file_is_buffered(
         self, processor: ToolCallRepairProcessor
     ) -> None:
