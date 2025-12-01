@@ -175,7 +175,43 @@ The replay command:
 
 ## Advanced Inspection Script
 
-For detailed debugging and issue detection, use the dedicated inspection script:
+For detailed debugging and issue detection, use the dedicated inspection script with powerful analysis capabilities.
+
+### Quick Debugging Workflow
+
+When investigating issues, start with these commands:
+
+```bash
+# 1. Auto-detect all issues (START HERE!)
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --detect-issues
+
+# 2. View timeline with timing gaps highlighted
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --timeline --backend gemini-oauth-plan
+
+# 3. Track specific request flow with timing
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --track-request 2 --backend gemini-oauth-plan
+
+# 4. Investigate context around problematic entry
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --around 83 --context 5
+
+# 5. View last entries to see where session stalled
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --last 20 --verbose
+
+# 6. Analyze streaming performance
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --analyze-streaming --backend gemini-oauth-plan
+```
 
 ### Basic Usage
 
@@ -188,11 +224,170 @@ python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --lis
 
 # Show first 20 entries with data preview
 python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entries 20
+
+# Show LAST 20 entries (useful for finding where it stalled)
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --last 20
+
+# Show specific entry range
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --range 80-98
+
+# Jump to specific entry
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entry 83 --verbose
 ```
+
+### Advanced Features
+
+#### Automatic Issue Detection
+
+The `--detect-issues` flag automatically detects and reports:
+
+- **Slow responses**: Timing gaps >10s between entries
+- **Rate limiting errors**: Quota exceeded, throttling
+- **Missing responses**: Requests with no backend response (stalled sessions)
+- **Backend errors**: Error responses from API
+- **Empty responses**: completion_tokens=0
+- **Model name leaks**: Internal names exposed to client
+
+Example output:
+
+```
+=== ISSUES DETECTED ===
+
+SLOW RESPONSE (3 occurrences):
+  [!!!] Entry [69]: Long gap: 134.0s between entries [68] and [69]
+  [ ! ] Entry [60]: Long gap: 28.8s between entries [59] and [60]
+
+RATE LIMIT (2 occurrences):
+  [ ! ] Entry [69]: Rate limiting: quota exhausted, reset after 28s
+  [ ! ] Entry [90]: Rate limiting: quota exhausted, reset after 1s
+
+MISSING RESPONSE (1 occurrences):
+  [!!!] Entry [94]: Request at [94] has no backend response
+```
+
+#### Timeline Visualization
+
+The `--timeline` flag provides a visual timeline with:
+
+- Timing gaps highlighted (>10s marked as "SLOW")
+- Millisecond/second deltas between entries
+- Entry sequence, direction, size, backend, and session ID
+- Perfect for spotting performance issues at a glance
+
+Example:
+
+```bash
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --timeline --backend gemini-oauth-plan
+```
+
+Output:
+
+```
+=== TIMELINE VIEW ===
+[67]  P->B  18:40:04.889  (+25.6s)  108KB  be=gemini-oauth-plan  sid=ebd2f136
+[68]  B->P  18:40:04.945  (+56ms)   0B     be=gemini-oauth-plan  sid=ebd2f136
+[69]  B->P  18:42:18.937  !!! +134.0s SLOW !!!  402B  be=gemini-oauth-plan
+[70]  P->C  18:42:18.982  (+45ms)   0B     be=gemini-oauth-plan  sid=ebd2f136
+```
+
+#### Request Flow Tracking
+
+The `--track-request N` flag tracks a specific request through the entire system:
+
+```bash
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --track-request 3 --backend gemini-oauth-plan
+```
+
+Shows:
+- Complete timeline from client to backend to client
+- Timing for each step
+- Identifies tool calls, content chunks, errors
+- Highlights slow steps (>10s)
+
+Example output:
+
+```
+=== REQUEST FLOW TRACKING - Request #3 ===
+
+Request initiated at entry [81]
+Model: gemini-oauth-plan:gemini-2.5-pro
+Request size: 112,922 bytes
+
+Flow timeline:
+  [START] [81] P->B  Request forwarded (t=0.000s)
+  [B->P] [82] Stream started (t=0.050s)
+  [B->P] [83] Tool call response (t=2.517s)
+  [P->C] [84] Forwarded to client (t=2.578s)
+```
+
+#### Streaming Performance Analysis
+
+The `--analyze-streaming` flag calculates streaming metrics:
+
+```bash
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --analyze-streaming --backend gemini-oauth-plan
+```
+
+Provides:
+- Time to First Token (TTFT)
+- Total duration and chunk count
+- Average time between chunks
+- Identifies slow chunks (>5s gaps)
+
+Example output:
+
+```
+=== STREAMING PERFORMANCE ANALYSIS ===
+
+--- Stream #2 (Entry [67]) ---
+  Time to First Token: 0.055s
+  Total Duration: 134.103s
+  Chunks: 2
+  Total Data: 402 bytes
+  Avg Time Between Chunks: 134.103s
+  Slow Chunks Detected:
+    Entry [69]: 134.0s gap
+```
+
+#### Context Window
+
+The `--around N --context M` shows entries around a specific entry:
+
+```bash
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --around 83 --context 5
+```
+
+Shows:
+- M entries before and after entry N
+- Perfect for investigating specific events
+- Complete context for debugging
+
+#### Session Grouping
+
+The `--group-by-session` flag groups entries by session ID:
+
+```bash
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --group-by-session
+```
+
+Shows all unique sessions with:
+- Entry count and duration
+- Entry range per session
+- Backend for each session
 
 ### Filter by Backend
 
-For multi-backend scenarios, use the `--backend` flag to focus on a specific backend:
+For multi-backend scenarios, use the `--backend` flag:
 
 ```bash
 # Filter entries by backend
@@ -206,37 +401,6 @@ python scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/session.cbor \
   --analyze \
   --backend anthropic
-```
-
-### Analyze Request/Response Pairs
-
-```bash
-# Analyze pairs and detect issues (MOST USEFUL FOR DEBUGGING)
-python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --analyze
-```
-
-The `--analyze` flag provides:
-
-- **Request/Response Pairing**: Groups entries by request for easier understanding
-- **Issue Detection**: Automatically flags problems like:
-  - Empty responses (completion_tokens=0)
-  - Internal model name leaks
-  - Fallback mechanism activation
-  - Content loss between backend and client
-- **Content Analysis**: Shows character counts, tool call counts, and finish reasons
-
-Example analysis output:
-
-```
---- REQUEST #1 ---
-Model: gemini-oauth-antigravity:gemini-2.5-pro
-Backend models: {'gemini-2.5-pro', 'code-assist-model'}
-Backend content: 0 chars
-Client received: (no data, only [DONE]) [14]
-ISSUES:
-  [!] Internal model name leak: code-assist-model
-  [!] Usage-only chunk (completion_tokens=0)
-  [!] Immediate stop without content
 ```
 
 ### Filter by Direction
@@ -257,11 +421,31 @@ python scripts/inspect_cbor_capture.py \
 ```
 
 Available directions:
-
 - `client_to_proxy`
 - `proxy_to_client`
 - `proxy_to_backend`
 - `backend_to_proxy`
+
+### Combining Features
+
+Multiple features can be combined for powerful analysis:
+
+```bash
+# Timeline + issue detection for specific backend
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --detect-issues --timeline --backend gemini-oauth-plan
+
+# Search with context window
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --search "git commit" --around 83 --context 5
+
+# Last entries with verbose metadata
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --last 10 --verbose
+```
 
 ### Export to JSON
 
@@ -271,296 +455,10 @@ python scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/session.cbor \
   --json > analysis.json
 
-# Export only entries from a specific backend to JSON
+# Export only entries from a specific backend
 python scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/session.cbor \
   --backend gemini \
   --json > gemini_only.json
 ```
 
-## Usage Examples
-
-### Capture a Test Session
-
-```bash
-# Start proxy with CBOR capture
-python -m src.core.cli \
-  --cbor-capture-dir ./test-captures \
-  --cbor-capture-session regression-test-001 \
-  --default-backend openai
-
-# Run your test scenario
-# ...
-
-# Inspect the capture
-python -m src.core.simulation.cli inspect \
-  ./test-captures/regression-test-001.cbor
-```
-
-### Regression Testing
-
-```bash
-# 1. Capture a known-good session
-python -m src.core.cli \
-  --cbor-capture-dir ./golden-sessions \
-  --cbor-capture-session baseline-v1.0
-
-# 2. After code changes, replay the session
-python -m src.core.simulation.cli replay \
-  ./golden-sessions/baseline-v1.0.cbor \
-  --proxy-url http://localhost:8000
-
-# 3. Check for differences
-# The replay command will report any mismatches
-```
-
-### Debug Streaming Issues
-
-```bash
-# Capture a streaming session
-python -m src.core.cli \
-  --cbor-capture-dir ./streaming-debug \
-  --cbor-capture-session stream-issue-001
-
-# Analyze streaming chunks
-python scripts/inspect_cbor_capture.py \
-  ./streaming-debug/stream-issue-001.cbor \
-  --analyze \
-  --direction backend_to_proxy
-```
-
-### Performance Analysis
-
-```bash
-# Capture session with timing data
-python -m src.core.cli \
-  --cbor-capture-dir ./performance \
-  --cbor-capture-session perf-test-001
-
-# Inspect timing statistics
-python -m src.core.simulation.cli inspect \
-  ./performance/perf-test-001.cbor
-```
-
-## Automated Testing
-
-### Pytest Fixtures
-
-The simulation module provides pytest fixtures for integration testing:
-
-```python
-import pytest
-from tests.simulation.conftest import (
-    create_capture_file,
-    create_simple_request_response,
-    create_streaming_response,
-)
-
-def test_with_captured_session(temp_capture_dir, capture_reader):
-    """Test using a captured session."""
-    # Create a test capture file
-    path = temp_capture_dir / "test.cbor"
-    entries = create_simple_request_response(
-        request_data=b'{"model": "test", "messages": []}',
-        response_data=b'{"choices": [{"message": {"content": "Hello"}}]}',
-    )
-    create_capture_file(path, entries)
-    
-    # Load and validate
-    session = capture_reader.load(path)
-    assert len(session.entries) == 4
-    assert session.header.session_id == "test-session"
-```
-
-### Streaming Regression Tests
-
-```python
-from src.core.domain.cbor_capture import CaptureDirection
-from src.core.simulation import CaptureReader
-
-def test_streaming_behavior_matches_capture(capture_file_path):
-    """Verify streaming behavior matches a known-good capture."""
-    reader = CaptureReader()
-    session = reader.load(capture_file_path)
-    
-    # Get backend streaming chunks
-    backend_entries = session.get_backend_entries()
-    stream_chunks = [
-        e for e in backend_entries
-        if e.direction == CaptureDirection.BACKEND_TO_PROXY
-        and e.metadata.chunk_index is not None
-    ]
-    
-    # Validate timing deltas are within expected range
-    timing_deltas = session.get_timing_deltas()
-    assert all(d >= 0 for d in timing_deltas), "Negative timing delta detected"
-```
-
-### End-to-End Tests
-
-```python
-import pytest
-from src.core.simulation import SimulationRunner
-
-@pytest.mark.asyncio
-async def test_full_session_replay():
-    """End-to-end test using captured session."""
-    runner = SimulationRunner(
-        proxy_base_url="http://localhost:8000",
-        timing_tolerance_ms=100.0,
-        speed_multiplier=10.0,  # 10x speed for faster tests
-    )
-    
-    result = await runner.run("./captures/known-good-session.cbor")
-    
-    assert result.success, result.summary
-    assert result.failed_requests == 0
-    assert len(result.content_mismatches) == 0
-```
-
-### Client Simulation
-
-```python
-@pytest.mark.asyncio
-async def test_client_simulation(client_simulator_fixture):
-    """Test client simulation against a proxy."""
-    async with client_simulator_fixture as simulator:
-        results = await simulator.replay_session()
-        for result in results:
-            assert result.success, result.summary
-```
-
-## Best Practices
-
-### Organizing Captures
-
-1. **Use Meaningful Session IDs**: Include date and test scenario
-   ```bash
-   --cbor-capture-session 2025-01-15-login-flow
-   ```
-
-2. **Organize by Feature**: Create subdirectories for different features
-   ```
-   captures/
-     auth/
-       login-success.cbor
-       login-failure.cbor
-     streaming/
-       long-response.cbor
-       chunked-response.cbor
-   ```
-
-3. **Version Control**: Store golden sessions in version control
-   ```bash
-   git add test-captures/golden/*.cbor
-   ```
-
-### Capture Golden Sessions
-
-Create captures of known-good behavior for regression testing:
-
-```bash
-# Capture baseline behavior
-python -m src.core.cli \
-  --cbor-capture-dir ./golden-sessions \
-  --cbor-capture-session baseline-feature-x
-
-# Tag in version control
-git tag golden-feature-x-v1.0
-```
-
-### CI/CD Integration
-
-```yaml
-# .github/workflows/regression.yml
-- name: Run Regression Tests
-  run: |
-    # Start proxy
-    python -m src.core.cli &
-    PROXY_PID=$!
-    
-    # Replay golden sessions
-    for capture in golden-sessions/*.cbor; do
-      python -m src.core.simulation.cli replay "$capture" \
-        --proxy-url http://localhost:8000 || exit 1
-    done
-    
-    # Cleanup
-    kill $PROXY_PID
-```
-
-### Timing Tolerance
-
-Set appropriate timing tolerance for your test environment:
-
-```python
-# Local development: strict timing
-runner = SimulationRunner(timing_tolerance_ms=50.0)
-
-# CI environment: relaxed timing
-runner = SimulationRunner(timing_tolerance_ms=500.0)
-```
-
-### Cleanup
-
-Regularly clean up old capture files:
-
-```bash
-# Delete captures older than 30 days
-find ./captures -name "*.cbor" -mtime +30 -delete
-
-# Keep only the 10 most recent captures
-ls -t ./captures/*.cbor | tail -n +11 | xargs rm
-```
-
-## Troubleshooting
-
-### Capture File Not Created
-
-**Problem**: CBOR capture file is not being created
-
-**Solutions**:
-
-- Verify the directory exists: `mkdir -p ./captures`
-- Check write permissions: `ls -ld ./captures`
-- Ensure path is absolute or relative to working directory
-- Check logs for initialization errors
-
-### Replay Failures
-
-**Problem**: Session replay fails with mismatches
-
-**Solutions**:
-
-- Increase timing tolerance: `--timing-tolerance-ms 200`
-- Check proxy version matches capture version
-- Verify backend is accessible
-- Review mismatch details in replay output
-
-### Large Capture Files
-
-**Problem**: Capture files grow too large
-
-**Solutions**:
-
-- Capture only specific test scenarios
-- Use shorter test sessions
-- Compress old captures: `gzip captures/*.cbor`
-- Delete unnecessary captures regularly
-
-### Inspection Errors
-
-**Problem**: Cannot inspect capture file
-
-**Solutions**:
-
-- Verify file is valid CBOR: `file captures/session.cbor`
-- Check file is not corrupted
-- Ensure capture completed successfully (not interrupted)
-- Try with `--json` flag for more details
-
-## Related Features
-
-- [Wire Capture](wire-capture.md) - JSON-based wire capture for debugging
-- [Troubleshooting](troubleshooting.md) - General troubleshooting guide
-- [Testing Guide](../../development_guide/testing.md) - Development testing practices

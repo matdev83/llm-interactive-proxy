@@ -115,53 +115,94 @@ The project includes a built-in CLI tool to inspect CBOR capture files:
 ./.venv/Scripts/python.exe -m src.core.simulation.cli inspect --capture ./var/wire_captures_cbor/capture_file.cbor --json
 ```
 
-**2. Using the Inspection Script**
+**2. Using the Inspection Script (Enhanced)**
 
 For detailed analysis including request/response pairing and issue detection, use the dedicated inspection script. This is the **recommended tool for debugging issues** as it provides:
 
 - Request/response pair analysis
-- Automatic issue detection (empty responses, model name leaks, fallback activation)
+- **Automatic issue detection** (slow responses, rate limits, missing responses, model name leaks)
+- **Timeline visualization** with timing gap highlighting
+- **Request flow tracking** end-to-end
+- **Streaming performance analysis**
+- **Session grouping and filtering**
 - Traffic direction filtering
 - Backend filtering for multi-backend scenarios
 - JSON export for further processing
 
-```bash
-# Basic inspection (shows summary)
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor
+**Quick Debugging Workflow:**
 
+```bash
+# 1. Get overview and auto-detect ALL issues (START HERE!)
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --detect-issues
+
+# 2. View timeline to spot timing gaps and slow responses
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --timeline --backend gemini-oauth-plan
+
+# 3. Track specific request flow with timing
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --track-request 2 --backend gemini-oauth-plan
+
+# 4. Investigate context around problematic entry
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --around 83 --context 5
+
+# 5. View last entries to see where session stalled
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --last 20 --verbose
+
+# 6. Analyze streaming performance
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --analyze-streaming --backend gemini-oauth-plan
+```
+
+**Basic Operations:**
+
+```bash
 # List all backends in the capture file
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --list-backends
 
 # Show first 10 entries with data preview
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --entries 10
 
+# Show LAST 10 entries (useful for finding where it stalled)
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --last 10
+
+# Show specific entry range
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --range 80-98
+
+# Jump to specific entry
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --entry 83 --verbose
+
 # Filter entries by backend
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend openai --entries 10
 
-# Analyze request/response pairs and detect issues (MOST USEFUL FOR DEBUGGING)
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --analyze
+# Group entries by session
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --group-by-session
 
-# Analyze only pairs from a specific backend
+# Analyze request/response pairs (original feature, still useful)
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --analyze --backend anthropic
-
-# Filter by traffic direction (client_to_proxy, proxy_to_client, proxy_to_backend, backend_to_proxy)
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --entries 20 --direction backend_to_proxy
-
-# Combine backend and direction filters
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend openai --direction backend_to_proxy --entries 20
-
-# Export to JSON for further processing
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --json > output.json
-
-# Export only entries from a specific backend to JSON
-./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend gemini --json > gemini_only.json
 ```
 
-The `--analyze` flag is particularly useful as it will automatically detect and report issues like:
+**Combining Features:**
+
+```bash
+# Timeline + issue detection for specific backend
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --detect-issues --timeline --backend gemini-oauth-plan
+
+# Search with context window
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --search "git commit" --around 83 --context 5
+```
+
+The `--detect-issues` flag will automatically detect and report:
+- **Slow responses** (timing gaps >10s between entries)
+- **Rate limiting errors** (quota exceeded, throttling)
+- **Missing responses** (requests with no backend response - stalled sessions)
+- **Backend errors** (error responses from API)
 - Empty responses (completion_tokens=0)
 - Internal model name leaks (e.g., 'code-assist-model' instead of requested model)
 - Fallback mechanism activation
-- Content loss between backend and client
+
+The `--timeline` flag provides visual timeline with:
+- Timing gaps highlighted (>10s marked as "SLOW")
+- Millisecond/second deltas between entries
+- Entry sequence, direction, size, backend, and session ID
+- Perfect for spotting performance issues at a glance
 
 **3. Programmatic Access (Python)**
 

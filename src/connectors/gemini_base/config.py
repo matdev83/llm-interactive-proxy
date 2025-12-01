@@ -15,8 +15,8 @@ DEFAULT_CONNECTION_TIMEOUT = 60.0
 DEFAULT_READ_TIMEOUT = 300.0
 
 # Graceful degradation configuration
-DEFAULT_RETRY_DELAYS = [15, 30, 60]  # Wait 15s, then 30s, then 60s between retries
-DEFAULT_MAX_TOTAL_ATTEMPTS = 9
+DEFAULT_RETRY_DELAYS = [5, 10]  # Wait 5s, then 10s between retries
+DEFAULT_MAX_TOTAL_ATTEMPTS = 6
 DEFAULT_COOLDOWN_DURATION = 600.0  # 10 minutes cooldown after exhaustion
 DEFAULT_RECOVERY_PROBE_INTERVAL = 120.0  # Check recovery every 2 minutes
 

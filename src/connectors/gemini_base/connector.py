@@ -2547,7 +2547,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                 error_json_buffer = None
 
                             metadata = create_gemini_response_metadata(
-                                model="gemini-oauth",
+                                model=effective_model,
                                 usage=None,
                                 key_name=getattr(self, "_key_name", None),
                             ).model_dump()
@@ -2563,6 +2563,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     "raw_finish_reason": domain_chunk.get(
                                         "choices", [{}]
                                     )[0].get("finish_reason"),
+                                    "model": effective_model,
                                 }
                             )
 
@@ -2788,12 +2789,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         final_chunk = self.translation_service.to_domain_stream_chunk(
                             chunk=None, source_format="code_assist"
                         )
-                        # Merge usage into the generic stop chunk
-                        if isinstance(final_chunk, dict) and usage:
-                            final_chunk["usage"] = usage
+                        # Merge usage and correct model into the generic stop chunk
+                        if isinstance(final_chunk, dict):
+                            # Override the default model name with the actual effective model
+                            final_chunk["model"] = effective_model
+                            if usage:
+                                final_chunk["usage"] = usage
                             # Wrap with protective class
                             final_chunk = StopChunkWithUsage(final_chunk)
-                        yield ProcessedResponse(content=final_chunk, usage=usage)
+                        yield ProcessedResponse(
+                            content=final_chunk,
+                            usage=usage,
+                            metadata={"model": effective_model},
+                        )
 
                 except BackendError as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
@@ -3105,10 +3113,84 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Check if a model is currently in cooldown."""
         return is_model_in_cooldown(model, self._model_retry_states)
 
-    def _set_cooldown(self, model: str) -> None:
-        """Put a model into cooldown state."""
+    def _extract_retry_delay(self, error: BackendError) -> float | None:
+        """Extract retry delay from error details.
+        
+        Handles both 'retryDelay' (Google RPC RetryInfo) and 'quotaResetDelay'
+        (Google RPC ErrorInfo metadata).
+        """
+        if not error.details:
+            return None
+
+        # Get the inner error object if present (from _extract_generated_text_from_response)
+        error_data = error.details.get("error", error.details)
+        
+        # Check details list
+        details_list = error_data.get("details")
+        if not isinstance(details_list, list):
+            return None
+
+        for detail in details_list:
+            if not isinstance(detail, dict):
+                continue
+                
+            type_url = detail.get("@type", "")
+            
+            # Case 1: RetryInfo with retryDelay
+            if "RetryInfo" in type_url:
+                delay_str = detail.get("retryDelay")
+                if isinstance(delay_str, str):
+                    return self._parse_duration_string(delay_str)
+            
+            # Case 2: ErrorInfo with quotaResetDelay in metadata
+            if "ErrorInfo" in type_url:
+                metadata = detail.get("metadata")
+                if isinstance(metadata, dict):
+                    reset_delay = metadata.get("quotaResetDelay")
+                    if isinstance(reset_delay, str):
+                        return self._parse_duration_string(reset_delay)
+                        
+        return None
+
+    @staticmethod
+    def _parse_duration_string(duration: str) -> float | None:
+        """Parse duration string like '10s' or '4h51m33.9s'."""
+        try:
+            # Simple seconds format (e.g. "17493.989s")
+            if duration.endswith("s") and "m" not in duration and "h" not in duration:
+                return float(duration[:-1])
+                
+            # Complex format (e.g. "4h51m33.989s")
+            total_seconds = 0.0
+            current_val = ""
+            
+            for char in duration:
+                if char.isdigit() or char == ".":
+                    current_val += char
+                elif char == "h":
+                    total_seconds += float(current_val) * 3600
+                    current_val = ""
+                elif char == "m":
+                    total_seconds += float(current_val) * 60
+                    current_val = ""
+                elif char == "s":
+                    total_seconds += float(current_val)
+                    current_val = ""
+                    
+            return total_seconds if total_seconds > 0 else None
+        except Exception:
+            return None
+
+    def _set_cooldown(self, model: str, duration: float | None = None) -> None:
+        """Put a model into cooldown state.
+        
+        Args:
+            model: The model to put in cooldown
+            duration: Optional custom duration in seconds. If None, uses default config.
+        """
+        cooldown = duration if duration is not None else self._degradation_config.cooldown_duration
         set_model_cooldown(
-            model, self._model_retry_states, self._degradation_config.cooldown_duration
+            model, self._model_retry_states, cooldown
         )
 
     @staticmethod
@@ -3398,7 +3480,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # If we get here, all attempts for this model failed
             if model == original_model:
                 # Original model failed, put it in cooldown
-                self._set_cooldown(model)
+                retry_delay = self._extract_retry_delay(last_error) if last_error else None
+                self._set_cooldown(model, duration=retry_delay)
+
+                if retry_delay:
+                    logger.info(
+                        "Model %s put in cooldown for %.1fs based on API response",
+                        model,
+                        retry_delay,
+                    )
 
                 # Start recovery probing task if enabled
                 if self._degradation_config.enable_recovery_probing and (
@@ -3410,8 +3500,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
             elif is_fallback_model:
                 # Fallback model failed - put it in cooldown too
-                self._set_cooldown(model)
-                logger.info("Fallback model %s exhausted, put in cooldown", model)
+                retry_delay = self._extract_retry_delay(last_error) if last_error else None
+                self._set_cooldown(model, duration=retry_delay)
+                
+                if retry_delay:
+                    logger.info(
+                        "Fallback model %s put in cooldown for %.1fs based on API response",
+                        model,
+                        retry_delay,
+                    )
+                else:
+                    logger.info("Fallback model %s exhausted, put in cooldown", model)
 
         # If we get here, all requested models failed
         # Mark quota exceeded but keep backend functional for other models

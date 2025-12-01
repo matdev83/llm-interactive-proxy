@@ -1,0 +1,1 @@
+I've realized that the inspect_cbor_capture.py script isn't ideal for directly displaying the final entries. It seems to be set up to show only initial entries. However, I can still use the --search feature to find the final entries.

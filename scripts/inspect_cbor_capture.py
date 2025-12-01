@@ -38,6 +38,37 @@ Examples:
 
     # Combine backend and direction filters
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --backend openai --direction backend_to_proxy --entries 20
+
+    # NEW FEATURES:
+    # View last 20 entries
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --last 20
+
+    # View specific range
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --range 80-98
+
+    # Show context around entry
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --around 83 --context 5
+
+    # Jump to specific entry
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entry 83 --verbose
+
+    # Timeline view with gaps
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --timeline --backend gemini-oauth-plan
+
+    # Auto-detect issues
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --detect-issues
+
+    # Group by session
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --group-by-session
+
+    # Track specific request
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --track-request 3 --backend gemini-oauth-plan
+
+    # Analyze streaming performance
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --analyze-streaming --backend gemini-oauth-plan
+
+    # Combine features
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --detect-issues --timeline --backend gemini-oauth-plan
 """
 
 from __future__ import annotations
@@ -216,6 +247,403 @@ def hexdump(data: bytes, length: int = 16) -> list[str]:
     return result
 
 
+
+
+def get_unique_sessions(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Extract unique session IDs from capture entries with metadata.
+    
+    Returns:
+        Dictionary mapping session ID to session info (entry count, time range, backend)
+    """
+    sessions: dict[str, dict[str, Any]] = {}
+    for e in entries:
+        meta = e.get("meta", {})
+        sid = meta.get("sid")
+        if sid:
+            if sid not in sessions:
+                sessions[sid] = {
+                    "count": 0,
+                    "first_ts": e.get("ts", 0),
+                    "last_ts": e.get("ts", 0),
+                    "backend": meta.get("be", "unknown"),
+                }
+            sessions[sid]["count"] += 1
+            sessions[sid]["last_ts"] = e.get("ts", 0)
+    
+    return sessions
+
+
+def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Detect issues in capture entries.
+    
+    Returns:
+        List of issue dictionaries with type, severity, entry, and description
+    """
+    issues = []
+    
+    # Track timing gaps
+    for i in range(1, len(entries)):
+        prev = entries[i-1]
+        curr = entries[i]
+        gap = curr.get("ts", 0) - prev.get("ts", 0)
+        
+        # Detect slow responses (>10s gap between consecutive entries in same session)
+        if gap > 10:
+            prev_meta = prev.get("meta", {})
+            curr_meta = curr.get("meta", {})
+            if prev_meta.get("sid") == curr_meta.get("sid"):
+                issues.append({
+                    "type": "slow_response",
+                    "severity": "warning" if gap < 30 else "error",
+                    "entry": curr.get("seq"),
+                    "description": f"Long gap: {gap:.1f}s between entries [{prev.get('seq')}] and [{curr.get('seq')}]",
+                    "gap": gap,
+                })
+    
+    # Detect rate limiting and errors
+    for e in entries:
+        data = e.get("data", b"")
+        parsed = parse_sse_chunk(data)
+        if parsed:
+            error = parsed.get("error")
+            if error:
+                error_type = error.get("type", "unknown")
+                if "rate" in error_type.lower() or "quota" in error_type.lower():
+                    issues.append({
+                        "type": "rate_limit",
+                        "severity": "warning",
+                        "entry": e.get("seq"),
+                        "description": f"Rate limiting: {error.get('message', 'Unknown')}",
+                    })
+                else:
+                    issues.append({
+                        "type": "backend_error",
+                        "severity": "error",
+                        "entry": e.get("seq"),
+                        "description": f"Backend error: {error.get('message', 'Unknown')}",
+                    })
+    
+    # Detect stalled sessions (requests with no backend response)
+    request_indices = [i for i, e in enumerate(entries) if e["dir"] == 0]
+    for req_idx in request_indices:
+        # Look for backend response after this request
+        has_response = False
+        for i in range(req_idx + 1, len(entries)):
+            if entries[i]["dir"] == 0:  # Next request
+                break
+            if entries[i]["dir"] == 3:  # Backend to proxy
+                has_response = True
+                break
+        
+        if not has_response:
+            issues.append({
+                "type": "missing_response",
+                "severity": "error",
+                "entry": entries[req_idx].get("seq"),
+                "description": f"Request at [{entries[req_idx].get('seq')}] has no backend response",
+            })
+    
+    return issues
+
+
+def print_timeline(entries: list[dict[str, Any]], backend_filter: str | None = None) -> None:
+    """Print a timeline view of entries with timing gaps highlighted."""
+    print()
+    print("=" * 70)
+    print("TIMELINE VIEW")
+    print("=" * 70)
+    if backend_filter:
+        print(f"(Filtered to backend: {backend_filter})")
+        print("=" * 70)
+    
+    filtered = [e for e in entries if backend_filter is None or e.get("meta", {}).get("be") == backend_filter]
+    
+    if not filtered:
+        print("No entries to display")
+        return
+    
+    prev_ts = None
+    for e in filtered:
+        seq = e.get("seq", "?")
+        direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
+        ts = e.get("ts", 0)
+        data_len = len(e.get("data", b""))
+        backend = e.get("meta", {}).get("be", "")
+        session = e.get("meta", {}).get("sid", "")[:8]
+        
+        # Format timestamp
+        dt = datetime.datetime.fromtimestamp(ts)
+        ts_str = dt.strftime("%H:%M:%S.%f")[:-3]  # Trim to milliseconds
+        
+        # Calculate gap from previous entry
+        gap_str = ""
+        if prev_ts is not None:
+            gap = ts - prev_ts
+            if gap > 10:
+                gap_str = f" !!! +{gap:.1f}s SLOW !!!"
+            elif gap > 1:
+                gap_str = f" (+{gap:.1f}s)"
+            else:
+                gap_str = f" (+{gap*1000:.0f}ms)"
+        
+        # Format data size
+        if data_len > 1024:
+            size_str = f"{data_len/1024:.1f}KB"
+        else:
+            size_str = f"{data_len}B"
+        
+        # Build line
+        line_parts = [f"[{seq}]", direction, ts_str, gap_str, size_str]
+        if backend:
+            line_parts.append(f"be={backend}")
+        if session:
+            line_parts.append(f"sid={session}")
+        
+        print("  ".join(part for part in line_parts if part))
+        
+        prev_ts = ts
+
+
+def print_issues_summary(issues: list[dict[str, Any]]) -> None:
+    """Print a summary of detected issues."""
+    if not issues:
+        print("\nNo issues detected!")
+        return
+    
+    print()
+    print("=" * 70)
+    print("ISSUES DETECTED")
+    print("=" * 70)
+    
+    # Group by type
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for issue in issues:
+        issue_type = issue["type"]
+        if issue_type not in by_type:
+            by_type[issue_type] = []
+        by_type[issue_type].append(issue)
+    
+    for issue_type, type_issues in by_type.items():
+        print(f"\n{issue_type.upper().replace('_', ' ')} ({len(type_issues)} occurrences):")
+        for issue in type_issues:
+            severity_symbol = "!!!" if issue["severity"] == "error" else " ! "
+            print(f"  [{severity_symbol}] Entry [{issue['entry']}]: {issue['description']}")
+
+
+def group_by_session(entries: list[dict[str, Any]]) -> None:
+    """Group and display entries by session ID."""
+    print()
+    print("=" * 70)
+    print("ENTRIES GROUPED BY SESSION")
+    print("=" * 70)
+    
+    sessions = get_unique_sessions(entries)
+    
+    if not sessions:
+        print("No session information available")
+        return
+    
+    print(f"\nFound {len(sessions)} unique session(s):\n")
+    
+    for sid, info in sessions.items():
+        duration = info["last_ts"] - info["first_ts"]
+        print(f"Session: {sid[:16]}... (backend: {info['backend']})")
+        print(f"  Entries: {info['count']}, Duration: {duration:.2f}s")
+        
+        # Show entries for this session
+        session_entries = [e for e in entries if e.get("meta", {}).get("sid") == sid]
+        print(f"  Entry range: [{session_entries[0].get('seq')}] to [{session_entries[-1].get('seq')}]")
+        print()
+
+
+def track_request(entries: list[dict[str, Any]], request_num: int, backend_filter: str | None = None) -> None:
+    """Track a specific request through the system."""
+    print()
+    print("=" * 70)
+    print(f"REQUEST FLOW TRACKING - Request #{request_num}")
+    print("=" * 70)
+    if backend_filter:
+        print(f"(Filtered to backend: {backend_filter})")
+        print("=" * 70)
+    
+    # Find the Nth request (looking at PROXY_TO_BACKEND with backend filter)
+    req_count = 0
+    req_idx = None
+    for i, e in enumerate(entries):
+        # For backend filtering, look at proxy-to-backend entries
+        if e["dir"] == 2:  # PROXY_TO_BACKEND
+            if backend_filter is None or e.get("meta", {}).get("be") == backend_filter:
+                req_count += 1
+                if req_count == request_num:
+                    req_idx = i
+                    break
+    
+    # If no backend filter, also accept CLIENT_TO_PROXY
+    if req_idx is None and backend_filter is None:
+        req_count = 0
+        for i, e in enumerate(entries):
+            if e["dir"] == 0:  # CLIENT_TO_PROXY
+                req_count += 1
+                if req_count == request_num:
+                    req_idx = i
+                    break
+    
+    if req_idx is None:
+        print(f"Request #{request_num} not found")
+        return
+    
+    # Collect all related entries
+    req_entry = entries[req_idx]
+    related = [req_entry]
+    req_backend = req_entry.get("meta", {}).get("be")
+    
+    # Find all entries until next request (to same backend or any new client request)
+    for i in range(req_idx + 1, len(entries)):
+        next_entry = entries[i]
+        # Stop at next request to same backend, or any CLIENT_TO_PROXY
+        if next_entry["dir"] == 2 and next_entry.get("meta", {}).get("be") == req_backend:
+            break
+        if next_entry["dir"] == 0:  # CLIENT_TO_PROXY
+            break
+        related.append(next_entry)
+    
+    # Display flow
+    print(f"\nRequest initiated at entry [{req_entry.get('seq')}]")
+    start_ts = req_entry.get("ts", 0)
+    
+    # Try to parse request details
+    try:
+        req_data = json.loads(req_entry.get("data", b"").decode("utf-8"))
+        print(f"Model: {req_data.get('model', 'N/A')}")
+        print(f"Request size: {len(req_entry.get('data', b'')):,} bytes")
+    except:
+        pass
+    
+    print(f"\nFlow timeline:")
+    print(f"  [START] [{req_entry.get('seq')}] C->P  Request received (t=0.000s)")
+    
+    for e in related[1:]:
+        seq = e.get("seq", "?")
+        direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
+        ts = e.get("ts", 0)
+        delta = ts - start_ts
+        data_len = len(e.get("data", b""))
+        
+        # Try to describe the entry
+        desc = f"{data_len:,} bytes"
+        if e["dir"] == 2:  # PROXY_TO_BACKEND
+            desc = "Forwarded to backend"
+        elif e["dir"] == 3:  # BACKEND_TO_PROXY
+            parsed = parse_sse_chunk(e.get("data", b""))
+            if parsed:
+                if parsed.get("error"):
+                    desc = f"ERROR: {parsed['error'].get('message', 'Unknown')[:50]}"
+                elif any(c.get("delta", {}).get("tool_calls") for c in parsed.get("choices", [])):
+                    desc = "Tool call response"
+                elif any(c.get("delta", {}).get("content") for c in parsed.get("choices", [])):
+                    desc = "Content chunk"
+                else:
+                    desc = "Metadata chunk"
+        elif e["dir"] == 1:  # PROXY_TO_CLIENT
+            desc = "Forwarded to client"
+        
+        # Highlight slow steps
+        if delta > 10:
+            desc += " !!! SLOW !!!"
+        
+        print(f"  [{direction}] [{seq}] {desc} (t={delta:.3f}s)")
+
+
+def analyze_streaming(entries: list[dict[str, Any]], backend_filter: str | None = None) -> None:
+    """Analyze streaming performance."""
+    print()
+    print("=" * 70)
+    print("STREAMING PERFORMANCE ANALYSIS")
+    print("=" * 70)
+    if backend_filter:
+        print(f"(Filtered to backend: {backend_filter})")
+        print("=" * 70)
+    
+    # Find all backend streaming sessions
+    i = 0
+    stream_num = 0
+    while i < len(entries):
+        e = entries[i]
+        
+        # Skip if backend filter doesn't match
+        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
+            i += 1
+            continue
+        
+        # Look for PROXY_TO_BACKEND (start of request)
+        if e["dir"] == 2:
+            stream_num += 1
+            print(f"\n--- Stream #{stream_num} (Entry [{e.get('seq')}]) ---")
+            
+            start_ts = e.get("ts", 0)
+            
+            # Collect backend response chunks
+            chunks = []
+            j = i + 1
+            while j < len(entries) and entries[j]["dir"] != 2:  # Until next request
+                if entries[j]["dir"] == 3:  # BACKEND_TO_PROXY
+                    chunks.append(entries[j])
+                j += 1
+            
+            if not chunks:
+                print("  No backend response chunks")
+                i = j
+                continue
+            
+            # Calculate metrics
+            ttft = chunks[0].get("ts", 0) - start_ts
+            duration = chunks[-1].get("ts", 0) - start_ts
+            chunk_count = len(chunks)
+            total_bytes = sum(len(c.get("data", b"")) for c in chunks)
+            
+            print(f"  Time to First Token: {ttft:.3f}s")
+            print(f"  Total Duration: {duration:.3f}s")
+            print(f"  Chunks: {chunk_count}")
+            print(f"  Total Data: {total_bytes:,} bytes")
+            
+            if chunk_count > 1:
+                avg_chunk_time = duration / (chunk_count - 1)
+                print(f"  Avg Time Between Chunks: {avg_chunk_time:.3f}s")
+            
+            # Detect slow chunks
+            slow_chunks = []
+            for k in range(1, len(chunks)):
+                gap = chunks[k].get("ts", 0) - chunks[k-1].get("ts", 0)
+                if gap > 5:
+                    slow_chunks.append((chunks[k].get("seq"), gap))
+            
+            if slow_chunks:
+                print(f"  Slow Chunks Detected:")
+                for seq, gap in slow_chunks:
+                    print(f"    Entry [{seq}]: {gap:.1f}s gap")
+            
+            i = j
+        else:
+            i += 1
+
+
+def parse_entry_range(range_str: str) -> tuple[int, int]:
+    """Parse entry range string like '10-20' or '10:20'."""
+    separators = ['-', ':', '..']
+    for sep in separators:
+        if sep in range_str:
+            parts = range_str.split(sep)
+            if len(parts) == 2:
+                try:
+                    start = int(parts[0])
+                    end = int(parts[1])
+                    return (start, end)
+                except ValueError:
+                    pass
+    raise ValueError(f"Invalid range format: {range_str}. Use 'START-END' or 'START:END'")
+
+
+
 def print_entries(
     entries: list[dict[str, Any]],
     max_entries: int = 20,
@@ -225,15 +653,140 @@ def print_entries(
     verbose: bool = False,
     search_term: str | None = None,
     show_hex: bool = False,
+    entry_range: tuple[int, int] | None = None,
+    show_last: bool = False,
+    context_around: int | None = None,
+    context_size: int = 5,
+    jump_to_entry: int | None = None,
 ) -> None:
-    """Print individual entries."""
+    """Print individual entries with enhanced filtering options."""
     print()
     print("=" * 70)
     print("ENTRIES")
     print("=" * 70)
 
+    # Build filtered list first
+    filtered_entries = []
+    for e in entries:
+        if direction_filter is not None and e["dir"] != direction_filter:
+            continue
+        
+        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
+            continue
+
+        data = e.get("data", b"")
+        
+        # Search filter
+        if search_term:
+            term = search_term.lower()
+            data_str = safe_decode(data, len(data)).lower()
+            meta_str = str(e.get("meta", {})).lower()
+            
+            if term not in data_str and term not in meta_str:
+                continue
+
+        filtered_entries.append(e)
+
+    # Apply range/context/last/jump filters
+    display_entries = filtered_entries
+    
+    if jump_to_entry is not None:
+        # Find and show only this entry
+        target = [e for e in filtered_entries if e.get("seq") == jump_to_entry]
+        if target:
+            display_entries = target
+            print(f"Showing entry [{jump_to_entry}]")
+        else:
+            print(f"Warning: Entry [{jump_to_entry}] not found in filtered results")
+            display_entries = []
+    
+    elif context_around is not None:
+        # Find entry with this sequence number
+        target_idx = None
+        for idx, e in enumerate(filtered_entries):
+            if e.get("seq") == context_around:
+                target_idx = idx
+                break
+        
+        if target_idx is not None:
+            start_idx = max(0, target_idx - context_size)
+            end_idx = min(len(filtered_entries), target_idx + context_size + 1)
+            display_entries = filtered_entries[start_idx:end_idx]
+            print(f"Showing context around entry [{context_around}] ({context_size} before/after)")
+        else:
+            print(f"Warning: Entry [{context_around}] not found in filtered results")
+            display_entries = []
+    
+    elif entry_range is not None:
+        start_seq, end_seq = entry_range
+        display_entries = [
+            e for e in filtered_entries
+            if start_seq <= e.get("seq", -1) <= end_seq
+        ]
+        print(f"Showing entries [{start_seq}] to [{end_seq}]")
+    
+    elif show_last:
+        display_entries = filtered_entries[-max_entries:] if max_entries > 0 else filtered_entries
+        print(f"Showing last {len(display_entries)} entries")
+    
+    else:
+        # Default: first N entries
+        if max_entries > 0 and len(display_entries) > max_entries:
+            display_entries = display_entries[:max_entries]
+
+    # Display entries
+    for e in display_entries:
+        data = e.get("data", b"")
+        direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
+        seq = e.get("seq", "?")
+        ts = e.get("ts", 0)
+        ts_str = format_timestamp(ts)
+        backend = e.get("meta", {}).get("be", "")
+        backend_str = f" | backend={backend}" if backend else ""
+        session = e.get("meta", {}).get("sid", "")
+        session_str = f" | session={session[:8]}" if session else ""
+
+        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}{session_str}")
+
+        # Verbose metadata
+        if verbose:
+            meta = e.get("meta", {}).copy()
+            # Remove already shown fields
+            for key in ["be", "sid"]:
+                meta.pop(key, None)
+            if meta:
+                print("    Metadata:")
+                for k, v in meta.items():
+                    if isinstance(v, dict):
+                        print(f"      {k}:")
+                        for hk, hv in v.items():
+                            print(f"        {hk}: {hv}")
+                    else:
+                        print(f"      {k}: {v}")
+
+        if data:
+            if show_hex:
+                print("    Hex Dump:")
+                for line in hexdump(data[:max_data_length]):
+                    print(f"      {line}")
+                if len(data) > max_data_length:
+                    print(f"      ... ({len(data) - max_data_length} more bytes)")
+            else:
+                preview = safe_decode(data, max_data_length)
+                # Indent the preview
+                for line in preview.split("\n")[:5]:
+                    print(f"    {line}")
+                if len(data) > max_data_length:
+                    print(f"    ... ({len(data) - max_data_length} more bytes)")
+    
+    # Show summary of what was filtered out
+    if not show_last and not jump_to_entry and not context_around and not entry_range:
+        if max_entries > 0 and len(filtered_entries) > len(display_entries):
+            remaining = len(filtered_entries) - len(display_entries)
+            print(f"\n... and {remaining} more entries (use --last to see final entries)")
+
     count = 0
-    for i, e in enumerate(entries):
+    for i, e in enumerate(display_entries):
         if direction_filter is not None and e["dir"] != direction_filter:
             continue
         
@@ -611,6 +1164,70 @@ def main() -> int:
         action="store_true",
         help="Show hex dump of data instead of text preview",
     )
+    parser.add_argument(
+        "--last",
+        type=int,
+        metavar="N",
+        help="Show last N entries instead of first N",
+    )
+    parser.add_argument(
+        "--range",
+        "-r",
+        metavar="START-END",
+        help="Show entries in range (e.g., --range 80-98)",
+    )
+    parser.add_argument(
+        "--around",
+        type=int,
+        metavar="ENTRY",
+        help="Show entries around this entry number",
+    )
+    parser.add_argument(
+        "--context",
+        "-c",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Context size for --around (default: 5)",
+    )
+    parser.add_argument(
+        "--entry",
+        type=int,
+        metavar="N",
+        help="Jump directly to entry N",
+    )
+    parser.add_argument(
+        "--timeline",
+        "-t",
+        action="store_true",
+        help="Show timeline view with timing gaps",
+    )
+    parser.add_argument(
+        "--detect-issues",
+        action="store_true",
+        help="Automatically detect and report issues",
+    )
+    parser.add_argument(
+        "--group-by-session",
+        action="store_true",
+        help="Group entries by session ID",
+    )
+    parser.add_argument(
+        "--track-request",
+        type=int,
+        metavar="N",
+        help="Track request N through the system",
+    )
+    parser.add_argument(
+        "--analyze-streaming",
+        action="store_true",
+        help="Analyze streaming performance",
+    )
+    parser.add_argument(
+        "--session-id",
+        metavar="SID",
+        help="Filter by specific session ID",
+    )
 
     args = parser.parse_args()
 
@@ -673,10 +1290,59 @@ def main() -> int:
         }
         direction_filter = direction_map[args.direction]
 
+    # Apply session filter if specified
+    if args.session_id:
+        entries = [e for e in entries if e.get("meta", {}).get("sid") == args.session_id]
+        if not entries:
+            print(f"No entries found for session ID: {args.session_id}", file=sys.stderr)
+            return 1
+        print(f"Filtered to session: {args.session_id}")
+        print()
+
+    # Parse range if specified
+    entry_range = None
+    if args.range:
+        try:
+            entry_range = parse_entry_range(args.range)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    # Handle timeline view
+    if args.timeline:
+        print_timeline(entries, backend_filter=backend_filter)
+
+    # Handle issue detection
+    if args.detect_issues:
+        issues = detect_issues(entries)
+        print_issues_summary(issues)
+
+    # Handle session grouping
+    if args.group_by_session:
+        group_by_session(entries)
+
+    # Handle request tracking
+    if args.track_request:
+        track_request(entries, args.track_request, backend_filter=backend_filter)
+
+    # Handle streaming analysis
+    if args.analyze_streaming:
+        analyze_streaming(entries, backend_filter=backend_filter)
+
     # Print entries if requested or if search is active
-    if args.entries > 0 or args.search:
-        # If search is active but entries not specified, default to showing all matches
-        max_entries = args.entries if args.entries > 0 else len(entries)
+    show_entries = (args.entries > 0 or args.search or args.last or args.range or 
+                    args.around or args.entry)
+    
+    if show_entries:
+        # Determine max_entries
+        if args.last:
+            max_entries = args.last
+        elif args.entries > 0:
+            max_entries = args.entries
+        elif args.search:
+            max_entries = len(entries)  # Show all matches
+        else:
+            max_entries = 20  # Default
         
         print_entries(
             entries,
@@ -687,6 +1353,11 @@ def main() -> int:
             verbose=args.verbose,
             search_term=args.search,
             show_hex=args.hex,
+            entry_range=entry_range,
+            show_last=args.last is not None,
+            context_around=args.around,
+            context_size=args.context,
+            jump_to_entry=args.entry,
         )
 
     # Analyze if requested
