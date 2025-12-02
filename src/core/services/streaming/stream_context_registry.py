@@ -51,12 +51,30 @@ class JsonRepairBufferState:
 
 
 @dataclass
+class VTCBufferState:
+    """VTC (Virtual Tool Calling) buffer state for XML tool call processing.
+
+    This state is used by VTC pre/post processors to:
+    - Buffer streaming content until complete XML patterns are detected
+    - Track extracted tool calls for the core pipeline
+    - Store allowed tools whitelist for filtering
+    """
+
+    pending_text: str = ""
+    extracted_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    allowed_tools: list[str] | None = None
+    vtc_enabled: bool = False
+    last_accessed: float = field(default_factory=time.time)
+
+
+@dataclass
 class StreamContextState:
     """Composite state shared across streaming processors."""
 
     content: StreamBufferState = field(default_factory=StreamBufferState)
     tool_calls: ToolCallBufferState = field(default_factory=ToolCallBufferState)
     json_repair: JsonRepairBufferState = field(default_factory=JsonRepairBufferState)
+    vtc: VTCBufferState = field(default_factory=VTCBufferState)
     execute_fragments: dict[str, str] = field(default_factory=dict)
     last_accessed: float = field(default_factory=time.time)
 
@@ -88,6 +106,22 @@ class StreamingContextRegistry:
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             return state.json_repair
+
+    def get_vtc_buffer(self, stream_id: str) -> VTCBufferState:
+        """Get the VTC buffer state for a stream.
+
+        Args:
+            stream_id: The stream identifier.
+
+        Returns:
+            VTCBufferState for the stream.
+        """
+        with self._lock:
+            state = self._get_state(stream_id)
+            now = time.time()
+            state.last_accessed = now
+            state.vtc.last_accessed = now
+            return state.vtc
 
     def get_stream_state(self, stream_id: str) -> StreamContextState:
         with self._lock:
@@ -133,6 +167,19 @@ class StreamingContextRegistry:
             if state is None:
                 return
             state.json_repair = JsonRepairBufferState()
+            self._maybe_drop_stream(stream_id, state)
+
+    def clear_vtc_buffer(self, stream_id: str) -> None:
+        """Clear the VTC buffer state for a stream.
+
+        Args:
+            stream_id: The stream identifier.
+        """
+        with self._lock:
+            state = self._states.get(stream_id)
+            if state is None:
+                return
+            state.vtc = VTCBufferState()
             self._maybe_drop_stream(stream_id, state)
 
     def clear_fragment(self, stream_id: str, namespace: str) -> None:
@@ -183,6 +230,8 @@ class StreamingContextRegistry:
             self._is_content_empty(state.content)
             and state.tool_calls.pending_text == ""
             and not state.json_repair.json_started
+            and state.vtc.pending_text == ""
+            and not state.vtc.extracted_tool_calls
             and not state.execute_fragments
         ):
             self._states.pop(stream_id, None)

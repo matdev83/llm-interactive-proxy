@@ -85,31 +85,34 @@ async def test_content_accumulation_preserves_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_call_repair_isolates_parallel_streams() -> None:
+async def test_tool_call_repair_passes_through_content() -> None:
+    """Test that ToolCallRepairProcessor passes content through unchanged.
+
+    Virtual tool call detection has been disabled. The processor should
+    pass content through without modification.
+    """
     repair_processor = ToolCallRepairProcessor(ToolCallRepairService())
     normalizer = StreamNormalizer([repair_processor])
 
-    async def run_stream(name: str) -> dict[str, Any]:
+    async def run_stream(name: str) -> str:
         async def stream() -> AsyncGenerator[str, None]:
             await asyncio.sleep(0)
             yield f'TOOL CALL: {name} {{"arg": 1}}'
             await asyncio.sleep(0)
             yield "data: [DONE]\n\n"
 
-        tool_calls: list[dict[str, Any]] = []
+        content_parts: list[str] = []
         async for item in normalizer.process_stream(stream(), output_format="objects"):
             streaming_chunk = cast(StreamingContent, item)
-            # Check for tool calls in metadata, not content
-            item_tool_calls = streaming_chunk.metadata.get("tool_calls")
-            if isinstance(item_tool_calls, list):
-                tool_calls.extend(item_tool_calls)
-        assert tool_calls, "Expected repaired tool call"
-        return tool_calls[-1]
+            if isinstance(streaming_chunk.content, str):
+                content_parts.append(streaming_chunk.content)
+        return "".join(content_parts)
 
     first, second = await asyncio.gather(run_stream("first"), run_stream("second"))
 
-    assert first["function"]["name"] == "first"
-    assert second["function"]["name"] == "second"
+    # Content passes through unchanged (no tool call detection)
+    assert "TOOL CALL: first" in first
+    assert "TOOL CALL: second" in second
 
 
 @pytest.mark.asyncio

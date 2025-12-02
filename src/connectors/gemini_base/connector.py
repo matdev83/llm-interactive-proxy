@@ -645,6 +645,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if isinstance(error_detail, dict):
                 error_message = error_detail.get("error", {}).get("message", "")
 
+            # Handle Authentication Errors (401)
+            if response.status_code == 401:
+                logger.warning(
+                    "Authentication failed for backend %s: %s",
+                    self.name,
+                    error_message,
+                )
+                raise AuthenticationError(
+                    message=f"Code Assist API authentication failed: {error_message}",
+                    details={"error": error_detail},
+                )
+
             message_lower = error_message.lower()
             is_quota_error = (
                 response.status_code == 429
@@ -1477,6 +1489,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             original_model=model_name,
                             request_data=request_data,
                             processed_messages=processed_messages,
+                            error=e,
                             **kwargs,
                         )
                     else:
@@ -2103,10 +2116,25 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         if response.status_code == 429:
                             if self._degradation_config.enabled:
                                 try:
+                                    # Parse error details for retry delay extraction
+                                    try:
+                                        error_detail = response.json()
+                                    except Exception:
+                                        error_detail = response.text
+                                        
+                                    # Create a temporary error object to pass details
+                                    quota_error = BackendError(
+                                        message="Rate limit exceeded",
+                                        code="rate_limit_exceeded",
+                                        status_code=429,
+                                        details=error_detail if isinstance(error_detail, dict) else {"raw": error_detail}
+                                    )
+                                    
                                     fallback_response = await self._handle_429_with_graceful_degradation(
                                         original_model=effective_model,
                                         request_data=request_data,
                                         processed_messages=processed_messages,
+                                        error=quota_error,
                                         **kwargs,
                                     )
                                 except BackendError:
@@ -3266,6 +3294,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             logger.debug(f"Model {model} probe {state.probe_success_count}/2 succeeded")
 
+        except AuthenticationError as auth_err:
+            state.probe_success_count = 0
+            # Auth errors are likely permanent until manual intervention or file update
+            logger.warning(
+                "Model %s recovery probe failed due to authentication error: %s. "
+                "Checking credentials...",
+                model,
+                auth_err,
+            )
+            # Trigger a credential check/reload if possible
+            asyncio.create_task(self._handle_credentials_file_change())
         except BackendError as error:
             state.probe_success_count = 0
             log_message = (
@@ -3290,6 +3329,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         original_model: str,
         request_data: Any,
         processed_messages: list[Any],
+        error: BackendError | None = None,
         _in_graceful_degradation: bool = False,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
@@ -3351,6 +3391,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 self._model_retry_states[model] = ModelRetryState()
 
             state = self._model_retry_states[model]
+            
+            # Check if the initial error dictates a long cooldown for the original model
+            # This prevents "spamming" the API when it has already told us to wait
+            if model == original_model and error and self._is_rate_limit_like_error(error):
+                retry_delay = self._extract_retry_delay(error)
+                # If delay is significant (e.g. > 10s), respect it immediately
+                # For short delays (e.g. 1s), we might still attempt retries with backoff
+                if retry_delay and retry_delay > 10.0:
+                    self._set_cooldown(model, duration=retry_delay)
+                    logger.warning(
+                        "Model %s returned 429 with long retry delay (%.1fs); skipping retries and setting cooldown.",
+                        model,
+                        retry_delay,
+                    )
+                    # Skip retries for this model, proceed to fallback
+                    continue
 
             # If model is in cooldown, try to recover it first
             if self._is_in_cooldown(model):

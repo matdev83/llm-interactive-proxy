@@ -1,0 +1,120 @@
+from src.core.domain.translation import Translation
+
+
+class TestGeminiSchemaSanitization:
+    """Tests for Gemini Code Assist tool schema sanitization."""
+
+    def test_sanitize_removes_schema_field(self):
+        """Test that the $schema field is removed from the schema."""
+        schema = {
+            "type": "object",
+            "properties": {"foo": {"type": "string"}},
+            "$schema": "http://json-schema.org/draft-07/schema#",
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        assert "$schema" not in cleaned
+        assert cleaned["type"] == "object"
+        assert "foo" in cleaned["properties"]
+
+    def test_sanitize_converts_tuple_items_to_empty_schema(self):
+        """Test that array items with tuple validation are converted to empty schema."""
+        # This was the specific issue causing 400 INVALID_ARGUMENT
+        schema = {
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "content": {"type": "string"},
+                                "status": {"type": "string"},
+                            },
+                            "required": ["content", "status"],
+                            "additionalProperties": False,
+                        },
+                        {"type": "string"},
+                    ],
+                    "description": "The updated todo list",
+                }
+            },
+            "required": ["todos"],
+            "additionalProperties": False,
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        todos_prop = cleaned["properties"]["todos"]
+        assert todos_prop["type"] == "array"
+        assert "items" in todos_prop
+
+        # Verify conversion to empty schema {} (allow anything)
+        items = todos_prop["items"]
+        assert items == {}
+        assert "anyOf" not in items
+
+    def test_sanitize_preserves_standard_items(self):
+        """Test that standard homogeneous array items are preserved."""
+        schema = {
+            "type": "object",
+            "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        tags_prop = cleaned["properties"]["tags"]
+        assert tags_prop["type"] == "array"
+        assert isinstance(tags_prop["items"], dict)
+        assert tags_prop["items"]["type"] == "string"
+        assert "anyOf" not in tags_prop["items"]
+
+    def test_sanitize_nested_tuple_items(self):
+        """Test that nested tuple items are also converted to empty schema."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "matrix": {
+                    "type": "array",
+                    "items": [
+                        {
+                            "type": "array",
+                            "items": [{"type": "string"}, {"type": "integer"}],
+                        }
+                    ],
+                }
+            },
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        matrix_prop = cleaned["properties"]["matrix"]
+        # Outer array was a tuple [array], so it becomes empty schema
+        assert matrix_prop["items"] == {}
+
+    def test_sanitize_flattens_unions(self):
+        """Test that anyOf/oneOf unions are flattened by picking the first option."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "union_field": {
+                    "anyOf": [
+                        {"type": "string", "description": "A string option"},
+                        {"type": "integer", "description": "An integer option"},
+                    ],
+                    "description": "A union field",
+                }
+            },
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+        field = cleaned["properties"]["union_field"]
+
+        # Should have picked the first option (string)
+        assert field["type"] == "string"
+        # Should preserve description from the union container
+        assert field["description"] == "A union field"
+        # Should NOT have anyOf
+        assert "anyOf" not in field

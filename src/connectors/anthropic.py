@@ -225,6 +225,7 @@ class AnthropicBackend(LLMBackend):
                     enable_think_tags=True,
                     prompt_tokens=prompt_tokens,
                     model_name=effective_model,
+                    vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
                 )
             except AuthenticationError:
                 raise

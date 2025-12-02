@@ -96,14 +96,16 @@ The core proxy orchestrates all request processing through a pipeline of middlew
 
 #### Response Processing Pipeline
 
-1. **Response Translation**: Converts backend responses to client-expected format
-2. **Content Filtering**: Removes [think tags](../user_guide/features/think-tags-fix.md), applies content transformations
-3. **Tool Call Validation**: Validates and repairs tool calls
-4. **Loop Detection**: Monitors for repetitive patterns
-5. **Assessment**: Optionally evaluates [conversation quality](../user_guide/features/llm-assessment.md)
-6. **Angel Verification**: Optionally [verifies response quality](../user_guide/features/angel-verification.md)
-7. **Response Formatting**: Formats response for client protocol
-8. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
+1. **VTC Pre-Processing**: For [Virtual Tool Calling](./vtc-architecture.md) clients, extracts XML tool calls to internal format
+2. **Response Translation**: Converts backend responses to client-expected format
+3. **Content Filtering**: Removes [think tags](../user_guide/features/think-tags-fix.md), applies content transformations
+4. **Tool Call Validation**: Validates and repairs tool calls
+5. **Loop Detection**: Monitors for repetitive patterns
+6. **Assessment**: Optionally evaluates [conversation quality](../user_guide/features/llm-assessment.md)
+7. **Angel Verification**: Optionally [verifies response quality](../user_guide/features/angel-verification.md)
+8. **VTC Post-Processing**: For [VTC clients](./vtc-architecture.md), converts tool calls back to XML format
+9. **Response Formatting**: Formats response for client protocol
+10. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
 
 ### 3. Backend Connector Layer
 
@@ -130,6 +132,7 @@ The service layer provides cross-cutting functionality:
 - **Angel Verification Service**: Verifies [individual responses for errors and issues](../user_guide/features/angel-verification.md)
 - **Loop Detection Service**: Identifies repetitive tool calls and cognitive loops
 - **Tool Call Reactor**: Manages [tool call lifecycle, validation, and access control](../user_guide/features/tool-access-control.md)
+- **VTC Processing**: Handles [Virtual Tool Calling](./vtc-architecture.md) for Cline-like clients using XML-based tool calls
 - **Session Management**: Tracks [conversation state and metadata](../user_guide/features/session-management.md)
 - **Performance Tracking**: Monitors latency, token usage, and costs
 
@@ -347,6 +350,7 @@ The proxy provides comprehensive observability:
 For detailed information on specific aspects of the architecture:
 
 - **Code Organization**: See [code-organization.md](code-organization.md) for detailed module structure
+- **VTC Architecture**: See [vtc-architecture.md](vtc-architecture.md) for Virtual Tool Calling subsystem
 - **Building**: See [building.md](building.md) for build and dependency management
 - **Testing**: See [testing.md](testing.md) for testing architecture and strategies
 - **Adding Features**: See [adding-features.md](adding-features.md) for feature development guidelines

@@ -6,6 +6,7 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 
 - **[Architecture](./architecture.md)** - System architecture, design patterns, and component overview
 - **[Code Organization](./code-organization.md)** - Directory structure, module organization, and key components
+- **[VTC Architecture](./vtc-architecture.md)** - Virtual Tool Calling subsystem for Cline-like clients
 
 ## Building & Setup
 

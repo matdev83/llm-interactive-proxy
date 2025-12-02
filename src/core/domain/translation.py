@@ -2359,6 +2359,10 @@ class Translation(BaseTranslator):
                         function_call_part: dict[str, Any] = {
                             "functionCall": {"name": fn, "args": args_val}
                         }
+                        
+                        # Preserve tool call ID if present (needed for Claude via Antigravity)
+                        if "id" in tc_dict:
+                            function_call_part["functionCall"]["id"] = tc_dict["id"]
 
                         # Preserve thoughtSignature if present in extra_content
                         # This is required for Gemini API multi-turn conversations
@@ -2460,9 +2464,15 @@ class Translation(BaseTranslator):
                     else:
                         resp_obj = {"text": str(val)}
 
-                    parts.append(
-                        {"functionResponse": {"name": name, "response": resp_obj}}
-                    )
+                    # Build functionResponse part
+                    function_response = {"name": name, "response": resp_obj}
+                    
+                    # Preserve tool_call_id for Claude via Antigravity
+                    # Antigravity needs this to map functionResponse back to tool_use_id
+                    if tool_call_id:
+                        function_response["id"] = tool_call_id
+                    
+                    parts.append({"functionResponse": function_response})
 
                 # Skip the tool messages we just processed
                 i = j - 1
@@ -2592,6 +2602,12 @@ class Translation(BaseTranslator):
                             {"role": "user", "parts": [{"text": schema_context}]}
                         )
 
+        import logging
+
+        logger = logging.getLogger(__name__)
+        if "tools" in result:
+            logger.warning(f"Translation produced tools: {str(result['tools'])[:500]}")
+
         return result
 
     @staticmethod
@@ -2641,6 +2657,13 @@ class Translation(BaseTranslator):
             "uniqueItems",
             "minProperties",  # Object constraints may cause issues
             "maxProperties",
+            "allOf",  # Complex composition not supported
+            "anyOf",  # Unions not supported in function parameters
+            "oneOf",  # Unions not supported in function parameters
+            "not",  # Negation not supported
+            "if",  # Conditional logic not supported
+            "then",
+            "else",
             # OpenAI-specific extensions
             "strict",  # OpenAI-specific, not standard JSON Schema
             # Other potentially problematic fields
@@ -2658,9 +2681,59 @@ class Translation(BaseTranslator):
         def _clean(obj: Any) -> Any:
             if isinstance(obj, dict):
                 cleaned: dict[str, Any] = {}
+
+                # Handle type list (e.g. ["string", "null"]) which is valid in JSON Schema 2020-12
+                # but may not be supported by Gemini/Claude via Vertex AI
+                type_value = obj.get("type")
+                if isinstance(type_value, list):
+                    # Filter out null
+                    non_null_types = [t for t in type_value if t != "null"]
+                    has_null = "null" in type_value
+
+                    if non_null_types:
+                        # Use the first non-null type
+                        cleaned["type"] = non_null_types[0]
+                    else:
+                        # Default to string if only null or empty
+                        cleaned["type"] = "string"
+
+                    if has_null:
+                        cleaned["nullable"] = True
+
+                # Handle Union types (anyOf, oneOf) by picking the first option
+                # This simplifies complex schemas (like Union[List, str]) into a single type
+                # which is more likely to be accepted by the API.
+                for key in ["anyOf", "oneOf"]:
+                    if key in obj and isinstance(obj[key], list) and obj[key]:
+                        # Pick the first option and merge it
+                        # We recursively clean the option first
+                        first_option = _clean(obj[key][0])
+                        if isinstance(first_option, dict):
+                            # Update cleaned with the first option's properties
+                            # This establishes the base type/structure
+                            cleaned.update(first_option)
+                        # Stop after the first match to avoid conflicts
+                        break
+
                 for k, v in obj.items():
                     if k in blacklist:
                         continue
+
+                    # Skip type if we already handled it (as a list)
+                    if k == "type" and isinstance(v, list):
+                        continue
+
+                    # Skip anyOf/oneOf as we handled them above (or they are blacklisted)
+                    if k in ["anyOf", "oneOf"]:
+                        continue
+
+                    # Handle items array (tuple validation) -> empty schema
+                    # JSON Schema 2020-12 requires 'items' to be a schema, not an array.
+                    # Since we can't use anyOf/oneOf, we use an empty schema {} which allows anything.
+                    if k == "items" and isinstance(v, list):
+                        cleaned[k] = {}
+                        continue
+
                     cleaned[k] = _clean(v)
                 return cleaned
             if isinstance(obj, list):

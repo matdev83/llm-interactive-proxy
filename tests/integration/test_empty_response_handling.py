@@ -53,6 +53,7 @@ class TestEmptyResponseHandlingIntegration:
             state=MagicMock(
                 backend_config=MagicMock(backend_type="test", model="test-model"),
                 project=None,
+                vtc_enabled=False,  # Disable VTC to prevent request modification
             ),
         )
         session_manager.update_session_agent.return_value = MagicMock(
@@ -62,6 +63,7 @@ class TestEmptyResponseHandlingIntegration:
             state=MagicMock(
                 backend_config=MagicMock(backend_type="test", model="test-model"),
                 project=None,
+                vtc_enabled=False,  # Disable VTC to prevent request modification
             ),
         )
 

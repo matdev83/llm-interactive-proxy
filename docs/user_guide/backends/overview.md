@@ -24,7 +24,9 @@ The proxy supports the following backend providers out of the box:
 | `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-specific workflows |
 | `minimax` | Minimax | API Key | Minimax AI models |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
+| `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `hybrid` | Virtual (orchestrates two models) | Inherits from sub-backends | Two-phase reasoning + execution |
+| `gemini-oauth-antigravity` | Google Gemini (Antigravity) | Antigravity Token | Internal debugging (Gemini models) |
 
 ## Front-End APIs
 

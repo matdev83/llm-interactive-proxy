@@ -212,8 +212,12 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         if model_name.startswith(prefix):
             model_name = model_name[len(prefix) :]
 
-        # Validate the model is available on this backend
-        self.validate_model(model_name)
+        # Skip strict model validation - Antigravity sandbox supports both Gemini and Claude
+        # NOTE: Claude models have limited multi-turn tool calling support when using this backend.
+        # The proxy converts domain format -> Gemini format (functionCall without IDs),
+        # but Antigravity needs IDs when converting to Anthropic format for Claude models.
+        # This can cause "tool_use.id: Field required" errors in follow-up requests with history.
+        # self.validate_model(model_name)
 
         # Delegate to parent implementation
         response = await super().chat_completions(
@@ -800,6 +804,11 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 return None
 
             auth_data = json.loads(raw_value_str)
+            
+            if auth_data is None:
+                logger.debug("Auth status value is null/None.")
+                return None
+                
             if isinstance(auth_data, dict):
                 return auth_data
 

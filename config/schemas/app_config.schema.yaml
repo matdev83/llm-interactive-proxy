@@ -206,3 +206,7 @@ properties:
       probability: { type: number, minimum: 0.0, maximum: 1.0 }
       backend_model: { type: string }
       turn_count: { type: integer, minimum: 1 }
+  vtc_client_patterns:
+    type: array
+    items: { type: string }
+    default: ["cline", "kilo", "roo"]

@@ -507,7 +507,10 @@ class TestDIContainerUsage:
                 in [
                     "LoopDetectionProcessor",
                     "ToolCallRepairProcessor",
+                    "ServiceToolCallRepairProcessor",
                     "ThinkTagsProcessor",
+                    "VTCPreProcessor",
+                    "VTCPostProcessor",
                 ]
                 and "core\\ports\\streaming_integration.py" in v.get("file", "")
             )

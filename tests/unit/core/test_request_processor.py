@@ -1222,8 +1222,8 @@ async def test_process_request_with_commands(
 
 
 @pytest.mark.asyncio
-async def test_command_only_path_records_sanitized_prompt() -> None:
-    """Command-only responses should log sanitized prompts in session history."""
+async def test_command_only_path_records_full_prompt() -> None:
+    """Command-only responses should log full prompts in session history (no sanitization)."""
 
     command_processor = MockCommandProcessor()
     session_manager = AsyncMock()
@@ -1235,9 +1235,9 @@ async def test_command_only_path_records_sanitized_prompt() -> None:
     session_manager.get_session.return_value = session
     session_manager.update_session_agent.return_value = session
 
-    noisy_prompt = "<environment_details>dbg</environment_details>\nActual task"
+    full_prompt = "<environment_details>dbg</environment_details>\nActual task"
     request_data = create_mock_request(
-        messages=[ChatMessage(role="user", content=noisy_prompt)]
+        messages=[ChatMessage(role="user", content=full_prompt)]
     )
 
     command_processor.add_result(
@@ -1266,12 +1266,13 @@ async def test_command_only_path_records_sanitized_prompt() -> None:
     session_manager.record_command_in_session.assert_called_once()
     recorded_request = session_manager.record_command_in_session.call_args[0][0]
     recorded_content = recorded_request.messages[0].content
-    assert recorded_content == "Actual task"
+    # Full prompt should be preserved (no sanitization)
+    assert recorded_content == full_prompt
 
 
 @pytest.mark.asyncio
-async def test_backend_request_receives_sanitized_messages() -> None:
-    """Backend requests should be prepared with sanitized user prompts."""
+async def test_backend_request_receives_full_messages() -> None:
+    """Backend requests should be prepared with full user prompts (no sanitization)."""
 
     command_processor = MockCommandProcessor()
     session_manager = AsyncMock()
@@ -1283,9 +1284,9 @@ async def test_backend_request_receives_sanitized_messages() -> None:
     session_manager.get_session.return_value = session
     session_manager.update_session_agent.return_value = session
 
-    noisy_prompt = "<environment_details>dbg</environment_details>\nActual task"
+    full_prompt = "<environment_details>dbg</environment_details>\nActual task"
     request_data = create_mock_request(
-        messages=[ChatMessage(role="user", content=noisy_prompt)]
+        messages=[ChatMessage(role="user", content=full_prompt)]
     )
 
     command_processor.add_result(
@@ -1313,7 +1314,8 @@ async def test_backend_request_receives_sanitized_messages() -> None:
 
     prepared_request = backend_request_manager.prepare_backend_request.call_args[0][0]
     prepared_content = prepared_request.messages[0].content
-    assert prepared_content == "Actual task"
+    # Full prompt should be preserved (no sanitization)
+    assert prepared_content == full_prompt
 
 
 @pytest.mark.asyncio

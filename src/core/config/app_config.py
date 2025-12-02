@@ -938,6 +938,12 @@ class AppConfig(DomainModel, IConfig):
     # Replacement settings
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
 
+    # Virtual Tool Calling (VTC) client detection patterns
+    # Case-insensitive substring matching against User-Agent header
+    vtc_client_patterns: list[str] = Field(
+        default_factory=lambda: ["cline", "kilo", "roo"]
+    )
+
     # FastAPI app instance
     app: Any = None
 
@@ -983,6 +989,7 @@ class AppConfig(DomainModel, IConfig):
             "sandboxing",
             "codebuff",
             "replacement",
+            "vtc_client_patterns",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
         # Ensure nested sections only include serializable primitives

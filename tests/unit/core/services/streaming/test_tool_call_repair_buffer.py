@@ -1,8 +1,9 @@
-"""Tests for tool call repair processor buffer handling.
+"""Tests for tool call repair processor pass-through behavior.
 
-This test module verifies that the buffer handling in ToolCallRepairProcessor
-correctly handles large tool calls and avoids corrupting tool calls when
-the buffer needs to be flushed.
+DESIGN DECISION: Virtual tool call detection has been DISABLED.
+The processor now passes content through unchanged (no buffering).
+
+These tests verify the pass-through behavior.
 """
 
 import pytest
@@ -16,7 +17,7 @@ from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 @pytest.fixture
 def repair_service() -> ToolCallRepairService:
-    return ToolCallRepairService(max_buffer_bytes=1024)  # Small buffer for testing
+    return ToolCallRepairService(max_buffer_bytes=1024)
 
 
 @pytest.fixture
@@ -33,251 +34,78 @@ def processor(
     )
 
 
-class TestBufferHandlingWithToolCalls:
-    """Test buffer flushing behavior with tool calls."""
+class TestPassThroughBehavior:
+    """Test that processor passes content through unchanged."""
 
     @pytest.mark.asyncio
-    async def test_small_tool_call_not_affected_by_buffer(
+    async def test_content_passes_through_unchanged(
         self, processor: ToolCallRepairProcessor
     ) -> None:
-        """Small tool calls should be processed normally."""
+        """Content should pass through without modification."""
         content = StreamingContent(
             content="<read_file><path>test.py</path></read_file>",
             is_done=True,
             metadata={"session_id": "test-session"},
         )
         result = await processor.process(content)
-        assert result is not None
-        # Tool call should be detected
-        assert "tool_calls" in result.metadata or result.content
+
+        # Content unchanged
+        assert result.content == content.content
+        # No tool_calls added (detection disabled)
+        assert result.metadata.get("tool_calls") is None
 
     @pytest.mark.asyncio
-    async def test_buffer_trim_respects_unclosed_tool_tag(
+    async def test_streaming_chunks_pass_through_immediately(
         self, processor: ToolCallRepairProcessor
     ) -> None:
-        """Buffer should not be flushed mid-tool-call when tag is unclosed."""
-        # Create a large content that would normally trigger buffer flush
-        # but contains an unclosed tool tag
-        large_prefix = "x" * 500  # 500 chars of content before tool
-        tool_start = "<read_file><path>very/long/path/to/file.py</path>"
-
-        content1 = StreamingContent(
-            content=large_prefix + tool_start,
+        """Streaming chunks should pass through immediately (no buffering)."""
+        chunk1 = StreamingContent(
+            content="<read_file>",
             is_done=False,
             metadata={"session_id": "test-session"},
         )
-        result1 = await processor.process(content1)
-
-        # Buffer should try to keep the unclosed tool tag together
-        # The result might have some prefix flushed but not the tool tag content
-        if result1.content:
-            # If content was flushed, it should not contain partial tool XML
-            assert (
-                "</read_file>" not in result1.content
-                or "<read_file>" in result1.content
-            )
-
-    @pytest.mark.asyncio
-    async def test_complete_tool_call_after_buffer_flush(
-        self, processor: ToolCallRepairProcessor
-    ) -> None:
-        """Tool call should be correctly parsed even after buffer flush."""
-        # Send content in chunks to simulate streaming
-        session_id = "test-session-complete"
-
-        # First chunk: some text
-        content1 = StreamingContent(
-            content="Processing file...\n",
-            is_done=False,
-            metadata={"session_id": session_id},
-        )
-        await processor.process(content1)
-
-        # Second chunk: start of tool call
-        content2 = StreamingContent(
-            content="<execute_command><command>ls -la</command>",
-            is_done=False,
-            metadata={"session_id": session_id},
-        )
-        await processor.process(content2)
-
-        # Third chunk: end of tool call
-        content3 = StreamingContent(
-            content="</execute_command>",
-            is_done=True,
-            metadata={"session_id": session_id},
-        )
-        result3 = await processor.process(content3)
-
-        # Tool call should be detected in the final chunk
-        assert result3 is not None
-        # Either tool_calls in metadata or content contains the tool XML
-        has_tool_call = (
-            "tool_calls" in result3.metadata or "<execute_command>" in result3.content
-        )
-        assert has_tool_call
-
-    @pytest.mark.asyncio
-    async def test_passthrough_when_tool_calls_already_present(
-        self, processor: ToolCallRepairProcessor
-    ) -> None:
-        """If backend already supplies tool_calls metadata, repair should not modify content."""
-        original = StreamingContent(
-            content="unchanged",
-            metadata={
-                "session_id": "skip-repair",
-                "tool_calls": [
-                    {"id": "call_1", "type": "function", "function": {"name": "x"}}
-                ],
-            },
-        )
-        processed = await processor.process(original)
-        assert processed is original or processed.content == "unchanged"
-        assert processed.metadata.get("tool_calls")
-
-    @pytest.mark.asyncio
-    async def test_openai_chunk_apply_diff_not_truncated(
-        self, processor: ToolCallRepairProcessor
-    ) -> None:
-        """OpenAI-style chunk dictionaries should keep full apply_diff text."""
-        session_id = "apply-diff-openai-chunk"
-        stream_id = "chatcmpl-openai-chunk"
-
-        # First chunk mirrors the backend delta payload (dict with choices/delta/content)
-        chunk1 = StreamingContent(
-            content={
-                "id": stream_id,
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "gpt-test",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": "<apply_diff>"},
-                        "finish_reason": None,
-                    }
-                ],
-            },
-            is_done=False,
-            metadata={"session_id": session_id},
-        )
-        await processor.process(chunk1)
-
-        diff_body = """<args>
-  <file>
-    <path>src/example.py</path>
-    <diff>
-      <content><![CDATA[
-<<<<<<< SEARCH
-old
-=======
-new
->>>>>>> REPLACE
-]]></content>
-    </diff>
-  </file>
-</args>
-</apply_diff>"""
-
         chunk2 = StreamingContent(
-            content={
-                "id": stream_id,
-                "object": "chat.completion.chunk",
-                "created": 1,
-                "model": "gpt-test",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": diff_body},
-                        "finish_reason": None,
-                    }
-                ],
+            content="<path>test.py</path>",
+            is_done=False,
+            metadata={"session_id": "test-session"},
+        )
+        chunk3 = StreamingContent(
+            content="</read_file>",
+            is_done=True,
+            metadata={"session_id": "test-session"},
+        )
+
+        result1 = await processor.process(chunk1)
+        result2 = await processor.process(chunk2)
+        result3 = await processor.process(chunk3)
+
+        # All chunks pass through immediately
+        assert result1.content == "<read_file>"
+        assert result2.content == "<path>test.py</path>"
+        assert result3.content == "</read_file>"
+
+    @pytest.mark.asyncio
+    async def test_native_tool_calls_preserved(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Native tool_calls in metadata are preserved."""
+        native_call = {
+            "id": "call_123",
+            "type": "function",
+            "function": {"name": "read_file", "arguments": '{"path": "test.py"}'},
+        }
+        content = StreamingContent(
+            content="",
+            is_done=True,
+            metadata={
+                "session_id": "test-session",
+                "tool_calls": [native_call],
+                "finish_reason": "tool_calls",
             },
-            is_done=True,
-            metadata={"session_id": session_id},
-        )
-
-        final_chunk = await processor.process(chunk2)
-        assert final_chunk is not None
-        assert "<apply_diff>" in final_chunk.content
-        assert "src/example.py" in final_chunk.content
-        tool_calls = final_chunk.metadata.get("tool_calls", [])
-        assert tool_calls
-        assert tool_calls[0]["function"]["name"] == "apply_diff"
-
-
-class TestToolCallMarkerDetection:
-    """Test that dynamic tool markers are protected without hardcoded lists."""
-
-    @pytest.mark.asyncio
-    async def test_dynamic_marker_from_allowed_tools_is_preserved(
-        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
-    ) -> None:
-        session_id = "marker-dynamic"
-        registry.get_tool_call_buffer(session_id).allowed_tools = ["custom_tool"]
-
-        content = StreamingContent(
-            content="prefix <custom_tool><arg>1",
-            is_done=False,
-            metadata={"session_id": session_id},
-        )
-        result = await processor.process(content)
-        assert result is not None
-        assert not result.metadata.get("tool_calls")
-
-        closing = StreamingContent(
-            content="</arg></custom_tool>",
-            is_done=True,
-            metadata={"session_id": session_id},
-        )
-        final = await processor.process(closing)
-        calls = final.metadata.get("tool_calls") if final.metadata else None
-        assert calls and calls[0]["function"]["name"] == "custom_tool"
-
-    @pytest.mark.asyncio
-    async def test_think_tags_are_not_tracked_as_tool_markers(
-        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
-    ) -> None:
-        """Ensure think/thought tags do not block streaming flush when no tools allowed."""
-        session_id = "think-ignore"
-        content = StreamingContent(
-            content="<think>reasoning</think>response",
-            is_done=False,
-            metadata={"session_id": session_id},
-        )
-        await processor.process(content)
-
-        buffer_state = registry.get_tool_call_buffer(session_id)
-        assert "think" not in buffer_state.tracked_tags
-
-
-class TestLargeToolCallHandling:
-    """Test handling of very large tool calls (e.g., large file edits)."""
-
-    @pytest.mark.asyncio
-    async def test_large_patch_file_not_corrupted(
-        self, repair_service: ToolCallRepairService
-    ) -> None:
-        """Large patch_file content should not be corrupted by buffer flushing."""
-        # Use larger buffer for this test
-        registry = StreamingContextRegistry()
-        processor = ToolCallRepairProcessor(
-            repair_service, max_buffer_bytes=64 * 1024, registry=registry
-        )
-
-        # Create a large but valid patch_file tool call
-        large_diff = "+" + ("x" * 1000) + "\n" * 50  # ~50KB of diff content
-        content = StreamingContent(
-            content=f"<patch_file><path>test.py</path><patch_content>{large_diff}</patch_content></patch_file>",
-            is_done=True,
-            metadata={"session_id": "test-large-patch"},
         )
 
         result = await processor.process(content)
-        assert result is not None
 
-        # Tool call should be detected
-        if "tool_calls" in result.metadata:
-            tool_calls = result.metadata["tool_calls"]
-            assert len(tool_calls) > 0
-            assert tool_calls[0]["function"]["name"] == "patch_file"
+        # Native tool_calls preserved
+        assert result.metadata.get("tool_calls") == [native_call]
+        assert result.metadata.get("finish_reason") == "tool_calls"

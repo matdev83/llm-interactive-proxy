@@ -121,6 +121,10 @@ class ISessionStateMutator(ABC):
         """Create a new state with updated is_cline_agent flag."""
 
     @abstractmethod
+    def with_vtc_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new state with updated vtc_enabled flag."""
+
+    @abstractmethod
     def with_multiple_updates(self, **kwargs: Any) -> ISessionState:
         """Create a new state with multiple updated attributes."""
 
@@ -215,6 +219,11 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def is_cline_agent(self) -> bool:
         """Get whether the current agent is a CLI agent."""
+
+    @property
+    @abstractmethod
+    def vtc_enabled(self) -> bool:
+        """Get whether Virtual Tool Calling mode is enabled."""
 
     @property
     @abstractmethod

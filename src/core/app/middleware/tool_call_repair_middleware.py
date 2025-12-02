@@ -57,41 +57,17 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
         stop_event: Any = None,
     ) -> Any:
         """
-        Processes the response to detect and repair tool calls if enabled.
+        Processes the response - now a TRANSPARENT PASS-THROUGH.
 
-        NOTE: For streaming responses, tool call repair is handled by
-        ToolCallRepairProcessor in the streaming pipeline. This middleware
-        only processes non-streaming responses to avoid duplicate detection.
+        DESIGN DECISION: Virtual tool call detection (parsing XML from message
+        content) has been DISABLED because:
+        1. Clients like Cline, RooCode, KiloCode parse XML tool calls themselves
+        2. Attempting to detect XML causes false positives (brain_dump, memory_bank, etc.)
+        3. It interferes with client-specific structured prompting
+        4. Native tool_calls (already structured) are passed through unchanged
+
+        The proxy should be TRANSPARENT - content passes through as-is.
+        Tool call detection is the CLIENT's responsibility, not the proxy's.
         """
-        if not self.config.session.tool_call_repair_enabled:
-            return response
-
-        # Skip streaming responses - these are handled by ToolCallRepairProcessor
-        # in the streaming pipeline to avoid duplicate tool call detection
-        if is_streaming:
-            return response
-
-        # Only attempt repair if the content is a string
-        if isinstance(response.content, str):
-            allowed_tools = self._extract_allowed_tools(context.get("original_request"))
-            repaired_result = self.tool_call_repair_service.repair_tool_calls(
-                response.content, allowed_tools=allowed_tools
-            )
-            if repaired_result:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Tool call detected and repaired for session {session_id}"
-                    )
-                # Add tool_calls to metadata for internal processing
-                if "tool_calls" not in response.metadata:
-                    response.metadata["tool_calls"] = []
-                response.metadata["tool_calls"].append(repaired_result.tool_call)
-
-                # Mark as "virtual" tool calls (extracted from XML content).
-                # This signals downstream serialization to strip tool_calls from
-                # the response, leaving only XML content for virtual-mode clients.
-                response.metadata["_virtual_tool_calls"] = True
-
-                # Set finish_reason to "tool_calls" to signal tool call presence
-                response.metadata["finish_reason"] = "tool_calls"
+        # Simply pass through - no XML detection, no modification
         return response

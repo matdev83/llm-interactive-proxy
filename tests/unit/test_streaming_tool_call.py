@@ -246,8 +246,12 @@ def _make_request_context() -> RequestContext:
 
 
 @pytest.mark.asyncio
-async def test_streaming_text_tool_call_is_repaired_and_middleware_runs() -> None:
-    """Textual tool calls in streaming output are repaired and passed to middleware."""
+async def test_streaming_xml_content_passes_through_unchanged() -> None:
+    """XML content in streaming output passes through unchanged.
+
+    Virtual tool call detection has been disabled. XML content should
+    pass through to the client for client-side parsing.
+    """
 
     response_processor = _RecordingStreamingProcessor()
     backend_processor = AsyncMock()
@@ -261,16 +265,16 @@ async def test_streaming_text_tool_call_is_repaired_and_middleware_runs() -> Non
         stream=True,
     )
 
+    xml_content = (
+        "Here is the change:\n"
+        "<patch_file>\n"
+        "<path>C:/Users/Mateusz/source/repos/llm-interactive-proxy/pyproject.toml</path>\n"
+        "<patch_content>abc</patch_content>\n"
+        "</patch_file>\n"
+    )
+
     async def source_stream() -> AsyncGenerator[ProcessedResponse, None]:
-        yield ProcessedResponse(
-            content=(
-                "Here is the change:\n"
-                "<patch_file>\n"
-                "<path>C:/Users/Mateusz/source/repos/llm-interactive-proxy/pyproject.toml</path>\n"
-                "<patch_content>abc</patch_content>\n"
-                "</patch_file>\n"
-            )
-        )
+        yield ProcessedResponse(content=xml_content)
         yield ProcessedResponse(content="", metadata={"is_done": True})
 
     envelope = StreamingResponseEnvelope(content=source_stream())
@@ -282,10 +286,8 @@ async def test_streaming_text_tool_call_is_repaired_and_middleware_runs() -> Non
     assert result.content is not None
 
     chunks = [chunk async for chunk in result.content]
-    tool_chunks = [chunk for chunk in chunks if chunk.metadata.get("tool_calls", [])]
-    assert tool_chunks, "Expected repaired tool_calls to be emitted"
-    first_tool_chunk = tool_chunks[0]
-    tool_calls = first_tool_chunk.metadata.get("tool_calls")
-    assert isinstance(tool_calls, list) and tool_calls
-    assert tool_calls[0]["function"]["name"] == "patch_file"
-    assert response_processor.tool_call_seen is True
+    # XML content should pass through unchanged (no tool_calls added)
+    all_content = "".join(
+        chunk.content for chunk in chunks if isinstance(chunk.content, str)
+    )
+    assert "<patch_file>" in all_content, "XML content should pass through unchanged"

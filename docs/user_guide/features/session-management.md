@@ -299,9 +299,16 @@ curl -X POST http://localhost:8000/v1/chat/completions -d '{"messages": [...]}'
 - Disable fuzzy matching if performance is critical
 - Monitor session count and clean up old sessions
 
+## Virtual Tool Calling (VTC) Session State
+
+Sessions also track whether a client uses Virtual Tool Calling (VTC) mode. This is automatically detected from the User-Agent header and enables special handling for Cline-like clients that embed tool calls as XML in message content.
+
+The VTC flag (`vtc_enabled`) is stored in the session state and persists for the lifetime of the session. For technical details on VTC implementation, see the [VTC Architecture Guide](../../development_guide/vtc-architecture.md).
+
 ## Related Features
 
 - [Context Window Enforcement](context-window-enforcement.md) - Enforce per-model context window limits
 - [LLM Assessment System](llm-assessment.md) - Monitor conversation quality over time
 - [Angel Verification System](angel-verification.md) - Verify individual responses
 - [Planning Phase Overrides](planning-phase.md) - Use different models during planning
+- [Tool Access Control](tool-access-control.md) - Control which tools LLMs can access

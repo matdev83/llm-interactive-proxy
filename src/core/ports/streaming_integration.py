@@ -27,6 +27,8 @@ from src.core.services.streaming.stream_context_registry import StreamingContext
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
 )
+from src.core.services.streaming.vtc_postprocessor import VTCPostProcessor
+from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ async def integrate_streaming_pipeline(
     enable_think_tags: bool = True,
     prompt_tokens: int | None = None,
     model_name: str | None = None,
+    vtc_enabled: bool = False,
 ) -> StreamingResponseEnvelope:
     """Integrate a raw backend stream with the streaming pipeline.
 
@@ -59,6 +62,9 @@ async def integrate_streaming_pipeline(
         enable_loop_detection: Whether to enable loop detection processor
         enable_tool_call_repair: Whether to enable tool call repair processor
         enable_think_tags: Whether to enable think tags processor
+        prompt_tokens: Optional prompt token count for usage calculation
+        model_name: Optional model name for usage calculation
+        vtc_enabled: Whether Virtual Tool Calling is enabled for this session
 
     Returns:
         StreamingResponseEnvelope with processed chunks
@@ -103,6 +109,27 @@ async def integrate_streaming_pipeline(
             registry=registry,
         )
 
+    def _default_vtc_preprocessor() -> IStreamProcessor:
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return VTCPreProcessor(registry=registry)
+
+    def _default_vtc_postprocessor() -> IStreamProcessor:
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return VTCPostProcessor(registry=registry)
+
+    # VTC Pre-processor: FIRST in pipeline (converts XML to internal format)
+    if vtc_enabled:
+        processors.append(
+            _resolve_processor(VTCPreProcessor, _default_vtc_preprocessor)
+        )
+        logger.debug("VTC pre-processor enabled for stream %s", stream_id)
+
     if enable_loop_detection:
         processors.append(
             _resolve_processor(
@@ -140,6 +167,13 @@ async def integrate_streaming_pipeline(
             )
 
         processors.append(_usage_processor_factory())
+
+    # VTC Post-processor: LAST in pipeline (converts internal format back to XML)
+    if vtc_enabled:
+        processors.append(
+            _resolve_processor(VTCPostProcessor, _default_vtc_postprocessor)
+        )
+        logger.debug("VTC post-processor enabled for stream %s", stream_id)
 
     # Create pipeline for the provider
     try:

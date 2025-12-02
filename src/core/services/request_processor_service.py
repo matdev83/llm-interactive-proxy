@@ -12,11 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from src.core.domain.chat import (
-    ChatMessage,
-    ChatRequest,
-    MessageContentPartText,
-)
+from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -40,17 +36,6 @@ _ARTIFACT_MAX_LINES = 120
 _ARTIFACT_MAX_CHARS = 6000
 _COMPRESSED_ARTIFACT_MAX_LINES = 40
 _COMPRESSED_ARTIFACT_MAX_CHARS = 1500
-_AGENT_BLOCK_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"<environment_details>.*?</environment_details>", re.IGNORECASE | re.DOTALL
-    ),
-    re.compile(
-        r"<open_and_recently_viewed_files>.*?</open_and_recently_viewed_files>",
-        re.IGNORECASE | re.DOTALL,
-    ),
-    re.compile(r"<user_info>.*?</user_info>", re.IGNORECASE | re.DOTALL),
-    re.compile(r"<user_rules>.*?</user_rules>", re.IGNORECASE | re.DOTALL),
-)
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +87,29 @@ class RequestProcessor(IRequestProcessor):
         session_agent = getattr(session, "agent", None)
         if session_agent:
             request_data = request_data.model_copy(update={"agent": session_agent})
+
+        # Detect VTC (Virtual Tool Calling) client mode
+        if not session.state.vtc_enabled and self._app_state is not None:
+            from src.core.services.vtc_detection import detect_vtc_client
+
+            app_config = self._app_state.get_setting("app_config")
+            if app_config is not None:
+                # Safely get vtc_client_patterns with fallback for mock configs
+                vtc_patterns = getattr(app_config, "vtc_client_patterns", None)
+                if vtc_patterns:
+                    agent_for_vtc = incoming_agent or session_agent
+                    if detect_vtc_client(agent_for_vtc, vtc_patterns):
+                        new_state = session.state.with_vtc_enabled(True)
+                        session.update_state(new_state)
+                        logger.info(
+                            "VTC mode enabled for session %s (agent: %s)",
+                            session_id,
+                            agent_for_vtc,
+                        )
+
+        # Propagate VTC flag to request for downstream processors
+        if session.state.vtc_enabled:
+            request_data = request_data.model_copy(update={"vtc_enabled": True})
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Resolved session_id: {session_id}")
@@ -186,11 +194,6 @@ class RequestProcessor(IRequestProcessor):
 
         self._expand_truncated_tool_outputs(command_result)
 
-        sanitized_request = self._strip_agent_scaffolding(request_data)
-        if sanitized_request is not request_data:
-            request_data = sanitized_request
-            context.domain_request = request_data  # type: ignore[attr-defined]
-
         # Special handling: Cline agent expects tool_calls for proxy commands
         try:
             if (
@@ -258,9 +261,6 @@ class RequestProcessor(IRequestProcessor):
         backend_request = await self._backend_request_manager.prepare_backend_request(
             request_data, command_result
         )
-
-        if backend_request is not None:
-            backend_request = self._strip_agent_scaffolding(backend_request)
 
         # Enforce per-model context window limits (front-end enforcement)
         if backend_request is not None and self._app_state is not None:
@@ -1074,85 +1074,6 @@ class RequestProcessor(IRequestProcessor):
 
         return backend_request.model_copy(update={"extra_body": extra_body})
 
-    def _strip_agent_scaffolding(self, backend_request: ChatRequest) -> ChatRequest:
-        """Remove agent-orchestrator scaffolding (e.g., <task>, <environment_details>) from user prompts."""
-        messages = getattr(backend_request, "messages", None)
-        if not messages:
-            return backend_request
-
-        sanitized_messages: list[ChatMessage] = []
-        changed = False
-
-        for message in messages:
-            if not isinstance(message, ChatMessage):
-                sanitized_messages.append(message)
-                continue
-
-            if message.role != "user":
-                sanitized_messages.append(message)
-                continue
-
-            sanitized_content, content_changed = self._sanitize_message_content(
-                message.content
-            )
-            if content_changed:
-                changed = True
-                sanitized_messages.append(
-                    message.model_copy(update={"content": sanitized_content})
-                )
-            else:
-                sanitized_messages.append(message)
-
-        if not changed:
-            return backend_request
-
-        return backend_request.model_copy(update={"messages": sanitized_messages})
-
-    def _sanitize_message_content(self, content: Any) -> tuple[Any, bool]:
-        """Return content with agent scaffolding removed when present."""
-        if content is None:
-            return content, False
-
-        if isinstance(content, str):
-            return _sanitize_agent_text_block(content)
-
-        if isinstance(content, list | tuple):
-            changed = False
-            sanitized_parts: list[Any] = []
-            for part in content:
-                sanitized_part, part_changed = self._sanitize_content_part(part)
-                changed = changed or part_changed
-                if sanitized_part is not None:
-                    sanitized_parts.append(sanitized_part)
-            if not changed:
-                return content, False
-            return sanitized_parts, True
-
-        return content, False
-
-    def _sanitize_content_part(self, part: Any) -> tuple[Any | None, bool]:
-        """Sanitize individual content parts when they contain orchestrator scaffolding."""
-        if isinstance(part, MessageContentPartText):
-            sanitized, changed = _sanitize_agent_text_block(part.text)
-            if not changed:
-                return part, False
-            if not sanitized:
-                return None, True
-            return part.model_copy(update={"text": sanitized}), True
-
-        if isinstance(part, dict):
-            text_value = part.get("text")
-            if isinstance(text_value, str):
-                sanitized, changed = _sanitize_agent_text_block(text_value)
-                if not changed:
-                    return part, False
-                if not sanitized:
-                    return None, True
-                updated = dict(part)
-                updated["text"] = sanitized
-                return updated, True
-        return part, False
-
     def _resolve_hybrid_reasoning_probability(
         self,
         extra_body: dict[str, Any] | None,
@@ -1457,30 +1378,3 @@ class RequestProcessor(IRequestProcessor):
             truncated = True
 
         return preview, truncated
-
-
-def _sanitize_agent_text_block(text: str) -> tuple[str, bool]:
-    """Remove verbose scaffolding blocks while preserving tool instructions."""
-    if not isinstance(text, str) or not text:
-        return text, False
-
-    changed = False
-    working = text
-
-    for pattern in _AGENT_BLOCK_PATTERNS:
-        working_new, count = pattern.subn("", working)
-        if count:
-            changed = True
-            working = working_new
-
-    collapsed = re.sub(r"\n{3,}", "\n\n", working)
-    if collapsed != working:
-        working = collapsed
-        changed = True
-
-    stripped = working.strip()
-    if stripped != working:
-        working = stripped
-        changed = True
-
-    return working, changed

@@ -166,3 +166,7 @@ properties:
       path_parameter_names:
         type: array
         items: { type: string }
+  vtc_client_patterns:
+    type: array
+    items: { type: string }
+    default: ["cline", "kilo", "roo"]

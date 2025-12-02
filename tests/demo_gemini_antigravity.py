@@ -1,0 +1,80 @@
+import asyncio
+import json
+import logging
+import sys
+import os
+
+# Add src to path
+sys.path.append(os.getcwd())
+
+from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.core.config.app_config import AppConfig
+from src.core.services.translation_service import TranslationService
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+import httpx
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+async def run_demo():
+    print("="*60)
+    print("REAL E2E DEMO: Gemini OAuth Antigravity Connector")
+    print("="*60)
+
+    # 1. Initialize Real Components
+    config = AppConfig()
+    translation_service = TranslationService()
+    
+    # Real Client
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        connector = GeminiOAuthAntigravityConnector(
+            client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+        # 2. Initialize (Loads real credentials from state.vscdb)
+        print("Initializing connector (scanning for state.vscdb)...")
+        try:
+            await connector.initialize(enable_antigravity_backend_debugging_override=True)
+        except Exception as e:
+            print(f"❌ Initialization Failed: {e}")
+            return
+
+        if not connector.is_functional:
+            print("❌ Connector is not functional. Credentials likely missing.")
+            return
+
+        print("✅ Connector initialized successfully.")
+        print(f"Project ID: {connector._project_id}")
+
+        # 3. Send Real Request
+        print("\nSending request to Gemini (gemini-2.5-flash)...")
+        request = CanonicalChatRequest(
+            model="gemini-2.5-flash",
+            messages=[
+                ChatMessage(role="user", content="Hello! Please say 'Gemini Antigravity is working'.")
+            ],
+            stream=False
+        )
+
+        try:
+            response = await connector.chat_completions(
+                request_data=request,
+                processed_messages=request.messages,
+                effective_model="gemini-2.5-flash"
+            )
+            
+            print("\n✅ Response Received:")
+            # Parse response content
+            if hasattr(response, 'content'):
+                print(response.content)
+            else:
+                print(response)
+
+        except Exception as e:
+            print(f"\n❌ Request Failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+if __name__ == "__main__":
+    asyncio.run(run_demo())

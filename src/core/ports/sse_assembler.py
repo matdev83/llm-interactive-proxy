@@ -190,16 +190,18 @@ class SSEAssembler(IStreamAssembler):
                 has_usage = (
                     isinstance(chunk.content, dict) and "usage" in chunk.content
                 ) or chunk.usage is not None
-                logger.debug(
-                    "[STREAMING][SSE] Assembler serializing chunk: "
-                    "stream_id=%s, is_done=%s, has_usage=%s, "
-                    "is_stop_chunk_with_usage=%s, output_bytes=%d",
-                    stream_id_for_metrics,
-                    chunk.is_done,
-                    has_usage,
-                    is_stop_chunk_with_usage,
-                    len(chunk_bytes),
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "[STREAMING][SSE] Assembler serializing chunk: "
+                        "stream_id=%s, is_done=%s, has_usage=%s, "
+                        "is_stop_chunk_with_usage=%s, output_bytes=%d",
+                        stream_id_for_metrics,
+                        chunk.is_done,
+                        has_usage,
+                        is_stop_chunk_with_usage,
+                        len(chunk_bytes),
+                    )
 
                 # Check if this is a done marker (but may still have content to emit)
                 is_final_chunk = SentinelManager.is_done_marker(chunk)

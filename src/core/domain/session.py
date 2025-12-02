@@ -72,6 +72,7 @@ class SessionState(ValueObject):
     interactive_just_enabled: bool = False
     hello_requested: bool = False
     is_cline_agent: bool = False
+    vtc_enabled: bool = False  # Virtual Tool Calling mode for Cline-like clients
     pytest_compression_enabled: bool = True
     compress_next_tool_call_reply: bool = False
     pytest_compression_min_lines: int = 0
@@ -121,6 +122,10 @@ class SessionState(ValueObject):
     def with_is_cline_agent(self, is_cline: bool) -> SessionState:
         """Create a new session state with updated is_cline_agent flag."""
         return self.model_copy(update={"is_cline_agent": is_cline})
+
+    def with_vtc_enabled(self, enabled: bool) -> SessionState:
+        """Create a new session state with updated vtc_enabled flag."""
+        return self.model_copy(update={"vtc_enabled": enabled})
 
     def with_pytest_compression_enabled(self, enabled: bool) -> SessionState:
         """Create a new session state with updated pytest_compression_enabled flag."""
@@ -328,6 +333,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return self._state.is_cline_agent
 
     @property
+    def vtc_enabled(self) -> bool:
+        """Whether Virtual Tool Calling mode is enabled for this session."""
+        return self._state.vtc_enabled
+
+    @property
     def pytest_compression_enabled(self) -> bool:
         """Whether pytest output compression is enabled for this session."""
         return self._state.pytest_compression_enabled
@@ -426,6 +436,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
         """Create a new session state with updated is_cline_agent flag."""
         new_state = cast(SessionState, self._state).with_is_cline_agent(is_cline)
+        return SessionStateAdapter(new_state)
+
+    def with_vtc_enabled(self, enabled: bool) -> ISessionState:
+        """Create a new session state with updated vtc_enabled flag."""
+        new_state = cast(SessionState, self._state).with_vtc_enabled(enabled)
         return SessionStateAdapter(new_state)
 
     def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
@@ -705,6 +720,11 @@ class Session(ISession):
     def is_cline_agent(self) -> bool:
         """Check if the agent for this session is Cline (from session state)."""
         return self.state.is_cline_agent
+
+    @property
+    def vtc_enabled(self) -> bool:
+        """Check if Virtual Tool Calling mode is enabled for this session."""
+        return self.state.vtc_enabled
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         """Add an interaction to the session history."""

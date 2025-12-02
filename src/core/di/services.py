@@ -121,6 +121,8 @@ from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
+from src.core.services.streaming.vtc_postprocessor import VTCPostProcessor
+from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.structured_output_middleware import StructuredOutputMiddleware
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import (
@@ -1208,6 +1210,24 @@ def register_core_services(
     _add_singleton(
         ThinkTagsProcessor, implementation_factory=_think_tags_processor_factory
     )
+
+    # Register VTC Pre-Processor for Virtual Tool Calling support
+    def _vtc_preprocessor_factory(
+        provider: IServiceProvider,
+    ) -> VTCPreProcessor:
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return VTCPreProcessor(registry=registry)
+
+    _add_singleton(VTCPreProcessor, implementation_factory=_vtc_preprocessor_factory)
+
+    # Register VTC Post-Processor for Virtual Tool Calling support
+    def _vtc_postprocessor_factory(
+        provider: IServiceProvider,
+    ) -> VTCPostProcessor:
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return VTCPostProcessor(registry=registry)
+
+    _add_singleton(VTCPostProcessor, implementation_factory=_vtc_postprocessor_factory)
 
     # Register LoopDetectionProcessor from ports.streaming_processors for streaming integration
     def _ports_loop_detection_processor_factory(

@@ -283,6 +283,25 @@ logging:
   cbor_capture_session_id: null
 ```
 
+### Virtual Tool Calling (`vtc_client_patterns`)
+
+Configure detection of clients that use Virtual Tool Calling (XML-based tool calls in message content). See [VTC Architecture](../development_guide/vtc-architecture.md) for details.
+
+```yaml
+# VTC client detection patterns (case-insensitive substring matching on User-Agent)
+vtc_client_patterns:
+  - cline       # Cline VSCode extension
+  - kilo        # KiloCode
+  - roo         # RooCode
+  # - myclient  # Add your custom VTC client patterns
+```
+
+To disable VTC detection entirely:
+
+```yaml
+vtc_client_patterns: []
+```
+
 ### Edit Precision Tuning (`edit_precision`)
 
 ```yaml

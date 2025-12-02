@@ -313,6 +313,11 @@ class BackendRequestManager(IBackendRequestManager):
                                 processed_response.metadata
                             )
 
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Backend response metadata: {backend_response.metadata}"
+                        )
+
                     if (
                         backend_response.metadata
                         and backend_response.metadata.get("tool_call_swallowed")
@@ -625,10 +630,17 @@ class BackendRequestManager(IBackendRequestManager):
                 async for chunk in original_stream:
                     yield chunk
 
+        # Wrap the stream with response processor to ensure middleware (like ToolCallReactor) is applied
+        middleware_processed_stream = (
+            self._response_processor.process_streaming_response(
+                combined_stream(), session_id
+            )
+        )
+
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
             swallowed_detected = False
 
-            async for chunk in combined_stream():
+            async for chunk in middleware_processed_stream:
                 text_fragment = self._extract_text_from_chunk(chunk)
                 metadata = (
                     getattr(chunk, "metadata", {}) if hasattr(chunk, "metadata") else {}
@@ -913,20 +925,6 @@ class BackendRequestManager(IBackendRequestManager):
                 yield ProcessedResponse(content=content_value, metadata=metadata)
 
         processed_stream = _attach_stream_context(processed_stream)
-
-        # Route streaming chunks through the response processor so stream processors
-        # (tool-call repair, reactor middleware, etc.) run for streaming as well.
-        try:
-            processed_stream = self._response_processor.process_streaming_response(
-                processed_stream, session_id
-            )
-        except Exception:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Response processor streaming normalization failed; "
-                    "returning unprocessed stream",
-                    exc_info=True,
-                )
 
         async def _gate_empty_stream(
             stream: AsyncIterator[ProcessedResponse],

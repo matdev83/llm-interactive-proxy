@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import (
+from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.mixins.antigravity_auth_mixin import (
     ANTIGRAVITY_AUTH_KEY,
     ANTIGRAVITY_SANDBOX_ENDPOINT,
     ANTIGRAVITY_USER_AGENT,
-    GeminiOAuthAntigravityConnector,
 )
 
 

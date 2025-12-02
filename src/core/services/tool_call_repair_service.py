@@ -34,8 +34,10 @@ class ToolCallRepairService(IToolCallRepairService):
         r"(?:TOOL CALL|Function call|Call)\s*:\s*(\w+)\s*(.*)", re.IGNORECASE
     )
     _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}\s*)\s*```", re.DOTALL)
+    # Include colon in tag names to support namespaced tags like
+    # <ClientControls:run_terminal_command> used by Factory Droid
     _XML_SNIPPET_PATTERN = re.compile(
-        r"<([A-Za-z0-9_\-]+)(?:\s[^>]*)?>.*?</\1>", re.DOTALL
+        r"<([A-Za-z0-9_\-:]+)(?:\s[^>]*)?>.*?</\1>", re.DOTALL
     )
 
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
@@ -425,35 +427,49 @@ class ToolCallRepairService(IToolCallRepairService):
         4. Simple text-only elements = likely parameters, NOT tool calls
         5. Thinking/reasoning patterns = filtered out
 
-        The allowed_tools parameter, if provided, is used ONLY for prioritization
-        (checking those first), NEVER for rejection of valid tool calls.
+        When allowed_tools is provided, ONLY those tools are detected - this enables
+        transparent pass-through of client-specific formatting (like <brain_dump>).
+        When allowed_tools is NOT provided, structural heuristics are used.
         """
         if "<" not in content or "</" not in content:
             return None
 
         candidate_snippets: list[str] = []
 
-        # If allowed_tools is provided, search for those FIRST (even if nested)
-        # This handles cases where the tool call is wrapped in another element
+        # Build allowed set for whitelist matching (if provided)
+        allowed_set: set[str] | None = None
         if allowed_tools:
+            allowed_set = {t.lower() for t in allowed_tools}
+            # Also add base names for namespaced tools (e.g., "run_cmd" for "Prefix:run_cmd")
+            for t in allowed_tools:
+                if ":" in t:
+                    allowed_set.add(t.split(":")[-1].lower())
+
+        if allowed_set and allowed_tools:
+            # WHITELIST MODE: search ONLY for allowed tools
             for tool_name in allowed_tools:
                 # Search for this specific tool (case-insensitive)
-                pattern = rf"<{tool_name}(?:\s[^>]*)?>.*?</{tool_name}>"
+                pattern = (
+                    rf"<{re.escape(tool_name)}(?:\s[^>]*)?>.*?</{re.escape(tool_name)}>"
+                )
                 match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
                 if match:
                     candidate_snippets.append(match.group(0))
-
-        # Also add generic matches for any other XML elements
-        generic_matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
-        # Sort by length (longest first) so outer wrappers like <apply_diff> are
-        # evaluated before nested tags such as <content>.
-        for match in sorted(
-            generic_matches, key=lambda m: len(m.group(0)), reverse=True
-        ):
-            snippet = match.group(0)
-            # Avoid duplicates
-            if snippet not in candidate_snippets:
-                candidate_snippets.append(snippet)
+            # Also search for namespaced versions (e.g., "Prefix:tool_name")
+            for tool_name in allowed_tools:
+                pattern = rf"<[A-Za-z0-9_\-]+:{re.escape(tool_name)}(?:\s[^>]*)?>.*?</[A-Za-z0-9_\-]+:{re.escape(tool_name)}>"
+                match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                if match and match.group(0) not in candidate_snippets:
+                    candidate_snippets.append(match.group(0))
+        else:
+            # HEURISTIC MODE: search for any XML elements using structural heuristics
+            generic_matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
+            # Sort by length (longest first) so outer wrappers like <apply_diff> are
+            # evaluated before nested tags such as <content>.
+            for match in sorted(
+                generic_matches, key=lambda m: len(m.group(0)), reverse=True
+            ):
+                candidate_snippets.append(match.group(0))
 
         if not candidate_snippets:
             return None
@@ -545,8 +561,12 @@ class ToolCallRepairService(IToolCallRepairService):
             arguments_raw = self._element_children_to_dict(root)
             if not isinstance(arguments_raw, dict):
                 arguments_raw = {"content": arguments_raw} if arguments_raw else {}
-            arguments = self._normalize_tool_arguments(root.tag, arguments_raw)
-            return self._format_openai_tool_call(root.tag, arguments, xml_snippet)
+
+            # Restore namespace separator in tag name if it was sanitized
+            # e.g., "ClientControls__NS__run_terminal_command" -> "ClientControls:run_terminal_command"
+            tool_name = root.tag.replace("__NS__", ":")
+            arguments = self._normalize_tool_arguments(tool_name, arguments_raw)
+            return self._format_openai_tool_call(tool_name, arguments, xml_snippet)
 
         return None
 
@@ -576,9 +596,16 @@ class ToolCallRepairService(IToolCallRepairService):
         """
         tag = element.tag.lower()
 
-        # REJECT 1: Thinking/reasoning tags (semantic pattern, not a name list)
-        # These are internal model monologue, not tool calls
-        thinking_patterns = {"think", "thought", "thinking", "reasoning", "reflection"}
+        # REJECT 1: Common thinking/reasoning tags (universal pattern)
+        # These are well-known internal model monologue patterns
+        # Other internal tags are handled by structural detection downstream
+        thinking_patterns = {
+            "think",
+            "thought",
+            "thinking",
+            "reasoning",
+            "reflection",
+        }
         if tag in thinking_patterns:
             return False
 
@@ -732,15 +759,16 @@ class ToolCallRepairService(IToolCallRepairService):
     # Property last_tool_snippet removed as it is no longer needed
 
     def _sanitize_xml_for_parsing(self, xml_snippet: str) -> str:
-        """Escape common invalid XML characters in text content.
+        """Escape common invalid XML characters and handle namespace prefixes.
 
         XML requires certain characters to be escaped:
         - & must be &amp; (unless part of an entity reference)
         - < must be &lt; (unless starting a tag)
         - > should be &gt; (for symmetry, though only required in some contexts)
 
-        This method attempts to escape standalone & characters that are not
-        already part of valid entity references (like &amp;, &lt;, &gt;, etc.)
+        Additionally, tags with namespace prefixes like <ClientControls:run_terminal_command>
+        cause "unbound prefix" errors in ElementTree. We temporarily replace the colon
+        with a placeholder to allow parsing.
         """
         # Only escape & that is NOT already part of an entity reference
         # Entity references look like: &name; or &#123; or &#x1F;
@@ -750,6 +778,15 @@ class ToolCallRepairService(IToolCallRepairService):
             "&amp;",
             xml_snippet,
         )
+
+        # Handle namespace prefixes in tag names by replacing : with __NS__
+        # This allows parsing without requiring namespace declarations
+        # Pattern: <Prefix:TagName or </Prefix:TagName
+        result = re.sub(
+            r"<(/?)([A-Za-z0-9_]+):([A-Za-z0-9_]+)",
+            r"<\1\2__NS__\3",
+            result,
+        )
         return result
 
     def _parse_lenient_tool_call(self, xml_snippet: str) -> ToolCallRepairResult | None:
@@ -758,7 +795,7 @@ class ToolCallRepairService(IToolCallRepairService):
         if not snippet.startswith("<"):
             return None
 
-        tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
+        tag_match = re.match(r"<([A-Za-z0-9_\-:]+)", snippet)
         if not tag_match:
             return None
 
@@ -813,7 +850,7 @@ class ToolCallRepairService(IToolCallRepairService):
             # tool_name/name (already extracted above)
             skip_tags = {"use_mcp_tool", "server_name", "tool_name", "name"}
             for match in re.finditer(
-                r"<([A-Za-z0-9_\-]+)>(.*?)</\1>", snippet, re.IGNORECASE | re.DOTALL
+                r"<([A-Za-z0-9_\-:]+)>(.*?)</\1>", snippet, re.IGNORECASE | re.DOTALL
             ):
                 tag, value = match.groups()
                 if tag.lower() in skip_tags:

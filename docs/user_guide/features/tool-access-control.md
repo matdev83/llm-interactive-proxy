@@ -246,6 +246,12 @@ Metadata is also included in `request.extra_body["tool_access"]` and response me
 5. **Document Policies**: Add comments in your configuration explaining each policy's purpose
 6. **Layer Security**: Combine tool access control with other safety features ([dangerous-command prevention](dangerous-command-protection.md), [loop detection](llm-assessment.md))
 
+## Virtual Tool Calling (VTC) Support
+
+Tool access control works seamlessly with clients that use Virtual Tool Calling (XML-based tool calls), such as Cline, KiloCode, and RooCode. The VTC subsystem converts XML tool calls to internal format before policy evaluation, ensuring consistent enforcement regardless of the client type.
+
+For details on VTC architecture, see the [VTC Architecture Guide](../../development_guide/vtc-architecture.md).
+
 ## Related Features
 
 - [Dangerous Command Protection](dangerous-command-protection.md) - Block destructive git commands

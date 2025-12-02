@@ -28,6 +28,14 @@ def _content_to_text(content: str | dict[str, Any] | bytes | None) -> str:
 
 @pytest.mark.asyncio
 async def test_json_repair_and_tool_call_repair_together_objects() -> None:
+    """Test that JSON repair works alongside ToolCallRepairProcessor.
+
+    Note: ToolCallRepairProcessor is now a transparent pass-through
+    (virtual tool call detection was disabled). This test verifies that:
+    1. JSON repair still works correctly
+    2. The processors can be chained without errors
+    3. Content passes through unchanged (no tool call extraction)
+    """
     # Build processors: JSON repair first, then tool call repair
     json_proc = JsonRepairProcessor(
         repair_service=JsonRepairService(),
@@ -35,7 +43,7 @@ async def test_json_repair_and_tool_call_repair_together_objects() -> None:
         strict_mode=False,
     )
     tool_proc = ToolCallRepairProcessor(ToolCallRepairService())
-    # Include accumulation to preserve non-tool content alongside repaired tool calls
+    # Include accumulation to preserve content
     normalizer = StreamNormalizer(
         [json_proc, tool_proc, ContentAccumulationProcessor()]
     )
@@ -53,39 +61,17 @@ async def test_json_repair_and_tool_call_repair_together_objects() -> None:
         if isinstance(item, StreamingContent):
             results.append(item)
 
-    # Tool call should be converted to an OpenAI tool_calls JSON object with full metadata
-    # The repaired JSON should be in the content, and the tool call should be in metadata
     non_empty = [r for r in results if r.content or r.is_done]
     combined_content = "".join(
         _content_to_text(r.content) for r in non_empty if r.content
     )
 
-    # The content should contain the repaired JSON and the original tool call text
-    # (text-based tool calls are not removed from content, only XML ones are)
+    # The content should contain the repaired JSON
     assert '{"a": 1}' in combined_content
+
+    # The tool call text should remain in content unchanged
+    # (ToolCallRepairProcessor is now a pass-through, no extraction)
     assert "TOOL CALL: myfunc" in combined_content
-
-    # The tool call should be in the metadata
-    tool_calls = []
-    for r in non_empty:
-        if r.metadata and "tool_calls" in r.metadata:
-            tool_calls.extend(r.metadata["tool_calls"])
-
-    assert tool_calls, "Expected repaired tool call metadata"
-    # There should only be one logical tool call even if multiple chunks surface it
-    signatures = {
-        (
-            tc.get("function", {}).get("name"),
-            tc.get("function", {}).get("arguments"),
-        )
-        for tc in tool_calls
-    }
-    assert len(signatures) == 1
-    tool_call = tool_calls[-1]
-    assert tool_call["type"] == "function"
-    assert "id" in tool_call and tool_call["id"].startswith("call_")
-    assert tool_call["function"]["name"] == "myfunc"
-    assert json.loads(tool_call["function"]["arguments"]) == {"x": 1}
 
 
 @pytest.mark.asyncio
