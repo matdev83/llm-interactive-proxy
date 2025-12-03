@@ -121,6 +121,55 @@ class TestVTCResponseStreamWrapperXMLExtraction:
     """Tests for XML tool call extraction."""
 
     @pytest.mark.asyncio
+    async def test_tool_calls_added_to_metadata_for_reactors(self):
+        """Detected tool calls should be added to metadata for reactor processing."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Use simple format (KiloCode style)
+        xml_content = (
+            "I will run the command.\n\n"
+            "<execute_command>\n"
+            "<command>git status</command>\n"
+            "</execute_command>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Should have output chunks
+        assert len(result_chunks) >= 1
+
+        # Find chunk with tool calls in metadata
+        tool_calls_found = False
+        for chunk in result_chunks:
+            if chunk.metadata and chunk.metadata.get("tool_calls"):
+                tool_calls_found = True
+                tool_calls = chunk.metadata["tool_calls"]
+                assert len(tool_calls) == 1
+                assert tool_calls[0]["function"]["name"] == "execute_command"
+                # Verify VTC marker is set
+                assert chunk.metadata.get("vtc_tool_calls") is True
+                break
+
+        assert (
+            tool_calls_found
+        ), "Tool calls should be in metadata for reactor processing"
+
+    @pytest.mark.asyncio
     async def test_extract_complete_xml_single_chunk(self):
         """Complete XML tool call in single chunk should be processed."""
         from src.core.services.streaming.vtc_response_wrapper import (
@@ -156,8 +205,7 @@ class TestVTCResponseStreamWrapperXMLExtraction:
         # Combine all text content
         all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
 
-        # The output should contain the XML (re-serialized)
-        # because VTC post-processing converts internal tool calls back to XML
+        # The output should contain the original XML (passed through unchanged)
         assert "<function_calls>" in all_text or "<invoke" in all_text
 
     @pytest.mark.asyncio
@@ -466,3 +514,130 @@ class TestVTCWrapperConfig:
         config = VTCWrapperConfig(max_buffer_bytes=1024, emit_partial_on_done=False)
         assert config.max_buffer_bytes == 1024
         assert config.emit_partial_on_done is False
+
+
+class TestVTCReactorIntegration:
+    """Tests for tool call reactor integration."""
+
+    @pytest.mark.asyncio
+    async def test_reactor_invoked_for_detected_tool_calls(self):
+        """Tool call reactor should be invoked when tool calls are detected."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=MagicMock())
+
+        # Use simple format tool call (KiloCode style)
+        xml_content = (
+            "I will run the command.\n\n"
+            "<execute_command>\n"
+            "<command>git status</command>\n"
+            "</execute_command>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            session_id="test-session-123",
+            context={"backend_name": "test-backend", "model_name": "test-model"},
+        ):
+            result_chunks.append(chunk)
+
+        # Verify reactor was called
+        assert (
+            mock_reactor.process_tool_call.called
+        ), "Reactor should be invoked for detected tool calls"
+
+        # Check the context passed to reactor
+        call_args = mock_reactor.process_tool_call.call_args
+        context = call_args[0][0]  # First positional argument
+        assert context.session_id == "test-session-123"
+        assert context.tool_name == "execute_command"
+        assert context.backend_name == "test-backend"
+
+    @pytest.mark.asyncio
+    async def test_reactor_not_invoked_when_no_tool_calls(self):
+        """Reactor should NOT be invoked when no tool calls are detected."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=MagicMock())
+
+        # Plain text without tool calls
+        chunks = [
+            create_chunk("This is just plain text without any tool calls."),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            session_id="test-session",
+        ):
+            result_chunks.append(chunk)
+
+        # Reactor should NOT be called
+        assert not mock_reactor.process_tool_call.called
+
+    @pytest.mark.asyncio
+    async def test_reactor_not_invoked_when_vtc_disabled(self):
+        """Reactor should NOT be invoked when VTC is disabled."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=MagicMock())
+
+        # Tool call XML (but VTC disabled)
+        xml_content = "<execute_command><command>test</command></execute_command>"
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=False,  # VTC disabled
+            tool_call_reactor=mock_reactor,
+            session_id="test-session",
+        ):
+            result_chunks.append(chunk)
+
+        # Reactor should NOT be called (VTC disabled)
+        assert not mock_reactor.process_tool_call.called

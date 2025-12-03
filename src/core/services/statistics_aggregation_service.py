@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from src.core.domain.aggregated_stats import AggregatedStats
 from src.core.domain.statistics_filter import StatisticsFilter
@@ -260,7 +261,7 @@ class StatisticsAggregationService(IStatisticsService):
         except ValueError:
             return None
 
-    def _filters_to_dict(self, filters: StatisticsFilter | None) -> dict[str, any]:
+    def _filters_to_dict(self, filters: StatisticsFilter | None) -> dict[str, Any]:
         """Convert filters to a dictionary for metadata.
 
         Args:
@@ -272,7 +273,7 @@ class StatisticsAggregationService(IStatisticsService):
         if filters is None:
             return {}
 
-        result = {}
+        result: dict[str, Any] = {}
 
         if filters.backend_type is not None:
             result["backend_type"] = filters.backend_type

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from src.core.domain.aggregated_stats import AggregatedStats
@@ -41,7 +41,7 @@ def get_service_provider(request: Request) -> IServiceProvider:
         raise HTTPException(
             status_code=503, detail="Service provider not available in app state"
         )
-    return service_provider
+    return cast(IServiceProvider, service_provider)
 
 
 def parse_datetime(value: str | None) -> datetime | None:
@@ -180,7 +180,7 @@ async def get_usage_stats(
         )
 
         # Get statistics service
-        stats_service = service_provider.get_service(IStatisticsService)
+        stats_service = service_provider.get_service(IStatisticsService)  # type: ignore[type-abstract]
         if stats_service is None:
             raise HTTPException(
                 status_code=500, detail="Statistics service not available"

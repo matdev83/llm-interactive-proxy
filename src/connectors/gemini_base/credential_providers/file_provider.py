@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,8 @@ class FileCredentialProvider:
             except OSError:
                 pass
 
+            raw_text = creds_path.read_text(encoding="utf-8")
+            
             # Validate essential fields
             credentials = cast(dict[str, Any], json.loads(raw_text))
 

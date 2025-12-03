@@ -1,0 +1,146 @@
+"""
+Token service for SSO authentication.
+
+This module provides secure token generation, hashing, and verification
+using Argon2id with 2025-recommended security parameters.
+"""
+
+import base64
+import secrets
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+
+from src.core.auth.sso.exceptions import TokenError
+
+
+class TokenService:
+    """
+    Secure token generation and verification using Argon2id.
+
+    This service generates cryptographically secure tokens with 256-bit entropy
+    and hashes them using Argon2id with parameters meeting 2025 security standards:
+    - Memory cost: 64 MB (65536 KiB)
+    - Time cost (iterations): 3
+    - Parallelism: 4
+    """
+
+    def __init__(self) -> None:
+        """
+        Initialize TokenService with Argon2id hasher.
+
+        Uses 2025-recommended parameters:
+        - memory_cost: 65536 (64 MB)
+        - time_cost: 3 iterations
+        - parallelism: 4 threads
+        - hash_len: 32 bytes
+        - salt_len: 16 bytes
+        """
+        self._hasher = PasswordHasher(
+            memory_cost=65536,  # 64 MB
+            time_cost=3,  # 3 iterations
+            parallelism=4,  # 4 threads
+            hash_len=32,  # 32 bytes output
+            salt_len=16,  # 16 bytes salt
+        )
+
+    def generate_token(self) -> tuple[str, str]:
+        """
+        Generate a new agent token with 256-bit entropy.
+
+        The token is generated using cryptographically secure random bytes
+        and encoded as base64url for Bearer token compatibility.
+
+        Returns:
+            tuple[str, str]: (plaintext_token, token_hash)
+                - plaintext_token: Base64url-encoded token (43+ characters)
+                - token_hash: Argon2id hash of the token
+
+        Raises:
+            TokenError: If token generation or hashing fails
+        """
+        try:
+            # Generate 256 bits (32 bytes) of cryptographically secure random data
+            token_bytes = secrets.token_bytes(32)
+
+            # Encode as base64url (URL-safe, no padding)
+            plaintext_token = (
+                base64.urlsafe_b64encode(token_bytes).decode("ascii").rstrip("=")
+            )
+
+            # Hash the token using Argon2id
+            token_hash = self.hash_token(plaintext_token)
+
+            return plaintext_token, token_hash
+
+        except Exception as e:
+            raise TokenError(
+                "Failed to generate token",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e
+
+    def hash_token(self, token: str) -> str:
+        """
+        Hash a token using Argon2id.
+
+        Args:
+            token: The plaintext token to hash
+
+        Returns:
+            str: Argon2id hash string (includes algorithm, parameters, salt, and hash)
+
+        Raises:
+            TokenError: If hashing fails
+        """
+        try:
+            return self._hasher.hash(token)
+        except Exception as e:
+            raise TokenError(
+                "Failed to hash token",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e
+
+    def verify_token(self, token: str, stored_hash: str) -> bool:
+        """
+        Verify token against stored hash using constant-time comparison.
+
+        This method uses Argon2's built-in verification which performs
+        constant-time comparison to prevent timing attacks.
+
+        Args:
+            token: The plaintext token to verify
+            stored_hash: The Argon2id hash to verify against
+
+        Returns:
+            bool: True if token matches hash, False otherwise
+
+        Raises:
+            TokenError: If verification fails due to invalid hash format
+        """
+        try:
+            # Argon2 verify() raises VerifyMismatchError if token doesn't match
+            # This is expected behavior, not an error
+            self._hasher.verify(stored_hash, token)
+            return True
+
+        except (VerifyMismatchError, VerificationError):
+            # Token doesn't match - this is normal, return False
+            return False
+
+        except InvalidHashError as e:
+            # Hash format is invalid - this is an error
+            raise TokenError(
+                "Invalid hash format",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e
+
+        except Exception as e:
+            # Unexpected error during verification
+            raise TokenError(
+                "Token verification failed",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e

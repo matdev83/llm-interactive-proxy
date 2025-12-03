@@ -8,8 +8,10 @@ that yield ProcessedResponse objects directly rather than raw SSE data.
 The wrapper:
 1. Extracts text content from OpenAI-format ProcessedResponse chunks
 2. Buffers until complete XML tool call patterns are detected
-3. Parses XML to internal tool call format for logging/metrics
-4. Passes content through UNCHANGED - VTC clients expect their original XML format
+3. Parses XML to internal tool call format
+4. Adds tool calls to metadata for reactor processing
+5. Invokes tool call reactor for detected calls
+6. Passes content through UNCHANGED - VTC clients expect their original XML format
 
 Note: Unlike the main VTC processors, this wrapper does NOT re-serialize tool calls.
 VTC clients like KiloCode handle their own XML format (e.g., <execute_command>)
@@ -21,7 +23,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.vtc_xml_parser import (
@@ -29,6 +31,9 @@ from src.core.services.vtc_xml_parser import (
     has_partial_xml_pattern,
     parse_vtc_xml,
 )
+
+if TYPE_CHECKING:
+    from src.core.interfaces.tool_call_reactor_interface import IToolCallReactor
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +71,9 @@ class VTCResponseStreamWrapper:
         self,
         vtc_enabled: bool = False,
         config: VTCWrapperConfig | None = None,
+        tool_call_reactor: IToolCallReactor | None = None,
+        session_id: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize the VTC response stream wrapper.
@@ -73,11 +81,17 @@ class VTCResponseStreamWrapper:
         Args:
             vtc_enabled: Whether VTC processing is enabled for this stream.
             config: Optional configuration settings.
+            tool_call_reactor: Optional reactor for processing detected tool calls.
+            session_id: Session ID for reactor context.
+            context: Additional context for reactor processing.
         """
         self._vtc_enabled = vtc_enabled
         self._config = config or VTCWrapperConfig()
         self._buffer = ""
         self._last_chunk_template: ProcessedResponse | None = None
+        self._tool_call_reactor = tool_call_reactor
+        self._session_id = session_id or ""
+        self._context = context or {}
 
     async def wrap(
         self,
@@ -99,19 +113,71 @@ class VTCResponseStreamWrapper:
             return
 
         async for chunk in stream:
-            processed = self._process_chunk(chunk)
+            processed = await self._process_chunk_async(chunk)
             if processed is not None:
                 yield processed
 
         # Flush any remaining buffer at end of stream
         if self._buffer:
-            final_chunk = self._flush_buffer()
+            final_chunk = await self._flush_buffer_async()
             if final_chunk is not None:
                 yield final_chunk
 
+    async def _process_chunk_async(
+        self, chunk: ProcessedResponse
+    ) -> ProcessedResponse | None:
+        """
+        Process a single chunk through VTC transformation (async version).
+
+        Args:
+            chunk: The ProcessedResponse to process.
+
+        Returns:
+            Processed chunk, or None if buffering (chunk should be held).
+        """
+        # Save as template for creating new chunks
+        self._last_chunk_template = chunk
+
+        # Extract text content from OpenAI format
+        text = self._extract_text(chunk)
+
+        # Handle chunks without text content (e.g., final chunks, tool calls, etc.)
+        if not text:
+            # Non-text chunks pass through as-is
+            # Buffer will be flushed at end of stream or when complete pattern found
+            return chunk
+
+        # Add to buffer
+        self._buffer += text
+
+        # Check buffer size limit
+        if len(self._buffer.encode("utf-8")) > self._config.max_buffer_bytes:
+            logger.warning(
+                "VTC wrapper buffer exceeded max size (%d bytes), forcing flush",
+                self._config.max_buffer_bytes,
+            )
+            return await self._flush_buffer_async()
+
+        # Check for complete XML tool call pattern
+        if detect_complete_tool_call(self._buffer):
+            return await self._process_complete_pattern_async()
+
+        # Check if we might have a partial pattern (still buffering)
+        if has_partial_xml_pattern(self._buffer):
+            logger.debug(
+                "VTC wrapper buffering partial XML pattern (%d bytes)",
+                len(self._buffer),
+            )
+            return None  # Continue buffering
+
+        # No XML patterns - flush buffer as regular content
+        return await self._flush_buffer_async()
+
     def _process_chunk(self, chunk: ProcessedResponse) -> ProcessedResponse | None:
         """
-        Process a single chunk through VTC transformation.
+        Process a single chunk through VTC transformation (sync version for tests).
+
+        Note: This sync version doesn't invoke the reactor. Use wrap() for full processing.
 
         Args:
             chunk: The ProcessedResponse to process.
@@ -212,7 +278,9 @@ class VTCResponseStreamWrapper:
 
         # Deep copy the content structure
         new_content: dict[str, Any] = {}
-        for key, value in content.items():
+        # Use dict() to safely handle StopChunkWithUsage which raises on items()
+        safe_content = dict(content)
+        for key, value in safe_content.items():
             if key != "choices":
                 new_content[key] = value
 
@@ -248,22 +316,119 @@ class VTCResponseStreamWrapper:
             metadata=dict(chunk.metadata) if chunk.metadata else {},
         )
 
-    def _process_complete_pattern(self) -> ProcessedResponse:
+    async def _invoke_reactor(self, tool_calls: list[dict[str, Any]]) -> None:
         """
-        Process a complete XML tool call pattern from the buffer.
+        Invoke the tool call reactor for detected tool calls.
+
+        Args:
+            tool_calls: List of detected tool calls in internal format.
+        """
+        if not self._tool_call_reactor or not tool_calls:
+            return
+
+        try:
+            import json as json_module
+
+            from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
+
+            for tool_call in tool_calls:
+                func_info = tool_call.get("function", {})
+                tool_name = func_info.get("name", "unknown")
+                tool_args = func_info.get("arguments", "{}")
+
+                # Parse arguments if they're a JSON string
+                if isinstance(tool_args, str):
+                    try:
+                        tool_args = json_module.loads(tool_args)
+                    except json_module.JSONDecodeError:
+                        tool_args = {"raw": tool_args}
+
+                # Build a minimal response representation for the reactor context
+                # The full_response is required by ToolCallContext
+                full_response = {
+                    "tool_calls": [tool_call],
+                    "vtc_source": True,  # Mark as coming from VTC extraction
+                }
+
+                context = ToolCallContext(
+                    session_id=self._session_id,
+                    tool_name=tool_name,
+                    tool_arguments=tool_args,
+                    backend_name=self._context.get("backend_name", "unknown"),
+                    model_name=self._context.get("model_name", "unknown"),
+                    full_response=full_response,
+                    calling_agent=self._context.get("calling_agent"),
+                )
+
+                logger.debug(
+                    "VTC wrapper invoking reactor for tool call: %s (session: %s)",
+                    tool_name,
+                    self._session_id,
+                )
+
+                # Invoke reactor - we don't need to handle the result since
+                # VTC clients handle tool calls themselves
+                await self._tool_call_reactor.process_tool_call(context)
+
+        except Exception as e:
+            logger.warning(
+                "VTC wrapper failed to invoke reactor: %s",
+                e,
+                exc_info=True,
+            )
+
+    async def _process_complete_pattern_async(self) -> ProcessedResponse:
+        """
+        Process a complete XML tool call pattern from the buffer (async version).
 
         For VTC clients like KiloCode that use simple format (e.g., <execute_command>),
         we extract tool calls for internal processing (reactors, logging) but
         DO NOT modify the content - pass it through as-is.
 
+        The extracted tool calls are added to response metadata and the reactor
+        is invoked to process them through registered handlers.
+
         Returns:
-            ProcessedResponse with VTC-processed content.
+            ProcessedResponse with VTC-processed content and tool calls in metadata.
         """
         # Save original buffer content before any processing
         buffer_content = self._buffer
         self._buffer = ""
 
-        # Parse XML tool calls from buffer for internal use (logging, metrics, reactors)
+        # Parse XML tool calls from buffer for internal use (reactors, logging, metrics)
+        # But we will NOT modify the content - pass through as-is for VTC clients
+        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
+
+        if tool_calls:
+            logger.info(
+                "VTC wrapper detected %d tool call(s): %s",
+                len(tool_calls),
+                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+            )
+            # Invoke reactor for detected tool calls
+            await self._invoke_reactor(tool_calls)
+        else:
+            logger.debug("VTC wrapper found no tool calls in complete pattern")
+
+        # Return original content unchanged - VTC clients expect their original format
+        # Tool calls are added to metadata for reactor processing
+        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+
+    def _process_complete_pattern(self) -> ProcessedResponse:
+        """
+        Process a complete XML tool call pattern from the buffer (sync version).
+
+        Note: This sync version doesn't invoke the reactor. Use the async
+        wrap() method to ensure reactor invocation.
+
+        Returns:
+            ProcessedResponse with VTC-processed content and tool calls in metadata.
+        """
+        # Save original buffer content before any processing
+        buffer_content = self._buffer
+        self._buffer = ""
+
+        # Parse XML tool calls from buffer for internal use (reactors, logging, metrics)
         # But we will NOT modify the content - pass through as-is for VTC clients
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
@@ -277,17 +442,19 @@ class VTCResponseStreamWrapper:
             logger.debug("VTC wrapper found no tool calls in complete pattern")
 
         # Return original content unchanged - VTC clients expect their original format
-        return self._create_chunk_with_text(buffer_content)
+        # Tool calls are added to metadata for reactor processing
+        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
 
-    def _flush_buffer(self) -> ProcessedResponse | None:
+    async def _flush_buffer_async(self) -> ProcessedResponse | None:
         """
-        Flush the buffer and return its content as a ProcessedResponse.
+        Flush the buffer and return its content as a ProcessedResponse (async version).
 
-        For VTC clients, content is passed through unchanged - we only extract
-        tool calls for internal processing (logging, metrics).
+        For VTC clients, content is passed through unchanged - we extract
+        tool calls, add them to metadata, and invoke the reactor.
 
         Returns:
-            ProcessedResponse with buffered content, or None if buffer is empty.
+            ProcessedResponse with buffered content and any detected tool calls,
+            or None if buffer is empty.
         """
         if not self._buffer:
             return None
@@ -296,7 +463,40 @@ class VTCResponseStreamWrapper:
         buffer_content = self._buffer
         self._buffer = ""
 
-        # Try to extract any tool calls for logging/internal use
+        # Try to extract any tool calls for reactor processing
+        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
+
+        if tool_calls:
+            logger.info(
+                "VTC wrapper detected %d tool call(s) on flush: %s",
+                len(tool_calls),
+                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+            )
+            # Invoke reactor for detected tool calls
+            await self._invoke_reactor(tool_calls)
+
+        # Return original content unchanged - VTC clients expect their original format
+        # Tool calls are added to metadata for reactor processing
+        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+
+    def _flush_buffer(self) -> ProcessedResponse | None:
+        """
+        Flush the buffer and return its content as a ProcessedResponse (sync version).
+
+        Note: This sync version doesn't invoke the reactor. Use wrap() for full processing.
+
+        Returns:
+            ProcessedResponse with buffered content and any detected tool calls,
+            or None if buffer is empty.
+        """
+        if not self._buffer:
+            return None
+
+        # Save original buffer content
+        buffer_content = self._buffer
+        self._buffer = ""
+
+        # Try to extract any tool calls for reactor processing
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
@@ -307,20 +507,43 @@ class VTCResponseStreamWrapper:
             )
 
         # Return original content unchanged - VTC clients expect their original format
-        return self._create_chunk_with_text(buffer_content)
+        # Tool calls are added to metadata for reactor processing
+        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
 
-    def _create_chunk_with_text(self, text: str) -> ProcessedResponse:
+    def _create_chunk_with_text(
+        self, text: str, tool_calls: list[dict[str, Any]] | None = None
+    ) -> ProcessedResponse:
         """
-        Create a ProcessedResponse chunk with the given text.
+        Create a ProcessedResponse chunk with the given text and optional tool calls.
 
         Args:
             text: The text content for the chunk.
+            tool_calls: Optional list of detected tool calls to add to metadata.
 
         Returns:
-            A new ProcessedResponse with the text content.
+            A new ProcessedResponse with the text content and tool calls in metadata.
         """
+        # Build metadata with tool calls for reactor processing
+        metadata: dict[str, Any] = {}
+        if tool_calls:
+            metadata["tool_calls"] = tool_calls
+            # Mark as VTC-sourced so reactors know these came from XML parsing
+            metadata["vtc_tool_calls"] = True
+
         if self._last_chunk_template is not None:
-            return self._inject_text(self._last_chunk_template, text)
+            chunk = self._inject_text(self._last_chunk_template, text)
+            # Merge tool calls into existing metadata
+            if tool_calls:
+                if chunk.metadata:
+                    chunk.metadata["tool_calls"] = tool_calls
+                    chunk.metadata["vtc_tool_calls"] = True
+                else:
+                    chunk = ProcessedResponse(
+                        content=chunk.content,
+                        usage=chunk.usage,
+                        metadata=metadata,
+                    )
+            return chunk
 
         # Fallback: create minimal chunk structure
         return ProcessedResponse(
@@ -329,7 +552,7 @@ class VTCResponseStreamWrapper:
                 "object": "chat.completion.chunk",
                 "choices": [{"index": 0, "delta": {"content": text}}],
             },
-            metadata={},
+            metadata=metadata,
         )
 
     def reset(self) -> None:
@@ -342,6 +565,9 @@ async def wrap_processed_response_stream_with_vtc(
     stream: AsyncIterator[ProcessedResponse],
     vtc_enabled: bool = False,
     config: VTCWrapperConfig | None = None,
+    tool_call_reactor: IToolCallReactor | None = None,
+    session_id: str | None = None,
+    context: dict[str, Any] | None = None,
 ) -> AsyncIterator[ProcessedResponse]:
     """
     Convenience function to wrap a ProcessedResponse stream with VTC processing.
@@ -354,6 +580,9 @@ async def wrap_processed_response_stream_with_vtc(
         stream: The source stream of ProcessedResponse objects.
         vtc_enabled: Whether VTC processing is enabled.
         config: Optional configuration settings.
+        tool_call_reactor: Optional reactor for processing detected tool calls.
+        session_id: Session ID for reactor context.
+        context: Additional context for reactor processing.
 
     Yields:
         ProcessedResponse objects with VTC transformations applied.
@@ -363,10 +592,18 @@ async def wrap_processed_response_stream_with_vtc(
         async for chunk in wrap_processed_response_stream_with_vtc(
             stream_generator(),
             vtc_enabled=True,
+            tool_call_reactor=reactor,
+            session_id="sess-123",
         ):
             yield chunk
         ```
     """
-    wrapper = VTCResponseStreamWrapper(vtc_enabled=vtc_enabled, config=config)
+    wrapper = VTCResponseStreamWrapper(
+        vtc_enabled=vtc_enabled,
+        config=config,
+        tool_call_reactor=tool_call_reactor,
+        session_id=session_id,
+        context=context,
+    )
     async for chunk in wrapper.wrap(stream):
         yield chunk

@@ -118,16 +118,14 @@ async def record_response_usage(
             proxy_processing_ms = total_duration_ms
 
         # Extract backend-reported usage if available
-        backend_reported_prompt_tokens = None
-        backend_reported_completion_tokens = None
-        backend_reported_cost = None
+        backend_reported_dict: dict[str, Any] | None = None
 
         if backend_reported_usage:
-            backend_reported_prompt_tokens = backend_reported_usage.prompt_tokens
-            backend_reported_completion_tokens = (
-                backend_reported_usage.completion_tokens
-            )
-            backend_reported_cost = backend_reported_usage.cost
+            backend_reported_dict = {
+                "prompt_tokens": backend_reported_usage.prompt_tokens,
+                "completion_tokens": backend_reported_usage.completion_tokens,
+                "cost": backend_reported_usage.cost,
+            }
 
         # Record the response
         await usage_service.record_response(
@@ -139,9 +137,7 @@ async def record_response_usage(
             ttft_ms=ttft_ms,
             proxy_processing_ms=proxy_processing_ms,
             total_duration_ms=total_duration_ms,
-            backend_reported_prompt_tokens=backend_reported_prompt_tokens,
-            backend_reported_completion_tokens=backend_reported_completion_tokens,
-            backend_reported_cost=backend_reported_cost,
+            backend_reported_usage=backend_reported_dict,
         )
     except Exception as e:
         logger.warning(f"Failed to record response usage: {e}", exc_info=True)
