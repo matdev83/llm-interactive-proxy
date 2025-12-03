@@ -64,7 +64,7 @@ def create_sso_router(
 
     # Store state -> provider mapping for callback validation
     # In production, this should be in Redis or database
-    _state_store: dict[str, str] = {}
+    _state_store: dict[str, str | dict[str, Any]] = {}
     _login_sessions: dict[str, dict[str, Any]] = {}
     captcha_service = captcha_service or CaptchaService(sso_config.captcha)
 
@@ -97,11 +97,16 @@ def create_sso_router(
                 return HTMLResponse(status_code=403)
 
             token_repo = TokenRepository(database_manager.database_path)
-            is_valid = await token_repo.verify_and_consume_login_token(token)
+            is_valid, agent_token_id = await token_repo.verify_and_consume_login_token(
+                token
+            )
 
             if not is_valid:
                 # Invalid or expired token - reject
                 return HTMLResponse(status_code=403)
+
+            # Store agent_token_id in state for re-authentication flow
+            # This will be retrieved in callback to update existing token
 
             providers = sso_service.get_supported_providers()
 
@@ -134,6 +139,7 @@ def create_sso_router(
             _login_sessions[login_session] = {
                 "providers": providers,
                 "captcha_required": captcha_enabled,
+                "agent_token_id": agent_token_id,
             }
 
             captcha_config = sso_config.captcha if captcha_enabled else None
@@ -188,6 +194,8 @@ def create_sso_router(
                     status_code=403,
                 )
 
+            agent_token_id = session_info.get("agent_token_id")
+
             if provider not in session_info.get("providers", []):
                 return HTMLResponse(
                     content=_render_error_page(
@@ -224,7 +232,10 @@ def create_sso_router(
 
             # Generate state for CSRF protection
             state = secrets.token_urlsafe(32)
-            _state_store[state] = provider
+            _state_store[state] = {
+                "provider": provider,
+                "agent_token_id": agent_token_id,
+            }
 
             redirect_uri = f"{base_url}/auth/callback"
             auth_url = await sso_service.create_authorization_url(
@@ -284,9 +295,28 @@ def create_sso_router(
             )
 
         # Validate state (CSRF protection)
-        provider = _state_store.pop(state, None)
-        if not provider:
+        state_data = _state_store.pop(state, None)
+        if not state_data:
             logger.warning(f"Invalid or expired state parameter: {state[:8]}...")
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Invalid Session",
+                    "Your authentication session has expired or is invalid. Please try again.",
+                ),
+                status_code=400,
+            )
+
+        # Extract provider and agent_token_id from state
+        if isinstance(state_data, dict):
+            provider = state_data.get("provider")
+            agent_token_id = state_data.get("agent_token_id")
+        else:
+            # Backward compatibility: if state_data is just a string
+            provider = state_data
+            agent_token_id = None
+
+        if not provider:
+            logger.warning(f"Invalid state data: {state[:8]}...")
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Session",
@@ -371,49 +401,88 @@ def create_sso_router(
                 from src.core.auth.sso.models import TokenRecord
 
                 token_repo = TokenRepository(database_manager.database_path)
-                existing_token = await token_repo.find_by_user_id(user_id)
 
-                if existing_token:
-                    # Re-authentication: update existing token's auth status
-                    # Requirements: 5.1, 5.3
-                    await token_repo.update_auth_status(
-                        existing_token.id,
-                        authenticated=True,
-                        expiry=datetime.utcnow()
-                        + timedelta(hours=sso_config.session_lifetime_hours),
-                    )
+                # First check if this is a re-auth flow (agent_token_id provided)
+                if agent_token_id:
+                    # This is re-authentication - update the specified token
+                    existing_token = await token_repo.get_by_id(agent_token_id)
+                    if existing_token and existing_token.user_id == user_id:
+                        # Security check: ensure the token belongs to the same user
+                        # Re-authentication: update existing token's auth status
+                        # Requirements: 5.1, 5.3, 9.3
+                        await token_repo.update_auth_status(
+                            existing_token.id,
+                            authenticated=True,
+                            expiry=datetime.utcnow()
+                            + timedelta(hours=sso_config.session_lifetime_hours),
+                        )
 
-                    # Redirect to success page indicating re-authentication
-                    # Note: We don't show the token again for security
-                    return HTMLResponse(
-                        content=_render_reauth_success_page(),
-                        status_code=200,
-                    )
-                else:
+                        logger.info(
+                            f"Re-authenticated token {existing_token.id} for user {user_email}"
+                        )
+
+                        # Redirect to success page indicating re-authentication
+                        # Note: We don't show the token again for security
+                        return HTMLResponse(
+                            content=_render_reauth_success_page(),
+                            status_code=200,
+                        )
+                    else:
+                        # Token doesn't exist or belongs to different user
+                        logger.warning(
+                            f"Re-auth attempted with invalid agent_token_id: {agent_token_id}"
+                        )
+                        # Fall through to check for existing token by user_id
+                        agent_token_id = None
+
+                # Check for existing token by user_id (not via re-auth flow)
+                if not agent_token_id:
+                    existing_token = await token_repo.find_by_user_id(user_id)
+
+                    if existing_token:
+                        # User has existing token - update it (implicit re-auth)
+                        # Requirements: 5.1, 5.3
+                        await token_repo.update_auth_status(
+                            existing_token.id,
+                            authenticated=True,
+                            expiry=datetime.utcnow()
+                            + timedelta(hours=sso_config.session_lifetime_hours),
+                        )
+
+                        logger.info(
+                            f"Implicitly re-authenticated token {existing_token.id} for user {user_email}"
+                        )
+
+                        # Redirect to success page indicating re-authentication
+                        # Note: We don't show the token again for security
+                        return HTMLResponse(
+                            content=_render_reauth_success_page(),
+                            status_code=200,
+                        )
                     # First-time authentication: generate new token
-                    plaintext_token, token_hash = token_service.generate_token()
+                plaintext_token, token_hash = token_service.generate_token()
 
-                    # Store token in database
-                    token_record = TokenRecord(
-                        id=secrets.token_hex(16),
-                        token_hash=token_hash,
-                        user_id=user_id,
-                        user_email=user_email,
-                        provider=provider,
-                        is_authenticated=True,
-                        is_active=True,
-                        created_at=datetime.utcnow(),
-                        last_authenticated_at=datetime.utcnow(),
-                        auth_expires_at=datetime.utcnow()
-                        + timedelta(hours=sso_config.session_lifetime_hours),
-                    )
+                # Store token in database
+                token_record = TokenRecord(
+                    id=secrets.token_hex(16),
+                    token_hash=token_hash,
+                    user_id=user_id,
+                    user_email=user_email,
+                    provider=provider,
+                    is_authenticated=True,
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                    last_authenticated_at=datetime.utcnow(),
+                    auth_expires_at=datetime.utcnow()
+                    + timedelta(hours=sso_config.session_lifetime_hours),
+                )
 
-                    await token_repo.store_token(token_record)
+                await token_repo.store_token(token_record)
 
-                    # Redirect to success page with token
-                    return RedirectResponse(
-                        url=f"/auth/success?token={plaintext_token}", status_code=302
-                    )
+                # Redirect to success page with token
+                return RedirectResponse(
+                    url=f"/auth/success?token={plaintext_token}", status_code=302
+                )
 
             else:
                 raise ValueError(
