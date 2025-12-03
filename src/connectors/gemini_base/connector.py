@@ -2875,8 +2875,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         with contextlib.suppress(Exception):
                             response.close()
 
+            # Note: gemini_base yields ProcessedResponse objects, not raw SSE data.
+            # VTC processing is applied via VTCResponseStreamWrapper when vtc_enabled.
+            # This wrapper handles XML tool call extraction and re-serialization
+            # for Cline-like VTC clients.
+            from src.core.services.streaming.vtc_response_wrapper import (
+                wrap_processed_response_stream_with_vtc,
+            )
+
+            vtc_enabled = getattr(request_data, "vtc_enabled", False) or False
+
             return StreamingResponseEnvelope(
-                content=stream_generator(),
+                content=wrap_processed_response_stream_with_vtc(
+                    stream_generator(),
+                    vtc_enabled=vtc_enabled,
+                ),
                 media_type="text/event-stream",
                 headers={},
             )

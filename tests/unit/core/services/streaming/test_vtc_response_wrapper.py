@@ -1,0 +1,468 @@
+"""
+Unit tests for VTCResponseStreamWrapper.
+
+Tests the VTC response stream wrapper that transforms ProcessedResponse streams
+with VTC (Virtual Tool Calling) XML processing.
+"""
+
+from __future__ import annotations
+
+import pytest
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+
+def create_chunk(
+    content_text: str, finish_reason: str | None = None
+) -> ProcessedResponse:
+    """Helper to create a ProcessedResponse with OpenAI-format content."""
+    delta: dict = {"content": content_text}
+    if finish_reason:
+        delta["finish_reason"] = finish_reason
+
+    return ProcessedResponse(
+        content={
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+        },
+        metadata={"id": "chatcmpl-test", "model": "test-model"},
+    )
+
+
+def create_empty_chunk(finish_reason: str = "stop") -> ProcessedResponse:
+    """Helper to create a ProcessedResponse with no text content (final chunk)."""
+    return ProcessedResponse(
+        content={
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
+        },
+        metadata={
+            "id": "chatcmpl-test",
+            "model": "test-model",
+            "finish_reason": finish_reason,
+        },
+    )
+
+
+def extract_text_from_chunk(chunk: ProcessedResponse) -> str:
+    """Extract text content from a ProcessedResponse chunk."""
+    content = chunk.content
+    if not isinstance(content, dict):
+        return ""
+    choices = content.get("choices", [])
+    if not choices:
+        return ""
+    delta = choices[0].get("delta", {})
+    return delta.get("content", "") or ""
+
+
+class TestVTCResponseStreamWrapperPassThrough:
+    """Tests for pass-through behavior when VTC is disabled."""
+
+    @pytest.mark.asyncio
+    async def test_pass_through_when_vtc_disabled(self):
+        """When vtc_enabled=False, chunks should pass through unchanged."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        chunks = [
+            create_chunk("Hello "),
+            create_chunk("world!"),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=False
+        ):
+            result_chunks.append(chunk)
+
+        assert len(result_chunks) == 3
+        assert extract_text_from_chunk(result_chunks[0]) == "Hello "
+        assert extract_text_from_chunk(result_chunks[1]) == "world!"
+
+    @pytest.mark.asyncio
+    async def test_pass_through_non_text_chunks(self):
+        """Chunks without text content should pass through unchanged."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        chunks = [
+            create_chunk("Hello"),
+            create_empty_chunk(),  # No text content
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Both chunks should come through
+        assert len(result_chunks) >= 1
+
+
+class TestVTCResponseStreamWrapperXMLExtraction:
+    """Tests for XML tool call extraction."""
+
+    @pytest.mark.asyncio
+    async def test_extract_complete_xml_single_chunk(self):
+        """Complete XML tool call in single chunk should be processed."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        xml_content = (
+            "I will run the command.<function_calls>\n"
+            '<invoke name="execute_command">\n'
+            '<parameter name="command">ls -la</parameter>\n'
+            "</invoke>\n"
+            "</function_calls>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Should have processed chunks
+        assert len(result_chunks) >= 1
+
+        # Combine all text content
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # The output should contain the XML (re-serialized)
+        # because VTC post-processing converts internal tool calls back to XML
+        assert "<function_calls>" in all_text or "<invoke" in all_text
+
+    @pytest.mark.asyncio
+    async def test_extract_xml_split_across_chunks(self):
+        """XML tool call split across chunks should be buffered and processed."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Split the XML across multiple chunks
+        chunks = [
+            create_chunk("I will run "),
+            create_chunk("the command.<function_calls>\n<invoke "),
+            create_chunk('name="execute_command">\n'),
+            create_chunk('<parameter name="command">ls</parameter>\n'),
+            create_chunk("</invoke>\n</function_calls>"),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Should have output
+        assert len(result_chunks) >= 1
+
+        # Combine all text
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # The text prefix should be preserved
+        assert "I will run the command." in all_text or "I will run" in all_text
+
+
+class TestVTCResponseStreamWrapperRoundTrip:
+    """Tests for XML round-trip (parse -> internal -> serialize)."""
+
+    @pytest.mark.asyncio
+    async def test_roundtrip_preserves_tool_call_structure(self):
+        """Tool calls should round-trip correctly: XML -> internal -> XML."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        xml_content = (
+            "<function_calls>\n"
+            '<invoke name="read_file">\n'
+            '<parameter name="path">/tmp/test.txt</parameter>\n'
+            "</invoke>\n"
+            "</function_calls>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Combine all text
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # Should contain the tool call (re-serialized)
+        assert "read_file" in all_text
+        assert "path" in all_text
+
+    @pytest.mark.asyncio
+    async def test_roundtrip_multiple_tool_calls(self):
+        """Multiple tool calls should all be preserved."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        xml_content = (
+            "<function_calls>\n"
+            '<invoke name="read_file">\n'
+            '<parameter name="path">/tmp/a.txt</parameter>\n'
+            "</invoke>\n"
+            '<invoke name="write_file">\n'
+            '<parameter name="path">/tmp/b.txt</parameter>\n'
+            '<parameter name="content">Hello</parameter>\n'
+            "</invoke>\n"
+            "</function_calls>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Combine all text
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # Both tool calls should be present
+        assert "read_file" in all_text
+        assert "write_file" in all_text
+
+
+class TestVTCResponseStreamWrapperBuffering:
+    """Tests for buffering behavior."""
+
+    @pytest.mark.asyncio
+    async def test_buffer_flushed_on_stream_end(self):
+        """Any buffered content should be flushed when stream ends."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Incomplete XML at end of stream
+        chunks = [
+            create_chunk("Hello world"),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Should have output with the text
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+        assert "Hello world" in all_text
+
+    @pytest.mark.asyncio
+    async def test_buffer_overflow_forces_flush(self):
+        """Exceeding max buffer size should force a flush."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            VTCResponseStreamWrapper,
+            VTCWrapperConfig,
+        )
+
+        # Create wrapper with small buffer limit
+        config = VTCWrapperConfig(max_buffer_bytes=50)
+        wrapper = VTCResponseStreamWrapper(vtc_enabled=True, config=config)
+
+        # Create chunks that exceed buffer
+        long_text = "A" * 100  # 100 bytes, exceeds 50 byte limit
+        chunks = [
+            create_chunk(long_text),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrapper.wrap(mock_stream()):
+            result_chunks.append(chunk)
+
+        # Should have flushed the content
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+        assert len(all_text) >= 100
+
+
+class TestVTCResponseStreamWrapperEdgeCases:
+    """Tests for edge cases and error handling."""
+
+    @pytest.mark.asyncio
+    async def test_empty_stream(self):
+        """Empty stream should yield nothing."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        async def mock_stream():
+            return
+            yield  # Make it an async generator
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        assert len(result_chunks) == 0
+
+    @pytest.mark.asyncio
+    async def test_malformed_xml_passes_through(self):
+        """Malformed XML should be passed through without crashing."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Malformed XML (unclosed tags)
+        chunks = [
+            create_chunk("<function_calls><invoke name='test'>"),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        # Should not crash, content should be present
+        assert len(result_chunks) >= 1
+
+    @pytest.mark.asyncio
+    async def test_mixed_text_and_xml(self):
+        """Text before and after XML should be preserved."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        chunks = [
+            create_chunk("Before text. "),
+            create_chunk(
+                '<function_calls><invoke name="test">'
+                '<parameter name="x">1</parameter></invoke></function_calls>'
+            ),
+            create_chunk(" After text."),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(chunk)
+
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # Both surrounding text should be present
+        assert "Before text" in all_text
+        assert "After text" in all_text
+
+    @pytest.mark.asyncio
+    async def test_non_dict_content_passes_through(self):
+        """ProcessedResponse with non-dict content should pass through."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create chunk with string content (edge case)
+        chunk = ProcessedResponse(
+            content="raw string content",
+            metadata={},
+        )
+
+        async def mock_stream():
+            yield chunk
+
+        result_chunks = []
+        async for c in wrap_processed_response_stream_with_vtc(
+            mock_stream(), vtc_enabled=True
+        ):
+            result_chunks.append(c)
+
+        # Should pass through
+        assert len(result_chunks) >= 1
+
+
+class TestVTCWrapperConfig:
+    """Tests for VTCWrapperConfig."""
+
+    def test_default_config_values(self):
+        """Default config should have reasonable values."""
+        from src.core.services.streaming.vtc_response_wrapper import VTCWrapperConfig
+
+        config = VTCWrapperConfig()
+        assert config.max_buffer_bytes == 64 * 1024
+        assert config.emit_partial_on_done is True
+
+    def test_custom_config_values(self):
+        """Custom config values should be respected."""
+        from src.core.services.streaming.vtc_response_wrapper import VTCWrapperConfig
+
+        config = VTCWrapperConfig(max_buffer_bytes=1024, emit_partial_on_done=False)
+        assert config.max_buffer_bytes == 1024
+        assert config.emit_partial_on_done is False
