@@ -317,6 +317,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable API key redaction in prompts",
     )
     parser.add_argument(
+        "--disable-sso-captcha",
+        action="store_true",
+        default=None,
+        help="Disable SSO Captcha verification (overrides config)",
+    )
+    parser.add_argument(
         "--disable-auth",
         action="store_true",
         default=None,
@@ -1202,6 +1208,18 @@ def apply_cli_args(
         auth_overrides = cli_overrides.setdefault("auth", {})
         auth_overrides["disable_auth"] = args.disable_auth
         record_cli("auth.disable_auth", args.disable_auth, "--disable-auth")
+    if args.disable_sso_captcha is not None:
+        # Note: sso.captcha.enabled is the full path
+        if "sso" not in cli_overrides:
+            cli_overrides["sso"] = {}
+        sso_overrides = cli_overrides.setdefault("sso", {})
+        if "captcha" not in sso_overrides:
+            sso_overrides["captcha"] = {}
+        captcha_overrides = sso_overrides.setdefault("captcha", {})
+        captcha_overrides["enabled"] = not args.disable_sso_captcha
+        record_cli(
+            "sso.captcha.enabled", not args.disable_sso_captcha, "--disable-sso-captcha"
+        )
     if getattr(args, "trusted_ips", None) is not None:
         auth_overrides = cli_overrides.setdefault("auth", {})
         auth_overrides["trusted_trusted_ips"] = args.trusted_ips

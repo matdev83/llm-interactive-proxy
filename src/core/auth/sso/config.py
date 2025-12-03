@@ -43,7 +43,7 @@ class AuthorizationConfig:
 class CaptchaConfig:
     """Configuration for bot protection on the public SSO form."""
 
-    enabled: bool = False
+    enabled: bool = True
     provider: Literal["cloudflare_turnstile"] = "cloudflare_turnstile"
     site_key: str | None = None
     secret_key: str | None = None
