@@ -42,10 +42,13 @@ def test_login_token_lifecycle(ttl_minutes: int) -> None:
             assert len(token) > 10
 
             # Verify and consume (first time)
-            assert await repo.verify_and_consume_login_token(token) is True
+            success, error = await repo.verify_and_consume_login_token(token)
+            assert success is True
+            assert error is None
 
             # Verify consumption (second time should fail)
-            assert await repo.verify_and_consume_login_token(token) is False
+            success, error = await repo.verify_and_consume_login_token(token)
+            assert success is False
 
     asyncio.run(run_test())
 
@@ -84,7 +87,8 @@ def test_login_token_expiry(ttl_minutes: int, wait_seconds: float) -> None:
                 await db.commit()
 
             # Verify expired token returns False
-            assert await repo.verify_and_consume_login_token(expired_token) is False
+            success, error = await repo.verify_and_consume_login_token(expired_token)
+            assert success is False
 
             # Verify it was deleted from DB (cleanup)
             async with aiosqlite.connect(db_path) as db:

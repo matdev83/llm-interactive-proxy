@@ -22,7 +22,7 @@ from src.core.auth.sso.models import (
 class DatabaseManager:
     """Manages SQLite database schema and migrations."""
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     # Schema definition
     SCHEMA_SQL = """
@@ -234,6 +234,42 @@ class TokenRepository:
             raise SSOException(
                 "Failed to store token record",
                 details={"token_id": token_record.id, "error": str(e)},
+                original_error=e,
+            ) from e
+
+    async def get_by_id(self, token_id: str) -> TokenRecord | None:
+        """
+        Get token record by ID.
+
+        Args:
+            token_id: Token ID
+
+        Returns:
+            TokenRecord if found, None otherwise
+        """
+        try:
+            async with aiosqlite.connect(self.database_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT id, token_hash, user_id, user_email, provider,
+                           is_authenticated, is_active, created_at,
+                           last_authenticated_at, auth_expires_at
+                    FROM agent_tokens
+                    WHERE id = ?
+                    """,
+                    (token_id,),
+                )
+                row = await cursor.fetchone()
+
+                if row is None:
+                    return None
+
+                return self._row_to_token_record(row)
+        except Exception as e:
+            raise SSOException(
+                "Failed to get token by ID",
+                details={"token_id": token_id, "error": str(e)},
                 original_error=e,
             ) from e
 
@@ -501,7 +537,9 @@ class TokenRepository:
                 original_error=e,
             ) from e
 
-    async def verify_and_consume_login_token(self, token: str) -> tuple[bool, str | None]:
+    async def verify_and_consume_login_token(
+        self, token: str
+    ) -> tuple[bool, str | None]:
         """
         Verify and consume (delete) a login token.
 
@@ -533,7 +571,7 @@ class TokenRepository:
 
                 expires_at = datetime.fromisoformat(row[0])
                 agent_token_id = row[1] if len(row) > 1 else None
-                
+
                 if datetime.utcnow() > expires_at:
                     # Delete expired token (cleanup)
                     await db.execute(

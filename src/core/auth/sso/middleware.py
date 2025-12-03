@@ -191,7 +191,10 @@ class AuthMiddleware:
         if not validation_result.is_authenticated:
             # Session expired or not yet authenticated
             # Return sandbox with re-authentication instructions
-            return await self.sandbox_handler.generate_login_banner()
+            # Pass token_id so the re-auth flow can update the existing token
+            return await self.sandbox_handler.generate_login_banner(
+                agent_token_id=validation_result.token_id
+            )
 
         # Check conversation history for sandbox content
         messages = request.get("messages", [])

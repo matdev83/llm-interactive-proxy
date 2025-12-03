@@ -99,9 +99,9 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
                     # This is necessary because request.body() can only be called once
                     async def receive():
                         return {"type": "http.request", "body": body}
-                    
+
                     request._receive = receive  # type: ignore
-                    
+
                     body_dict = json.loads(body)
                     messages = body_dict.get("messages", [])
             except Exception:
