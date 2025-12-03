@@ -232,7 +232,7 @@ If statistics queries are slow:
 ## Related Documentation
 
 - **[Usage Tracking User Guide](usage-tracking.md)** - Complete feature documentation
-- **[Usage Tracking Integration Guide](../../../docs/usage_tracking_integration.md)** - Developer integration guide
+- **[Usage Tracking Integration Guide](../../../docs/usage-tracking-integration.md)** - Developer integration guide
 - **[Wire Capture Guide](../debugging/wire-capture.md)** - Traffic recording and analysis
 - **[Replacement Metrics Guide](replacement-metrics.md)** - Model replacement tracking
 - **[Configuration Guide](../configuration.md)** - Complete configuration reference

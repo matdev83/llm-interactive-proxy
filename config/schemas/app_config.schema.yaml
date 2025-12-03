@@ -210,3 +210,11 @@ properties:
     type: array
     items: { type: string }
     default: ["cline", "kilo", "roo"]
+  usage_tracking:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      persistence_path: { type: string }
+      flush_interval_seconds: { type: number, minimum: 0.1 }
+      max_records_in_memory: { type: integer, minimum: 1000 }

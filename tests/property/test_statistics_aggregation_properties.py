@@ -154,7 +154,7 @@ def test_tool_call_aggregation_correctness(records):
         ), f"Expected total_tool_calls={expected_total_tool_calls}, got {stats.total_tool_calls}"
 
         # Test aggregation by backend
-        for backend_type in set(r.backend_type for r in records):
+        for backend_type in {r.backend_type for r in records}:
             backend_filter = StatisticsFilter(backend_type=backend_type)
             backend_stats = asyncio.run(service.get_aggregated_stats(backend_filter))
 
@@ -166,7 +166,7 @@ def test_tool_call_aggregation_correctness(records):
             ), f"Backend {backend_type}: expected {expected_backend_tool_calls}, got {backend_stats.total_tool_calls}"
 
         # Test aggregation by model
-        for model in set(r.model for r in records):
+        for model in {r.model for r in records}:
             model_filter = StatisticsFilter(model=model)
             model_stats = asyncio.run(service.get_aggregated_stats(model_filter))
 
@@ -209,7 +209,7 @@ def test_session_uniqueness_tracking(records):
         stats = asyncio.run(service.get_aggregated_stats())
 
         # Verify unique_sessions equals number of distinct session_id values
-        expected_unique_sessions = len(set(r.session_id for r in records))
+        expected_unique_sessions = len({r.session_id for r in records})
         assert (
             stats.unique_sessions == expected_unique_sessions
         ), f"Expected unique_sessions={expected_unique_sessions}, got {stats.unique_sessions}"
@@ -252,13 +252,13 @@ def test_turn_counter_accuracy(records):
         ), f"Expected total_turns={expected_total_turns}, got {stats.total_turns}"
 
         # Test per-session turn counting
-        for session_id in set(r.session_id for r in records):
-            session_filter = StatisticsFilter()
+        for session_id in {r.session_id for r in records}:
+            StatisticsFilter()
             # We need to filter manually since StatisticsFilter doesn't have session_id
             session_records = [r for r in records if r.session_id == session_id]
 
             # The number of records for this session should match
-            expected_session_turns = sum(r.turn_number for r in session_records)
+            sum(r.turn_number for r in session_records)
 
             # Verify by checking the records directly
             assert len(session_records) > 0, f"Session {session_id} should have records"
@@ -296,7 +296,7 @@ def test_tokens_per_session_calculation(records):
 
         # Calculate expected tokens_per_session
         total_tokens = sum(r.total_tokens for r in records)
-        unique_sessions = len(set(r.session_id for r in records))
+        unique_sessions = len({r.session_id for r in records})
 
         if unique_sessions > 0:
             expected_tokens_per_session = total_tokens / unique_sessions

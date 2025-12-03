@@ -170,7 +170,7 @@ class StatisticsAggregationService(IStatisticsService):
         response_count = sum(1 for r in records if r.http_status_code is not None)
 
         # Session metrics
-        unique_sessions = len(set(r.session_id for r in records))
+        unique_sessions = len({r.session_id for r in records})
         total_turns = sum(r.turn_number for r in records)
 
         # Token metrics

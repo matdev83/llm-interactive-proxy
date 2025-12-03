@@ -21,7 +21,7 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 
 ## Integration Guides
 
-- **[Usage Tracking Integration](../../docs/usage_tracking_integration.md)** - Integrate usage tracking into custom controllers and middleware
+- **[Usage Tracking Integration](../../docs/usage-tracking-integration.md)** - Integrate usage tracking into custom controllers and middleware
 
 ## Debugging & Troubleshooting
 

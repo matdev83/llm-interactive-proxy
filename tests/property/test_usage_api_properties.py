@@ -192,7 +192,7 @@ async def test_api_filter_application_property(
         )
 
         # Verify unique sessions count
-        expected_sessions = len(set(r.session_id for r in expected_records))
+        expected_sessions = len({r.session_id for r in expected_records})
         assert stats.unique_sessions == expected_sessions, (
             f"Unique sessions mismatch: expected {expected_sessions}, "
             f"got {stats.unique_sessions}"
@@ -270,7 +270,7 @@ async def test_backend_type_filter_property(
             store.add_record(record)
 
         # Get unique backend types from records
-        backend_types = list(set(r.backend_type for r in records))
+        backend_types = list({r.backend_type for r in records})
         if not backend_types:
             return  # Skip if no backend types
 
@@ -375,8 +375,8 @@ async def test_combined_filters_property(
             store.add_record(record)
 
         # Get a backend type and model that exist in the records
-        backend_types = list(set(r.backend_type for r in records))
-        models = list(set(r.model for r in records))
+        backend_types = list({r.backend_type for r in records})
+        models = list({r.model for r in records})
 
         if not backend_types or not models:
             return

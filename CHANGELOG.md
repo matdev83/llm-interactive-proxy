@@ -48,7 +48,7 @@
 
 - **Documentation**:
   - **User Guide**: Complete feature guide at `docs/user_guide/features/usage-tracking.md`
-  - **Integration Guide**: Developer integration guide at `docs/usage_tracking_integration.md`
+  - **Integration Guide**: Developer integration guide at `docs/usage-tracking-integration.md`
   - **README Update**: Added usage tracking to key features list
 
 - **Testing**: Comprehensive property-based testing with Hypothesis

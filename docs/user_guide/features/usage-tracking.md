@@ -368,7 +368,7 @@ If usage data is missing after restart:
 
 ## Developer Integration
 
-For developers integrating usage tracking into custom controllers or middleware, see the [Usage Tracking Integration Guide](../../../docs/usage_tracking_integration.md).
+For developers integrating usage tracking into custom controllers or middleware, see the [Usage Tracking Integration Guide](../../../docs/usage-tracking-integration.md).
 
 ## See Also
 
