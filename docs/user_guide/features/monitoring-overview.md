@@ -38,7 +38,7 @@ curl "http://localhost:8000/v1/usage/export?start_date=2025-12-01T00:00:00Z&end_
 
 ### Replacement Metrics
 
-**[Replacement Metrics](replacement-metrics.md)** tracks activation rates and effectiveness of the random model replacement feature.
+**[Replacement Metrics](replacement-metrics.md)** tracks activation rates and effectiveness of the [random model replacement](random-model-replacement.md) feature.
 
 **Key Capabilities:**
 - Track replacement activation rates
@@ -119,7 +119,33 @@ python -m src.core.cli --host 0.0.0.0
 
 > **Warning**: When exposing the API externally, always ensure authentication is enabled to prevent unauthorized access to usage data.
 
-## Common Use Cases
+## Usage Examples
+
+### Query Aggregated Statistics
+
+```bash
+# Get statistics for a specific backend
+curl "http://localhost:8000/v1/usage/stats?backend_type=openai"
+
+# Get statistics with multiple filters
+curl "http://localhost:8000/v1/usage/stats?backend_type=anthropic&model=claude-3-5-sonnet&start_date=2025-12-01T00:00:00Z"
+```
+
+### Export Usage Data
+
+```bash
+# Export usage data for a date range
+curl "http://localhost:8000/v1/usage/export?start_date=2025-12-01T00:00:00Z&end_date=2025-12-31T23:59:59Z" > usage_data.json
+```
+
+### Monitor Performance
+
+```bash
+# Check TTFT and latency metrics
+curl "http://localhost:8000/v1/usage/stats" | jq '.ttft_stats, .duration_stats'
+```
+
+## Use Cases
 
 ### 1. Billing Reconciliation
 

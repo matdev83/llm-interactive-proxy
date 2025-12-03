@@ -326,7 +326,7 @@ Future versions will add:
 
 - Token validation against user database
 - Rate limiting per user
-- Real usage tracking and billing
+- Real [usage tracking](usage-tracking.md) and billing
 
 ### Input Validation
 
@@ -401,7 +401,7 @@ The current MVP implementation has the following limitations:
 - File access support (read-files request/response)
 - MCP tool support
 - Real authentication and authorization
-- Real usage tracking and billing
+- Real [usage tracking](usage-tracking.md) and billing
 - Session persistence across restarts
 - WebSocket compression
 
