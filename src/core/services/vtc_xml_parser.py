@@ -155,11 +155,34 @@ def _extract_simple_format(
 
             # Skip common non-tool XML tags
             skip_tags = {
-                "thinking", "thought", "think", "plan", "planning",
-                "memory", "memory_bank", "brain_dump", "context",
-                "summary", "observation", "reflection", "note",
-                "code", "pre", "div", "span", "p", "br", "hr",
-                "ul", "ol", "li", "a", "b", "i", "em", "strong",
+                "thinking",
+                "thought",
+                "think",
+                "plan",
+                "planning",
+                "memory",
+                "memory_bank",
+                "brain_dump",
+                "context",
+                "summary",
+                "observation",
+                "reflection",
+                "note",
+                "code",
+                "pre",
+                "div",
+                "span",
+                "p",
+                "br",
+                "hr",
+                "ul",
+                "ol",
+                "li",
+                "a",
+                "b",
+                "i",
+                "em",
+                "strong",
             }
             if potential_tool_name.lower() in skip_tags:
                 continue
@@ -478,8 +501,7 @@ def detect_complete_tool_call(text: str) -> bool:
 
     # Check for complete simple format: <snake_case_tool>...<param>...</param>...</snake_case_tool>
     # Pattern matches tool-like tags (snake_case with underscore) that have child elements
-    simple_pattern = r"<([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\s[^>]*)?>(?=.*?<[^>]+>).*?</\1>"
-    if re.search(simple_pattern, text, re.DOTALL):
-        return True
-
-    return False
+    simple_pattern = (
+        r"<([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\s[^>]*)?>(?=.*?<[^>]+>).*?</\1>"
+    )
+    return bool(re.search(simple_pattern, text, re.DOTALL))

@@ -177,13 +177,16 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             # response attributes) still need lifecycle dedup check.
             is_from_buffer = i < buffered_call_count
 
-            if not is_from_buffer and is_streaming:
+            if (
+                not is_from_buffer
+                and is_streaming
+                and not self._is_response_complete(response)
+            ):
                 # In streaming mode, only process non-buffered tool calls when the response
                 # is complete. This prevents processing partial tool calls (e.g., during
                 # argument generation) which would burn the lifecycle signature and cause
                 # the complete tool call to be skipped later.
-                if not self._is_response_complete(response):
-                    continue
+                continue
 
             if not is_from_buffer:
                 # Check lifecycle registry for non-buffered calls

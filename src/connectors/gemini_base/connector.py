@@ -44,6 +44,9 @@ from src.connectors.gemini_base.credentials import (
     TOKEN_EXPIRY_BUFFER_SECONDS,
     _StaticTokenCreds,
 )
+
+# Strategy interfaces and implementations
+from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
 from src.connectors.gemini_base.graceful_degradation import (
     calculate_retry_delay,
@@ -52,12 +55,23 @@ from src.connectors.gemini_base.graceful_degradation import (
     is_rate_limit_like_error,
     set_model_cooldown,
 )
+from src.connectors.gemini_base.interfaces import (
+    ICredentialProvider,
+    IEndpointConfig,
+    IModelDiscoveryStrategy,
+    IProjectDiscoveryStrategy,
+    IRequestBodyBuilder,
+    IResponsePostProcessor,
+)
+from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
 from src.connectors.gemini_base.prompt_limiter import (
     enforce_prompt_limit,
     estimate_prompt_tokens,
     get_prompt_limit,
     normalize_model_key,
 )
+from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
+from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
 from src.connectors.gemini_base.token_manager import TokenManager
 from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
@@ -408,6 +422,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         config: AppConfig,
         translation_service: TranslationService,
         name: str,
+        # Optional strategy injection for composition
+        credential_provider: ICredentialProvider | None = None,
+        endpoint_config: IEndpointConfig | None = None,
+        request_body_builder: IRequestBodyBuilder | None = None,
+        project_discovery: IProjectDiscoveryStrategy | None = None,
+        model_discovery: IModelDiscoveryStrategy | None = None,
+        response_post_processor: IResponsePostProcessor | None = None,
     ) -> None:
         super().__init__(
             client, config, translation_service
@@ -421,6 +442,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
+
+        # Strategy objects for pluggable behavior
+        # When not provided, use defaults (backward compatible)
+        self._credential_provider = credential_provider
+        self._endpoint_config = endpoint_config or StandardCodeAssistEndpoint()
+        self._request_body_builder = (
+            request_body_builder or StandardRequestBodyBuilder()
+        )
+        self._project_discovery = project_discovery
+        self._model_discovery = model_discovery or ApiModelDiscovery()
+        self._response_post_processor = (
+            response_post_processor or NoOpResponsePostProcessor()
+        )
 
         # Token management (composed)
         self._token_manager = TokenManager()
@@ -1029,25 +1063,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         Get headers for API requests (used with httpx client).
 
-        Subclasses can override this to add custom headers (e.g., User-Agent).
+        Delegates to the endpoint config strategy for backend-specific headers.
         """
-        headers: dict[str, str] = {}
-        if self._oauth_credentials and self._oauth_credentials.get("access_token"):
-            headers["Authorization"] = (
-                f"Bearer {self._oauth_credentials['access_token']}"
-            )
-        headers["Content-Type"] = "application/json"
-        return headers
+        return self._endpoint_config.get_api_headers(self._oauth_credentials)
 
     def _get_session_headers(self) -> dict[str, str]:
         """
         Get headers for AuthorizedSession requests (used with requests library).
 
-        Subclasses can override this to add custom headers (e.g., User-Agent).
-        These headers are applied to the google.auth AuthorizedSession used for
-        API calls like streamGenerateContent.
+        Delegates to the endpoint config strategy for backend-specific headers
+        (e.g., custom User-Agent for Antigravity).
         """
-        return {}
+        return self._endpoint_config.get_session_headers()
 
     async def _load_models_from_api(self) -> None:
         """
@@ -1540,9 +1567,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> dict[str, Any]:
         """Build the outer request body wrapper for Code Assist API.
 
-        This method builds the wrapper structure around the inner code_assist_request.
-        Subclasses can override this to customize the request body format
-        (e.g., Antigravity uses a different wrapper structure).
+        This method delegates to the injected request body builder strategy,
+        allowing different backends to customize the request format.
 
         Args:
             effective_model: The model name to use
@@ -1553,12 +1579,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Returns:
             Complete request body dict ready to send to the API
         """
-        return {
-            "model": effective_model,
-            "project": project_id,
-            "user_prompt_id": self._generate_user_prompt_id(request_data),
-            "request": code_assist_request,
-        }
+        return self._request_body_builder.build(
+            effective_model=effective_model,
+            project_id=project_id,
+            request_data=request_data,
+            inner_request=code_assist_request,
+            user_prompt_id_generator=self._generate_user_prompt_id,
+        )
 
     @staticmethod
     def _sanitize_code_assist_tools(
@@ -2877,18 +2904,42 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Note: gemini_base yields ProcessedResponse objects, not raw SSE data.
             # VTC processing is applied via VTCResponseStreamWrapper when vtc_enabled.
-            # This wrapper handles XML tool call extraction and re-serialization
-            # for Cline-like VTC clients.
+            # This wrapper handles XML tool call extraction, reactor invocation,
+            # and passes content through unchanged for Cline-like VTC clients.
             from src.core.services.streaming.vtc_response_wrapper import (
                 wrap_processed_response_stream_with_vtc,
             )
 
             vtc_enabled = getattr(request_data, "vtc_enabled", False) or False
 
+            # Get tool call reactor for VTC processing
+            tool_call_reactor = None
+            if vtc_enabled:
+                try:
+                    from src.core.di.services import get_service_provider
+                    from src.core.services.tool_call_reactor_service import (
+                        ToolCallReactorService,
+                    )
+
+                    provider = get_service_provider()
+                    tool_call_reactor = provider.get_service(ToolCallReactorService)
+                except Exception as e:
+                    logger.warning("Failed to get tool call reactor for VTC: %s", e)
+
+            # Build context for reactor
+            reactor_context = {
+                "backend_name": self.backend_type,
+                "model_name": effective_model,
+                "calling_agent": getattr(request_data, "agent", None),
+            }
+
             return StreamingResponseEnvelope(
                 content=wrap_processed_response_stream_with_vtc(
                     stream_generator(),
                     vtc_enabled=vtc_enabled,
+                    tool_call_reactor=tool_call_reactor,
+                    session_id=getattr(request_data, "session_id", None),
+                    context=reactor_context,
                 ),
                 media_type="text/event-stream",
                 headers={},

@@ -1,9 +1,16 @@
 """
 Gemini OAuth connector that reuses Antigravity app credentials.
 
-This backend mirrors the personal/free OAuth connectors but reads the access
-token from Antigravity's VS Code style state database and targets the Cloud
-Code PA sandbox endpoint observed in Antigravity logs.
+This backend uses the Antigravity sandbox endpoint and reads credentials from
+the Antigravity VS Code style state database.
+
+This connector uses the Strategy Pattern with the following strategies:
+- AntigravitySQLiteCredentialProvider: Loads from Antigravity state.vscdb
+- AntigravitySandboxEndpoint: Uses daily-cloudcode-pa.sandbox.googleapis.com
+- AntigravityRequestBodyBuilder: requestId/userAgent/requestType format
+- AntigravityProjectDiscovery: Paid tier discovery for Antigravity
+- FallbackModelDiscovery: Skips fetchAvailableModels (sandbox doesn't expose it)
+- XmlToolCallPostProcessor: Parses XML tool calls for Claude models
 """
 
 import asyncio
@@ -20,7 +27,14 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
-from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
+from src.connectors.gemini_base.credential_providers import (
+    AntigravitySQLiteCredentialProvider,
+)
+from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
+from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
+from src.connectors.gemini_base.project_discovery import AntigravityProjectDiscovery
+from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
+from src.connectors.gemini_base.response_processors import XmlToolCallPostProcessor
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -34,6 +48,8 @@ from src.core.domain.chat import (
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
+
+from .gemini_oauth_base import GeminiOAuthBaseConnector
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +66,16 @@ _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
 ).lower() not in {"0", "false", "no"}
 
 
-class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
+class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
     """
     Connector for Gemini using OAuth credentials from the Antigravity app.
 
     This connector uses the Antigravity sandbox endpoint instead of the standard
     Code Assist API endpoint. The sandbox does not expose fetchAvailableModels,
     so model discovery and health checks rely on cached/fallback lists instead.
+
+    Inherits directly from GeminiOAuthBaseConnector (not from Free) to allow
+    independent evolution of Antigravity-specific behavior.
     """
 
     backend_type: str = "gemini-oauth-antigravity"
@@ -68,70 +87,28 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         translation_service: TranslationService,
         name: str | None = None,
     ) -> None:
+        # Initialize with Antigravity-specific strategies
         super().__init__(
             client,
             config,
             translation_service,
             name=name or self.backend_type,
+            # Strategy injection for Antigravity behavior
+            credential_provider=AntigravitySQLiteCredentialProvider(),
+            endpoint_config=AntigravitySandboxEndpoint(),
+            request_body_builder=AntigravityRequestBodyBuilder(),
+            project_discovery=AntigravityProjectDiscovery(),
+            model_discovery=FallbackModelDiscovery(),
+            response_post_processor=XmlToolCallPostProcessor(),
         )
-        self.gemini_api_base_url = (
-            getattr(self, "gemini_api_base_url", None) or ANTIGRAVITY_SANDBOX_ENDPOINT
-        )
+        self.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
         self._enable_antigravity_backend_debugging_override = _DEBUG_OVERRIDE_DEFAULT
 
-    def _get_api_headers(self) -> dict[str, str]:
-        """
-        Get headers for API requests with Antigravity-specific User-Agent.
+    # NOTE: _get_api_headers and _get_session_headers are now handled by
+    # AntigravitySandboxEndpoint strategy injected in __init__
 
-        The Antigravity sandbox endpoint requires a specific User-Agent header.
-        """
-        headers = super()._get_api_headers()
-        headers["User-Agent"] = ANTIGRAVITY_USER_AGENT
-        return headers
-
-    def _get_session_headers(self) -> dict[str, str]:
-        """
-        Get headers for AuthorizedSession requests with Antigravity User-Agent.
-
-        The Antigravity sandbox endpoint requires a specific User-Agent header
-        for all API calls, including those made via AuthorizedSession.
-        """
-        headers = super()._get_session_headers()
-        headers["User-Agent"] = ANTIGRAVITY_USER_AGENT
-        return headers
-
-    def _build_code_assist_request_body(
-        self,
-        effective_model: str,
-        project_id: str,
-        request_data: Any,
-        code_assist_request: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build Antigravity-specific request body format.
-
-        The Antigravity sandbox API uses a different wrapper structure than
-        the standard Code Assist API:
-        - 'requestId' instead of 'user_prompt_id'
-        - 'model' at top level (not inside 'request')
-        - Additional 'userAgent' and 'requestType' fields required
-
-        Args:
-            effective_model: The model name to use
-            project_id: The project ID from loadCodeAssist
-            request_data: The original request data (for generating requestId)
-            code_assist_request: The inner request with contents, generationConfig, etc.
-
-        Returns:
-            Antigravity-formatted request body dict
-        """
-        return {
-            "project": project_id,
-            "requestId": self._generate_user_prompt_id(request_data),
-            "request": code_assist_request,
-            "model": effective_model,
-            "userAgent": "antigravity",
-            "requestType": "agent",
-        }
+    # NOTE: _build_code_assist_request_body is now handled by
+    # AntigravityRequestBodyBuilder strategy injected in __init__
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
