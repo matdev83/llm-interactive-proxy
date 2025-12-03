@@ -14,7 +14,7 @@ class TestTokenService:
 
     def test_generate_token_returns_tuple(self) -> None:
         """Test that generate_token returns a tuple of (token, hash)."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         result = service.generate_token()
 
         assert isinstance(result, tuple)
@@ -26,14 +26,14 @@ class TestTokenService:
 
     def test_generated_token_has_sufficient_length(self) -> None:
         """Test that generated tokens have at least 43 characters."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, _ = service.generate_token()
 
         assert len(plaintext_token) >= 43
 
     def test_generated_token_is_base64url(self) -> None:
         """Test that generated tokens use base64url encoding."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, _ = service.generate_token()
 
         # Base64url uses: A-Z, a-z, 0-9, -, _
@@ -44,21 +44,21 @@ class TestTokenService:
 
     def test_token_hash_is_argon2id_format(self) -> None:
         """Test that token hashes are in Argon2id format."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         _, token_hash = service.generate_token()
 
         assert token_hash.startswith("$argon2id$")
 
     def test_verify_token_with_correct_token(self) -> None:
         """Test that verify_token returns True for correct token."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, token_hash = service.generate_token()
 
         assert service.verify_token(plaintext_token, token_hash) is True
 
     def test_verify_token_with_incorrect_token(self) -> None:
         """Test that verify_token returns False for incorrect token."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, token_hash = service.generate_token()
 
         # Modify the token slightly
@@ -68,7 +68,7 @@ class TestTokenService:
 
     def test_verify_token_with_invalid_hash_format(self) -> None:
         """Test that verify_token raises TokenError for invalid hash format."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, _ = service.generate_token()
 
         invalid_hash = "not-a-valid-hash"
@@ -80,7 +80,7 @@ class TestTokenService:
 
     def test_hash_token_produces_different_hashes(self) -> None:
         """Test that hashing the same token multiple times produces different hashes."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, _ = service.generate_token()
 
         # Hash the same token multiple times
@@ -100,7 +100,7 @@ class TestTokenService:
 
     def test_generated_tokens_are_unique(self) -> None:
         """Test that multiple generated tokens are unique."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
         tokens = set()
         for _ in range(100):
@@ -112,7 +112,7 @@ class TestTokenService:
 
     def test_token_hash_does_not_contain_plaintext(self) -> None:
         """Test that token hash does not contain the plaintext token."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, token_hash = service.generate_token()
 
         # Hash should not contain the plaintext token
@@ -120,7 +120,7 @@ class TestTokenService:
 
     def test_token_hash_is_longer_than_plaintext(self) -> None:
         """Test that token hash is longer than plaintext token."""
-        service = TokenService()
+        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         plaintext_token, token_hash = service.generate_token()
 
         # Hash includes algorithm, version, parameters, salt, and hash

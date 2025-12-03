@@ -34,6 +34,7 @@ from src.core.auth.sso.models import (
     TokenRecord,
     TokenValidationResult,
 )
+from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sandbox_handler import SandboxHandler
 from src.core.auth.sso.token_service import TokenService
 
@@ -49,6 +50,7 @@ __all__ = [
     "TokenService",
     "SandboxHandler",
     "AuthMiddleware",
+    "RateLimitService",
     # Models
     "TokenRecord",
     "PendingAuthorization",

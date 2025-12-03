@@ -25,23 +25,36 @@ class TokenService:
     - Parallelism: 4
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        memory_cost: int = 65536,  # 64 MB (production default)
+        time_cost: int = 3,  # 3 iterations (production default)
+        parallelism: int = 4,  # 4 threads (production default)
+    ) -> None:
         """
         Initialize TokenService with Argon2id hasher.
 
-        Uses 2025-recommended parameters:
+        Args:
+            memory_cost: Memory cost in KiB (default: 65536 = 64 MB for production)
+            time_cost: Number of iterations (default: 3 for production)
+            parallelism: Number of parallel threads (default: 4 for production)
+
+        For testing, use lighter parameters to speed up tests:
+            TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+
+        Production defaults use 2025-recommended security parameters:
         - memory_cost: 65536 (64 MB)
         - time_cost: 3 iterations
         - parallelism: 4 threads
-        - hash_len: 32 bytes
-        - salt_len: 16 bytes
+        - hash_len: 32 bytes (fixed)
+        - salt_len: 16 bytes (fixed)
         """
         self._hasher = PasswordHasher(
-            memory_cost=65536,  # 64 MB
-            time_cost=3,  # 3 iterations
-            parallelism=4,  # 4 threads
-            hash_len=32,  # 32 bytes output
-            salt_len=16,  # 16 bytes salt
+            memory_cost=memory_cost,
+            time_cost=time_cost,
+            parallelism=parallelism,
+            hash_len=32,  # Always 32 bytes output
+            salt_len=16,  # Always 16 bytes salt
         )
 
     def generate_token(self) -> tuple[str, str]:

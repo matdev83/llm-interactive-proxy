@@ -349,7 +349,8 @@ def test_property_7_token_entropy_sufficiency(
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    # Use fast configuration for tests (8 GB, 1 iteration, 1 thread)
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
     for _ in range(num_tokens):
         plaintext_token, _ = service.generate_token()
@@ -386,7 +387,8 @@ def test_property_6_token_generation_uniqueness(
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    # Use fast configuration for tests (8 MB, 1 iteration, 1 thread)
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
     # Generate multiple tokens
     tokens = set()
@@ -537,7 +539,8 @@ def test_property_token_verification_correctness(
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    # Use fast configuration for tests (8 MB, 1 iteration, 1 thread)
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
     # Hash the token
     token_hash = service.hash_token(token)
@@ -572,7 +575,8 @@ def test_property_token_hash_uniqueness(
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    # Use fast configuration for tests (8 MB, 1 iteration, 1 thread)
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
     # Generate a single token
     plaintext_token, _ = service.generate_token()
