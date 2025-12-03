@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2025-12-02]
 
 ### Added: Comprehensive Usage Tracking and Statistics System
 
