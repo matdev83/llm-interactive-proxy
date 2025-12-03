@@ -184,7 +184,7 @@ class TestAWSConfig:
         config = create_aws_iam_identity_center_config(
             client_id="test_id",
             client_secret="test_secret",
-            start_url="https://d-abc123.awsapps.com/start",
+            _start_url="https://d-abc123.awsapps.com/start",
             region="us-west-2",
         )
 

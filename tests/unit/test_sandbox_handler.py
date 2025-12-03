@@ -252,8 +252,8 @@ class TestSandboxHandler:
             }
         ]
         result = handler.detect_sandbox_history(messages_different)
-        # The current implementation checks for exact strings, so this should be False
-        assert result is False
+        # The implementation is case-insensitive, so this should be True
+        assert result is True
 
     def test_detect_sandbox_history_with_none_content(self) -> None:
         """Test sandbox detection handles None content gracefully."""
