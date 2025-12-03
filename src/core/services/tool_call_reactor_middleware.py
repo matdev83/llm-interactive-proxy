@@ -177,6 +177,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             # response attributes) still need lifecycle dedup check.
             is_from_buffer = i < buffered_call_count
 
+            if not is_from_buffer and is_streaming:
+                # In streaming mode, only process non-buffered tool calls when the response
+                # is complete. This prevents processing partial tool calls (e.g., during
+                # argument generation) which would burn the lifecycle signature and cause
+                # the complete tool call to be skipped later.
+                if not self._is_response_complete(response):
+                    continue
+
             if not is_from_buffer:
                 # Check lifecycle registry for non-buffered calls
                 signature = build_tool_call_signature(tc)
@@ -646,6 +654,27 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # If it's a raw dict/string, return the replacement content
         return replacement_content
 
+    def _is_response_complete(self, response: Any) -> bool:
+        """Check if the response is complete (valid for tool call processing)."""
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict):
+            if metadata.get("is_done"):
+                return True
+            finish_reason = metadata.get("finish_reason")
+            if finish_reason:
+                return True
+
+        # Check choices for OpenAI format
+        choices = getattr(response, "choices", [])
+        if isinstance(choices, list):
+            for choice in choices:
+                if getattr(choice, "finish_reason", None):
+                    return True
+                if isinstance(choice, dict) and choice.get("finish_reason"):
+                    return True
+
+        return False
+
     def _resolve_stream_key(
         self, session_id: str, context: dict[str, Any], response: Any
     ) -> str:
@@ -678,9 +707,13 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if isinstance(metadata, dict):
             if metadata.get("is_done"):
                 return True
-            finish_reason = metadata.get("finish_reason")
-            if finish_reason in {"stop", "length", "tool_calls"}:
-                return True
+            # In streaming, we should only reset when explicitly done (is_done).
+            # Resetting on finish_reason causes state loss while the stream object
+            # might still be alive or retried, breaking deduplication.
+            if not is_streaming:
+                finish_reason = metadata.get("finish_reason")
+                if finish_reason in {"stop", "length", "tool_calls"}:
+                    return True
         return not is_streaming
 
     def _clear_stream_state(self, stream_key: str) -> None:

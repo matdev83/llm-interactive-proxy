@@ -297,6 +297,7 @@ async def test_tool_calls_deduplicated_within_same_stream(
                 type="function",
             )
         ],
+        metadata={"finish_reason": "tool_calls"},
     )
     duplicate_call = ChatMessage(
         role="assistant",
@@ -307,6 +308,7 @@ async def test_tool_calls_deduplicated_within_same_stream(
                 type="function",
             )
         ],
+        metadata={"finish_reason": "tool_calls"},
     )
 
     await tool_call_reactor_middleware.process(
@@ -340,7 +342,11 @@ async def test_tool_calls_processed_again_on_new_stream(
     )
 
     await tool_call_reactor_middleware.process(
-        response=ChatMessage(role="assistant", tool_calls=[tool_call]),
+        response=ChatMessage(
+            role="assistant",
+            tool_calls=[tool_call],
+            metadata={"finish_reason": "tool_calls"},
+        ),
         session_id="test_session",
         context=first_context,
         is_streaming=True,
@@ -358,6 +364,7 @@ async def test_tool_calls_processed_again_on_new_stream(
                     type="function",
                 )
             ],
+            metadata={"finish_reason": "tool_calls"},
         ),
         session_id="test_session",
         context=second_context,
@@ -381,7 +388,11 @@ async def test_stream_state_clears_on_done_chunk(
     )
 
     await tool_call_reactor_middleware.process(
-        response=ChatMessage(role="assistant", tool_calls=[tool_call]),
+        response=ChatMessage(
+            role="assistant",
+            tool_calls=[tool_call],
+            metadata={"finish_reason": "tool_calls"},
+        ),
         session_id="test_session",
         context=context,
         is_streaming=True,
@@ -409,6 +420,7 @@ async def test_stream_state_clears_on_done_chunk(
                     type="function",
                 )
             ],
+            metadata={"finish_reason": "tool_calls"},
         ),
         session_id="test_session",
         context=context,

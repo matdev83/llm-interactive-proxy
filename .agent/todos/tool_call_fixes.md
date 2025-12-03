@@ -3,7 +3,11 @@
 ## 1. ✅Current Issue: Tool Call Lifecycle Double-Registration
 
 **Priority:** P0 - BLOCKING
-**Status:** INVESTIGATING
+**Status:** COMPLETED
+
+### Resolution
+- Modified `ToolCallReactorMiddleware.process` to only process tool calls when the response is complete (checked via `finish_reason` or `is_done`). This prevents processing partial tool calls which were causing premature lifecycle registration.
+- Updated `_should_reset_stream_state` to avoid resetting state on `finish_reason` during streaming, ensuring deduplication persists until the stream is explicitly done.
 
 ### Problem
 
@@ -39,7 +43,7 @@ In `tool_call_reactor_middleware.py` line 167:
 
 ### Files to Fix
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 ### Recent Fix
 
