@@ -139,6 +139,64 @@ Here is the output."""
         # blocked_tool XML should still be in content since it wasn't extracted
         assert "blocked_tool" in cleaned
 
+    def test_parse_simple_format_without_whitelist(self) -> None:
+        """Test parsing simple format (KiloCode style) without whitelist."""
+        content = """I'll check the git status.
+
+<execute_command>
+<command>git status</command>
+</execute_command>"""
+
+        tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=None)
+
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["type"] == "function"
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+        args = json.loads(tool_calls[0]["function"]["arguments"])
+        assert args["command"] == "git status"
+
+        # Tool call XML should be removed, text preserved
+        assert "I'll check the git status." in cleaned
+        assert "<execute_command>" not in cleaned
+
+    def test_parse_simple_format_read_file(self) -> None:
+        """Test parsing read_file tool in simple format."""
+        content = """<read_file>
+<path>/tmp/test.txt</path>
+<start>1</start>
+<end>100</end>
+</read_file>"""
+
+        tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=None)
+
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "read_file"
+
+        args = json.loads(tool_calls[0]["function"]["arguments"])
+        assert args["path"] == "/tmp/test.txt"
+        assert args["start"] == 1
+        assert args["end"] == 100
+
+    def test_parse_simple_format_skips_thinking_tags(self) -> None:
+        """Test that thinking/planning tags are not treated as tool calls."""
+        content = """<thinking>
+I should check the git status first.
+</thinking>
+
+<execute_command>
+<command>git status</command>
+</execute_command>"""
+
+        tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=None)
+
+        # Only execute_command should be extracted, not thinking
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+        # Thinking tag should remain in content
+        assert "<thinking>" in cleaned
+
     def test_parse_json_parameter_value(self) -> None:
         """Test parsing parameter with JSON value."""
         content = """<invoke name="todo_write">
@@ -326,6 +384,17 @@ class TestHasPartialXmlPattern:
         """Test with opening function_calls but no closing."""
         assert has_partial_xml_pattern("<function_calls>\n<invoke") is True
 
+    def test_partial_simple_format_tool(self) -> None:
+        """Test with partial simple format tool (KiloCode style)."""
+        assert has_partial_xml_pattern("<execute_command>\n<command>") is True
+        assert has_partial_xml_pattern("Some text<read_file>") is True
+        assert has_partial_xml_pattern("<write_to_file><path>/tmp") is True
+
+    def test_complete_simple_format_tool(self) -> None:
+        """Test with complete simple format tool (should be False)."""
+        text = "<execute_command><command>ls</command></execute_command>"
+        assert has_partial_xml_pattern(text) is False
+
     def test_complete_invoke(self) -> None:
         """Test with complete invoke (should be False)."""
         text = '<invoke name="test"></invoke>'
@@ -357,6 +426,19 @@ class TestDetectCompleteToolCall:
         """Test with partial invoke (should be False)."""
         text = '<invoke name="test">'
         assert detect_complete_tool_call(text) is False
+
+    def test_complete_simple_format(self) -> None:
+        """Test with complete simple format tool (KiloCode style)."""
+        text = "<execute_command><command>ls</command></execute_command>"
+        assert detect_complete_tool_call(text) is True
+
+        text2 = "<read_file><path>/tmp/test.txt</path></read_file>"
+        assert detect_complete_tool_call(text2) is True
+
+    def test_partial_simple_format(self) -> None:
+        """Test with partial simple format (should be False)."""
+        assert detect_complete_tool_call("<execute_command><command>") is False
+        assert detect_complete_tool_call("<read_file>") is False
 
 
 class TestRoundTrip:

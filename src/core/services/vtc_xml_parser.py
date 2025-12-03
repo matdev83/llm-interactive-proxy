@@ -123,8 +123,9 @@ def _extract_simple_format(
     """
     Extract tool calls in <tool_name>...</tool_name> format.
 
-    Only extracts if the tag name matches allowed_tools whitelist (if provided),
-    or if the tag contains child elements (indicating it's likely a tool call).
+    If allowed_tools is provided, only extracts matching tool names.
+    If allowed_tools is None, uses structural heuristics to detect tool calls
+    (XML blocks with snake_case names and child elements).
 
     Args:
         content: Text content to parse.
@@ -136,36 +137,93 @@ def _extract_simple_format(
     tool_calls: list[dict[str, Any]] = []
     cleaned = content
 
-    if allowed_tools is None:
-        # Without a whitelist, we can't safely detect simple format
-        # (too many false positives with arbitrary XML tags)
-        return tool_calls, cleaned
+    if allowed_tools is not None:
+        # Whitelist mode: only extract specified tools
+        for tool_name in allowed_tools:
+            extracted, cleaned = _extract_simple_tool(cleaned, tool_name)
+            tool_calls.extend(extracted)
+    else:
+        # Structural detection mode: find XML blocks that look like tool calls
+        # Pattern: <snake_case_name>...<child>...</child>...</snake_case_name>
+        # Common VTC tool name patterns: execute_command, read_file, write_to_file, etc.
+        tool_pattern = r"<([a-z][a-z0-9_]*(?:_[a-z0-9]+)*)(?:\s[^>]*)?>(.+?)</\1>"
 
-    for tool_name in allowed_tools:
-        # Pattern for <tool_name>...</tool_name>
-        # Use non-greedy match and handle potential attributes
-        pattern = rf"<{re.escape(tool_name)}(?:\s[^>]*)?>(.+?)</{re.escape(tool_name)}>"
-
-        for match in re.finditer(pattern, content, re.DOTALL):
+        for match in re.finditer(tool_pattern, content, re.DOTALL):
             full_match = match.group(0)
-            inner_content = match.group(1)
+            potential_tool_name = match.group(1)
+            inner_content = match.group(2)
 
-            # Check if inner content has child elements (parameters)
+            # Skip common non-tool XML tags
+            skip_tags = {
+                "thinking", "thought", "think", "plan", "planning",
+                "memory", "memory_bank", "brain_dump", "context",
+                "summary", "observation", "reflection", "note",
+                "code", "pre", "div", "span", "p", "br", "hr",
+                "ul", "ol", "li", "a", "b", "i", "em", "strong",
+            }
+            if potential_tool_name.lower() in skip_tags:
+                continue
+
+            # Must have child elements (parameters)
             if not re.search(r"<[^>]+>", inner_content):
-                # No child elements - might just be text content, skip
                 continue
 
             # Parse parameters from child elements
             params = _parse_simple_parameters(inner_content)
 
             if params:
-                tool_call = _create_tool_call(tool_name, params)
+                tool_call = _create_tool_call(potential_tool_name, params)
                 tool_calls.append(tool_call)
 
-                # Remove the matched block from content
-                cleaned = cleaned.replace(full_match, "", 1)
+                # Remove the matched block from content, add space to prevent word concatenation
+                cleaned = cleaned.replace(full_match, " ", 1)
 
-                logger.debug("Extracted simple-format tool call: %s", tool_name)
+                logger.debug(
+                    "Extracted simple-format tool call (structural): %s",
+                    potential_tool_name,
+                )
+
+    return tool_calls, cleaned
+
+
+def _extract_simple_tool(
+    content: str, tool_name: str
+) -> tuple[list[dict[str, Any]], str]:
+    """
+    Extract a specific tool from content in simple format.
+
+    Args:
+        content: Text content to parse.
+        tool_name: The tool name to extract.
+
+    Returns:
+        Tuple of (tool_calls, cleaned_content).
+    """
+    tool_calls: list[dict[str, Any]] = []
+    cleaned = content
+
+    # Pattern for <tool_name>...</tool_name>
+    pattern = rf"<{re.escape(tool_name)}(?:\s[^>]*)?>(.+?)</{re.escape(tool_name)}>"
+
+    for match in re.finditer(pattern, content, re.DOTALL):
+        full_match = match.group(0)
+        inner_content = match.group(1)
+
+        # Check if inner content has child elements (parameters)
+        if not re.search(r"<[^>]+>", inner_content):
+            continue
+
+        # Parse parameters from child elements
+        params = _parse_simple_parameters(inner_content)
+
+        if params:
+            tool_call = _create_tool_call(tool_name, params)
+            tool_calls.append(tool_call)
+
+            # Remove the matched block from content
+            cleaned = cleaned.replace(full_match, " ", 1)
+
+            logger.debug("Extracted simple-format tool call: %s", tool_name)
 
     return tool_calls, cleaned
 
@@ -386,6 +444,14 @@ def has_partial_xml_pattern(text: str) -> bool:
         if opens > closes:
             return True
 
+    # Check for simple format opening tags without matching close
+    # Look for <snake_case_tool> patterns (e.g., <execute_command>, <read_file>)
+    simple_opens = re.findall(r"<([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\s[^>]*)?>", text)
+    for tag_name in simple_opens:
+        close_tag = f"</{tag_name}>"
+        if close_tag not in text:
+            return True
+
     return False
 
 
@@ -407,4 +473,13 @@ def detect_complete_tool_call(text: str) -> bool:
         return True
 
     # Check for complete function_calls block
-    return bool(re.search(r"<function_calls>.*?</function_calls>", text, re.DOTALL))
+    if re.search(r"<function_calls>.*?</function_calls>", text, re.DOTALL):
+        return True
+
+    # Check for complete simple format: <snake_case_tool>...<param>...</param>...</snake_case_tool>
+    # Pattern matches tool-like tags (snake_case with underscore) that have child elements
+    simple_pattern = r"<([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\s[^>]*)?>(?=.*?<[^>]+>).*?</\1>"
+    if re.search(simple_pattern, text, re.DOTALL):
+        return True
+
+    return False

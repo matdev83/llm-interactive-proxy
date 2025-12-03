@@ -1,16 +1,19 @@
 """
 VTC Response Stream Wrapper - Transform ProcessedResponse streams with VTC processing.
 
-This module provides a wrapper that applies VTC (Virtual Tool Calling) pre/post-processing
+This module provides a wrapper that applies VTC (Virtual Tool Calling) detection
 to AsyncIterator[ProcessedResponse] streams. It is designed for connectors like gemini_base
 that yield ProcessedResponse objects directly rather than raw SSE data.
 
 The wrapper:
 1. Extracts text content from OpenAI-format ProcessedResponse chunks
 2. Buffers until complete XML tool call patterns are detected
-3. Parses XML -> internal tool call format
-4. Serializes internal tool calls back to XML for VTC clients
-5. Injects processed content back into ProcessedResponse format
+3. Parses XML to internal tool call format for logging/metrics
+4. Passes content through UNCHANGED - VTC clients expect their original XML format
+
+Note: Unlike the main VTC processors, this wrapper does NOT re-serialize tool calls.
+VTC clients like KiloCode handle their own XML format (e.g., <execute_command>)
+and expect it to pass through unchanged.
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ from src.core.services.vtc_xml_parser import (
     detect_complete_tool_call,
     has_partial_xml_pattern,
     parse_vtc_xml,
-    serialize_tool_calls_to_xml,
 )
 
 logger = logging.getLogger(__name__)
@@ -250,39 +252,39 @@ class VTCResponseStreamWrapper:
         """
         Process a complete XML tool call pattern from the buffer.
 
+        For VTC clients like KiloCode that use simple format (e.g., <execute_command>),
+        we extract tool calls for internal processing (reactors, logging) but
+        DO NOT modify the content - pass it through as-is.
+
         Returns:
             ProcessedResponse with VTC-processed content.
         """
-        # Parse XML tool calls from buffer
-        tool_calls, cleaned_text = parse_vtc_xml(self._buffer, allowed_tools=None)
-
-        # Clear buffer
+        # Save original buffer content before any processing
         buffer_content = self._buffer
         self._buffer = ""
 
-        if not tool_calls:
-            # No tool calls found, return content as-is
-            logger.debug("VTC wrapper found no tool calls in complete pattern")
-            return self._create_chunk_with_text(buffer_content)
+        # Parse XML tool calls from buffer for internal use (logging, metrics, reactors)
+        # But we will NOT modify the content - pass through as-is for VTC clients
+        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
-        logger.debug("VTC wrapper extracted %d tool calls from buffer", len(tool_calls))
-
-        # Re-serialize tool calls back to XML (for VTC clients)
-        xml_output = serialize_tool_calls_to_xml(tool_calls)
-
-        # Combine cleaned text with re-serialized XML
-        if cleaned_text and xml_output:
-            final_content = f"{cleaned_text}\n\n{xml_output}"
-        elif xml_output:
-            final_content = xml_output
+        if tool_calls:
+            logger.info(
+                "VTC wrapper detected %d tool call(s): %s",
+                len(tool_calls),
+                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+            )
         else:
-            final_content = cleaned_text
+            logger.debug("VTC wrapper found no tool calls in complete pattern")
 
-        return self._create_chunk_with_text(final_content)
+        # Return original content unchanged - VTC clients expect their original format
+        return self._create_chunk_with_text(buffer_content)
 
     def _flush_buffer(self) -> ProcessedResponse | None:
         """
         Flush the buffer and return its content as a ProcessedResponse.
+
+        For VTC clients, content is passed through unchanged - we only extract
+        tool calls for internal processing (logging, metrics).
 
         Returns:
             ProcessedResponse with buffered content, or None if buffer is empty.
@@ -290,30 +292,22 @@ class VTCResponseStreamWrapper:
         if not self._buffer:
             return None
 
-        # Try to extract any complete tool calls from partial buffer
-        tool_calls, cleaned_text = parse_vtc_xml(self._buffer, allowed_tools=None)
-
-        # Clear buffer
+        # Save original buffer content
         buffer_content = self._buffer
         self._buffer = ""
 
-        if tool_calls:
-            logger.debug(
-                "VTC wrapper extracted %d tool calls on flush", len(tool_calls)
-            )
-            # Re-serialize tool calls
-            xml_output = serialize_tool_calls_to_xml(tool_calls)
-            if cleaned_text and xml_output:
-                final_content = f"{cleaned_text}\n\n{xml_output}"
-            elif xml_output:
-                final_content = xml_output
-            else:
-                final_content = cleaned_text
-        else:
-            # No tool calls, emit buffer content as-is
-            final_content = buffer_content
+        # Try to extract any tool calls for logging/internal use
+        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
-        return self._create_chunk_with_text(final_content)
+        if tool_calls:
+            logger.info(
+                "VTC wrapper detected %d tool call(s) on flush: %s",
+                len(tool_calls),
+                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+            )
+
+        # Return original content unchanged - VTC clients expect their original format
+        return self._create_chunk_with_text(buffer_content)
 
     def _create_chunk_with_text(self, text: str) -> ProcessedResponse:
         """

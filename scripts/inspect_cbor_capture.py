@@ -118,16 +118,13 @@ def safe_decode(data: bytes, max_length: int = 200) -> str:
     return "".join(result)
 
 
-def parse_sse_chunk(data: bytes) -> dict[str, Any] | None:
-    """Parse an SSE data chunk into JSON if valid.
-
-    SSE chunks may contain multiple events separated by blank lines.
-    This function parses the first non-[DONE] JSON event.
-    """
+def parse_all_sse_events(data: bytes) -> list[dict[str, Any]]:
+    """Parse all SSE data chunks in a payload into a list of JSON objects."""
     if not data:
-        return None
+        return []
     text = data.decode("utf-8", errors="replace").strip()
-
+    
+    results = []
     # SSE format: events are separated by blank lines
     # Each event line starts with "data: "
     for line in text.split("\n"):
@@ -137,10 +134,16 @@ def parse_sse_chunk(data: bytes) -> dict[str, Any] | None:
             if json_str and json_str != "[DONE]":
                 try:
                     result: dict[str, Any] = json.loads(json_str)
-                    return result
+                    results.append(result)
                 except json.JSONDecodeError:
-                    continue  # Try next line
-    return None
+                    continue
+    return results
+
+
+def parse_sse_chunk(data: bytes) -> dict[str, Any] | None:
+    """Legacy wrapper for backward compatibility, returns first event."""
+    events = parse_all_sse_events(data)
+    return events[0] if events else None
 
 
 def load_capture_file(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -303,8 +306,8 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Detect rate limiting and errors
     for e in entries:
         data = e.get("data", b"")
-        parsed = parse_sse_chunk(data)
-        if parsed:
+        events = parse_all_sse_events(data)
+        for parsed in events:
             error = parsed.get("error")
             if error:
                 error_type = error.get("type", "unknown")
@@ -534,16 +537,31 @@ def track_request(entries: list[dict[str, Any]], request_num: int, backend_filte
         if e["dir"] == 2:  # PROXY_TO_BACKEND
             desc = "Forwarded to backend"
         elif e["dir"] == 3:  # BACKEND_TO_PROXY
-            parsed = parse_sse_chunk(e.get("data", b""))
-            if parsed:
-                if parsed.get("error"):
-                    desc = f"ERROR: {parsed['error'].get('message', 'Unknown')[:50]}"
-                elif any(c.get("delta", {}).get("tool_calls") for c in parsed.get("choices", [])):
-                    desc = "Tool call response"
-                elif any(c.get("delta", {}).get("content") for c in parsed.get("choices", [])):
-                    desc = "Content chunk"
+            events = parse_all_sse_events(e.get("data", b""))
+            if events:
+                # Describe based on the most interesting event in the chunk
+                descriptions = []
+                for parsed in events:
+                    if parsed.get("error"):
+                        descriptions.append(f"ERROR: {parsed['error'].get('message', 'Unknown')[:50]}")
+                    elif any(c.get("delta", {}).get("tool_calls") for c in parsed.get("choices", [])):
+                        descriptions.append("Tool call")
+                    elif any(c.get("delta", {}).get("content") for c in parsed.get("choices", [])):
+                        descriptions.append("Content")
+                    else:
+                        descriptions.append("Meta")
+                
+                # Summarize descriptions
+                if any(d.startswith("ERROR") for d in descriptions):
+                    desc = next(d for d in descriptions if d.startswith("ERROR"))
+                elif "Tool call" in descriptions:
+                    desc = f"Tool call response (+{len(descriptions)-1} other events)" if len(descriptions) > 1 else "Tool call response"
+                elif "Content" in descriptions:
+                    desc = f"Content chunk (+{len(descriptions)-1} other events)" if len(descriptions) > 1 else "Content chunk"
                 else:
                     desc = "Metadata chunk"
+            else:
+                 desc = f"{len(e.get('data', b''))} bytes (Raw)"
         elif e["dir"] == 1:  # PROXY_TO_CLIENT
             desc = "Forwarded to client"
         
@@ -785,77 +803,6 @@ def print_entries(
             remaining = len(filtered_entries) - len(display_entries)
             print(f"\n... and {remaining} more entries (use --last to see final entries)")
 
-    count = 0
-    for i, e in enumerate(display_entries):
-        if direction_filter is not None and e["dir"] != direction_filter:
-            continue
-        
-        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
-            continue
-
-        data = e.get("data", b"")
-        
-        # Search filter
-        if search_term:
-            term = search_term.lower()
-            # Search in data (decoded)
-            data_str = safe_decode(data, len(data)).lower()
-            # Search in metadata
-            meta_str = str(e.get("meta", {})).lower()
-            
-            if term not in data_str and term not in meta_str:
-                continue
-
-        if count >= max_entries:
-            remaining = sum(
-                1
-                for x in entries[i:]
-                if (direction_filter is None or x["dir"] == direction_filter)
-                and (backend_filter is None or x.get("meta", {}).get("be") == backend_filter)
-            )
-            print(f"\n... and {remaining} more entries")
-            break
-
-        count += 1
-        direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
-        seq = e.get("seq", "?")
-        ts = e.get("ts", 0)
-        ts_str = format_timestamp(ts)
-        backend = e.get("meta", {}).get("be", "")
-        backend_str = f" | backend={backend}" if backend else ""
-
-        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}")
-
-        # Verbose metadata
-        if verbose:
-            meta = e.get("meta", {}).copy()
-            if "be" in meta:
-                del meta["be"]  # Already shown in header
-            if meta:
-                print("    Metadata:")
-                for k, v in meta.items():
-                    if isinstance(v, dict):
-                        print(f"      {k}:")
-                        for hk, hv in v.items():
-                            print(f"        {hk}: {hv}")
-                    else:
-                        print(f"      {k}: {v}")
-
-        if data:
-            if show_hex:
-                print("    Hex Dump:")
-                for line in hexdump(data[:max_data_length]):
-                    print(f"      {line}")
-                if len(data) > max_data_length:
-                    print(f"      ... ({len(data) - max_data_length} more bytes)")
-            else:
-                preview = safe_decode(data, max_data_length)
-                # Indent the preview
-                for line in preview.split("\n")[:5]:
-                    print(f"    {line}")
-                if len(data) > max_data_length:
-                    print(f"    ... ({len(data) - max_data_length} more bytes)")
-
 
 def analyze_request_response_pairs(
     entries: list[dict[str, Any]], backend_filter: str | None = None
@@ -923,20 +870,19 @@ def analyze_request_response_pairs(
 
             for entry in backend_entries:
                 chunk = entry["data"]
-                parsed = parse_sse_chunk(chunk)
+                events = parse_all_sse_events(chunk)
                 
-                # Check for non-SSE error
-                if not parsed and chunk.strip().startswith(b"{"):
+                # Check for non-SSE error if no events found
+                if not events and chunk.strip().startswith(b"{"):
                     try:
                         error_json = json.loads(chunk)
                         if "error" in error_json:
                             issues.append(f"Backend Error: {error_json['error'].get('message', 'Unknown error')}")
-                            # Treat as parsed for model extraction if available
-                            parsed = error_json
+                            events.append(error_json)
                     except json.JSONDecodeError:
                         pass
 
-                if parsed:
+                for parsed in events:
                     model = parsed.get("model", "")
                     if model:
                         backend_models.add(model)
@@ -991,8 +937,9 @@ def analyze_request_response_pairs(
                 chunk_text = chunk.decode("utf-8", errors="replace").strip()
                 if chunk_text and chunk_text != "data: [DONE]":
                     client_has_data = True
-                parsed = parse_sse_chunk(chunk)
-                if parsed:
+                
+                events = parse_all_sse_events(chunk)
+                for parsed in events:
                     # Check for internal model names leaking to client
                     client_model = parsed.get("model", "")
                     if client_model and "code-assist" in client_model.lower():
@@ -1331,7 +1278,7 @@ def main() -> int:
 
     # Print entries if requested or if search is active
     show_entries = (args.entries > 0 or args.search or args.last or args.range or 
-                    args.around or args.entry)
+                    args.around is not None or args.entry is not None)
     
     if show_entries:
         # Determine max_entries
