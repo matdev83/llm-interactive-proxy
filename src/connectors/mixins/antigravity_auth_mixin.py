@@ -1,9 +1,32 @@
 """
 Mixin for shared Antigravity authentication and infrastructure logic.
 
-This mixin provides credential loading, endpoint configuration, and request
-wrapping for connectors that use the Antigravity sandbox endpoint.
+.. deprecated::
+    This mixin is deprecated. Use the Strategy Pattern components instead:
+    - AntigravitySQLiteCredentialProvider for credential loading
+    - AntigravitySandboxEndpoint for endpoint configuration
+    - AntigravityRequestBodyBuilder for request wrapping
+    - AntigravityProjectDiscovery for project discovery
+
+    Import from src.connectors.gemini_base:
+    - from src.connectors.gemini_base.credential_providers import AntigravitySQLiteCredentialProvider
+    - from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
+    - from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
+    - from src.connectors.gemini_base.project_discovery import AntigravityProjectDiscovery
+
+This module is retained for backward compatibility but will be removed in a future version.
 """
+
+import warnings
+
+warnings.warn(
+    "antigravity_auth_mixin.py is deprecated. Use Strategy Pattern components from "
+    "src.connectors.gemini_base instead (AntigravitySQLiteCredentialProvider, "
+    "AntigravitySandboxEndpoint, AntigravityRequestBodyBuilder, "
+    "AntigravityProjectDiscovery).",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import hashlib
 import json

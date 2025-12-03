@@ -3,6 +3,13 @@ Gemini OAuth Free Tier connector.
 
 This connector uses the free-tier onboarding process for the Google Code Assist API,
 which does not require a user-provided Google Cloud project.
+
+This connector uses the Strategy Pattern with the following strategies:
+- FileCredentialProvider: Loads credentials from ~/.gemini/oauth_creds.json
+- StandardCodeAssistEndpoint: Uses cloudcode-pa.googleapis.com
+- StandardRequestBodyBuilder: Standard user_prompt_id format
+- FreeTierProjectDiscovery: Free tier onboarding flow
+- ApiModelDiscovery: Uses fetchAvailableModels API
 """
 
 import asyncio
@@ -14,6 +21,12 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.gemini_base.credential_providers import FileCredentialProvider
+from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
+from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.project_discovery import FreeTierProjectDiscovery
+from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
+from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -45,11 +58,19 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
         translation_service: TranslationService,
         name: str | None = None,
     ) -> None:
+        # Initialize with appropriate strategies for free tier
         super().__init__(
             client,
             config,
             translation_service,
             name=name or self.backend_type,
+            # Strategy injection
+            credential_provider=FileCredentialProvider(),
+            endpoint_config=StandardCodeAssistEndpoint(),
+            request_body_builder=StandardRequestBodyBuilder(),
+            project_discovery=FreeTierProjectDiscovery(),
+            model_discovery=ApiModelDiscovery(),
+            response_post_processor=NoOpResponsePostProcessor(),
         )
         self._enable_gemini_oauth_free_backend_debugging_override = (
             _DEBUG_OVERRIDE_DEFAULT

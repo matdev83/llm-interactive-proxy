@@ -3,6 +3,13 @@ Gemini OAuth Personal connector for paid plans.
 
 This connector uses the access_token from the gemini-cli oauth_creds.json file
 and is intended for users with a paid Google One subscription.
+
+This connector uses the Strategy Pattern with the following strategies:
+- FileCredentialProvider: Loads credentials from ~/.gemini/oauth_creds.json
+- StandardCodeAssistEndpoint: Uses cloudcode-pa.googleapis.com
+- StandardRequestBodyBuilder: Standard user_prompt_id format
+- PaidTierProjectDiscovery: Paid tier onboarding flow
+- ApiModelDiscovery: Uses fetchAvailableModels API
 """
 
 import asyncio
@@ -14,6 +21,12 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.gemini_base.credential_providers import FileCredentialProvider
+from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
+from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.project_discovery import PaidTierProjectDiscovery
+from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
+from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -51,11 +64,19 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
         translation_service: TranslationService,
         name: str | None = None,
     ) -> None:
+        # Initialize with appropriate strategies for paid plan
         super().__init__(
             client,
             config,
             translation_service,
             name=name or self.backend_type,
+            # Strategy injection (using defaults for standard behavior)
+            credential_provider=FileCredentialProvider(),
+            endpoint_config=StandardCodeAssistEndpoint(),
+            request_body_builder=StandardRequestBodyBuilder(),
+            project_discovery=PaidTierProjectDiscovery(),
+            model_discovery=ApiModelDiscovery(),
+            response_post_processor=NoOpResponsePostProcessor(),
         )
         self._enable_gemini_oauth_plan_backend_debugging_override = (
             _DEBUG_OVERRIDE_DEFAULT

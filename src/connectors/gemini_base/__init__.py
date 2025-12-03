@@ -6,25 +6,57 @@ The main connector class is broken down into focused, composable modules:
 
 - token_manager: OAuth token lifecycle management
 - credential_loader: Credential loading, saving, and validation
+- credentials: Pluggable credential providers (file, SQLite)
 - file_watcher: File system monitoring for credential changes
 - graceful_degradation: Rate limit handling and model fallback
 - stream_processor: Streaming response utilities
 - prompt_limiter: Prompt size enforcement
 - tool_sanitizer: Tool format conversion
-- project_discovery: Project ID discovery helpers
+- project_discovery: Project ID discovery strategies
+- model_discovery: Model enumeration strategies
+- endpoints: API endpoint configurations
+- request_builders: Request body formatting strategies
+- response_processors: Response post-processing strategies
+- interfaces: Protocol definitions for all strategies
 """
 
 from .connector import GeminiOAuthBaseConnector
 from .credential_loader import CredentialLoader
+from .credential_providers import (
+    AntigravitySQLiteCredentialProvider,
+    FileCredentialProvider,
+)
+from .endpoints import (
+    ANTIGRAVITY_SANDBOX_ENDPOINT,
+    ANTIGRAVITY_USER_AGENT,
+    CODE_ASSIST_ENDPOINT,
+    AntigravitySandboxEndpoint,
+    StandardCodeAssistEndpoint,
+)
 from .file_watcher import FileWatcher, FileWatcherState
 from .graceful_degradation import GracefulDegradationManager
+from .interfaces import (
+    ICredentialProvider,
+    IEndpointConfig,
+    IHealthCheckStrategy,
+    IModelDiscoveryStrategy,
+    IProjectDiscoveryStrategy,
+    IRequestBodyBuilder,
+    IResponsePostProcessor,
+)
+from .model_discovery import ApiModelDiscovery, FallbackModelDiscovery
 from .project_discovery import (
+    AntigravityProjectDiscovery,
+    FreeTierProjectDiscovery,
+    PaidTierProjectDiscovery,
     build_client_metadata,
     calculate_tier_score,
     extract_project_id_from_response,
     select_best_tier,
 )
 from .prompt_limiter import enforce_prompt_limit, estimate_prompt_tokens
+from .request_builders import AntigravityRequestBodyBuilder, StandardRequestBodyBuilder
+from .response_processors import NoOpResponsePostProcessor, XmlToolCallPostProcessor
 from .stream_processor import (
     build_error_chunk,
     extract_usage_from_response,
@@ -34,12 +66,45 @@ from .token_manager import TokenManager
 from .tool_sanitizer import sanitize_code_assist_tools
 
 __all__ = [
+    # Main connector
     "GeminiOAuthBaseConnector",
+    # Strategy interfaces (protocols)
+    "ICredentialProvider",
+    "IEndpointConfig",
+    "IHealthCheckStrategy",
+    "IModelDiscoveryStrategy",
+    "IProjectDiscoveryStrategy",
+    "IRequestBodyBuilder",
+    "IResponsePostProcessor",
+    # Credential providers
+    "AntigravitySQLiteCredentialProvider",
     "CredentialLoader",
+    "FileCredentialProvider",
+    # Endpoint configurations
+    "ANTIGRAVITY_SANDBOX_ENDPOINT",
+    "ANTIGRAVITY_USER_AGENT",
+    "AntigravitySandboxEndpoint",
+    "CODE_ASSIST_ENDPOINT",
+    "StandardCodeAssistEndpoint",
+    # Request builders
+    "AntigravityRequestBodyBuilder",
+    "StandardRequestBodyBuilder",
+    # Project discovery
+    "AntigravityProjectDiscovery",
+    "FreeTierProjectDiscovery",
+    "PaidTierProjectDiscovery",
+    # Model discovery
+    "ApiModelDiscovery",
+    "FallbackModelDiscovery",
+    # Response processors
+    "NoOpResponsePostProcessor",
+    "XmlToolCallPostProcessor",
+    # Token and file management
     "FileWatcher",
     "FileWatcherState",
     "GracefulDegradationManager",
     "TokenManager",
+    # Backward-compatible helpers
     "build_client_metadata",
     "build_error_chunk",
     "calculate_tier_score",
