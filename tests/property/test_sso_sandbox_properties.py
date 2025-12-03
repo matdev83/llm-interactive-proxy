@@ -48,7 +48,7 @@ def url_strategy(draw: st.DrawFn) -> str:
 
 @given(auth_url=url_strategy())
 @property_test_settings()
-def test_property_5_sandbox_response_format_validity(
+async def test_property_5_sandbox_response_format_validity(
     auth_url: str,
 ) -> None:
     """
@@ -63,7 +63,7 @@ def test_property_5_sandbox_response_format_validity(
     Feature: sso-authentication, Property 5: Sandbox Response Format Validity
     """
     handler = SandboxHandler(auth_url)
-    response = handler.generate_login_banner()
+    response = await handler.generate_login_banner()
 
     # Verify response is a dictionary
     assert isinstance(response, dict), "Response should be a dictionary"
@@ -142,7 +142,7 @@ def test_property_5_sandbox_response_format_validity(
 
 @given(auth_url=url_strategy())
 @property_test_settings()
-def test_property_5_sandbox_response_json_serializable(
+async def test_property_5_sandbox_response_json_serializable(
     auth_url: str,
 ) -> None:
     """
@@ -156,7 +156,7 @@ def test_property_5_sandbox_response_json_serializable(
     Feature: sso-authentication, Property 5: Sandbox Response Format Validity
     """
     handler = SandboxHandler(auth_url)
-    response = handler.generate_login_banner()
+    response = await handler.generate_login_banner()
 
     # Verify response can be serialized to JSON
     try:
@@ -178,7 +178,7 @@ def test_property_5_sandbox_response_json_serializable(
 
 @given(auth_url=url_strategy())
 @property_test_settings()
-def test_property_5_sandbox_response_contains_auth_url(
+async def test_property_5_sandbox_response_contains_auth_url(
     auth_url: str,
 ) -> None:
     """
@@ -192,7 +192,7 @@ def test_property_5_sandbox_response_contains_auth_url(
     Feature: sso-authentication, Property 5: Sandbox Response Format Validity
     """
     handler = SandboxHandler(auth_url)
-    response = handler.generate_login_banner()
+    response = await handler.generate_login_banner()
 
     # Extract message content
     message_content = response["choices"][0]["message"]["content"]
@@ -205,7 +205,7 @@ def test_property_5_sandbox_response_contains_auth_url(
 
 @given(auth_url=url_strategy())
 @property_test_settings()
-def test_property_5_sandbox_response_contains_instructions(
+async def test_property_5_sandbox_response_contains_instructions(
     auth_url: str,
 ) -> None:
     """
@@ -219,7 +219,7 @@ def test_property_5_sandbox_response_contains_instructions(
     Feature: sso-authentication, Property 5: Sandbox Response Format Validity
     """
     handler = SandboxHandler(auth_url)
-    response = handler.generate_login_banner()
+    response = await handler.generate_login_banner()
 
     # Extract message content
     message_content = response["choices"][0]["message"]["content"]
@@ -310,7 +310,7 @@ def test_property_26_sandbox_session_isolation_no_sandbox_content(
     ),
 )
 @property_test_settings()
-def test_property_26_sandbox_session_isolation_with_sandbox_content(
+async def test_property_26_sandbox_session_isolation_with_sandbox_content(
     auth_url: str,
     prefix_messages: list[dict[str, str]],
     suffix_messages: list[dict[str, str]],
@@ -329,7 +329,7 @@ def test_property_26_sandbox_session_isolation_with_sandbox_content(
     handler = SandboxHandler(auth_url)
 
     # Generate a sandbox response
-    sandbox_response = handler.generate_login_banner()
+    sandbox_response = await handler.generate_login_banner()
     sandbox_message = {
         "role": "assistant",
         "content": sandbox_response["choices"][0]["message"]["content"],
@@ -337,7 +337,7 @@ def test_property_26_sandbox_session_isolation_with_sandbox_content(
     }
 
     # Create conversation history with sandbox content in the middle
-    messages = prefix_messages + [sandbox_message] + suffix_messages
+    messages = [*prefix_messages, sandbox_message, *suffix_messages]
 
     # Verify sandbox content is detected
     result = handler.detect_sandbox_history(messages)
@@ -419,7 +419,7 @@ def test_property_26_sandbox_session_isolation_marker_detection(
     override_url=url_strategy(),
 )
 @property_test_settings()
-def test_property_5_sandbox_response_url_override(
+async def test_property_5_sandbox_response_url_override(
     auth_url: str,
     override_url: str,
 ) -> None:
@@ -437,7 +437,7 @@ def test_property_5_sandbox_response_url_override(
     handler = SandboxHandler(auth_url)
 
     # Generate banner with override URL
-    response = handler.generate_login_banner(override_url)
+    response = await handler.generate_login_banner(override_url)
 
     # Extract message content
     message_content = response["choices"][0]["message"]["content"]
@@ -447,8 +447,9 @@ def test_property_5_sandbox_response_url_override(
         override_url in message_content
     ), f"Message should contain override URL: {override_url}"
 
-    # Verify default URL is NOT present (if different)
-    if override_url != auth_url:
+    # Verify default URL is NOT present (if different and not a substring)
+    # Only check if auth_url is not a substring of override_url
+    if override_url != auth_url and auth_url not in override_url:
         assert (
             auth_url not in message_content
         ), f"Message should not contain default URL when override is provided: {auth_url}"

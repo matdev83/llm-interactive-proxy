@@ -31,7 +31,7 @@ async def test_main_raises_when_port_missing(monkeypatch: pytest.MonkeyPatch) ->
     # Provide a config with no anthropic_port to trigger the error path
     cfg = AppConfig(anthropic_port=None)
 
-    monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda: cfg)
+    monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda **kwargs: cfg)
 
     with pytest.raises(ValueError):
         await main()
@@ -48,7 +48,7 @@ async def test_main_starts_server_when_port_set(
         logging=AppConfig().logging.model_copy(update={"level": LogLevel.ERROR}),
     )
 
-    monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda: cfg)
+    monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda **kwargs: cfg)
 
     # Stub uvicorn.Server to avoid actually starting a server
     class DummyServer:

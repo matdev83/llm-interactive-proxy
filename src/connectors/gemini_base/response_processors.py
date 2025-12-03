@@ -159,9 +159,7 @@ class XmlToolCallPostProcessor:
         from src.core.interfaces.response_processor_interface import ProcessedResponse
 
         # Check if content is an async iterable
-        if response.content is None or not hasattr(
-            response.content, "__aiter__"
-        ):
+        if response.content is None or not hasattr(response.content, "__aiter__"):
             return response
 
         original_iterator = response.content

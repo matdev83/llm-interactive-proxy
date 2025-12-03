@@ -101,7 +101,11 @@ async def main() -> None:
     """
     Main entry point for the Anthropic server.
     """
-    config = AppConfig.from_env()
+    # Load configuration with CLI argument support
+    from src.core.config.cli_args import get_config_with_cli_args
+
+    env_with_cli = get_config_with_cli_args()
+    config = AppConfig.from_env(environ=env_with_cli)
 
     app = await create_anthropic_app_async(config)
 

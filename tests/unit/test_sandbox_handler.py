@@ -7,7 +7,9 @@ for unauthenticated users.
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from src.core.auth.sso.sandbox_handler import SandboxHandler
 
 
@@ -21,34 +23,37 @@ class TestSandboxHandler:
 
         assert handler.auth_url == auth_url
 
-    def test_generate_login_banner_uses_default_url(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_uses_default_url(self) -> None:
         """Test that generate_login_banner uses default auth URL."""
         auth_url = "https://example.com/auth/login"
         handler = SandboxHandler(auth_url)
 
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         # Verify auth URL is in the message
         message_content = response["choices"][0]["message"]["content"]
         assert auth_url in message_content
 
-    def test_generate_login_banner_uses_override_url(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_uses_override_url(self) -> None:
         """Test that generate_login_banner uses override auth URL."""
         default_url = "https://example.com/auth/login"
         override_url = "https://other.com/sso/auth"
         handler = SandboxHandler(default_url)
 
-        response = handler.generate_login_banner(override_url)
+        response = await handler.generate_login_banner(override_url)
 
         # Verify override URL is in the message
         message_content = response["choices"][0]["message"]["content"]
         assert override_url in message_content
         assert default_url not in message_content
 
-    def test_generate_login_banner_response_structure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_response_structure(self) -> None:
         """Test that login banner has correct OpenAI response structure."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         # Verify top-level structure
         assert "id" in response
@@ -81,10 +86,11 @@ class TestSandboxHandler:
         assert usage["completion_tokens"] == 0
         assert usage["total_tokens"] == 0
 
-    def test_generate_login_banner_contains_required_instructions(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_contains_required_instructions(self) -> None:
         """Test that login banner contains all required instructions."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         message_content = response["choices"][0]["message"]["content"]
 
@@ -95,10 +101,11 @@ class TestSandboxHandler:
         assert "agent" in message_content.lower()
         assert "browser" in message_content.lower()
 
-    def test_generate_login_banner_warns_about_session_continuation(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_warns_about_session_continuation(self) -> None:
         """Test that login banner warns about session continuation."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         message_content = response["choices"][0]["message"]["content"]
 
@@ -204,12 +211,13 @@ class TestSandboxHandler:
 
         assert result is True
 
-    def test_detect_sandbox_history_with_full_sandbox_response(self) -> None:
+    @pytest.mark.asyncio
+    async def test_detect_sandbox_history_with_full_sandbox_response(self) -> None:
         """Test sandbox detection with full sandbox response in history."""
         handler = SandboxHandler("https://example.com/auth")
 
         # Generate a sandbox response
-        sandbox_response = handler.generate_login_banner()
+        sandbox_response = await handler.generate_login_banner()
 
         messages = [
             {"role": "user", "content": "Hello"},
@@ -236,16 +244,13 @@ class TestSandboxHandler:
         ]
         assert handler.detect_sandbox_history(messages_exact) is True
 
-        # Test with different case in header (should still detect due to other markers)
+        # Test with different case in header
         messages_different = [
             {
                 "role": "assistant",
                 "content": "# authentication required\nPlease authenticate.",
             }
         ]
-        # This should still be detected because "Authentication Required" is checked
-        # but the implementation checks for exact strings, so this would be False
-        # unless we have other markers
         result = handler.detect_sandbox_history(messages_different)
         # The current implementation checks for exact strings, so this should be False
         assert result is False
@@ -311,24 +316,27 @@ class TestSandboxHandler:
 
         assert result is True
 
-    def test_generate_login_banner_response_id(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_response_id(self) -> None:
         """Test that login banner has sandbox ID."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         assert response["id"] == "chatcmpl-sandbox"
 
-    def test_generate_login_banner_response_model(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_response_model(self) -> None:
         """Test that login banner has sandbox model."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         assert response["model"] == "sandbox"
 
-    def test_generate_login_banner_timestamp(self) -> None:
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_timestamp(self) -> None:
         """Test that login banner has valid timestamp."""
         handler = SandboxHandler("https://example.com/auth")
-        response = handler.generate_login_banner()
+        response = await handler.generate_login_banner()
 
         # Verify timestamp is present and positive
         assert "created" in response
@@ -413,3 +421,32 @@ class TestSandboxHandler:
         result = handler.detect_sandbox_history(messages)
 
         assert result is True
+
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_generates_token(self) -> None:
+        """Test that generate_login_banner generates and appends token when repository provided."""
+        mock_repo = MagicMock()
+        mock_repo.create_login_token = AsyncMock(return_value="test-token-123")
+
+        handler = SandboxHandler("https://example.com/auth", token_repository=mock_repo)
+
+        response = await handler.generate_login_banner()
+        message_content = response["choices"][0]["message"]["content"]
+
+        assert "https://example.com/auth?token=test-token-123" in message_content
+        mock_repo.create_login_token.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_login_banner_handles_token_error(self) -> None:
+        """Test that generate_login_banner handles token generation failure gracefully."""
+        mock_repo = MagicMock()
+        mock_repo.create_login_token = AsyncMock(side_effect=Exception("DB Error"))
+
+        handler = SandboxHandler("https://example.com/auth", token_repository=mock_repo)
+
+        response = await handler.generate_login_banner()
+        message_content = response["choices"][0]["message"]["content"]
+
+        # Should fallback to URL without token
+        assert "https://example.com/auth" in message_content
+        assert "token=" not in message_content

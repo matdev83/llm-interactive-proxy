@@ -229,6 +229,62 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             log_responses=response_logging,
         )
 
+    # SSO authentication middleware (if enabled)
+    sso_enabled = (
+        config.sso.enabled
+        if hasattr(config, "sso") and config.sso is not None
+        else False
+    )
+
+    if sso_enabled:
+        try:
+            from src.core.auth.sso.database import TokenRepository
+            from src.core.auth.sso.middleware import AuthMiddleware as SSOAuthMiddleware
+            from src.core.auth.sso.sandbox_handler import SandboxHandler
+            from src.core.auth.sso.token_service import TokenService
+
+            # Get SSO configuration
+            sso_config = config.sso
+
+            # Initialize SSO components
+            token_service = TokenService()
+            token_repository = TokenRepository(sso_config.database_path)
+
+            # Determine base URL for auth redirects
+            if config.public_url:
+                base_auth_url = f"{config.public_url.rstrip('/')}/auth/login"
+            else:
+                base_auth_url = f"http://{config.host}:{config.port}/auth/login"
+
+            sandbox_handler = SandboxHandler(
+                auth_url=base_auth_url,
+                token_repository=token_repository,
+            )
+
+            # Create SSO auth middleware
+            sso_auth_middleware = SSOAuthMiddleware(
+                token_service=token_service,
+                token_repository=token_repository,
+                sandbox_handler=sandbox_handler,
+            )
+
+            # Add SSO middleware wrapper to FastAPI
+            from src.core.app.middleware.sso_middleware_adapter import (
+                SSOMiddlewareAdapter,
+            )
+
+            app.add_middleware(SSOMiddlewareAdapter, sso_middleware=sso_auth_middleware)
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("SSO authentication middleware is enabled")
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to register SSO authentication middleware: %s",
+                    e,
+                    exc_info=True,
+                )
+
     # Usage tracking middleware (if enabled)
     usage_tracking_enabled = (
         config.usage_tracking.enabled if hasattr(config, "usage_tracking") else False

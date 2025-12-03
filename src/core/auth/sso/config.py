@@ -40,6 +40,19 @@ class AuthorizationConfig:
 
 
 @dataclass
+class CaptchaConfig:
+    """Configuration for bot protection on the public SSO form."""
+
+    enabled: bool = False
+    provider: Literal["cloudflare_turnstile"] = "cloudflare_turnstile"
+    site_key: str | None = None
+    secret_key: str | None = None
+    verify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    widget_mode: Literal["invisible", "managed"] = "invisible"
+    timeout_seconds: float = 5.0
+
+
+@dataclass
 class SSOConfig:
     """Configuration for SSO authentication."""
 
@@ -56,3 +69,6 @@ class SSOConfig:
 
     # Database configuration
     database_path: str = "./var/sso_auth.db"
+
+    # Captcha configuration
+    captcha: CaptchaConfig | None = None

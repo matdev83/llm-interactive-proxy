@@ -6,8 +6,14 @@ enabling enterprise-ready authentication flows with support for multiple identit
 providers including Google, Microsoft, GitHub, LinkedIn, and AWS IAM Identity Center.
 """
 
+from src.core.auth.sso.authorization_service import (
+    AuthorizationMode,
+    AuthorizationService,
+)
+from src.core.auth.sso.captcha_service import CaptchaService, CaptchaVerificationResult
 from src.core.auth.sso.config import (
     AuthorizationConfig,
+    CaptchaConfig,
     ProviderConfig,
     SSOConfig,
 )
@@ -23,6 +29,15 @@ from src.core.auth.sso.exceptions import (
     SSOException,
     TokenError,
 )
+from src.core.auth.sso.idp_configs import (
+    PROVIDER_FACTORIES,
+    create_aws_iam_identity_center_config,
+    create_github_config,
+    create_google_config,
+    create_linkedin_config,
+    create_microsoft_config,
+    create_provider_config,
+)
 from src.core.auth.sso.middleware import AuthMiddleware
 from src.core.auth.sso.models import (
     AuthorizationResult,
@@ -36,21 +51,45 @@ from src.core.auth.sso.models import (
 )
 from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sandbox_handler import SandboxHandler
+from src.core.auth.sso.sso_service import SSOService
+from src.core.auth.sso.startup_validation import (
+    AuthenticationMode,
+    StartupValidator,
+    validate_startup_configuration,
+)
 from src.core.auth.sso.token_service import TokenService
+from src.core.auth.sso.web_interface import create_sso_router
 
 __all__ = [
     # Config
     "SSOConfig",
     "ProviderConfig",
     "AuthorizationConfig",
+    "CaptchaConfig",
+    # IdP Configurations
+    "create_google_config",
+    "create_microsoft_config",
+    "create_github_config",
+    "create_linkedin_config",
+    "create_aws_iam_identity_center_config",
+    "create_provider_config",
+    "PROVIDER_FACTORIES",
+    # Web Interface
+    "create_sso_router",
+    # Services
+    "SSOService",
     # Database
     "DatabaseManager",
     "TokenRepository",
     # Services
     "TokenService",
+    "CaptchaService",
+    "CaptchaVerificationResult",
     "SandboxHandler",
     "AuthMiddleware",
     "RateLimitService",
+    "AuthorizationService",
+    "AuthorizationMode",
     # Models
     "TokenRecord",
     "PendingAuthorization",
@@ -67,4 +106,8 @@ __all__ = [
     "ConfigurationError",
     "TokenError",
     "RateLimitError",
+    # Startup Validation
+    "AuthenticationMode",
+    "StartupValidator",
+    "validate_startup_configuration",
 ]

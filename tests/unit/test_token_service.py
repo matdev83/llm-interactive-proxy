@@ -129,7 +129,8 @@ class TestTokenService:
 
     def test_argon2id_parameters_meet_2025_standards(self) -> None:
         """Test that Argon2id parameters meet 2025 security standards."""
-        service = TokenService()
+        # Use production parameters to verify they meet 2025 standards
+        service = TokenService()  # Uses default production parameters
         _, token_hash = service.generate_token()
 
         # Parse hash format: $argon2id$v=19$m=X,t=Y,p=Z$salt$hash

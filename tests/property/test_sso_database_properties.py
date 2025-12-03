@@ -37,7 +37,7 @@ def token_record_with_plaintext_strategy(draw: st.DrawFn) -> tuple[TokenRecord, 
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
     plaintext_token, token_hash = service.generate_token()
 
     created_at = draw(datetime_strategy)

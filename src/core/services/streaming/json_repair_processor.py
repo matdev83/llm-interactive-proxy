@@ -72,6 +72,21 @@ class JsonRepairProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content
 
+        # Skip JSON repair for structured OpenAI-format chunks.
+        # JSON repair is meant for text content that may contain broken JSON.
+        # Structured chunks (dicts with "choices" or StopChunkWithUsage) should
+        # pass through unchanged to preserve their format.
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        if isinstance(content.content, StopChunkWithUsage):
+            # StopChunkWithUsage is a special dict that must be preserved as-is
+            return content
+        # OpenAI-format chunks (with "choices") should pass through unchanged
+        if isinstance(content.content, dict) and (
+            "choices" in content.content or "usage" in content.content
+        ):
+            return content
+
         stream_id = get_stream_id(content)
         state = self._registry.get_json_repair_buffer(stream_id)
 
@@ -287,6 +302,8 @@ class JsonRepairProcessor(IStreamProcessor):
     @staticmethod
     def _normalize_chunk_text(chunk: Any) -> str:
         """Normalize mixed streaming payloads into text."""
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
         if chunk is None:
             return ""
         if isinstance(chunk, str):
@@ -294,8 +311,14 @@ class JsonRepairProcessor(IStreamProcessor):
         if isinstance(chunk, bytes | bytearray):
             return chunk.decode("utf-8", errors="ignore")
         if isinstance(chunk, dict):
+            # Handle StopChunkWithUsage specially - it's a dict subclass that
+            # raises errors on direct serialization to prevent usage data leaks.
+            # Convert to plain dict first before JSON serialization.
+            if isinstance(chunk, StopChunkWithUsage):
+                return json.dumps(dict(chunk))
             try:
                 return json.dumps(chunk)
             except (TypeError, ValueError):
-                return str(chunk)
+                # For other dict types that fail, convert to plain dict first
+                return json.dumps(dict(chunk))
         return str(chunk)

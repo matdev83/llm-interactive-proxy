@@ -90,7 +90,9 @@ class AuthMiddleware:
         # Get all active token hashes from database
         try:
             token_hashes = await self.token_repository.get_all_token_hashes()
-        except Exception:
+            print(f"DEBUG: Found {len(token_hashes)} active hashes")
+        except Exception as e:
+            print(f"DEBUG: DB query failed: {e}")
             # If database query fails, token is invalid
             return TokenValidationResult(is_valid=False)
 
@@ -98,11 +100,14 @@ class AuthMiddleware:
         token_record = None
         for stored_hash in token_hashes:
             try:
-                if self.token_service.verify_token(token, stored_hash):
+                is_valid = self.token_service.verify_token(token, stored_hash)
+                print(f"DEBUG: Verifying against hash {stored_hash[:10]}... Result: {is_valid}")
+                if is_valid:
                     # Token matches this hash - fetch the full record
                     token_record = await self.token_repository.find_by_hash(stored_hash)
                     break
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Verification exception: {e}")
                 # If verification fails, continue to next hash
                 continue
 
@@ -115,20 +120,29 @@ class AuthMiddleware:
             return TokenValidationResult(is_valid=False)
 
         # Check if SSO session has expired
-        now = datetime.utcnow()
-        if token_record.auth_expires_at and token_record.auth_expires_at < now:
-            # Session expired - mark as unauthenticated
-            await self.token_repository.update_auth_status(
-                token_record.id,
-                authenticated=False,
-                expiry=None,
-            )
-            return TokenValidationResult(
-                is_valid=True,
-                user_id=token_record.user_id,
-                is_authenticated=False,
-                token_id=token_record.id,
-            )
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        
+        # Handle both offset-aware and offset-naive datetimes from DB
+        if token_record.auth_expires_at:
+            expires_at = token_record.auth_expires_at
+            if expires_at.tzinfo is None:
+                # Assume UTC if naive
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+                
+            if expires_at < now:
+                # Session expired - mark as unauthenticated
+                await self.token_repository.update_auth_status(
+                    token_record.id,
+                    authenticated=False,
+                    expiry=None,
+                )
+                return TokenValidationResult(
+                    is_valid=True,
+                    user_id=token_record.user_id,
+                    is_authenticated=False,
+                    token_id=token_record.id,
+                )
 
         # Token is valid
         return TokenValidationResult(
@@ -168,26 +182,26 @@ class AuthMiddleware:
 
         # If no token, return sandbox response
         if token is None:
-            return self.sandbox_handler.generate_login_banner()
+            return await self.sandbox_handler.generate_login_banner()
 
         # Validate token
         validation_result = await self.validate_token(token)
 
         # If token is invalid, return sandbox response
         if not validation_result.is_valid:
-            return self.sandbox_handler.generate_login_banner()
+            return await self.sandbox_handler.generate_login_banner()
 
         # Check if SSO session is authenticated
         if not validation_result.is_authenticated:
             # Session expired or not yet authenticated
             # Return sandbox with re-authentication instructions
-            return self.sandbox_handler.generate_login_banner()
+            return await self.sandbox_handler.generate_login_banner()
 
         # Check conversation history for sandbox content
         messages = request.get("messages", [])
         if self.detect_sandbox_history(messages):
             # Sandbox session detected - reject and return new sandbox
-            return self.sandbox_handler.generate_login_banner()
+            return await self.sandbox_handler.generate_login_banner()
 
         # Token is valid and authenticated - allow request to proceed
         return None

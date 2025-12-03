@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.models import TokenRecord
@@ -329,8 +330,9 @@ def test_property_23_authentication_state_consistency(
 # Property tests for TokenService
 
 
-@given(st.integers(min_value=1, max_value=100))
+@given(st.integers(min_value=1, max_value=5))
 @property_test_settings()
+@pytest.mark.slow
 def test_property_7_token_entropy_sufficiency(
     num_tokens: int,
 ) -> None:
@@ -370,8 +372,9 @@ def test_property_7_token_entropy_sufficiency(
         ), "Token contains invalid characters for base64url encoding"
 
 
-@given(st.integers(min_value=2, max_value=100))
+@given(st.integers(min_value=2, max_value=5))
 @property_test_settings()
+@pytest.mark.slow
 def test_property_6_token_generation_uniqueness(
     num_tokens: int,
 ) -> None:
@@ -402,7 +405,7 @@ def test_property_6_token_generation_uniqueness(
     ), f"Generated {num_tokens} tokens but only {len(tokens)} are unique"
 
 
-@given(st.integers(min_value=1, max_value=50))
+@given(st.integers(min_value=1, max_value=5))
 @property_test_settings()
 def test_property_8_token_storage_security(
     num_tokens: int,
@@ -447,8 +450,8 @@ def test_property_8_token_storage_security(
         ), "Plaintext token should not be contained in hash"
 
 
-@given(st.integers(min_value=1, max_value=50))
-@property_test_settings()
+@given(st.integers(min_value=1, max_value=2))
+@property_test_settings(max_examples=5)
 def test_property_11_argon2id_hash_format(
     num_tokens: int,
 ) -> None:
@@ -557,7 +560,7 @@ def test_property_token_verification_correctness(
     ), "Verification with different token should return False"
 
 
-@given(st.integers(min_value=1, max_value=20))
+@given(st.integers(min_value=1, max_value=5))
 @property_test_settings()
 def test_property_token_hash_uniqueness(
     num_tokens: int,

@@ -160,7 +160,7 @@ class FileCredentialProvider:
                 pass
 
             raw_text = creds_path.read_text(encoding="utf-8")
-            
+
             # Validate essential fields
             credentials = cast(dict[str, Any], json.loads(raw_text))
 

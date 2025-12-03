@@ -15,10 +15,22 @@ Advanced features that enhance the proxy's capabilities:
 ### Security Features
 
 - **[LLM Assessment System](features/llm-assessment.md)** - Intelligent conversation monitoring that detects unproductive patterns
+- **[SSO Identity Provider Overview](sso-idp-overview.md)** - Overview of supported Identity Providers and configuration
 - **[Angel Verification System](features/angel-verification.md)** - Real-time response verification using a secondary model
 - **[Tool Access Control](features/tool-access-control.md)** - Fine-grained control over which tools models can access
 - **[Dangerous Command Protection](features/dangerous-command-protection.md)** - Prevent execution of potentially harmful commands
 - **[File Access Sandboxing](features/file-access-sandboxing.md)** - Restrict file system access to specific directories
+
+### Single Sign-On (SSO)
+
+- **[SSO Agent Setup](sso-agent-setup.md)** - Setting up SSO with agent integrations
+- **[SSO Authentication](sso-authentication.md)** - Authentication flow details
+- **[SSO Authorization](sso-authorization.md)** - Authorization modes and configuration
+- **[SSO Configuration](sso-configuration.md)** - Detailed SSO configuration guide
+- **[SSO Identity Provider Overview](sso-idp-overview.md)** - Overview of supported Identity Providers
+- **[SSO Identity Provider Setup](sso-idp-setup.md)** - Setting up specific Identity Providers
+- **[SSO Security](sso-security.md)** - Security considerations and best practices
+- **[SSO Troubleshooting](sso-troubleshooting.md)** - Common issues and solutions
 
 ### Model Management
 

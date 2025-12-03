@@ -59,6 +59,50 @@ properties:
           initial_block_seconds: { type: integer, minimum: 1 }
           block_multiplier: { type: number, minimum: 1 }
           max_block_seconds: { type: integer, minimum: 1 }
+  sso:
+    type: ["object", "null"]
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      session_lifetime_hours: { type: integer, minimum: 1 }
+      database_path: { type: string }
+      providers:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            type: { type: string, enum: [oauth2, saml] }
+            client_id: { type: string }
+            client_secret: { type: string }
+            discovery_url: { type: ["string", "null"] }
+            metadata_url: { type: ["string", "null"] }
+            authorize_url: { type: ["string", "null"] }
+            token_url: { type: ["string", "null"] }
+            userinfo_url: { type: ["string", "null"] }
+            scopes:
+              type: array
+              items: { type: string }
+      authorization:
+        type: object
+        additionalProperties: false
+        properties:
+          mode: { type: string, enum: [single_user, enterprise] }
+          api_url: { type: ["string", "null"] }
+          api_timeout: { type: integer, minimum: 1 }
+          confirmation_code_expiry_minutes: { type: integer, minimum: 1 }
+          max_confirmation_attempts: { type: integer, minimum: 1 }
+      captcha:
+        type: ["object", "null"]
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          provider: { type: string, enum: [cloudflare_turnstile] }
+          site_key: { type: ["string", "null"] }
+          secret_key: { type: ["string", "null"] }
+          verify_url: { type: ["string", "null"] }
+          widget_mode: { type: string, enum: [invisible, managed] }
+          timeout_seconds: { type: number, minimum: 0 }
   session:
     type: object
     additionalProperties: false

@@ -1,8 +1,8 @@
 """Property-based tests for SSO AuthMiddleware.
 
 Feature: sso-authentication
-Properties: 4, 9, 10, 13, 25
-Validates: Requirements 2.1, 2.2, 2.3, 4.1, 4.2, 5.2, 9.1, 9.2
+Properties: 4, 9, 10, 12, 13, 25
+Validates: Requirements 2.1, 2.2, 2.3, 4.1, 4.2, 5.1, 5.2, 5.3, 9.1, 9.2, 9.3
 """
 
 from __future__ import annotations
@@ -171,7 +171,8 @@ def test_property_4_unauthenticated_request_sandbox_response(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -222,7 +223,8 @@ def test_property_9_unknown_token_rejection(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -273,7 +275,8 @@ def test_property_10_token_response_indistinguishability(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -331,7 +334,8 @@ def test_property_4_malformed_auth_header_sandbox_response(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -374,7 +378,8 @@ def test_property_26_sandbox_session_isolation(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -446,7 +451,8 @@ def test_property_13_session_expiry_status_change(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -474,12 +480,13 @@ def test_property_13_session_expiry_status_change(
             await token_repository.store_token(token_record)
 
             # Create request with expired token
-            request = {
-                "headers": {
-                    "Authorization": f"Bearer {plaintext_token}",
-                },
-                "messages": [],
-            }
+            # Note: request variable is not used as we test validate_token directly
+            # request = {
+            #     "headers": {
+            #         "Authorization": f"Bearer {plaintext_token}",
+            #     },
+            #     "messages": [],
+            # }
 
             # Execute - this should detect expiry and update status
             validation_result = await middleware.validate_token(plaintext_token)
@@ -525,7 +532,8 @@ def test_property_25_expired_session_sandbox_response(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -602,7 +610,8 @@ def test_property_4_consistent_sandbox_responses(
             db_manager = DatabaseManager(db_path)
             await db_manager.initialize_schema()
 
-            token_service = TokenService()
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -625,5 +634,122 @@ def test_property_4_consistent_sandbox_responses(
                     response["choices"][0]["message"]["content"]
                     == first_response["choices"][0]["message"]["content"]
                 )
+
+    asyncio.run(run_test())
+
+
+@given(
+    session_lifetime_hours=st.integers(min_value=1, max_value=48),
+    user_id=st.text(
+        alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+        min_size=5,
+        max_size=50,
+    ),
+    user_email=st.emails(),
+)
+@property_test_settings()
+def test_property_12_reauthentication_status_update(
+    session_lifetime_hours: int,
+    user_id: str,
+    user_email: str,
+) -> None:
+    """
+    Property 12: Re-authentication Status Update.
+
+    For any existing agent token, when the associated user completes SSO
+    re-authentication, the token's authentication status SHALL be updated
+    to authenticated without generating a new token.
+
+    Validates: Requirements 5.1, 5.3, 9.3
+
+    Feature: sso-authentication, Property 12: Re-authentication Status Update
+    """
+
+    async def run_test():
+        with temp_db_path() as db_path:
+            # Setup
+            db_manager = DatabaseManager(db_path)
+            await db_manager.initialize_schema()
+
+            # Use fast configuration for tests
+            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_repository = TokenRepository(db_path)
+
+            # Create an initial token for the user (expired session)
+            plaintext_token, token_hash = token_service.generate_token()
+            expired_time = datetime.utcnow() - timedelta(hours=1)
+
+            original_token_record = TokenRecord(
+                id=str(uuid4()),
+                token_hash=token_hash,
+                user_id=user_id,
+                user_email=user_email,
+                provider="google",
+                is_authenticated=False,  # Session expired
+                is_active=True,
+                created_at=datetime.utcnow()
+                - timedelta(hours=session_lifetime_hours + 2),
+                last_authenticated_at=datetime.utcnow()
+                - timedelta(hours=session_lifetime_hours + 1),
+                auth_expires_at=expired_time,
+            )
+            await token_repository.store_token(original_token_record)
+
+            # Simulate re-authentication: find existing token by user_id
+            existing_token = await token_repository.find_by_user_id(user_id)
+            assert existing_token is not None, "Should find existing token"
+            assert existing_token.id == original_token_record.id, "Should be same token"
+
+            # Update auth status (simulating successful re-authentication)
+            new_expiry = datetime.utcnow() + timedelta(hours=session_lifetime_hours)
+            await token_repository.update_auth_status(
+                existing_token.id,
+                authenticated=True,
+                expiry=new_expiry,
+            )
+
+            # Verify the token was updated, not replaced
+            updated_token = await token_repository.find_by_hash(token_hash)
+            assert updated_token is not None, "Token should still exist"
+            assert (
+                updated_token.id == original_token_record.id
+            ), "Token ID should not change"
+            assert (
+                updated_token.token_hash == token_hash
+            ), "Token hash should not change"
+            assert (
+                updated_token.is_authenticated is True
+            ), "Token should now be authenticated"
+            assert updated_token.auth_expires_at is not None, "Should have new expiry"
+            assert (
+                updated_token.auth_expires_at > datetime.utcnow()
+            ), "Expiry should be in future"
+
+            # Verify no new token was created for this user
+            all_hashes = await token_repository.get_all_token_hashes()
+            assert (
+                len(all_hashes) == 1
+            ), "Should still have only one token for this user"
+            assert (
+                all_hashes[0] == token_hash
+            ), "Should be the original token, not a new one"
+
+            # Verify the token can now be used for authentication
+            sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
+            middleware = AuthMiddleware(
+                token_service, token_repository, sandbox_handler
+            )
+
+            request = {
+                "headers": {
+                    "Authorization": f"Bearer {plaintext_token}",
+                },
+                "messages": [],
+            }
+
+            response = await middleware(request)
+            assert (
+                response is None
+            ), "Re-authenticated token should allow request to proceed"
 
     asyncio.run(run_test())

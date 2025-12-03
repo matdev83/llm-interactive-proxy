@@ -3,6 +3,9 @@
 # Server settings
 host: "0.0.0.0"
 port: 8000
+# Publicly accessible URL for the proxy (required for correct SSO redirects when deployed)
+# If not set, defaults to http://{host}:{port} which may be incorrect behind reverse proxies or 0.0.0.0 binding
+public_url: null  
 proxy_timeout: 120
 command_prefix: "!/"
 

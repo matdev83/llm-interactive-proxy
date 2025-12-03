@@ -1,0 +1,126 @@
+# SSO Authentication Configuration Example
+#
+# This file demonstrates how to configure SSO authentication for the LLM Proxy.
+# Copy this file to config/sso_auth.yaml and customize with your credentials.
+
+sso:
+  # Enable SSO authentication
+  enabled: true
+
+  # Session lifetime in hours (how long after SSO auth before re-auth required)
+  session_lifetime_hours: 24
+
+  # Database path for storing tokens and authorization state
+  database_path: "./var/sso_auth.db"
+
+  # Authorization mode: "single_user" or "enterprise"
+  authorization:
+    mode: "single_user"  # or "enterprise"
+
+    # Single-user mode settings (confirmation code via server logs)
+    confirmation_code_expiry_minutes: 10
+    max_confirmation_attempts: 3
+
+    # Enterprise mode settings (external authorization API)
+    # api_url: "https://your-company.com/api/authorize"
+    # api_timeout: 30
+
+  # Optional: Invisible captcha on the public SSO page
+  # Cloudflare Turnstile does not require you to pre-register the URL of your form.
+  # Create a site key and secret key, then enable the widget below.
+  captcha:
+    enabled: false
+    provider: "cloudflare_turnstile"
+    site_key: "YOUR_TURNSTILE_SITE_KEY"
+    secret_key: "YOUR_TURNSTILE_SECRET_KEY"
+    # verify_url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    # widget_mode: "invisible"  # or "managed"
+    # timeout_seconds: 5.0
+
+  # Identity Provider Configurations
+  # Configure one or more providers below
+  providers:
+    # Google OAuth2/OIDC
+    # Setup: https://console.cloud.google.com/apis/credentials
+    google:
+      type: "oauth2"
+      client_id: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+      client_secret: "YOUR_GOOGLE_CLIENT_SECRET"
+      discovery_url: "https://accounts.google.com/.well-known/openid-configuration"
+      scopes:
+        - "openid"
+        - "email"
+        - "profile"
+
+    # Microsoft Azure AD / Entra ID
+    # Setup: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RegisteredApps
+    microsoft:
+      type: "oauth2"
+      client_id: "YOUR_AZURE_CLIENT_ID"
+      client_secret: "YOUR_AZURE_CLIENT_SECRET"
+      # Tenant options:
+      # - "common": Multi-tenant (personal + work/school accounts)
+      # - "organizations": Work/school accounts only
+      # - "consumers": Personal Microsoft accounts only
+      # - Specific tenant ID: "12345678-1234-1234-1234-123456789012"
+      discovery_url: "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
+      scopes:
+        - "openid"
+        - "email"
+        - "profile"
+
+    # GitHub OAuth2
+    # Setup: https://github.com/settings/developers
+    github:
+      type: "oauth2"
+      client_id: "YOUR_GITHUB_CLIENT_ID"
+      client_secret: "YOUR_GITHUB_CLIENT_SECRET"
+      authorize_url: "https://github.com/login/oauth/authorize"
+      token_url: "https://github.com/login/oauth/access_token"
+      userinfo_url: "https://api.github.com/user"
+      scopes:
+        - "user:email"
+        - "read:user"
+
+    # LinkedIn OAuth2
+    # Setup: https://www.linkedin.com/developers/apps
+    linkedin:
+      type: "oauth2"
+      client_id: "YOUR_LINKEDIN_CLIENT_ID"
+      client_secret: "YOUR_LINKEDIN_CLIENT_SECRET"
+      authorize_url: "https://www.linkedin.com/oauth/v2/authorization"
+      token_url: "https://www.linkedin.com/oauth/v2/accessToken"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+
+    # AWS IAM Identity Center (formerly AWS SSO)
+    # Setup: IAM Identity Center > Applications > Add application
+    aws:
+      type: "oauth2"
+      client_id: "YOUR_AWS_CLIENT_ID"
+      client_secret: "YOUR_AWS_CLIENT_SECRET"
+      # Replace {region} with your AWS region (e.g., us-east-1, us-west-2)
+      discovery_url: "https://oidc.us-east-1.amazonaws.com/.well-known/openid-configuration"
+      scopes:
+        - "openid"
+        - "email"
+        - "profile"
+
+# Usage Notes:
+#
+# 1. Choose ONE or MORE providers to enable
+# 2. Remove or comment out providers you don't need
+# 3. Fill in YOUR_* placeholders with actual credentials
+# 4. For Microsoft, adjust the tenant ID in the discovery_url
+# 5. For AWS, adjust the region in the discovery_url
+#
+# 6. Redirect URI for all providers should be:
+#    http://localhost:8080/auth/callback (adjust port if needed)
+#
+# 7. Start the proxy with SSO enabled:
+#    python -m src.anthropic_server --sso-config config/sso_auth.yaml
+#
+# 8. Users will authenticate via browser, then receive an agent token
+#    to configure in their AI coding agent (Cursor, Continue, Cline, etc.)

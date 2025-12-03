@@ -1,33 +1,38 @@
 """
 Rate limiting service for SSO authentication.
 
-This module provides rate limiting functionality to prevent brute-force
-attacks on confirmation codes and other authentication mechanisms.
+This module provides rate limiting functionality to protect against
+brute-force attacks on confirmation codes and authentication endpoints.
 """
 
 from datetime import datetime, timedelta
 
 import aiosqlite
 
+from src.core.auth.sso.database import DatabaseManager
 from src.core.auth.sso.exceptions import SSOException
-from src.core.auth.sso.models import RateLimitRecord, RateLimitResult
+from src.core.auth.sso.models import RateLimitResult
 
 
 class RateLimitService:
-    """Rate limiting for confirmation code attempts."""
+    """
+    Rate limiting for confirmation code attempts and authentication.
 
-    # Exponential backoff configuration
-    BASE_BACKOFF_SECONDS = 2  # Base backoff time (2^1 = 2 seconds)
-    MAX_BACKOFF_SECONDS = 3600  # Maximum backoff time (1 hour)
+    Implements exponential backoff for repeated failures.
+    """
 
-    def __init__(self, database_path: str):
+    # Configuration
+    BASE_DELAY_SECONDS = 2  # Start with 2 seconds
+    MAX_DELAY_SECONDS = 3600  # Cap at 1 hour
+
+    def __init__(self, database_manager: DatabaseManager):
         """
         Initialize rate limit service.
 
         Args:
-            database_path: Path to SQLite database file
+            database_manager: Database manager instance
         """
-        self.database_path = database_path
+        self.db_manager = database_manager
 
     async def check_rate_limit(self, identifier: str) -> RateLimitResult:
         """
@@ -37,17 +42,17 @@ class RateLimitService:
             identifier: IP address or session ID to check
 
         Returns:
-            RateLimitResult with allowed status and retry_after time
+            RateLimitResult indicating if allowed and retry time
 
         Raises:
             SSOException: If database query fails
         """
         try:
-            async with aiosqlite.connect(self.database_path) as db:
+            async with aiosqlite.connect(self.db_manager.database_path) as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     """
-                    SELECT identifier, failed_attempts, last_attempt_at, blocked_until
+                    SELECT blocked_until
                     FROM rate_limits
                     WHERE identifier = ?
                     """,
@@ -55,24 +60,22 @@ class RateLimitService:
                 )
                 row = await cursor.fetchone()
 
-                if row is None:
-                    # No rate limit record exists, allow request
+                if not row or not row["blocked_until"]:
                     return RateLimitResult(allowed=True, retry_after=0)
 
-                record = self._row_to_rate_limit_record(row)
+                blocked_until = datetime.fromisoformat(row["blocked_until"])
+                now = datetime.utcnow()
 
-                # Check if currently blocked
-                if record.blocked_until is not None:
-                    now = datetime.utcnow()
-                    if now < record.blocked_until:
-                        # Still blocked, calculate retry_after
-                        retry_after = int((record.blocked_until - now).total_seconds())
-                        return RateLimitResult(allowed=False, retry_after=retry_after)
+                if blocked_until > now:
+                    retry_after = int((blocked_until - now).total_seconds())
+                    return RateLimitResult(
+                        allowed=False,
+                        retry_after=max(1, retry_after),
+                    )
 
-                # Not blocked or block expired
                 return RateLimitResult(allowed=True, retry_after=0)
 
-        except aiosqlite.Error as e:
+        except Exception as e:
             raise SSOException(
                 "Failed to check rate limit",
                 details={"identifier": identifier, "error": str(e)},
@@ -83,8 +86,8 @@ class RateLimitService:
         """
         Record a failed attempt and update backoff.
 
-        Implements exponential backoff: 2^N seconds where N is the number
-        of consecutive failures, capped at MAX_BACKOFF_SECONDS.
+        Increments failure count and calculates new blocked_until time
+        using exponential backoff.
 
         Args:
             identifier: IP address or session ID
@@ -93,11 +96,11 @@ class RateLimitService:
             SSOException: If database update fails
         """
         try:
-            async with aiosqlite.connect(self.database_path) as db:
-                db.row_factory = aiosqlite.Row
+            async with aiosqlite.connect(self.db_manager.database_path) as db:
+                # Get current state or initialize
                 cursor = await db.execute(
                     """
-                    SELECT identifier, failed_attempts, last_attempt_at, blocked_until
+                    SELECT failed_attempts
                     FROM rate_limits
                     WHERE identifier = ?
                     """,
@@ -105,27 +108,28 @@ class RateLimitService:
                 )
                 row = await cursor.fetchone()
 
-                now = datetime.utcnow()
-
-                if row is None:
-                    # First failed attempt
-                    failed_attempts = 1
+                if row:
+                    failed_attempts = row[0] + 1
                 else:
-                    # Increment failed attempts
-                    failed_attempts = row["failed_attempts"] + 1
+                    failed_attempts = 1
 
-                # Calculate exponential backoff: 2^N seconds
-                backoff_seconds = min(
-                    self.BASE_BACKOFF_SECONDS**failed_attempts,
-                    self.MAX_BACKOFF_SECONDS,
-                )
-                blocked_until = now + timedelta(seconds=backoff_seconds)
+                # Calculate backoff
+                # Formula: base * 2^(attempts - 1)
+                # Attempt 1: 2 * 2^0 = 2s
+                # Attempt 2: 2 * 2^1 = 4s
+                # Attempt 3: 2 * 2^2 = 8s
+                # ...
+                backoff_seconds = self.BASE_DELAY_SECONDS * (2 ** (failed_attempts - 1))
+                backoff_seconds = min(backoff_seconds, self.MAX_DELAY_SECONDS)
 
-                # Upsert rate limit record
+                blocked_until = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+
+                # Upsert record
                 await db.execute(
                     """
-                    INSERT INTO rate_limits (identifier, failed_attempts, last_attempt_at, blocked_until)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO rate_limits (
+                        identifier, failed_attempts, last_attempt_at, blocked_until
+                    ) VALUES (?, ?, ?, ?)
                     ON CONFLICT(identifier) DO UPDATE SET
                         failed_attempts = excluded.failed_attempts,
                         last_attempt_at = excluded.last_attempt_at,
@@ -134,13 +138,13 @@ class RateLimitService:
                     (
                         identifier,
                         failed_attempts,
-                        now.isoformat(),
+                        datetime.utcnow().isoformat(),
                         blocked_until.isoformat(),
                     ),
                 )
                 await db.commit()
 
-        except aiosqlite.Error as e:
+        except Exception as e:
             raise SSOException(
                 "Failed to record failed attempt",
                 details={"identifier": identifier, "error": str(e)},
@@ -152,13 +156,13 @@ class RateLimitService:
         Reset rate limit after successful authorization.
 
         Args:
-            identifier: IP address or session ID to reset
+            identifier: IP address or session ID
 
         Raises:
             SSOException: If database update fails
         """
         try:
-            async with aiosqlite.connect(self.database_path) as db:
+            async with aiosqlite.connect(self.db_manager.database_path) as db:
                 await db.execute(
                     """
                     DELETE FROM rate_limits
@@ -167,30 +171,10 @@ class RateLimitService:
                     (identifier,),
                 )
                 await db.commit()
-        except aiosqlite.Error as e:
+
+        except Exception as e:
             raise SSOException(
                 "Failed to reset rate limit",
                 details={"identifier": identifier, "error": str(e)},
                 original_error=e,
             ) from e
-
-    def _row_to_rate_limit_record(self, row: aiosqlite.Row) -> RateLimitRecord:
-        """
-        Convert database row to RateLimitRecord.
-
-        Args:
-            row: Database row
-
-        Returns:
-            RateLimitRecord instance
-        """
-        return RateLimitRecord(
-            identifier=row["identifier"],
-            failed_attempts=row["failed_attempts"],
-            last_attempt_at=datetime.fromisoformat(row["last_attempt_at"]),
-            blocked_until=(
-                datetime.fromisoformat(row["blocked_until"])
-                if row["blocked_until"]
-                else None
-            ),
-        )

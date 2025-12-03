@@ -34,6 +34,28 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
     _MAX_ARGUMENT_PARSE_CHARS = 12_000
     _MAX_TEXT_SCAN_CHARS = 16_000
 
+    @staticmethod
+    def _extract_text_from_chunk(chunk: dict) -> str:
+        """Extract text content from an OpenAI-format streaming chunk.
+
+        Args:
+            chunk: A dict that may be an OpenAI-format chunk with choices/delta/content
+
+        Returns:
+            The extracted text content, or empty string if not found
+        """
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            return ""
+        delta = first_choice.get("delta") or first_choice.get("message")
+        if not isinstance(delta, dict):
+            return ""
+        content = delta.get("content")
+        return content if isinstance(content, str) else ""
+
     # Pre-compiled regex patterns for performance optimization
     # These patterns are compiled once at class definition time instead of on every instantiation
     _DEFAULT_PATTERNS = [
@@ -90,7 +112,16 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
     ) -> Any:
         # Normalize to ProcessedResponse for chaining
         if isinstance(response, ProcessedResponse):
-            text = response.content or ""
+            content = response.content
+            # Handle structured content (OpenAI-format dicts, StopChunkWithUsage)
+            # These should pass through unchanged - we only analyze text content
+            if isinstance(content, dict):
+                # For dict content, extract text from delta.content if present
+                text = self._extract_text_from_chunk(content)
+            elif isinstance(content, str):
+                text = content
+            else:
+                text = ""
             out = response
         else:
             text = str(response) if response is not None else ""

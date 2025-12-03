@@ -6,8 +6,9 @@ authorization tracking, and rate limiting with async support.
 """
 
 import os
+import secrets
 import stat
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -21,7 +22,7 @@ from src.core.auth.sso.models import (
 class DatabaseManager:
     """Manages SQLite database schema and migrations."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     # Schema definition
     SCHEMA_SQL = """
@@ -71,6 +72,13 @@ class DatabaseManager:
         failed_attempts INTEGER NOT NULL DEFAULT 0,
         last_attempt_at TEXT NOT NULL,
         blocked_until TEXT
+    );
+
+    -- SSO Login Tokens (One-off)
+    CREATE TABLE IF NOT EXISTS sso_login_tokens (
+        token TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
     );
     """
 
@@ -137,13 +145,16 @@ class DatabaseManager:
             current_version: Current schema version
         """
         # Record schema version
-        if current_version == 0:
-            await db.execute(
-                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                (self.SCHEMA_VERSION, datetime.utcnow().isoformat()),
-            )
-        else:
-            # Future migrations would go here
+        await db.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (self.SCHEMA_VERSION, datetime.utcnow().isoformat()),
+        )
+
+        if current_version < 2:
+            # Added sso_login_tokens table in version 2
+            # Since SCHEMA_SQL creates it IF NOT EXISTS, we don't need explicit CREATE here for new installs
+            # But for migration we might. However, executing SCHEMA_SQL at start covers it.
+            # The migration tracking is mainly for data changes or complex alterations.
             pass
 
     def _set_restrictive_permissions(self) -> None:
@@ -220,6 +231,48 @@ class TokenRepository:
             raise SSOException(
                 "Failed to store token record",
                 details={"token_id": token_record.id, "error": str(e)},
+                original_error=e,
+            ) from e
+
+    async def find_by_user_id(self, user_id: str) -> TokenRecord | None:
+        """
+        Find an active token record by user ID.
+
+        Args:
+            user_id: User ID to search for
+
+        Returns:
+            TokenRecord if found, None otherwise
+
+        Raises:
+            SSOException: If database query fails
+        """
+        try:
+            async with aiosqlite.connect(self.database_path) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT id, token_hash, user_id, user_email, provider,
+                           is_authenticated, is_active, created_at,
+                           last_authenticated_at, auth_expires_at
+                    FROM agent_tokens
+                    WHERE user_id = ? AND is_active = 1
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id,),
+                )
+                row = await cursor.fetchone()
+
+                if row is None:
+                    return None
+
+                return self._row_to_token_record(row)
+
+        except Exception as e:
+            raise SSOException(
+                "Failed to find token by user ID",
+                details={"user_id": user_id, "error": str(e)},
                 original_error=e,
             ) from e
 
@@ -409,3 +462,85 @@ class TokenRepository:
                 else None
             ),
         )
+
+    async def create_login_token(self, ttl_minutes: int = 10) -> str:
+        """
+        Create a one-off login token for SSO link validation.
+
+        Args:
+            ttl_minutes: Token validity duration in minutes
+
+        Returns:
+            Generated token string
+        """
+        token = secrets.token_urlsafe(32)
+        now = datetime.utcnow()
+        expires_at = now + timedelta(minutes=ttl_minutes)
+
+        try:
+            async with aiosqlite.connect(self.database_path) as db:
+                await db.execute(
+                    """
+                    INSERT INTO sso_login_tokens (token, created_at, expires_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (token, now.isoformat(), expires_at.isoformat()),
+                )
+                await db.commit()
+            return token
+        except Exception as e:
+            raise SSOException(
+                "Failed to create login token",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e
+
+    async def verify_and_consume_login_token(self, token: str) -> bool:
+        """
+        Verify and consume (delete) a login token.
+
+        Args:
+            token: The token to verify
+
+        Returns:
+            True if token was valid and consumed, False otherwise
+        """
+        if not token:
+            return False
+
+        try:
+            async with aiosqlite.connect(self.database_path) as db:
+                # Check if token exists and is not expired
+                cursor = await db.execute(
+                    """
+                    SELECT expires_at FROM sso_login_tokens
+                    WHERE token = ?
+                    """,
+                    (token,),
+                )
+                row = await cursor.fetchone()
+
+                if not row:
+                    return False
+
+                expires_at = datetime.fromisoformat(row[0])
+                if datetime.utcnow() > expires_at:
+                    # Delete expired token (cleanup)
+                    await db.execute(
+                        "DELETE FROM sso_login_tokens WHERE token = ?",
+                        (token,),
+                    )
+                    await db.commit()
+                    return False
+
+                # Token is valid, consume it (delete it)
+                await db.execute(
+                    "DELETE FROM sso_login_tokens WHERE token = ?",
+                    (token,),
+                )
+                await db.commit()
+                return True
+
+        except Exception:
+            # On any error, assume invalid
+            return False

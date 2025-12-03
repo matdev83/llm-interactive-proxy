@@ -897,6 +897,9 @@ class AppConfig(DomainModel, IConfig):
 
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8000
+    # Publicly accessible URL for the proxy (required for correct SSO redirects when deployed)
+    # If not set, defaults to http://{host}:{port} which may be incorrect behind reverse proxies or 0.0.0.0 binding
+    public_url: str | None = None
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
     command_prefix: str = "!/"
@@ -922,6 +925,9 @@ class AppConfig(DomainModel, IConfig):
 
     # Auth settings
     auth: AuthConfig = Field(default_factory=AuthConfig)
+
+    # SSO authentication settings
+    sso: Any = Field(default_factory=lambda: None)  # Will be SSOConfig when enabled
 
     # Session settings
     session: SessionConfig = Field(default_factory=SessionConfig)
@@ -1002,6 +1008,7 @@ class AppConfig(DomainModel, IConfig):
             "app",
             "logging",
             "auth",
+            "sso",
             "session",
             "backends",
             "default_backend",
@@ -1086,6 +1093,13 @@ class AppConfig(DomainModel, IConfig):
                 path="port",
                 resolution=resolution,
                 transform=lambda value: _to_int(value, 8000),
+            ),
+            "public_url": _get_env_value(
+                env,
+                "PUBLIC_URL",
+                None,
+                path="public_url",
+                resolution=resolution,
             ),
             "anthropic_port": _get_env_value(
                 env,
@@ -2168,6 +2182,140 @@ class AppConfig(DomainModel, IConfig):
                 resolution=resolution,
             ),
         }
+
+        # SSO authentication configuration
+        sso_enabled = _env_to_bool(
+            "SSO_ENABLED",
+            False,
+            env,
+            path="sso.enabled",
+            resolution=resolution,
+        )
+
+        if sso_enabled:
+            from src.core.auth.sso.config import (
+                AuthorizationConfig,
+                CaptchaConfig,
+                SSOConfig,
+            )
+
+            captcha_enabled = _env_to_bool(
+                "SSO_CAPTCHA_ENABLED",
+                False,
+                env,
+                path="sso.captcha.enabled",
+                resolution=resolution,
+            )
+
+            captcha_config = (
+                CaptchaConfig(
+                    enabled=True,
+                    provider=_get_env_value(
+                        env,
+                        "SSO_CAPTCHA_PROVIDER",
+                        "cloudflare_turnstile",
+                        path="sso.captcha.provider",
+                        resolution=resolution,
+                    ),
+                    site_key=_get_env_value(
+                        env,
+                        "SSO_CAPTCHA_SITE_KEY",
+                        None,
+                        path="sso.captcha.site_key",
+                        resolution=resolution,
+                    ),
+                    secret_key=_get_env_value(
+                        env,
+                        "SSO_CAPTCHA_SECRET_KEY",
+                        None,
+                        path="sso.captcha.secret_key",
+                        resolution=resolution,
+                    ),
+                    verify_url=_get_env_value(
+                        env,
+                        "SSO_CAPTCHA_VERIFY_URL",
+                        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                        path="sso.captcha.verify_url",
+                        resolution=resolution,
+                    ),
+                    widget_mode=_get_env_value(
+                        env,
+                        "SSO_CAPTCHA_WIDGET_MODE",
+                        "invisible",
+                        path="sso.captcha.widget_mode",
+                        resolution=resolution,
+                    ),
+                    timeout_seconds=_env_to_float(
+                        "SSO_CAPTCHA_TIMEOUT_SECONDS",
+                        5.0,
+                        env,
+                        path="sso.captcha.timeout_seconds",
+                        resolution=resolution,
+                    ),
+                )
+                if captcha_enabled
+                else None
+            )
+
+            # Load SSO configuration from environment
+            config["sso"] = SSOConfig(
+                enabled=True,
+                session_lifetime_hours=_env_to_int(
+                    "SSO_SESSION_LIFETIME_HOURS",
+                    24,
+                    env,
+                    path="sso.session_lifetime_hours",
+                    resolution=resolution,
+                ),
+                database_path=_get_env_value(
+                    env,
+                    "SSO_DATABASE_PATH",
+                    "./var/sso_auth.db",
+                    path="sso.database_path",
+                    resolution=resolution,
+                ),
+                authorization=AuthorizationConfig(
+                    mode=_get_env_value(
+                        env,
+                        "SSO_AUTH_MODE",
+                        "single_user",
+                        path="sso.authorization.mode",
+                        resolution=resolution,
+                    ),
+                    api_url=_get_env_value(
+                        env,
+                        "SSO_AUTH_API_URL",
+                        None,
+                        path="sso.authorization.api_url",
+                        resolution=resolution,
+                    ),
+                    api_timeout=_env_to_int(
+                        "SSO_AUTH_API_TIMEOUT",
+                        30,
+                        env,
+                        path="sso.authorization.api_timeout",
+                        resolution=resolution,
+                    ),
+                    confirmation_code_expiry_minutes=_env_to_int(
+                        "SSO_CONFIRMATION_CODE_EXPIRY_MINUTES",
+                        10,
+                        env,
+                        path="sso.authorization.confirmation_code_expiry_minutes",
+                        resolution=resolution,
+                    ),
+                    max_confirmation_attempts=_env_to_int(
+                        "SSO_MAX_CONFIRMATION_ATTEMPTS",
+                        3,
+                        env,
+                        path="sso.authorization.max_confirmation_attempts",
+                        resolution=resolution,
+                    ),
+                ),
+                captcha=captcha_config,
+                providers={},  # Providers loaded from config file
+            )
+        else:
+            config["sso"] = None
 
         return cls(**config)  # type: ignore
 

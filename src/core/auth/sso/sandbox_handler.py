@@ -9,26 +9,32 @@ authentication process.
 import time
 from typing import Any
 
+from src.core.auth.sso.database import TokenRepository
+
 
 class SandboxHandler:
     """Handles requests from unauthenticated users."""
 
-    def __init__(self, auth_url: str):
+    def __init__(self, auth_url: str, token_repository: TokenRepository | None = None):
         """
         Initialize sandbox handler.
 
         Args:
             auth_url: Base URL for SSO authentication endpoint
+            token_repository: Repository for generating one-off login tokens
         """
         self.auth_url = auth_url
+        self.token_repository = token_repository
 
-    def generate_login_banner(self, auth_url: str | None = None) -> dict[str, Any]:
+    async def generate_login_banner(
+        self, auth_url: str | None = None
+    ) -> dict[str, Any]:
         """
         Generate a chat completion response containing login instructions.
 
         The banner includes:
             - Welcome message
-            - Authentication URL
+            - Authentication URL (with one-off token if enabled)
             - Instructions to configure agent after auth
             - Note that session cannot continue after auth
 
@@ -39,14 +45,25 @@ class SandboxHandler:
         Returns:
             OpenAI-compatible chat completion response with login banner
         """
-        url = auth_url or self.auth_url
+        base_url = auth_url or self.auth_url
+
+        # Append one-off token if repository is available
+        final_url = base_url
+        if self.token_repository:
+            try:
+                token = await self.token_repository.create_login_token()
+                separator = "&" if "?" in base_url else "?"
+                final_url = f"{base_url}{separator}token={token}"
+            except Exception:
+                # Fallback to base URL if token generation fails
+                pass
 
         message = (
             "# Authentication Required\n\n"
             "Welcome to the LLM Proxy with SSO authentication.\n\n"
             "To use this proxy, you need to authenticate via Single Sign-On (SSO).\n\n"
             "## Steps to Authenticate:\n\n"
-            f"1. Open this URL in your browser: {url}\n"
+            f"1. Open this URL in your browser: {final_url}\n"
             "2. Complete the SSO authentication with your identity provider\n"
             "3. After successful authentication, you will receive an agent token\n"
             "4. Copy the agent token and configure it in your AI agent's API key field\n\n"
