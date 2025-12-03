@@ -298,6 +298,9 @@ def register_routes(app: FastAPI) -> None:
     # The AnthropicController is already registered through DI and handles
     # the /v1/messages endpoint for Anthropic compatibility
 
+    # Register SSO authentication routes (if SSO is enabled)
+    _register_sso_routes(app)
+
     logger.info("Routes registered successfully")
 
     # Internal health endpoint to report DI/controller resolution status
@@ -974,3 +977,96 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
                 "/v1/info",
             ],
         }
+
+
+
+def _register_sso_routes(app: FastAPI) -> None:
+    """Register SSO authentication routes if SSO is enabled.
+    
+    Args:
+        app: The FastAPI application instance
+    """
+    try:
+        # Check if SSO is enabled
+        config = getattr(app.state, "app_config", None)
+        if not config:
+            return
+            
+        sso_enabled = (
+            config.sso.enabled
+            if hasattr(config, "sso") and config.sso is not None
+            else False
+        )
+        
+        if not sso_enabled:
+            return
+            
+        # Import SSO components
+        from src.core.auth.sso.authorization_service import AuthorizationService
+        from src.core.auth.sso.captcha_service import CaptchaService
+        from src.core.auth.sso.database import DatabaseManager
+        from src.core.auth.sso.rate_limit_service import RateLimitService
+        from src.core.auth.sso.sso_service import SSOService
+        from src.core.auth.sso.token_service import TokenService
+        from src.core.auth.sso.web_interface import create_sso_router
+        
+        # Get SSO configuration
+        sso_config = config.sso
+        
+        # Initialize database
+        database_manager = DatabaseManager(sso_config.database_path)
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, but we need to initialize synchronously
+            # Create a new event loop in a thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    lambda: asyncio.run(database_manager.initialize_schema())
+                )
+                future.result()
+        except RuntimeError:
+            # No running loop, we can use asyncio.run directly
+            asyncio.run(database_manager.initialize_schema())
+        
+        # Initialize services
+        token_service = TokenService()
+        sso_service = SSOService(sso_config)
+        authorization_service = AuthorizationService(
+            mode=sso_config.authorization_mode,
+            config=sso_config,
+            database_path=sso_config.database_path,
+        )
+        rate_limit_service = RateLimitService(database_path=sso_config.database_path)
+        captcha_service = CaptchaService(sso_config.captcha)
+        
+        # Determine base URL for auth redirects
+        if config.public_url:
+            base_url = config.public_url.rstrip("/")
+        else:
+            base_url = f"http://{config.host}:{config.port}"
+        
+        # Create and register SSO router
+        sso_router = create_sso_router(
+            sso_config=sso_config,
+            sso_service=sso_service,
+            token_service=token_service,
+            authorization_service=authorization_service,
+            database_manager=database_manager,
+            rate_limit_service=rate_limit_service,
+            base_url=base_url,
+            captcha_service=captcha_service,
+        )
+        
+        app.include_router(sso_router)
+        
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("SSO authentication routes registered successfully")
+            
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register SSO authentication routes: {e}",
+                exc_info=True,
+            )

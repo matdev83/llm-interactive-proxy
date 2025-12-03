@@ -78,11 +78,8 @@ class DatabaseManager:
     CREATE TABLE IF NOT EXISTS sso_login_tokens (
         token TEXT PRIMARY KEY,
         created_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL,
-        agent_token_id TEXT
+        expires_at TEXT NOT NULL
     );
-    
-    CREATE INDEX IF NOT EXISTS idx_login_token_agent_token ON sso_login_tokens(agent_token_id);
     """
 
     def __init__(self, database_path: str):
@@ -466,15 +463,12 @@ class TokenRepository:
             ),
         )
 
-    async def create_login_token(
-        self, ttl_minutes: int = 10, agent_token_id: str | None = None
-    ) -> str:
+    async def create_login_token(self, ttl_minutes: int = 10) -> str:
         """
         Create a one-off login token for SSO link validation.
 
         Args:
             ttl_minutes: Token validity duration in minutes
-            agent_token_id: Optional existing agent token ID for re-authentication
 
         Returns:
             Generated token string
@@ -487,10 +481,10 @@ class TokenRepository:
             async with aiosqlite.connect(self.database_path) as db:
                 await db.execute(
                     """
-                    INSERT INTO sso_login_tokens (token, created_at, expires_at, agent_token_id)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO sso_login_tokens (token, created_at, expires_at)
+                    VALUES (?, ?, ?)
                     """,
-                    (token, now.isoformat(), expires_at.isoformat(), agent_token_id),
+                    (token, now.isoformat(), expires_at.isoformat()),
                 )
                 await db.commit()
             return token
@@ -501,7 +495,7 @@ class TokenRepository:
                 original_error=e,
             ) from e
 
-    async def verify_and_consume_login_token(self, token: str) -> tuple[bool, str | None]:
+    async def verify_and_consume_login_token(self, token: str) -> bool:
         """
         Verify and consume (delete) a login token.
 
@@ -509,19 +503,17 @@ class TokenRepository:
             token: The token to verify
 
         Returns:
-            Tuple of (is_valid, agent_token_id)
-            - is_valid: True if token was valid and consumed, False otherwise
-            - agent_token_id: Associated agent token ID for re-auth, or None for new auth
+            True if token was valid and consumed, False otherwise
         """
         if not token:
-            return (False, None)
+            return False
 
         try:
             async with aiosqlite.connect(self.database_path) as db:
                 # Check if token exists and is not expired
                 cursor = await db.execute(
                     """
-                    SELECT expires_at, agent_token_id FROM sso_login_tokens
+                    SELECT expires_at FROM sso_login_tokens
                     WHERE token = ?
                     """,
                     (token,),
@@ -529,11 +521,9 @@ class TokenRepository:
                 row = await cursor.fetchone()
 
                 if not row:
-                    return (False, None)
+                    return False
 
                 expires_at = datetime.fromisoformat(row[0])
-                agent_token_id = row[1] if len(row) > 1 else None
-                
                 if datetime.utcnow() > expires_at:
                     # Delete expired token (cleanup)
                     await db.execute(
@@ -541,7 +531,7 @@ class TokenRepository:
                         (token,),
                     )
                     await db.commit()
-                    return (False, None)
+                    return False
 
                 # Token is valid, consume it (delete it)
                 await db.execute(
@@ -549,8 +539,8 @@ class TokenRepository:
                     (token,),
                 )
                 await db.commit()
-                return (True, agent_token_id)
+                return True
 
         except Exception:
             # On any error, assume invalid
-            return (False, None)
+            return False

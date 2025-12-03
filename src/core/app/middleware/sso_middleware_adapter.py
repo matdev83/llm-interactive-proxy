@@ -92,9 +92,16 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
         messages: list[dict[str, Any]] = []
         if request.method == "POST":
             try:
-                # Read body
+                # Read body and cache it for downstream handlers
                 body = await request.body()
                 if body:
+                    # Cache the body so downstream handlers can read it
+                    # This is necessary because request.body() can only be called once
+                    async def receive():
+                        return {"type": "http.request", "body": body}
+                    
+                    request._receive = receive  # type: ignore
+                    
                     body_dict = json.loads(body)
                     messages = body_dict.get("messages", [])
             except Exception:
