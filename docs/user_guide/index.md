@@ -43,6 +43,11 @@ Advanced features that enhance the proxy's capabilities:
 - **[Session Management](features/session-management.md)** - Intelligent session handling and state management
 - **[Context Window Enforcement](features/context-window-enforcement.md)** - Enforce context window limits and prevent overruns
 
+### Monitoring and Analytics
+
+- **[Monitoring Overview](features/monitoring-overview.md)** - Overview of all monitoring and analytics capabilities
+- **[Usage Tracking and Statistics](features/usage-tracking.md)** - Comprehensive monitoring of token consumption, costs, performance metrics, and request patterns across all backends
+
 ### Client Integration
 
 - **[Codebuff Quick Start](features/codebuff-quick-start.md)** - Get started with Codebuff in 5 minutes
@@ -61,6 +66,7 @@ Backend provider configuration and usage:
 - **[Anthropic OAuth Backend](backends/anthropic-oauth.md)** - Claude Code OAuth configuration
 - **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
+- **[Gemini OAuth Antigravity Backend](backends/gemini-oauth-antigravity.md)** - Internal Gemini OAuth configuration for Antigravity
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration

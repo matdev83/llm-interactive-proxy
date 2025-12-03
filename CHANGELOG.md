@@ -1,6 +1,60 @@
 # Changelog
 
-## [Unreleased] - Codebuff Backend Compatibility
+## [Unreleased]
+
+### Added: Comprehensive Usage Tracking and Statistics System
+
+- **Multi-Point Token Tracking**: Track tokens at four measurement points for complete visibility
+  - **Verbatim Tokens**: Original token counts before proxy modifications (CTP, BTP)
+  - **Mutated Tokens**: Token counts after proxy transformations (PTB, PTC)
+  - **Backend-Reported Tokens**: Provider-reported tokens for billing reconciliation
+  - **Extended Token Details**: Reasoning tokens, cached tokens, audio tokens, costs
+
+- **Performance Metrics**: Comprehensive timing and throughput monitoring
+  - **Time to First Token (TTFT)**: Latency measurement for streaming responses
+  - **Proxy Processing Time**: Overhead measurement for proxy operations
+  - **Total Duration**: End-to-end request timing
+  - **Statistical Aggregations**: Min, max, average, p50, p95, p99 percentiles
+
+- **Request Monitoring**: Detailed tracking of all proxy traffic
+  - **Request/Response Counts**: Per backend, model, frontend, and session
+  - **HTTP Status Codes**: Error rate monitoring and status code breakdowns
+  - **Tool Call Tracking**: Tool names, counts, and usage patterns
+  - **Session Analysis**: Turn tracking and conversation flow analysis
+
+- **Multi-Dimensional Filtering**: Query statistics by multiple dimensions
+  - **Backend/Model**: Filter by provider and model name
+  - **Frontend Type**: Filter by API interface (OpenAI, Anthropic, etc.)
+  - **Traffic Leg**: Filter by direction (CTP, PTB, BTP, PTC)
+  - **User Context**: Filter by user agent, proxy user, session ID
+  - **Time Dimensions**: Filter by date range, hour of day, day of week
+
+- **REST API Endpoints**: Query usage data via HTTP
+  - `GET /v1/usage/stats`: Aggregated statistics with filtering
+  - `GET /v1/usage/recent`: Recent usage records with pagination
+  - `GET /v1/usage/export`: Export usage data as JSON
+
+- **Persistent Storage**: Thread-safe in-memory storage with disk persistence
+  - **In-Memory Store**: Fast access with threading.RLock for concurrency
+  - **Periodic Persistence**: Configurable flush interval (default: 30s)
+  - **Startup Recovery**: Load persisted data on proxy startup
+  - **Graceful Shutdown**: Persist data on clean shutdown
+
+- **Configuration Options**:
+  - `usage_tracking.enabled`: Enable/disable tracking (default: true)
+  - `usage_tracking.persistence_path`: Storage file path (default: "./var/usage_data.json")
+  - `usage_tracking.flush_interval_seconds`: Persistence interval (default: 30.0)
+  - `usage_tracking.max_records_in_memory`: Memory limit (default: 100000)
+
+- **Documentation**:
+  - **User Guide**: Complete feature guide at `docs/user_guide/features/usage-tracking.md`
+  - **Integration Guide**: Developer integration guide at `docs/usage_tracking_integration.md`
+  - **README Update**: Added usage tracking to key features list
+
+- **Testing**: Comprehensive property-based testing with Hypothesis
+  - **21 Correctness Properties**: All requirements validated with PBT
+  - **86 Tests Total**: Property tests, unit tests, integration tests
+  - **100% Test Pass Rate**: All tests passing
 
 ### Added: WebSocket Server for Codebuff Protocol
 

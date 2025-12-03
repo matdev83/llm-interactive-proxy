@@ -871,8 +871,14 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
 
-    # Include usage router
+    # Include usage router (legacy)
     app.include_router(usage_router)
+
+    # Include detailed usage tracking routes
+    from src.core.app.routes.usage_routes import router as detailed_usage_router
+
+    app.include_router(detailed_usage_router)
+
     # Expose models at both /models and /v1/models for compatibility
     app.include_router(models_router, prefix="/v1")
 

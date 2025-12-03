@@ -75,22 +75,22 @@ def demo_fix():
 
     # Check 1: Flattening of anyOf
     if "anyOf" not in todos_prop:
-        print("✅ PASS: 'anyOf' removed from 'todos' property.")
+        print("[OK] PASS: 'anyOf' removed from 'todos' property.")
     else:
-        print("❌ FAIL: 'anyOf' still present in 'todos' property.")
+        print("[FAIL] FAIL: 'anyOf' still present in 'todos' property.")
 
     # Check 2: Selection of first option
     if todos_prop.get("type") == "array":
-        print("✅ PASS: First option (array) selected from Union.")
+        print("[OK] PASS: First option (array) selected from Union.")
     else:
-        print(f"❌ FAIL: Expected type 'array', got '{todos_prop.get('type')}'.")
+        print(f"[FAIL] FAIL: Expected type 'array', got '{todos_prop.get('type')}'.")
 
     # Check 3: Simplification of tuple items
     items = todos_prop.get("items")
     if items == {}:
-        print("✅ PASS: Tuple 'items' converted to empty schema {} (allow anything).")
+        print("[OK] PASS: Tuple 'items' converted to empty schema {} (allow anything).")
     else:
-        print(f"❌ FAIL: 'items' is not empty schema. Got: {items}")
+        print(f"[FAIL] FAIL: 'items' is not empty schema. Got: {items}")
 
     # Check 4: No forbidden keywords
     forbidden = ["anyOf", "oneOf", "allOf"]
@@ -110,10 +110,10 @@ def demo_fix():
 
     if not found_forbidden:
         print(
-            "✅ PASS: No forbidden keywords (anyOf, oneOf, allOf) found in entire schema."
+            "[OK] PASS: No forbidden keywords (anyOf, oneOf, allOf) found in entire schema."
         )
     else:
-        print(f"❌ FAIL: Found forbidden keywords: {found_forbidden}")
+        print(f"[FAIL] FAIL: Found forbidden keywords: {found_forbidden}")
 
 
 if __name__ == "__main__":

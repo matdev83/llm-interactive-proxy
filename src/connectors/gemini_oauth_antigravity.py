@@ -804,11 +804,11 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 return None
 
             auth_data = json.loads(raw_value_str)
-            
+
             if auth_data is None:
                 logger.debug("Auth status value is null/None.")
                 return None
-                
+
             if isinstance(auth_data, dict):
                 return auth_data
 

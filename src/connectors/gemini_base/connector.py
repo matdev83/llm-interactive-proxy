@@ -453,6 +453,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Flag to track if models were loaded from API (vs hardcoded fallback)
         self._models_from_api: bool = False
 
+        # Keep track of background tasks to prevent garbage collection
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
         # Prompt-limit configuration (overrides can be supplied by subclasses)
         self._default_prompt_limit = getattr(
             self, "default_prompt_limit", DEFAULT_CODE_ASSIST_PROMPT_LIMIT
@@ -2118,18 +2121,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 try:
                                     # Parse error details for retry delay extraction
                                     try:
-                                        error_detail = response.json()
+                                        quota_error_detail = response.json()
                                     except Exception:
-                                        error_detail = response.text
-                                        
+                                        quota_error_detail = response.text
+
                                     # Create a temporary error object to pass details
                                     quota_error = BackendError(
                                         message="Rate limit exceeded",
                                         code="rate_limit_exceeded",
                                         status_code=429,
-                                        details=error_detail if isinstance(error_detail, dict) else {"raw": error_detail}
+                                        details=(
+                                            quota_error_detail
+                                            if isinstance(quota_error_detail, dict)
+                                            else {"raw": quota_error_detail}
+                                        ),
                                     )
-                                    
+
                                     fallback_response = await self._handle_429_with_graceful_degradation(
                                         original_model=effective_model,
                                         request_data=request_data,
@@ -2225,24 +2232,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         # For non-429 errors, yield error chunk (with optional retry sans tools)
                         # Graceful error handling - yield error chunk instead of raising exception
                         try:
-                            error_detail = response.json()
+                            general_error_detail = response.json()
                         except Exception:
-                            error_detail = response.text
+                            general_error_detail = response.text
 
                         error_message = ""
                         raw_message = ""
-                        if isinstance(error_detail, dict):
-                            error_message = error_detail.get("error", {}).get(
+                        if isinstance(general_error_detail, dict):
+                            error_message = general_error_detail.get("error", {}).get(
                                 "message", ""
                             )
-                            raw_message = error_detail.get("error", {}).get(
+                            raw_message = general_error_detail.get("error", {}).get(
                                 "message", ""
                             )
 
                         message_lower = error_message.lower()
                         is_quota_error = (
                             response.status_code == 429
-                            and isinstance(error_detail, dict)
+                            and isinstance(general_error_detail, dict)
                             and (
                                 "quota exceeded" in message_lower
                                 or "resource exhausted" in message_lower
@@ -2257,8 +2264,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             user_message = (
                                 "Service temporarily unavailable due to rate limiting."
                             )
-                            if isinstance(error_detail, dict):
-                                detail_msg = error_detail.get("error", {}).get(
+                            if isinstance(general_error_detail, dict):
+                                detail_msg = general_error_detail.get("error", {}).get(
                                     "message"
                                 )
                                 if isinstance(detail_msg, str) and detail_msg.strip():
@@ -2300,7 +2307,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             # Detect schema/tool validation errors and retry once without tools/toolConfig
                             schema_error = False
                             if response.status_code == 400 and isinstance(
-                                error_detail, dict
+                                general_error_detail, dict
                             ):
                                 lower_msg = (raw_message or error_message or "").lower()
                                 schema_error = (
@@ -2322,10 +2329,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                             # Extract user-friendly error message
                             user_message = "An API error occurred. Please try again."
-                            if isinstance(error_detail, dict):
-                                user_message = error_detail.get("error", {}).get(
-                                    "message", user_message
-                                )
+                            if isinstance(general_error_detail, dict):
+                                user_message = general_error_detail.get(
+                                    "error", {}
+                                ).get("message", user_message)
                             # Yield general error chunk instead of raising exception
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -3304,7 +3311,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 auth_err,
             )
             # Trigger a credential check/reload if possible
-            asyncio.create_task(self._handle_credentials_file_change())
+            task = asyncio.create_task(self._handle_credentials_file_change())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except BackendError as error:
             state.probe_success_count = 0
             log_message = (
@@ -3391,10 +3400,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 self._model_retry_states[model] = ModelRetryState()
 
             state = self._model_retry_states[model]
-            
+
             # Check if the initial error dictates a long cooldown for the original model
             # This prevents "spamming" the API when it has already told us to wait
-            if model == original_model and error and self._is_rate_limit_like_error(error):
+            if (
+                model == original_model
+                and error
+                and self._is_rate_limit_like_error(error)
+            ):
                 retry_delay = self._extract_retry_delay(error)
                 # If delay is significant (e.g. > 10s), respect it immediately
                 # For short delays (e.g. 1s), we might still attempt retries with backoff

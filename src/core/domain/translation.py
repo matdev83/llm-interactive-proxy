@@ -2359,7 +2359,7 @@ class Translation(BaseTranslator):
                         function_call_part: dict[str, Any] = {
                             "functionCall": {"name": fn, "args": args_val}
                         }
-                        
+
                         # Preserve tool call ID if present (needed for Claude via Antigravity)
                         if "id" in tc_dict:
                             function_call_part["functionCall"]["id"] = tc_dict["id"]
@@ -2466,12 +2466,12 @@ class Translation(BaseTranslator):
 
                     # Build functionResponse part
                     function_response = {"name": name, "response": resp_obj}
-                    
+
                     # Preserve tool_call_id for Claude via Antigravity
                     # Antigravity needs this to map functionResponse back to tool_use_id
                     if tool_call_id:
                         function_response["id"] = tool_call_id
-                    
+
                     parts.append({"functionResponse": function_response})
 
                 # Skip the tool messages we just processed
@@ -2606,7 +2606,7 @@ class Translation(BaseTranslator):
 
         logger = logging.getLogger(__name__)
         if "tools" in result:
-            logger.warning(f"Translation produced tools: {str(result['tools'])[:500]}")
+            logger.debug(f"Translation produced tools: {str(result['tools'])[:500]}")
 
         return result
 

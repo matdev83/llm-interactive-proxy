@@ -229,6 +229,34 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             log_responses=response_logging,
         )
 
+    # Usage tracking middleware (if enabled)
+    usage_tracking_enabled = (
+        config.usage_tracking.enabled if hasattr(config, "usage_tracking") else False
+    )
+
+    if usage_tracking_enabled:
+        try:
+            from src.core.app.middleware.usage_tracking_middleware import (
+                UsageTrackingMiddleware,
+            )
+            from src.core.interfaces.usage_recording_interface import (
+                IUsageRecordingService,
+            )
+
+            usage_service = app.state.service_provider.get_required_service(
+                IUsageRecordingService
+            )
+            app.add_middleware(
+                UsageTrackingMiddleware, usage_recording_service=usage_service
+            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Usage tracking middleware is enabled")
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to register UsageTrackingMiddleware: %s", e, exc_info=True
+                )
+
 
 def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
     """Register custom middleware with the FastAPI application.

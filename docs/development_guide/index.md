@@ -19,6 +19,10 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 - **[Adding Features](./adding-features.md)** - Guide for implementing new features in the proxy
 - **[Adding Backends](./adding-backends.md)** - Guide for creating new backend connectors
 
+## Integration Guides
+
+- **[Usage Tracking Integration](../../docs/usage_tracking_integration.md)** - Integrate usage tracking into custom controllers and middleware
+
 ## Debugging & Troubleshooting
 
 - **[Debugging](./debugging.md)** - Debugging techniques, wire capture analysis, and troubleshooting tools

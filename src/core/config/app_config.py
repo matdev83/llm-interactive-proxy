@@ -470,6 +470,24 @@ class CodebuffConfig(DomainModel):
     max_message_size_bytes: int = 1048576  # 1MB
 
 
+class UsageTrackingConfig(DomainModel):
+    """Usage tracking and statistics configuration."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    """Whether detailed usage tracking is enabled."""
+
+    persistence_path: str = "./var/usage_data.json"
+    """Path for persistence file."""
+
+    flush_interval_seconds: float = 30.0
+    """Interval for periodic persistence (in seconds)."""
+
+    max_records_in_memory: int = 100000
+    """Maximum records to keep in memory before applying retention policies."""
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -935,6 +953,9 @@ class AppConfig(DomainModel, IConfig):
     # Codebuff WebSocket server settings
     codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
 
+    # Usage tracking settings
+    usage_tracking: UsageTrackingConfig = Field(default_factory=UsageTrackingConfig)
+
     # Replacement settings
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
 
@@ -988,6 +1009,7 @@ class AppConfig(DomainModel, IConfig):
             "model_aliases",
             "sandboxing",
             "codebuff",
+            "usage_tracking",
             "replacement",
             "vtc_client_patterns",
         }

@@ -718,9 +718,10 @@ class TestModelValidation:
         assert mock_get.call_count == 0  # Still 0, not 1
 
     @pytest.mark.asyncio
-    async def test_chat_completions_validates_model(self, mock_client, monkeypatch):
-        """chat_completions should validate model before proceeding when models from API."""
-        from src.core.common.exceptions import BackendError
+    async def test_chat_completions_skips_strict_model_validation(
+        self, mock_client, monkeypatch
+    ):
+        """chat_completions should SKIP strict validation for Antigravity backend."""
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
@@ -736,24 +737,28 @@ class TestModelValidation:
         # Pre-load specific models (simulating API-loaded models)
         connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
         connector._available_models_set = set(connector.available_models)
-        # Mark as loaded from API to enable validation
+        # Mark as loaded from API to enable validation (if it were enabled)
         connector._models_from_api = True
 
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)  # type: ignore[attr-defined]
         connector._ensure_healthy = AsyncMock()  # type: ignore[attr-defined]
 
+        # Mock the inner method to avoid network calls and verify delegation
+        connector._chat_completions_code_assist = AsyncMock(return_value=Mock(status_code=200))  # type: ignore
+
         request_data = Mock()
         request_data.stream = False
-        request_data.messages = []
+        request_data.messages = [{"role": "user", "content": "Hello"}]
 
-        # Should raise for invalid model (validation enabled because models from API)
-        with pytest.raises(BackendError) as exc_info:
-            await connector.chat_completions(
-                request_data=request_data,
-                processed_messages=[],
-                effective_model="invalid-model-xyz",
-            )
+        # Should NOT raise for invalid model because validation is disabled
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[{"role": "user", "content": "Hello"}],
+            effective_model="invalid-model-xyz",
+        )
 
-        assert exc_info.value.code == "model_not_found"
-        assert "invalid-model-xyz" in str(exc_info.value.message)
+        # Verify the invalid model was passed through to the inner method
+        assert connector._chat_completions_code_assist.called
+        call_args = connector._chat_completions_code_assist.call_args
+        assert call_args.kwargs.get("effective_model") == "invalid-model-xyz"

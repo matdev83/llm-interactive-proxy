@@ -270,6 +270,9 @@ class CoreServicesStage(InitializationStage):
         # Register wire capture service
         self._register_wire_capture_service(services)
 
+        # Register usage tracking services
+        self._register_usage_tracking_services(services, config)
+
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.
 
@@ -323,6 +326,97 @@ class CoreServicesStage(InitializationStage):
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register wire capture service: {e}")
+
+    def _register_usage_tracking_services(
+        self, services: ServiceCollection, config: AppConfig
+    ) -> None:
+        """Register usage tracking services.
+
+        Registers:
+        - InMemoryUsageStore: Thread-safe storage with periodic persistence
+        - UsageRecordingService: Service for recording usage metrics
+        - StatisticsAggregationService: Service for aggregating statistics
+        """
+        try:
+            from pathlib import Path
+
+            from src.core.interfaces.statistics_service_interface import (
+                IStatisticsService,
+            )
+            from src.core.interfaces.usage_recording_interface import (
+                IUsageRecordingService,
+            )
+            from src.core.services.in_memory_usage_store import InMemoryUsageStore
+            from src.core.services.statistics_aggregation_service import (
+                StatisticsAggregationService,
+            )
+            from src.core.services.usage_recording_service import UsageRecordingService
+
+            # Get usage tracking configuration
+            usage_config = config.usage_tracking
+
+            # Skip registration if usage tracking is disabled
+            if not usage_config.enabled:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Usage tracking is disabled")
+                return
+
+            # Register InMemoryUsageStore as singleton
+            def usage_store_factory(provider: IServiceProvider) -> InMemoryUsageStore:
+                cfg: AppConfig = provider.get_required_service(AppConfig)
+                usage_cfg = cfg.usage_tracking
+                return InMemoryUsageStore(
+                    persistence_path=Path(usage_cfg.persistence_path),
+                    flush_interval_seconds=usage_cfg.flush_interval_seconds,
+                    max_records_in_memory=usage_cfg.max_records_in_memory,
+                )
+
+            services.add_singleton(
+                InMemoryUsageStore, implementation_factory=usage_store_factory
+            )
+
+            # Register UsageRecordingService as singleton
+            def usage_recording_factory(
+                provider: IServiceProvider,
+            ) -> UsageRecordingService:
+                store: InMemoryUsageStore = provider.get_required_service(
+                    InMemoryUsageStore
+                )
+                return UsageRecordingService(store)
+
+            services.add_singleton(
+                UsageRecordingService, implementation_factory=usage_recording_factory
+            )
+            services.add_singleton(
+                IUsageRecordingService, implementation_factory=usage_recording_factory
+            )
+
+            # Register StatisticsAggregationService as singleton
+            def statistics_service_factory(
+                provider: IServiceProvider,
+            ) -> StatisticsAggregationService:
+                store: InMemoryUsageStore = provider.get_required_service(
+                    InMemoryUsageStore
+                )
+                return StatisticsAggregationService(store)
+
+            services.add_singleton(
+                StatisticsAggregationService,
+                implementation_factory=statistics_service_factory,
+            )
+            services.add_singleton(
+                IStatisticsService, implementation_factory=statistics_service_factory
+            )
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Usage tracking services registered successfully "
+                    f"(persistence_path={usage_config.persistence_path}, "
+                    f"flush_interval={usage_config.flush_interval_seconds}s)"
+                )
+        except ImportError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register usage tracking services: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""
