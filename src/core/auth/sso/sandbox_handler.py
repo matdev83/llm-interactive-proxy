@@ -27,7 +27,7 @@ class SandboxHandler:
         self.token_repository = token_repository
 
     async def generate_login_banner(
-        self, auth_url: str | None = None
+        self, auth_url: str | None = None, agent_token_id: str | None = None
     ) -> dict[str, Any]:
         """
         Generate a chat completion response containing login instructions.
@@ -41,6 +41,9 @@ class SandboxHandler:
         Args:
             auth_url: Optional override for authentication URL.
                      If not provided, uses the instance's auth_url.
+            agent_token_id: Optional existing agent token ID for re-authentication.
+                           If provided, the SSO flow will update this token instead
+                           of creating a new one.
 
         Returns:
             OpenAI-compatible chat completion response with login banner
@@ -51,29 +54,49 @@ class SandboxHandler:
         final_url = base_url
         if self.token_repository:
             try:
-                token = await self.token_repository.create_login_token()
+                token = await self.token_repository.create_login_token(
+                    agent_token_id=agent_token_id
+                )
                 separator = "&" if "?" in base_url else "?"
                 final_url = f"{base_url}{separator}token={token}"
             except Exception:
                 # Fallback to base URL if token generation fails
                 pass
 
-        message = (
-            "# Authentication Required\n\n"
-            "Welcome to the LLM Proxy with SSO authentication.\n\n"
-            "To use this proxy, you need to authenticate via Single Sign-On (SSO).\n\n"
-            "## Steps to Authenticate:\n\n"
-            f"1. Open this URL in your browser: {final_url}\n"
-            "2. Complete the SSO authentication with your identity provider\n"
-            "3. After successful authentication, you will receive an agent token\n"
-            "4. Copy the agent token and configure it in your AI agent's API key field\n\n"
-            "## Important Notes:\n\n"
-            "- This conversation session cannot continue after authentication\n"
-            "- You must configure your agent with the Bearer token you receive\n"
-            "- Once configured, start a new conversation to use the proxy\n"
-            "- Your token will remain valid until your SSO session expires\n\n"
-            "Please authenticate to continue."
-        )
+        # Determine if this is re-authentication or new authentication
+        if agent_token_id:
+            message = (
+                "# Re-Authentication Required\n\n"
+                "Your SSO session has expired and needs to be renewed.\n\n"
+                "## Steps to Re-Authenticate:\n\n"
+                f"1. Open this URL in your browser: {final_url}\n"
+                "2. Complete the SSO authentication with your identity provider\n"
+                "3. Your existing agent token will be automatically renewed\n"
+                "4. No reconfiguration needed - your agent will continue working\n\n"
+                "## Important Notes:\n\n"
+                "- This conversation session cannot continue after authentication\n"
+                "- Your existing token will be reactivated (no need to reconfigure)\n"
+                "- Start a new conversation after re-authenticating\n"
+                "- Your token will remain valid until your next SSO session expires\n\n"
+                "Please re-authenticate to continue."
+            )
+        else:
+            message = (
+                "# Authentication Required\n\n"
+                "Welcome to the LLM Proxy with SSO authentication.\n\n"
+                "To use this proxy, you need to authenticate via Single Sign-On (SSO).\n\n"
+                "## Steps to Authenticate:\n\n"
+                f"1. Open this URL in your browser: {final_url}\n"
+                "2. Complete the SSO authentication with your identity provider\n"
+                "3. After successful authentication, you will receive an agent token\n"
+                "4. Copy the agent token and configure it in your AI agent's API key field\n\n"
+                "## Important Notes:\n\n"
+                "- This conversation session cannot continue after authentication\n"
+                "- You must configure your agent with the Bearer token you receive\n"
+                "- Once configured, start a new conversation to use the proxy\n"
+                "- Your token will remain valid until your SSO session expires\n\n"
+                "Please authenticate to continue."
+            )
 
         return self.format_as_completion_response(message)
 
