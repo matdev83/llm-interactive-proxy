@@ -179,24 +179,25 @@ def create_sso_router(
             captcha_token = await _get_request_value(request, "captcha_token")
             session_info = _login_sessions.get(login_session) if login_session else None
 
-            if captcha_service.is_enabled:
-                if not session_info:
-                    return HTMLResponse(
-                        content=_render_error_page(
-                            "Session Invalid",
-                            "Your sign-in session could not be validated. Please start over.",
-                        ),
-                        status_code=403,
-                    )
+            if not session_info:
+                return HTMLResponse(
+                    content=_render_error_page(
+                        "Session Invalid",
+                        "Your sign-in session could not be validated. Please start over.",
+                    ),
+                    status_code=403,
+                )
 
-                if provider not in session_info.get("providers", []):
-                    return HTMLResponse(
-                        content=_render_error_page(
-                            "Invalid Provider",
-                            "The requested identity provider is not available for this session.",
-                        ),
-                        status_code=400,
-                    )
+            if provider not in session_info.get("providers", []):
+                return HTMLResponse(
+                    content=_render_error_page(
+                        "Invalid Provider",
+                        "The requested identity provider is not available for this session.",
+                    ),
+                    status_code=400,
+                )
+
+            if captcha_service.is_enabled:
 
                 verification = await captcha_service.verify(
                     captcha_token, request.client.host if request.client else None
@@ -215,9 +216,11 @@ def create_sso_router(
                         status_code=403,
                     )
 
-                _login_sessions.pop(login_session, None)
-            elif session_info:
-                _login_sessions.pop(login_session, None)
+                if login_session is not None:
+                    _login_sessions.pop(login_session, None)
+            else:
+                if login_session is not None:
+                    _login_sessions.pop(login_session, None)
 
             # Generate state for CSRF protection
             state = secrets.token_urlsafe(32)

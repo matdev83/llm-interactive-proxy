@@ -306,9 +306,10 @@ class TestReAuthenticationFlow:
         assert retrieved.auth_expires_at < datetime.now(timezone.utc)  # But expired
 
         # Step 3: Simulate middleware detecting expired session
-        mock_request = MagicMock()
-        mock_request.headers = {"authorization": f"Bearer {plaintext_token}"}
-        mock_request.json = AsyncMock(return_value={"messages": []})
+        mock_request = {
+            "headers": {"authorization": f"Bearer {plaintext_token}"},
+            "messages": [],
+        }
 
         response = await auth_middleware(mock_request)
 
@@ -413,19 +414,16 @@ class TestSandboxIsolation:
         await token_repository.store_token(token_record)
 
         # Step 2: Create request with sandbox login banner in history
-        mock_request = MagicMock()
-        mock_request.headers = {"authorization": f"Bearer {plaintext_token}"}
-        mock_request.json = AsyncMock(
-            return_value={
-                "messages": [
-                    {
-                        "role": "assistant",
-                        "content": "Please authenticate at http://localhost:8080/auth/login to use this proxy.",
-                    },
-                    {"role": "user", "content": "I want to write some code"},
-                ]
-            }
-        )
+        mock_request = {
+            "headers": {"authorization": f"Bearer {plaintext_token}"},
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "Please authenticate at http://localhost:8080/auth/login to use this proxy.",
+                },
+                {"role": "user", "content": "I want to write some code"},
+            ],
+        }
 
         # Step 3: Middleware should reject due to sandbox history
         response = await auth_middleware(mock_request)
@@ -444,11 +442,10 @@ class TestSandboxIsolation:
     ):
         """Test that sandbox sessions cannot be continued after authentication."""
         # Step 1: Simulate unauthenticated request (no token)
-        mock_request_unauth = MagicMock()
-        mock_request_unauth.headers = {}
-        mock_request_unauth.json = AsyncMock(
-            return_value={"messages": [{"role": "user", "content": "Hello"}]}
-        )
+        mock_request_unauth = {
+            "headers": {},
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
 
         # Get sandbox response
         sandbox_response = await auth_middleware(mock_request_unauth)
@@ -475,22 +472,17 @@ class TestSandboxIsolation:
         await token_repository.store_token(token_record)
 
         # Step 3: User tries to continue the sandbox session with new token
-        mock_request_with_history = MagicMock()
-        mock_request_with_history.headers = {
-            "authorization": f"Bearer {plaintext_token}"
+        mock_request_with_history = {
+            "headers": {"authorization": f"Bearer {plaintext_token}"},
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": sandbox_content},  # Sandbox banner
+                {
+                    "role": "user",
+                    "content": "Now I'm authenticated, let's continue",
+                },
+            ],
         }
-        mock_request_with_history.json = AsyncMock(
-            return_value={
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": sandbox_content},  # Sandbox banner
-                    {
-                        "role": "user",
-                        "content": "Now I'm authenticated, let's continue",
-                    },
-                ]
-            }
-        )
 
         # Should be rejected due to sandbox history
         response = await auth_middleware(mock_request_with_history)
@@ -498,13 +490,10 @@ class TestSandboxIsolation:
         assert "authenticate" in response["choices"][0]["message"]["content"].lower()
 
         # Step 4: User starts fresh conversation with token (no sandbox history)
-        mock_request_fresh = MagicMock()
-        mock_request_fresh.headers = {"authorization": f"Bearer {plaintext_token}"}
-        mock_request_fresh.json = AsyncMock(
-            return_value={
-                "messages": [{"role": "user", "content": "Hello, I'm starting fresh"}]
-            }
-        )
+        mock_request_fresh = {
+            "headers": {"authorization": f"Bearer {plaintext_token}"},
+            "messages": [{"role": "user", "content": "Hello, I'm starting fresh"}],
+        }
 
         # Should be allowed through
         response_fresh = await auth_middleware(mock_request_fresh)
@@ -544,16 +533,13 @@ class TestSandboxIsolation:
         ]
 
         for sandbox_msg in sandbox_messages:
-            mock_request = MagicMock()
-            mock_request.headers = {"authorization": f"Bearer {plaintext_token}"}
-            mock_request.json = AsyncMock(
-                return_value={
-                    "messages": [
-                        {"role": "assistant", "content": sandbox_msg},
-                        {"role": "user", "content": "Continue"},
-                    ]
-                }
-            )
+            mock_request = {
+                "headers": {"authorization": f"Bearer {plaintext_token}"},
+                "messages": [
+                    {"role": "assistant", "content": sandbox_msg},
+                    {"role": "user", "content": "Continue"},
+                ],
+            }
 
             response = await auth_middleware(mock_request)
             assert (

@@ -26,7 +26,13 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 def reasoning_output_strategy(draw: Any) -> str:
     """Generate reasoning output text."""
     # Generate non-empty reasoning text
-    text = draw(st.text(min_size=10, max_size=500))
+    text = draw(
+        st.text(
+            min_size=10,
+            max_size=500,
+            alphabet=st.characters(blacklist_categories=("Cs",)),
+        )
+    )
     return f"<thinking>{text}</thinking>"
 
 

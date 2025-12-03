@@ -13,6 +13,7 @@ The SSO authentication system implements multiple layers of security:
 3. **Token Layer**: Secure token generation and storage
 4. **Session Layer**: Sandbox isolation and session management
 5. **Rate Limiting Layer**: Brute-force protection
+6. **Bot Defense Layer**: Optional Cloudflare Turnstile on the public login form
 
 ### Threat Model
 
@@ -24,6 +25,11 @@ The system is designed to protect against:
 - **Session hijacking**: Sandbox isolation prevents session continuation
 - **Timing attacks**: Constant-time comparison for token verification
 - **Replay attacks**: Time-limited confirmation codes and SSO sessions
+- **Automated login abuse**: Invisible Turnstile challenge before SSO initiation
+
+### Captcha Protection
+
+When `sso.captcha.enabled` is set, the `/auth/login` page requires a Cloudflare Turnstile response before redirecting to any identity provider. Turnstile allows invisible challenges and does not require pre-registering the URL of your login page, which keeps the endpoint unlisted in third-party dashboards while still receiving bot protection.
 
 ## Token Storage Security
 

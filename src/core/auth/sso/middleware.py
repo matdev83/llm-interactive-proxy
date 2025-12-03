@@ -90,9 +90,7 @@ class AuthMiddleware:
         # Get all active token hashes from database
         try:
             token_hashes = await self.token_repository.get_all_token_hashes()
-            print(f"DEBUG: Found {len(token_hashes)} active hashes")
-        except Exception as e:
-            print(f"DEBUG: DB query failed: {e}")
+        except Exception:
             # If database query fails, token is invalid
             return TokenValidationResult(is_valid=False)
 
@@ -100,14 +98,11 @@ class AuthMiddleware:
         token_record = None
         for stored_hash in token_hashes:
             try:
-                is_valid = self.token_service.verify_token(token, stored_hash)
-                print(f"DEBUG: Verifying against hash {stored_hash[:10]}... Result: {is_valid}")
-                if is_valid:
+                if self.token_service.verify_token(token, stored_hash):
                     # Token matches this hash - fetch the full record
                     token_record = await self.token_repository.find_by_hash(stored_hash)
                     break
-            except Exception as e:
-                print(f"DEBUG: Verification exception: {e}")
+            except Exception:
                 # If verification fails, continue to next hash
                 continue
 
@@ -121,15 +116,16 @@ class AuthMiddleware:
 
         # Check if SSO session has expired
         from datetime import timezone
+
         now = datetime.now(timezone.utc)
-        
+
         # Handle both offset-aware and offset-naive datetimes from DB
         if token_record.auth_expires_at:
             expires_at = token_record.auth_expires_at
             if expires_at.tzinfo is None:
                 # Assume UTC if naive
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
-                
+
             if expires_at < now:
                 # Session expired - mark as unauthenticated
                 await self.token_repository.update_auth_status(

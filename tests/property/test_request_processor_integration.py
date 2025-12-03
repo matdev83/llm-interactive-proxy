@@ -116,9 +116,15 @@ def create_test_replacement_service(
 
 @given(
     original_model=st.text(
-        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(
+            blacklist_characters=[":"], blacklist_categories=("Cs",)
+        ),
     ),
-    message_content=st.text(min_size=1, max_size=100),
+    message_content=st.text(
+        min_size=1, max_size=100, alphabet=st.characters(blacklist_categories=("Cs",))
+    ),
 )
 @property_test_settings()
 async def test_property_26_command_processing_order(
@@ -227,9 +233,15 @@ async def test_property_26_command_processing_order(
 
 @given(
     original_model=st.text(
-        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(
+            blacklist_characters=[":"], blacklist_categories=("Cs",)
+        ),
     ),
-    message_content=st.text(min_size=1, max_size=100),
+    message_content=st.text(
+        min_size=1, max_size=100, alphabet=st.characters(blacklist_categories=("Cs",))
+    ),
     turn_count=st.integers(min_value=1, max_value=5),
 )
 @property_test_settings()
@@ -354,9 +366,15 @@ async def test_property_38_streaming_turn_completion(
 
 @given(
     original_model=st.text(
-        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(
+            blacklist_characters=[":"], blacklist_categories=("Cs",)
+        ),
     ),
-    message_content=st.text(min_size=1, max_size=100),
+    message_content=st.text(
+        min_size=1, max_size=100, alphabet=st.characters(blacklist_categories=("Cs",))
+    ),
 )
 @property_test_settings()
 async def test_turn_completion_on_error(

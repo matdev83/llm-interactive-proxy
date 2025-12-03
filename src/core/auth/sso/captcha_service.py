@@ -61,10 +61,14 @@ class CaptchaService:
         if not self.is_enabled:
             return CaptchaVerificationResult(success=True)
 
-        if not self.config.site_key or not self.config.secret_key:
+        # At this point, self.config must be non-None because is_enabled checks it
+        assert self.config is not None, "Config must be set when captcha is enabled"
+        config = self.config
+
+        if not config.site_key or not config.secret_key:
             raise ConfigurationError(
                 "Captcha is enabled but site_key or secret_key is not configured",
-                details={"provider": self.config.provider},
+                details={"provider": config.provider},
             )
 
         if not captcha_token:
@@ -73,22 +77,22 @@ class CaptchaService:
             )
 
         payload: dict[str, Any] = {
-            "secret": self.config.secret_key,
+            "secret": config.secret_key,
             "response": captcha_token,
         }
         if remote_ip:
             payload["remoteip"] = remote_ip
 
         try:
-            async with httpx.AsyncClient(timeout=self.config.timeout_seconds) as client:
-                response = await client.post(self.config.verify_url, data=payload)
+            async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
+                response = await client.post(config.verify_url, data=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "Captcha provider returned HTTP error",
                 extra={
                     "status": exc.response.status_code,
-                    "provider": self.config.provider,
+                    "provider": config.provider,
                 },
             )
             raise AuthenticationError(
@@ -102,7 +106,7 @@ class CaptchaService:
             logger.error(
                 "Captcha verification failed due to network error",
                 exc_info=True,
-                extra={"provider": self.config.provider},
+                extra={"provider": config.provider},
             )
             raise AuthenticationError(
                 "Captcha verification failed",

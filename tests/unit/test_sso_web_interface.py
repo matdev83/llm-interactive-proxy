@@ -4,6 +4,8 @@ Unit tests for SSO web interface.
 Tests the FastAPI endpoints for SSO authentication flow.
 """
 
+import re
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,8 +13,14 @@ from src.core.auth.sso.authorization_service import (
     AuthorizationMode,
     AuthorizationService,
 )
-from src.core.auth.sso.config import AuthorizationConfig, ProviderConfig, SSOConfig
-from src.core.auth.sso.database import DatabaseManager
+from src.core.auth.sso.captcha_service import CaptchaVerificationResult
+from src.core.auth.sso.config import (
+    AuthorizationConfig,
+    CaptchaConfig,
+    ProviderConfig,
+    SSOConfig,
+)
+from src.core.auth.sso.database import DatabaseManager, TokenRepository
 from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sso_service import SSOService
 from src.core.auth.sso.token_service import TokenService
@@ -20,8 +28,9 @@ from src.core.auth.sso.web_interface import create_sso_router
 
 
 @pytest.fixture
-async def sso_config():
+async def sso_config(tmp_path):
     """Create test SSO configuration."""
+    db_path = tmp_path / "sso_test.db"
     return SSOConfig(
         enabled=True,
         session_lifetime_hours=24,
@@ -48,7 +57,7 @@ async def sso_config():
             confirmation_code_expiry_minutes=10,
             max_confirmation_attempts=3,
         ),
-        database_path=":memory:",
+        database_path=str(db_path),
     )
 
 
@@ -58,6 +67,13 @@ async def database_manager(sso_config):
     db_manager = DatabaseManager(sso_config.database_path)
     await db_manager.initialize_schema()
     return db_manager
+
+
+@pytest.fixture
+async def login_token(database_manager):
+    """Create a login token for the SSO form."""
+    repo = TokenRepository(database_manager.database_path)
+    return await repo.create_login_token()
 
 
 @pytest.fixture
@@ -119,23 +135,14 @@ def client(test_app):
     return TestClient(test_app)
 
 
-def test_login_endpoint_multiple_providers(client, database_manager):
+def _extract_login_session(html: str) -> str:
+    match = re.search(r'name="login_session" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
+
+
+def test_login_endpoint_multiple_providers(client, login_token):
     """Test /auth/login endpoint with multiple providers shows selection page."""
-    import asyncio
-
-    from src.core.auth.sso.database import TokenRepository
-
-    # Create a valid login token
-    token_repo = TokenRepository(database_manager.database_path)
-    login_token_holder = {}
-
-    async def setup_token():
-        token = await token_repo.create_login_token()
-        login_token_holder["token"] = token
-
-    asyncio.run(setup_token())
-    login_token = login_token_holder["token"]
-
     response = client.get(f"/auth/login?token={login_token}")
     assert response.status_code == 200
     assert "Sign In" in response.text
@@ -143,17 +150,85 @@ def test_login_endpoint_multiple_providers(client, database_manager):
     assert "GitHub" in response.text
 
 
-def test_login_provider_endpoint(client):
+def test_login_provider_endpoint(client, login_token):
     """Test /auth/login/{provider} endpoint redirects to provider."""
-    response = client.get("/auth/login/google", follow_redirects=False)
+    login_page = client.get(f"/auth/login?token={login_token}")
+    login_session = _extract_login_session(login_page.text)
+
+    response = client.post(
+        "/auth/login/google",
+        data={"login_session": login_session},
+        follow_redirects=False,
+    )
     assert response.status_code == 302
     assert "accounts.google.com" in response.headers["location"]
 
 
-def test_login_invalid_provider(client):
+def test_login_invalid_provider(client, login_token):
     """Test /auth/login/{provider} with invalid provider returns error."""
-    response = client.get("/auth/login/invalid_provider")
+    login_page = client.get(f"/auth/login?token={login_token}")
+    login_session = _extract_login_session(login_page.text)
+
+    response = client.post(
+        "/auth/login/invalid_provider", data={"login_session": login_session}
+    )
     assert response.status_code == 400
+
+
+def test_login_provider_requires_captcha_token(
+    sso_config,
+    token_service,
+    database_manager,
+    rate_limit_service,
+    authorization_service,
+    login_token,
+):
+    """Verify captcha is enforced when enabled."""
+    sso_config.captcha = CaptchaConfig(
+        enabled=True,
+        site_key="site_key",
+        secret_key="secret_key",
+    )
+
+    class StubCaptchaService:
+        def __init__(self, should_succeed: bool = True):
+            self.should_succeed = should_succeed
+            self.is_enabled = True
+
+        async def verify(self, captcha_token: str | None, remote_ip: str | None = None):
+            return CaptchaVerificationResult(
+                success=self.should_succeed and bool(captcha_token),
+                error_codes=[] if captcha_token else ["missing-token"],
+            )
+
+    app = FastAPI()
+    router = create_sso_router(
+        sso_config=sso_config,
+        sso_service=SSOService(sso_config),
+        token_service=token_service,
+        authorization_service=authorization_service,
+        database_manager=database_manager,
+        rate_limit_service=rate_limit_service,
+        base_url="http://testserver",
+        captcha_service=StubCaptchaService(),
+    )
+    app.include_router(router)
+    captcha_client = TestClient(app)
+
+    login_page = captcha_client.get(f"/auth/login?token={login_token}")
+    login_session = _extract_login_session(login_page.text)
+
+    failure_response = captcha_client.post(
+        "/auth/login/google", data={"login_session": login_session}
+    )
+    assert failure_response.status_code == 403
+
+    success_response = captcha_client.post(
+        "/auth/login/google",
+        data={"login_session": login_session, "captcha_token": "token-value"},
+        follow_redirects=False,
+    )
+    assert success_response.status_code == 302
 
 
 def test_callback_missing_parameters(client):

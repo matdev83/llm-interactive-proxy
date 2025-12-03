@@ -124,18 +124,20 @@ class SandboxHandler:
         """
         # Look for the distinctive authentication required header
         sandbox_markers = [
-            "# Authentication Required",
-            "Authentication Required",
-            "Welcome to the LLM Proxy with SSO authentication",
+            "authentication required",
+            "welcome to the llm proxy with sso authentication",
             "chatcmpl-sandbox",
+            "please authenticate at",
+            "authenticate to continue",
         ]
 
         for message in messages:
             # Check message content
             content = message.get("content", "")
             if isinstance(content, str):
+                content_lower = content.lower()
                 for marker in sandbox_markers:
-                    if marker in content:
+                    if marker in content_lower:
                         return True
 
             # Check for sandbox completion ID in any metadata

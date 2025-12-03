@@ -520,6 +520,13 @@ class TestDIContainerUsage:
                 v.get("class_name") == "UsageCalculationService"
                 and "core\\services\\usage_calculation_service.py" in v.get("file", "")
             )
+            and not (
+                # SSO components are bootstrapped in middleware_config during app startup
+                # This is a special initialization case before DI container is fully available
+                v.get("class_name")
+                in ["TokenService", "TokenRepository", "SandboxHandler"]
+                and "core\\app\\middleware_config.py" in v.get("file", "")
+            )
         ]
 
         # Expect no DI violations; if any appear, show a detailed report

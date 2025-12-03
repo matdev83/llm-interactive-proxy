@@ -208,7 +208,7 @@ def create_aws_iam_identity_center_config(
     client_id: str,
     client_secret: str,
     region: str = "us-east-1",
-    start_url: str | None = None,
+    _start_url: str | None = None,
 ) -> ProviderConfig:
     """
     Create AWS IAM Identity Center (formerly AWS SSO) OIDC provider configuration.
