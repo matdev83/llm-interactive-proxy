@@ -71,4 +71,4 @@ class SSOConfig:
     database_path: str = "./var/sso_auth.db"
 
     # Captcha configuration
-    captcha: CaptchaConfig | None = None
+    captcha: CaptchaConfig = field(default_factory=CaptchaConfig)

@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from src.core.auth.sso.config import SSOConfig
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
@@ -927,7 +928,7 @@ class AppConfig(DomainModel, IConfig):
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
     # SSO authentication settings
-    sso: Any = Field(default_factory=lambda: None)  # Will be SSOConfig when enabled
+    sso: SSOConfig | None = None
 
     # Session settings
     session: SessionConfig = Field(default_factory=SessionConfig)
@@ -2201,60 +2202,56 @@ class AppConfig(DomainModel, IConfig):
 
             captcha_enabled = _env_to_bool(
                 "SSO_CAPTCHA_ENABLED",
-                False,
+                True,
                 env,
                 path="sso.captcha.enabled",
                 resolution=resolution,
             )
 
-            captcha_config = (
-                CaptchaConfig(
-                    enabled=True,
-                    provider=_get_env_value(
-                        env,
-                        "SSO_CAPTCHA_PROVIDER",
-                        "cloudflare_turnstile",
-                        path="sso.captcha.provider",
-                        resolution=resolution,
-                    ),
-                    site_key=_get_env_value(
-                        env,
-                        "SSO_CAPTCHA_SITE_KEY",
-                        None,
-                        path="sso.captcha.site_key",
-                        resolution=resolution,
-                    ),
-                    secret_key=_get_env_value(
-                        env,
-                        "SSO_CAPTCHA_SECRET_KEY",
-                        None,
-                        path="sso.captcha.secret_key",
-                        resolution=resolution,
-                    ),
-                    verify_url=_get_env_value(
-                        env,
-                        "SSO_CAPTCHA_VERIFY_URL",
-                        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                        path="sso.captcha.verify_url",
-                        resolution=resolution,
-                    ),
-                    widget_mode=_get_env_value(
-                        env,
-                        "SSO_CAPTCHA_WIDGET_MODE",
-                        "invisible",
-                        path="sso.captcha.widget_mode",
-                        resolution=resolution,
-                    ),
-                    timeout_seconds=_env_to_float(
-                        "SSO_CAPTCHA_TIMEOUT_SECONDS",
-                        5.0,
-                        env,
-                        path="sso.captcha.timeout_seconds",
-                        resolution=resolution,
-                    ),
-                )
-                if captcha_enabled
-                else None
+            captcha_config = CaptchaConfig(
+                enabled=captcha_enabled,
+                provider=_get_env_value(
+                    env,
+                    "SSO_CAPTCHA_PROVIDER",
+                    "cloudflare_turnstile",
+                    path="sso.captcha.provider",
+                    resolution=resolution,
+                ),
+                site_key=_get_env_value(
+                    env,
+                    "SSO_CAPTCHA_SITE_KEY",
+                    None,
+                    path="sso.captcha.site_key",
+                    resolution=resolution,
+                ),
+                secret_key=_get_env_value(
+                    env,
+                    "SSO_CAPTCHA_SECRET_KEY",
+                    None,
+                    path="sso.captcha.secret_key",
+                    resolution=resolution,
+                ),
+                verify_url=_get_env_value(
+                    env,
+                    "SSO_CAPTCHA_VERIFY_URL",
+                    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                    path="sso.captcha.verify_url",
+                    resolution=resolution,
+                ),
+                widget_mode=_get_env_value(
+                    env,
+                    "SSO_CAPTCHA_WIDGET_MODE",
+                    "invisible",
+                    path="sso.captcha.widget_mode",
+                    resolution=resolution,
+                ),
+                timeout_seconds=_env_to_float(
+                    "SSO_CAPTCHA_TIMEOUT_SECONDS",
+                    5.0,
+                    env,
+                    path="sso.captcha.timeout_seconds",
+                    resolution=resolution,
+                ),
             )
 
             # Load SSO configuration from environment
@@ -2359,7 +2356,10 @@ def _set_by_path(target: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
     current: dict[str, Any] = target
     for key in parts[:-1]:
-        current = current.setdefault(key, {})  # type: ignore[assignment]
+        val = current.get(key)
+        if val is None or not isinstance(val, dict):
+            current[key] = {}
+        current = current[key]
     current[parts[-1]] = value
 
 

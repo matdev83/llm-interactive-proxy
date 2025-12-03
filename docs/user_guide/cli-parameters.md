@@ -59,6 +59,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--disable-auth` | `DISABLE_AUTH=1` | Disable client authentication (forces localhost binding). |
+| `--disable-sso-captcha` | `SSO_CAPTCHA_ENABLED=false` | Disable SSO Captcha verification (overrides config). |
 | `--disable-redact-api-keys-in-prompts` | `REDACT_API_KEYS_IN_PROMPTS=false` | Disable redaction of API keys in prompts. |
 | `--openrouter-api-key KEY` | `OPENROUTER_API_KEY` | OpenRouter API Key. |
 | `--openrouter-api-base-url URL` | `OPENROUTER_API_BASE_URL` | OpenRouter API Base URL. |
