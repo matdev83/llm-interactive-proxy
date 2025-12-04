@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -207,12 +208,9 @@ class BackendFactory(IBackendFactory):
             # So we MUST change the identifier used for rate limiting.
 
             # Let's update backend_type to be the instance name.
-            try:
+            # Update backend_type attribute if possible (may fail if property without setter)
+            with suppress(AttributeError):
                 backend.backend_type = backend_type
-            except AttributeError:
-                # If backend_type is a property without a setter, we might fail here.
-                # However, in LLMBackend it is usually just an instance attribute.
-                pass
 
         return backend
 

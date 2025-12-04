@@ -8,7 +8,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from src.core.auth.sso.config import SSOConfig
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
@@ -264,16 +270,16 @@ class BackendConfig(DomainModel):
         """Validate input types against known multimodal types."""
         if v is None:
             return None
-        
+
         from src.core.domain.multimodal_types import MultimodalInputType
-        
+
         # If it's a single string (not a list), wrap it
         if isinstance(v, str):
             v = [v]
-            
+
         if not isinstance(v, list):
             return []
-            
+
         valid_types = [t.value for t in MultimodalInputType]
         result = []
         for item in v:
@@ -282,7 +288,7 @@ class BackendConfig(DomainModel):
             # Be lenient with case
             elif item.lower() in valid_types:
                 result.append(item.lower())
-                
+
         return result
 
     @field_validator("api_key", mode="before")
@@ -956,40 +962,27 @@ class BackendSettings(DomainModel):
 
                     connector_paths[connector][normalized_path] = name
 
-        # Fallback for file-based connectors: if no instances found, create default .1
+        # Fallback for file-based connectors: if no numbered instances found, create default .1
+        # The spec says: "If no configs found... create default <connector>.1"
         for connector in file_based_connectors:
-            if connector in registered_backends:
-                # Check if any instance of this connector exists
-                has_instance = any(
-                    (
-                        cfg.connector == connector
-                        or name == connector
-                        or name.startswith(f"{connector}.")
+            if connector not in registered_backends:
+                continue
+
+            # Check if any numbered instance (connector.X) exists for this connector
+            has_numbered_instance = any(
+                name.startswith(f"{connector}.")
+                for name, cfg in self.__dict__.items()
+                if isinstance(cfg, BackendConfig) and name != "default_backend"
+            )
+
+            if not has_numbered_instance:
+                # Create default .1 instance
+                instance_name = f"{connector}.1"
+                self.__dict__[instance_name] = BackendConfig(connector=connector)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Created default instance '{instance_name}' for file-based connector '{connector}'"
                     )
-                    for name, cfg in self.__dict__.items()
-                    if isinstance(cfg, BackendConfig) and name != "default_backend"
-                )
-
-                if not has_instance:
-                    # Check if the legacy/default instance "connector" was created in __init__ loop
-                    # It was created, but empty. We should check if it has any config?
-                    # The __init__ loop creates empty config for all registered backends.
-                    # So "has_instance" will likely be true because of "name == connector".
-
-                    # We need to check if we have any *configured* instance.
-                    # Or maybe the fallback is simply ensuring the default instance exists?
-                    # The requirement says: "If no configs found... create default <connector>.1"
-
-                    # If we only have the default empty config from __init__, we might want to alias it or ensure it's usable.
-                    # Actually, file based connectors usually have defaults in their implementation.
-                    # So the default instance "qwen-oauth" created in __init__ will work with default paths.
-
-                    # But the requirement says create "<connector>.1".
-
-                    # Let's check specifically for numbered instances or explicit config.
-
-                    # If we only have the default entry and it's empty/default...
-                    pass
 
     def __getitem__(self, key: str) -> BackendConfig:
         """Allow dictionary-style access to backend configs."""
@@ -1100,15 +1093,28 @@ class BackendSettings(DomainModel):
         self.__dict__[name] = config
         return config
 
-    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
-        """Override model_dump to include default_backend and dynamic backends."""
-        dumped: dict[str, Any] = super().model_dump(**kwargs)
+    @model_serializer(mode="wrap")
+    def serialize_model(self, handler: Any) -> dict[str, Any]:
+        """Custom serializer to include dynamic backends."""
+        dumped: dict[str, Any] = handler(self)
+
         # Add dynamic backends to the dumped dictionary
-        for backend_name in backend_registry.get_registered_backends():
+        registered = backend_registry.get_registered_backends()
+        for backend_name in registered:
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
                 if isinstance(config, BackendConfig):
                     dumped[backend_name] = config.model_dump()
+
+        # Also include numbered instances or other dynamic keys
+        for key, value in self.__dict__.items():
+            if (
+                key not in dumped
+                and isinstance(value, BackendConfig)
+                and key != "default_backend"
+            ):
+                dumped[key] = value.model_dump()
+
         return dumped
 
     def model_is_functional(self, model_id: str) -> bool:

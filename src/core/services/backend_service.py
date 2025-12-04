@@ -1277,6 +1277,7 @@ class BackendService(IBackendService):
                             content=error_stream(),
                             media_type="text/event-stream",
                             headers={},
+                            status_code=500,
                         )
 
                     # Non-streaming: raise as usual
