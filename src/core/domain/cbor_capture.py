@@ -8,6 +8,7 @@ for byte-level precision and nanosecond timestamps.
 from __future__ import annotations
 
 import time
+import zlib
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
@@ -114,8 +115,19 @@ class CaptureEntry:
             "ts": self.timestamp,
             "dir": int(self.direction),
             "seq": self.sequence,
-            "data": self.data,
         }
+
+        # Attempt compression for larger payloads
+        if len(self.data) > 128:
+            compressed = zlib.compress(self.data)
+            if len(compressed) < len(self.data):
+                result["data"] = compressed
+                result["enc"] = "zlib"
+            else:
+                result["data"] = self.data
+        else:
+            result["data"] = self.data
+
         meta_dict = self.metadata.to_dict()
         if meta_dict:
             result["meta"] = meta_dict
@@ -125,11 +137,17 @@ class CaptureEntry:
     def from_dict(cls, data: dict[str, Any]) -> CaptureEntry:
         """Create from CBOR dictionary."""
         meta_dict = data.get("meta", {})
+        raw_data = data["data"]
+
+        # Handle compression
+        if data.get("enc") == "zlib":
+            raw_data = zlib.decompress(raw_data)
+
         return cls(
             timestamp=data["ts"],
             direction=CaptureDirection(data["dir"]),
             sequence=data["seq"],
-            data=data["data"],
+            data=raw_data,
             metadata=(
                 CaptureMetadata.from_dict(meta_dict) if meta_dict else CaptureMetadata()
             ),

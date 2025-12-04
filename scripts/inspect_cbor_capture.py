@@ -77,6 +77,7 @@ import argparse
 import datetime
 import json
 import sys
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -153,8 +154,13 @@ def load_capture_file(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
         header = cbor2.load(f)
         while True:
             try:
-                entries.append(cbor2.load(f))
-            except EOFError:
+                entry = cbor2.load(f)
+                # Handle decompression
+                if entry.get("enc") == "zlib":
+                    entry["data"] = zlib.decompress(entry["data"])
+                    del entry["enc"]
+                entries.append(entry)
+            except (EOFError, cbor2.CBORDecodeEOF):
                 break
     return header, entries
 

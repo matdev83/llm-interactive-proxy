@@ -1,7 +1,8 @@
-# Backend Connector Separation
+# multi-instance-backends Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change refactor-backend-connectors. Update Purpose after archive.
+## Requirements
 ### Requirement: Naming Convention for Backend Instances
 Backend instances MUST have unique names following the format `<connector-name>.<instance-name>`.
 -   The name MUST consist of only ASCII characters, numbers, and hyphens.
@@ -213,8 +214,6 @@ Given "openai.dev" with key "sk-dev"
 And "openai.prod" with key "sk-prod"
 When requests are routed to "openai.dev"
 Then they should use "sk-dev"
-
-## MODIFIED Requirements
 
 ### Requirement: Backend Factory Resolution logic
 The `BackendFactory` MUST resolve the connector implementation by parsing the backend instance name to extract the connector prefix.

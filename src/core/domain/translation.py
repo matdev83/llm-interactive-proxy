@@ -2488,12 +2488,13 @@ class Translation(BaseTranslator):
                         # but others might embed the function name
                         name = "function_response"
 
-                    # Log mapping details at DEBUG level for troubleshooting
+                    # Log mapping details at TRACE level for troubleshooting
                     import logging as _logging
 
                     _logger = _logging.getLogger(__name__)
-                    if _logger.isEnabledFor(_logging.DEBUG):
-                        _logger.debug(
+                    if _logger.isEnabledFor(TRACE_LEVEL):
+                        _logger.log(
+                            TRACE_LEVEL,
                             "Tool result translation: tool_call_id=%s, "
                             "resolved_name=%s, available_mappings=%s",
                             tool_call_id,

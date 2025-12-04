@@ -466,9 +466,6 @@ class CborWireCaptureService(IWireCapture):
 
                 chunk_metadata = CaptureMetadata(
                     session_id=stream_session_id,
-                    backend=backend,
-                    model=model,
-                    key_name=key_name,
                     chunk_index=chunk_count,
                 )
                 chunk_entry = CaptureEntry(
@@ -554,9 +551,6 @@ class CborWireCaptureService(IWireCapture):
 
                 chunk_metadata = CaptureMetadata(
                     session_id=stream_session_id,
-                    backend=backend,
-                    model=model,
-                    key_name=key_name,
                     chunk_index=chunk_count,
                 )
                 chunk_entry = CaptureEntry(
