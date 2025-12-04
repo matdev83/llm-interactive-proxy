@@ -51,7 +51,7 @@ You should see:
 
 ```text
 INFO: Codebuff WebSocket server enabled on /ws
-INFO: Server started on http://0.0.0.0:8000
+INFO: Server started on http://127.0.0.1:8000
 ```
 
 ### 4. Connect Your Codebuff Client
@@ -145,7 +145,7 @@ codebuff --backend-url ws://localhost:8000/ws
 ```yaml
 # config.yaml
 server:
-  host: "0.0.0.0"
+  host: "127.0.0.1"
   port: 9000
 
 codebuff:

@@ -362,6 +362,32 @@ class OpenRouterBackend(OpenAIConnector):
             if domain_request.presence_penalty is not None:
                 payload["presence_penalty"] = domain_request.presence_penalty
 
+            # OpenAI API parity: additional parameters
+            if domain_request.max_completion_tokens is not None:
+                payload["max_completion_tokens"] = domain_request.max_completion_tokens
+            if domain_request.logprobs is not None:
+                payload["logprobs"] = domain_request.logprobs
+            if domain_request.top_logprobs is not None:
+                payload["top_logprobs"] = domain_request.top_logprobs
+            if domain_request.parallel_tool_calls is not None:
+                payload["parallel_tool_calls"] = domain_request.parallel_tool_calls
+            if domain_request.service_tier is not None:
+                payload["service_tier"] = domain_request.service_tier
+            if domain_request.response_format is not None:
+                payload["response_format"] = domain_request.response_format
+
+            # Phase 3: Advanced OpenAI API parity parameters
+            if domain_request.store is not None:
+                payload["store"] = domain_request.store
+            if domain_request.request_metadata is not None:
+                payload["metadata"] = domain_request.request_metadata
+            if domain_request.prediction is not None:
+                payload["prediction"] = domain_request.prediction
+            if domain_request.modalities is not None:
+                payload["modalities"] = domain_request.modalities
+            if domain_request.audio is not None:
+                payload["audio"] = domain_request.audio
+
             # Handle extra_body from the request (takes precedence)
             if hasattr(domain_request, "extra_body") and domain_request.extra_body:
                 for key, value in domain_request.extra_body.items():

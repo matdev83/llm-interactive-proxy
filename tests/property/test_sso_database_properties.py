@@ -113,6 +113,7 @@ async def cleanup_temp_database(db_path: str, temp_dir: str):
 @given(token_data=token_record_with_plaintext_strategy())
 @property_test_settings()
 @pytest.mark.asyncio
+@pytest.mark.slow  # Uses database and real crypto
 async def test_property_24_token_soft_delete(
     token_data: tuple[TokenRecord, str],
 ) -> None:
@@ -185,6 +186,7 @@ async def test_property_24_token_soft_delete(
 )
 @property_test_settings()
 @pytest.mark.asyncio
+@pytest.mark.slow  # Uses database and real crypto
 async def test_property_24_multiple_tokens_soft_delete(
     token_data_list: list[tuple[TokenRecord, str]],
 ) -> None:
@@ -254,6 +256,7 @@ async def test_property_24_multiple_tokens_soft_delete(
 @given(token_data=token_record_with_plaintext_strategy())
 @property_test_settings()
 @pytest.mark.asyncio
+@pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_database_status_synchronization(
     token_data: tuple[TokenRecord, str],
 ) -> None:
@@ -354,6 +357,7 @@ async def test_property_14_database_status_synchronization(
 )
 @property_test_settings()
 @pytest.mark.asyncio
+@pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_multiple_status_changes(
     token_data: tuple[TokenRecord, str],
     status_changes: list[bool],
@@ -433,6 +437,7 @@ async def test_property_14_multiple_status_changes(
 @given(token_data=token_record_with_plaintext_strategy())
 @property_test_settings()
 @pytest.mark.asyncio
+@pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_timestamp_monotonicity(
     token_data: tuple[TokenRecord, str],
 ) -> None:

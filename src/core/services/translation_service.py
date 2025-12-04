@@ -296,10 +296,12 @@ class TranslationService:
                     delta_data[key] = value
 
             delta = StreamingChatCompletionChoiceDelta(**delta_data)
+            # OpenAI API parity: preserve logprobs in streaming chunks
             choice = StreamingChatCompletionChoice(
                 index=choice_dict.get("index", 0),
                 delta=delta,
                 finish_reason=choice_dict.get("finish_reason"),
+                logprobs=choice_dict.get("logprobs"),
             )
             choices.append(choice)
 

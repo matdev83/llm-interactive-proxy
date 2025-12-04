@@ -67,6 +67,16 @@ Advanced features that enhance the proxy's capabilities:
 - **[Codebuff Protocol Reference](codebuff-protocol-reference.md)** - Complete protocol specification for Codebuff WebSocket communication
 - **[Client Identity Override](features/identity-override.md)** - Override client identity headers for compatibility with specific tools
 
+## Frontends
+
+Frontend APIs where clients connect to the proxy:
+
+- **[Frontend Overview](frontends/overview.md)** - Understanding frontends vs backends, choosing a frontend
+- **[OpenAI Chat Completions](frontends/openai-chat-completions.md)** - `/v1/chat/completions` API for most OpenAI-compatible clients
+- **[OpenAI Responses API](frontends/openai-responses.md)** - `/v1/responses` API for structured JSON output
+- **[Anthropic Messages](frontends/anthropic.md)** - `/anthropic/v1/messages` API for Claude-compatible clients
+- **[Google Gemini v1beta](frontends/gemini.md)** - `/v1beta/models` API for Gemini-compatible clients
+
 ## Backends
 
 Backend provider configuration and usage:

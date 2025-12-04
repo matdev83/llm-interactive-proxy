@@ -1032,7 +1032,7 @@ def _register_sso_routes(app: FastAPI) -> None:
             asyncio.run(database_manager.initialize_schema())
 
         # Initialize services
-        token_service = TokenService()
+        token_service = TokenService.create_for_environment()
         sso_service = SSOService(sso_config)
         rate_limit_service = RateLimitService(database_manager=database_manager)
         authorization_service = AuthorizationService(

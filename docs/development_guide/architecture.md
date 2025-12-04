@@ -72,12 +72,12 @@ graph TD
 
 The front-end layer exposes multiple API surfaces to accommodate different client types:
 
-- **OpenAI Chat Completions** (`/v1/chat/completions`): The primary interface, compatible with most OpenAI SDKs and coding agents
-- **OpenAI Responses** (`/v1/responses`): Structured JSON output with schema validation
-- **Anthropic Messages** (`/anthropic/v1/messages`): Claude-compatible API for Anthropic clients
-- **Gemini v1beta** (`/v1beta/models`): Google Gemini-compatible endpoints
+- **[OpenAI Chat Completions](../user_guide/frontends/openai-chat-completions.md)** (`/v1/chat/completions`): The primary interface, compatible with most OpenAI SDKs and coding agents
+- **[OpenAI Responses](../user_guide/frontends/openai-responses.md)** (`/v1/responses`): Structured JSON output with schema validation
+- **[Anthropic Messages](../user_guide/frontends/anthropic.md)** (`/anthropic/v1/messages`): Claude-compatible API for Anthropic clients
+- **[Gemini v1beta](../user_guide/frontends/gemini.md)** (`/v1beta/models`): Google Gemini-compatible endpoints
 
-Each front-end API handles protocol-specific request parsing and response formatting while delegating core logic to the proxy layer.
+Each front-end API handles protocol-specific request parsing and response formatting while delegating core logic to the proxy layer. For detailed documentation on each frontend API, see the [Frontend Overview](../user_guide/frontends/overview.md).
 
 ### 2. Core Proxy Logic
 

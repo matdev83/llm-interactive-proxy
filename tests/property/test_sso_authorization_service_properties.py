@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
+import pytest
 import respx
 from hypothesis import given
 from hypothesis import strategies as st
@@ -57,6 +58,7 @@ def authorization_config_strategy(draw: st.DrawFn) -> AuthorizationConfig:
 
 @given(config=authorization_config_strategy())
 @property_test_settings()
+@pytest.mark.slow  # Uses database operations - 49s
 def test_property_15_confirmation_code_attempt_decrement(
     config: AuthorizationConfig,
 ) -> None:

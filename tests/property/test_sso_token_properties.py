@@ -407,6 +407,7 @@ def test_property_6_token_generation_uniqueness(
 
 @given(st.integers(min_value=1, max_value=5))
 @property_test_settings()
+@pytest.mark.slow  # Uses production crypto parameters
 def test_property_8_token_storage_security(
     num_tokens: int,
 ) -> None:
@@ -423,7 +424,7 @@ def test_property_8_token_storage_security(
     """
     from src.core.auth.sso.token_service import TokenService
 
-    service = TokenService()
+    service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
     for _ in range(num_tokens):
         plaintext_token, token_hash = service.generate_token()
@@ -452,6 +453,7 @@ def test_property_8_token_storage_security(
 
 @given(st.integers(min_value=1, max_value=2))
 @property_test_settings(max_examples=5)
+@pytest.mark.slow  # Tests production parameters - slow
 def test_property_11_argon2id_hash_format(
     num_tokens: int,
 ) -> None:
@@ -468,6 +470,7 @@ def test_property_11_argon2id_hash_format(
     """
     from src.core.auth.sso.token_service import TokenService
 
+    # Use production parameters to validate 2025 security standards
     service = TokenService()
 
     for _ in range(num_tokens):

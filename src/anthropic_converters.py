@@ -37,6 +37,9 @@ def anthropic_to_openai_request(
         passthrough_parts: list[dict[str, Any]] = []
 
         content = msg.content
+        image_parts: list[dict[str, Any]] = []
+        document_parts: list[dict[str, Any]] = []
+
         if isinstance(content, list):
             for block in content:
                 if not isinstance(block, dict):
@@ -54,6 +57,15 @@ def anthropic_to_openai_request(
                         openai_msg["reasoning"] = thinking_val
                 elif btype == "tool_result":
                     tool_result_block = block
+                elif btype == "image":
+                    # Convert Anthropic image block to OpenAI format
+                    image_part = _convert_anthropic_image_to_openai(block)
+                    if image_part:
+                        image_parts.append(image_part)
+                elif btype == "document":
+                    # Convert Anthropic document block to passthrough
+                    # OpenAI doesn't natively support documents, pass as metadata
+                    document_parts.append(block)
                 else:
                     passthrough_parts.append(block)
         elif isinstance(content, str):
@@ -73,7 +85,30 @@ def anthropic_to_openai_request(
                 tool_result_block.get("content")
             )
         else:
-            if passthrough_parts and not text_parts:
+            # Check if we have multimodal content (images or documents)
+            has_multimodal = bool(image_parts or document_parts)
+
+            if has_multimodal:
+                # Build multimodal content array (OpenAI format)
+                multimodal_content: list[dict[str, Any]] = []
+
+                # Add text parts first
+                if text_parts:
+                    combined_text = "".join(text_parts)
+                    multimodal_content.append({"type": "text", "text": combined_text})
+
+                # Add image parts
+                multimodal_content.extend(image_parts)
+
+                # Add document parts as text (best effort - OpenAI doesn't support docs)
+                for doc in document_parts:
+                    doc_text = f"[Document: {doc.get('title', 'untitled')}]"
+                    if doc.get("context"):
+                        doc_text += f"\nContext: {doc['context']}"
+                    multimodal_content.append({"type": "text", "text": doc_text})
+
+                openai_msg["content"] = multimodal_content
+            elif passthrough_parts and not text_parts:
                 try:
                     openai_msg["content"] = json.dumps(passthrough_parts)
                 except (TypeError, ValueError) as e:
@@ -159,6 +194,23 @@ def anthropic_to_openai_request(
         if user_id is not None:
             user = str(user_id)
 
+    # Build extra_body for Anthropic-specific fields
+    extra_body: dict[str, Any] = {}
+
+    # Handle extended thinking configuration
+    if anthropic_request.thinking is not None:
+        thinking_config = anthropic_request.thinking
+        if isinstance(thinking_config, dict):
+            extra_body["thinking"] = thinking_config
+        elif hasattr(thinking_config, "model_dump"):
+            extra_body["thinking"] = thinking_config.model_dump()
+        else:
+            extra_body["thinking"] = {"type": str(thinking_config)}
+
+    # Handle service_tier
+    if anthropic_request.service_tier is not None:
+        extra_body["service_tier"] = anthropic_request.service_tier
+
     result = CanonicalChatRequest(
         model=anthropic_request.model,
         messages=chat_messages,
@@ -171,6 +223,7 @@ def anthropic_to_openai_request(
         tools=tools,
         tool_choice=tool_choice,
         user=user,
+        extra_body=extra_body if extra_body else None,
     )
     logger.debug("Converted Anthropic to OpenAI request: %r", result)
     return result
@@ -206,12 +259,23 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     message = choice.get("message", {})
     content_blocks = _build_content_blocks(choice, message)
     usage = oai_dict.get("usage", {})
+
+    # Map finish_reason to stop_reason
+    finish_reason = choice.get("finish_reason")
+    stop_reason = _map_finish_reason(finish_reason)
+
+    # Extract stop_sequence if present (used when finish_reason is "stop")
+    stop_sequence = None
+    if finish_reason == "stop" and "stop_sequence" in choice:
+        stop_sequence = choice.get("stop_sequence")
+
     response = {
         "id": oai_dict.get("id", "msg_unk"),
         "type": "message",
         "role": "assistant",
         "model": oai_dict.get("model", "unknown"),
-        "stop_reason": _map_finish_reason(choice.get("finish_reason")),
+        "stop_reason": stop_reason,
+        "stop_sequence": stop_sequence,
         "content": content_blocks,
         "usage": {
             "input_tokens": usage.get("prompt_tokens", 0),
@@ -355,6 +419,50 @@ def _extract_tool_calls(
         return message.get("tool_calls")
     if isinstance(choice, dict) and choice.get("tool_calls"):
         return choice.get("tool_calls")
+    return None
+
+
+def _convert_anthropic_image_to_openai(block: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert Anthropic image block to OpenAI image_url format.
+
+    Anthropic format:
+    {
+        "type": "image",
+        "source": {
+            "type": "base64" | "url",
+            "media_type": "image/jpeg",  # for base64
+            "data": "...",  # for base64
+            "url": "..."  # for url type
+        }
+    }
+
+    OpenAI format:
+    {
+        "type": "image_url",
+        "image_url": {
+            "url": "data:image/jpeg;base64,..." | "https://..."
+        }
+    }
+    """
+    source = block.get("source", {})
+    if not source:
+        return None
+
+    source_type = source.get("type")
+
+    if source_type == "base64":
+        media_type = source.get("media_type", "image/jpeg")
+        data = source.get("data", "")
+        if data:
+            return {
+                "type": "image_url",
+                "image_url": {"url": f"data:{media_type};base64,{data}"},
+            }
+    elif source_type == "url":
+        url = source.get("url", "")
+        if url:
+            return {"type": "image_url", "image_url": {"url": url}}
+
     return None
 
 

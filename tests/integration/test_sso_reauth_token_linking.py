@@ -34,7 +34,7 @@ async def sso_database(tmp_path):
 @pytest.fixture
 def token_service():
     """Create token service."""
-    return TokenService()
+    return TokenService(memory_cost=8192, time_cost=1, parallelism=1)
 
 
 @pytest.fixture

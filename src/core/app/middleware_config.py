@@ -247,7 +247,7 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             sso_config = config.sso
 
             # Initialize SSO components
-            token_service = TokenService()
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(sso_config.database_path)
 
             # Determine base URL for auth redirects

@@ -341,3 +341,313 @@ class TestOpenAIResponsesTranslation:
             "completion_tokens": 5,
             "total_tokens": 8,
         }
+
+
+class TestResponsesApiNewFields:
+    """Test new OpenAI Responses API fields added for spec parity."""
+
+    def test_responses_request_with_input_field(self):
+        """Test Responses API request with 'input' field instead of messages."""
+        request_dict = {
+            "model": "gpt-4o",
+            "input": "What is the weather today?",
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.model == "gpt-4o"
+        assert len(result.messages) == 1
+        assert result.messages[0].role == "user"
+        assert result.messages[0].content == "What is the weather today?"
+
+    def test_responses_request_with_instructions(self):
+        """Test Responses API request with instructions field."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "instructions": "You are a helpful assistant. Be concise.",
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.system_prompt == "You are a helpful assistant. Be concise."
+
+    def test_responses_request_with_max_output_tokens(self):
+        """Test Responses API request with max_output_tokens field."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_output_tokens": 1500,
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        # max_output_tokens should be mapped to max_completion_tokens
+        assert result.max_completion_tokens == 1500
+        # And also max_tokens for backward compatibility
+        assert result.max_tokens == 1500
+
+    def test_responses_request_with_tools(self):
+        """Test Responses API request with tools array."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Get weather for NYC"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"location": {"type": "string"}},
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+            "parallel_tool_calls": True,
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.tools is not None
+        assert len(result.tools) == 1
+        assert result.tools[0]["name"] == "get_weather"
+        assert result.tool_choice == "auto"
+        assert result.parallel_tool_calls is True
+
+    def test_responses_request_with_reasoning_config(self):
+        """Test Responses API request with reasoning configuration."""
+        request_dict = {
+            "model": "gpt-5.1",
+            "messages": [{"role": "user", "content": "Solve this complex problem"}],
+            "reasoning": {"effort": "high", "summary": "detailed"},
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.reasoning is not None
+        assert result.reasoning["effort"] == "high"
+        assert result.reasoning_effort == "high"
+
+    def test_responses_request_with_service_tier(self):
+        """Test Responses API request with service_tier."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "service_tier": "priority",
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.service_tier == "priority"
+
+    def test_responses_request_with_metadata(self):
+        """Test Responses API request with metadata."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "metadata": {"user_id": "user123", "session": "session456"},
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.request_metadata == {
+            "user_id": "user123",
+            "session": "session456",
+        }
+
+    def test_responses_request_with_conversation_fields(self):
+        """Test Responses API request with multi-turn conversation fields."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Continue our discussion"}],
+            "previous_response_id": "resp-abc123",
+            "conversation": "conv_xyz789",
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.extra_body is not None
+        assert result.extra_body.get("previous_response_id") == "resp-abc123"
+        assert result.extra_body.get("conversation") == "conv_xyz789"
+
+    def test_responses_request_with_advanced_options(self):
+        """Test Responses API request with advanced options."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Store this for later"}],
+            "store": True,
+            "background": False,
+            "truncation": "auto",
+            "include": ["message.output_text.logprobs", "reasoning.encrypted_content"],
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.extra_body is not None
+        assert result.extra_body.get("store") is True
+        assert result.extra_body.get("background") is False
+        assert result.extra_body.get("truncation") == "auto"
+        assert result.extra_body.get("include") == [
+            "message.output_text.logprobs",
+            "reasoning.encrypted_content",
+        ]
+
+    def test_responses_request_with_top_logprobs(self):
+        """Test Responses API request with top_logprobs."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Test"}],
+            "top_logprobs": 5,
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.top_logprobs == 5
+
+    def test_responses_request_with_prompt_caching(self):
+        """Test Responses API request with prompt caching fields."""
+        request_dict = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Test"}],
+            "prompt_cache_key": "test-cache-key",
+            "prompt_cache_retention": "24h",
+            "safety_identifier": "test-user-id",
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.extra_body is not None
+        assert result.extra_body.get("prompt_cache_key") == "test-cache-key"
+        assert result.extra_body.get("prompt_cache_retention") == "24h"
+        assert result.extra_body.get("safety_identifier") == "test-user-id"
+
+
+class TestFilterResponsesExtraBody:
+    """Test the _filter_responses_extra_body helper method."""
+
+    def test_filter_allows_metadata(self):
+        """Test that metadata is allowed in extra_body."""
+        extra_body = {"metadata": {"key": "value"}, "other": "data"}
+        result = Translation._filter_responses_extra_body(extra_body)
+        assert "metadata" in result
+        assert "other" not in result
+
+    def test_filter_allows_responses_api_fields(self):
+        """Test that Responses API specific fields are allowed."""
+        extra_body = {
+            "metadata": {"key": "value"},
+            "safety_identifier": "user-123",
+            "prompt_cache_key": "cache-key",
+            "prompt_cache_retention": "24h",
+            "conversation": "conv-123",
+            "previous_response_id": "resp-prev",
+            "store": True,
+            "background": False,
+            "truncation": "auto",
+            "include": ["reasoning"],
+            "reasoning": {"effort": "medium"},
+            "text": {"format": {"type": "text"}},
+            "service_tier": "default",
+            "stream_options": {"include_obfuscation": False},
+            # These should be filtered out
+            "model": "gpt-4",
+            "messages": [],
+            "random_field": "value",
+        }
+        result = Translation._filter_responses_extra_body(extra_body)
+
+        # Allowed fields
+        assert result.get("metadata") == {"key": "value"}
+        assert result.get("safety_identifier") == "user-123"
+        assert result.get("prompt_cache_key") == "cache-key"
+        assert result.get("prompt_cache_retention") == "24h"
+        assert result.get("conversation") == "conv-123"
+        assert result.get("previous_response_id") == "resp-prev"
+        assert result.get("store") is True
+        assert result.get("background") is False
+        assert result.get("truncation") == "auto"
+        assert result.get("include") == ["reasoning"]
+        assert result.get("reasoning") == {"effort": "medium"}
+        assert result.get("text") == {"format": {"type": "text"}}
+        assert result.get("service_tier") == "default"
+        assert result.get("stream_options") == {"include_obfuscation": False}
+
+        # Filtered out fields
+        assert "model" not in result
+        assert "messages" not in result
+        assert "random_field" not in result
+
+    def test_filter_empty_extra_body(self):
+        """Test that empty extra_body returns empty dict."""
+        result = Translation._filter_responses_extra_body({})
+        assert result == {}
+
+    def test_filter_none_extra_body(self):
+        """Test that None extra_body returns empty dict."""
+        result = Translation._filter_responses_extra_body(None)
+        assert result == {}
+
+
+class TestResponsesResponseServiceTier:
+    """Test service_tier field in Responses API responses."""
+
+    def test_from_domain_to_responses_response_includes_service_tier(self):
+        """Test that service_tier is included in Responses API response."""
+        response = ChatResponse(
+            id="resp-123",
+            created=1234567890,
+            model="gpt-4o",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content="Hello!",
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            service_tier="default",
+            system_fingerprint="fp_abc123",
+        )
+
+        result = Translation.from_domain_to_responses_response(response)
+
+        assert result["service_tier"] == "default"
+        assert result["system_fingerprint"] == "fp_abc123"
+
+    def test_from_domain_to_responses_response_omits_none_service_tier(self):
+        """Test that service_tier is omitted when None."""
+        response = ChatResponse(
+            id="resp-123",
+            created=1234567890,
+            model="gpt-4o",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content="Hello!",
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            service_tier=None,
+        )
+
+        result = Translation.from_domain_to_responses_response(response)
+
+        assert "service_tier" not in result

@@ -1,5 +1,39 @@
 # Changelog
 
+## [2025-12-04]
+
+### Added: Anthropic Multimodal and Thinking Support
+
+- **Multimodal Support**: Enhanced Anthropic-to-OpenAI conversion to support image and document blocks
+  - **Images**: Converts Anthropic image blocks to OpenAI `image_url` format (supporting both base64 and url sources)
+  - **Documents**: Converts Anthropic document blocks to text representation (as OpenAI doesn't natively support documents) with context preservation
+  - **Multimodal Content**: Robustly handles mixed text, image, and document content in requests
+
+- **Extended Thinking Support**: Added support for Claude's extended thinking feature
+  - **Configuration**: Support for `thinking` parameter in `extra_body` with `type` and `budget_tokens`
+  - **Service Tier**: Support for `service_tier` parameter (e.g., `auto` or `balanced`)
+  - **Thinking Config Model**: New `ThinkingConfig` Pydantic model for validation
+
+- **Response Improvements**:
+  - **Stop Reasons**: Improved mapping of Anthropic `finish_reason` to OpenAI format
+  - **Stop Sequences**: Proper extraction and passing of stop sequences
+
+### Enhanced: VTC Streaming and SSO
+
+- **VTC Response Wrapper**: Major improvements to Virtual Tool Call (VTC) streaming wrapper
+  - **Async Support**: Added async `wrap()` method and async reactor invocation
+  - **Tool Call Extraction**: Robust XML parsing for tool call extraction without modifying content for VTC clients
+  - **Reactor Integration**: Properly invokes registered tool call reactors for detected tools in streaming chunks
+  - **Helper**: Added `wrap_processed_response_stream_with_vtc` convenience function
+
+- **SSO Enhancements**:
+  - **Provider Selection**: UI and logic for selecting identity providers
+  - **Re-authentication**: Support for re-authenticating existing tokens to extend sessions
+  - **Token Linking**: Ability to link new authentication sessions to existing agent tokens
+
+- **Translation Service**:
+  - **Logprobs**: Added support for preserving `logprobs` in streaming chunks for OpenAI API parity
+
 ## [2025-12-02]
 
 ### Added: Comprehensive Usage Tracking and Statistics System

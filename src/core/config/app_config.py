@@ -899,7 +899,7 @@ class AppConfig(DomainModel, IConfig):
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8000
     # Publicly accessible URL for the proxy (required for correct SSO redirects when deployed)
-    # If not set, defaults to http://{host}:{port} which may be incorrect behind reverse proxies or 0.0.0.0 binding
+    # If not set, defaults to http://{host}:{port}. Required if binding to 0.0.0.0 or behind a reverse proxy.
     public_url: str | None = None
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120

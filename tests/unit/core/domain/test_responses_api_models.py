@@ -229,16 +229,29 @@ class TestResponsesRequest:
         assert request.temperature is None
 
     def test_responses_request_empty_messages_validation(self) -> None:
-        """Test that empty messages list raises ValidationError."""
+        """Test that empty messages list is now valid (input can be used instead).
+
+        Note: The OpenAI Responses API allows using 'input' field instead of
+        'messages', so an empty messages list should not raise a ValidationError.
+        """
         json_schema = JsonSchema(name="test", schema={"type": "string"})
         response_format = ResponseFormat(json_schema=json_schema)
 
-        with pytest.raises(ValidationError) as exc_info:
-            ResponsesRequest(
-                model="gpt-4", messages=[], response_format=response_format
-            )
+        # Empty messages list should now be valid since input can be used instead
+        request = ResponsesRequest(
+            model="gpt-4", messages=[], response_format=response_format
+        )
 
-        assert "At least one message is required" in str(exc_info.value)
+        # Messages should be None (converted from empty list by validator)
+        assert request.messages is None or request.messages == []
+
+        # Alternatively, test that you can use input field instead
+        request_with_input = ResponsesRequest(
+            model="gpt-4",
+            input="Hello, world!",
+            response_format=response_format,
+        )
+        assert request_with_input.input == "Hello, world!"
 
     def test_responses_request_invalid_temperature(self) -> None:
         """Test that invalid temperature raises ValidationError."""

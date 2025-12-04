@@ -28,18 +28,16 @@ The proxy supports the following backend providers out of the box:
 | `hybrid` | Virtual (orchestrates two models) | Inherits from sub-backends | Two-phase reasoning + execution |
 | `gemini-oauth-antigravity` | Google Gemini (Antigravity) | Antigravity Token | Internal debugging (Gemini models) |
 
-## Front-End APIs
+## Frontend APIs
 
-The proxy exposes multiple front-end APIs that clients can use:
+The proxy exposes multiple frontend APIs where clients connect. Each frontend implements a different LLM provider's API specification.
 
-| API Surface | Path(s) | Typical Clients | Notes |
-|-------------|---------|-----------------|-------|
-| OpenAI Chat Completions | `/v1/chat/completions` | Most OpenAI SDKs/tools, coding agents | Default front-end |
-| OpenAI Responses | `/v1/responses` | Clients requiring structured JSON output | Provides JSON schema validation |
-| OpenAI Models | `/v1/models` | OpenAI SDKs, model discovery tools | Lists available models across all backends |
-| Anthropic Messages | `/anthropic/v1/messages` | Claude Code, Anthropic SDK | Namespaced endpoint on main port |
-| Dedicated Anthropic Server | `/v1/messages` | Claude Code, Anthropic SDK | Root-level API on dedicated port (default: 8001) |
-| Google Gemini v1beta | `/v1beta/models`, `:generateContent`, `:streamGenerateContent` | Gemini-compatible tools/SDKs | Translates to your chosen provider |
+For detailed frontend API documentation, see the [Frontend Overview](../frontends/overview.md):
+
+- [OpenAI Chat Completions](../frontends/openai-chat-completions.md) - `/v1/chat/completions`
+- [OpenAI Responses API](../frontends/openai-responses.md) - `/v1/responses`
+- [Anthropic Messages](../frontends/anthropic.md) - `/anthropic/v1/messages`
+- [Google Gemini v1beta](../frontends/gemini.md) - `/v1beta/models`
 
 ## Choosing a Backend
 

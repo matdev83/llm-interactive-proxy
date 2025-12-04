@@ -174,6 +174,24 @@ class AnthropicBackend(LLMBackend):
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
             "content-type": "application/json",
         }
+
+        # Add anthropic-beta header for beta features
+        beta_features: list[str] = []
+        extra_body = domain_request.extra_body or {}
+
+        # Extended thinking requires beta header
+        if extra_body.get("thinking") or anthropic_payload.get("thinking"):
+            beta_features.append("interleaved-thinking-2025-05-14")
+
+        # Add any explicit beta features from extra_body
+        explicit_betas = extra_body.get("anthropic_beta", [])
+        if isinstance(explicit_betas, str):
+            explicit_betas = [explicit_betas]
+        beta_features.extend(explicit_betas)
+
+        if beta_features:
+            request_headers["anthropic-beta"] = ",".join(beta_features)
+
         if headers:
             # Merge any caller-supplied headers without losing mandatory
             # authentication defaults.  Copy the mapping to avoid mutating the
@@ -287,16 +305,67 @@ class AnthropicBackend(LLMBackend):
             if isinstance(content, str):
                 anth_messages.append({"role": role, "content": content})
             elif isinstance(content, list):
-                # For list-of-parts, Anthropic only supports string or array of dict {"type":"text","text":...}
+                # For list-of-parts, Anthropic supports various content block types
                 parts: list[Any] = []
                 for part in content:
                     if isinstance(part, dict):
-                        # assume already valid
                         part_obj = part.copy()
-                        if part_obj.get("type") == "text" and "text" in part_obj:
+                        part_type = part_obj.get("type")
+
+                        if part_type == "text" and "text" in part_obj:
                             # Text content is already processed by middleware
-                            pass
-                        parts.append(part_obj)
+                            parts.append(part_obj)
+                        elif part_type == "image":
+                            # Anthropic image block - ensure proper source format
+                            source = part_obj.get("source", {})
+                            if source:
+                                parts.append(part_obj)
+                        elif part_type == "image_url":
+                            # Convert OpenAI image_url format to Anthropic image format
+                            image_url_data = part_obj.get("image_url", {})
+                            url = (
+                                image_url_data.get("url", "")
+                                if isinstance(image_url_data, dict)
+                                else str(image_url_data)
+                            )
+                            if url.startswith("data:"):
+                                # Data URI - extract base64 and media type
+                                try:
+                                    header, data = url.split(",", 1)
+                                    media_type = header.split(";")[0].replace(
+                                        "data:", ""
+                                    )
+                                    parts.append(
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": media_type,
+                                                "data": data,
+                                            },
+                                        }
+                                    )
+                                except ValueError:
+                                    logger.warning(
+                                        f"Invalid data URI format: {url[:50]}"
+                                    )
+                            elif url.startswith(("http://", "https://")):
+                                # URL source
+                                parts.append(
+                                    {
+                                        "type": "image",
+                                        "source": {"type": "url", "url": url},
+                                    }
+                                )
+                        elif part_type == "document":
+                            # Document block (PDF) - pass through
+                            parts.append(part_obj)
+                        elif part_type in ("tool_use", "tool_result"):
+                            # Tool-related blocks - pass through
+                            parts.append(part_obj)
+                        else:
+                            # Unknown type - pass through
+                            parts.append(part_obj)
                     else:
                         # unknown part type -> stringify
                         parts.append({"type": "text", "text": str(part)})
@@ -361,6 +430,22 @@ class AnthropicBackend(LLMBackend):
         # Include tools and tool_choice when provided (tests set these fields)
         if request_data.tools is not None:
             payload["tools"] = request_data.tools
+
+        # Handle extended thinking configuration from extra_body
+        thinking_config = extra_body.pop("thinking", None)
+        if thinking_config is not None:
+            if isinstance(thinking_config, dict):
+                payload["thinking"] = thinking_config
+            elif hasattr(thinking_config, "model_dump"):
+                payload["thinking"] = thinking_config.model_dump()
+            else:
+                # Assume it's a simple type indicator
+                payload["thinking"] = {"type": str(thinking_config)}
+
+        # Handle service_tier from extra_body
+        service_tier = extra_body.pop("service_tier", None)
+        if service_tier is not None:
+            payload["service_tier"] = service_tier
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
         # Filter out None values to prevent overriding defaults

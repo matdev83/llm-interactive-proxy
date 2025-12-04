@@ -530,6 +530,7 @@ def test_steering_handler_is_enabled_via_cli_flag():
         disable_interactive_mode=None,
         disable_redact_api_keys_in_prompts=True,
         disable_auth=True,
+        disable_sso_captcha=None,
         trusted_ips=None,
         force_set_project=None,
         project_dir_resolution_model=None,

@@ -35,6 +35,7 @@
 --disable-pytest-compression
 --disable-pytest-full-suite-steering
 --disable-redact-api-keys-in-prompts
+--disable-sso-captcha
 --edit-precision-exclude-agents
 --edit-precision-min-top-p
 --edit-precision-override-top-k

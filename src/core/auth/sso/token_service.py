@@ -25,6 +25,29 @@ class TokenService:
     - Parallelism: 4
     """
 
+    @classmethod
+    def create_for_environment(cls) -> "TokenService":
+        """
+        Create TokenService with appropriate parameters for the current environment.
+
+        Uses lightweight parameters (8MB memory, 1 iteration, 1 thread) during testing
+        and production parameters (64MB memory, 3 iterations, 4 threads) otherwise.
+
+        Returns:
+            TokenService: Configured instance for the current environment
+        """
+        import os
+
+        # Check if we're in a test environment
+        is_test = os.getenv("PYTEST_CURRENT_TEST") is not None
+
+        if is_test:
+            # Fast parameters for testing (8 MB, 1 iteration, 1 thread)
+            return cls(memory_cost=8192, time_cost=1, parallelism=1)
+        else:
+            # Production parameters (64 MB, 3 iterations, 4 threads)
+            return cls()
+
     def __init__(
         self,
         memory_cost: int = 65536,  # 64 MB (production default)

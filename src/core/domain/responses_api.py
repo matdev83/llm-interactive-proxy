@@ -140,20 +140,95 @@ class ResponseFormat(DomainModel):
         return super().model_dump(*args, **kwargs)
 
 
+class ReasoningConfig(DomainModel):
+    """Configuration for reasoning models (gpt-5, o-series)."""
+
+    effort: str | None = Field(
+        None,
+        description="Reasoning effort level: minimal, low, medium, high",
+    )
+    summary: str | None = Field(
+        None,
+        description="Reasoning summary mode: auto, concise, detailed",
+    )
+    generate_summary: str | None = Field(
+        None,
+        description="Deprecated: use summary instead",
+    )
+
+
+class TextConfig(DomainModel):
+    """Configuration for text response format."""
+
+    format: dict[str, Any] | None = Field(
+        None,
+        description="Response format specification (type: text, json_schema, etc.)",
+    )
+    verbosity: str | None = Field(
+        None,
+        description="Verbosity level: low, medium, high",
+    )
+
+
+class StreamOptions(DomainModel):
+    """Options for streaming responses."""
+
+    include_obfuscation: bool | None = Field(
+        None,
+        description="Include stream obfuscation for security",
+    )
+
+
+class PromptReference(DomainModel):
+    """Reference to a prompt template."""
+
+    id: str = Field(..., description="The unique identifier of the prompt template")
+    version: str | None = Field(None, description="Optional version of the template")
+    variables: dict[str, Any] | None = Field(
+        None,
+        description="Variables to substitute in the prompt template",
+    )
+
+
 class ResponsesRequest(ValueObject):
     """A request for the OpenAI Responses API.
 
     This model represents a request to generate structured outputs with JSON schema validation.
     It extends the existing domain model patterns and is compatible with the TranslationService.
+
+    Supports the full OpenAI Responses API specification including:
+    - Input via 'input' field or 'messages' array
+    - System instructions via 'instructions' field
+    - Tool definitions and tool_choice
+    - Reasoning configuration for gpt-5/o-series models
+    - Text formatting configuration
+    - Multi-turn conversation state management
+    - Streaming options and background processing
     """
 
     model: str = Field(..., description="The model to use for generation")
-    messages: list[ChatMessage] = Field(..., description="The conversation messages")
+    messages: list[ChatMessage] | None = Field(
+        None, description="The conversation messages (alternative to input)"
+    )
+    input: str | list[dict[str, Any]] | None = Field(
+        None, description="Text, image, or file inputs to the model"
+    )
+    instructions: str | None = Field(
+        None, description="System/developer message for the model"
+    )
     response_format: ResponseFormat | None = Field(
         None, description="The structured response format"
     )
     max_tokens: int | None = Field(
-        None, description="Maximum number of tokens to generate"
+        None, description="Maximum number of tokens to generate (deprecated)"
+    )
+    max_output_tokens: int | None = Field(
+        None,
+        description="Upper bound for output tokens including reasoning tokens",
+    )
+    max_tool_calls: int | None = Field(
+        None,
+        description="Maximum number of built-in tool calls per response",
     )
     temperature: float | None = Field(
         None, ge=0.0, le=2.0, description="Sampling temperature"
@@ -161,8 +236,14 @@ class ResponsesRequest(ValueObject):
     top_p: float | None = Field(
         None, ge=0.0, le=1.0, description="Nucleus sampling parameter"
     )
+    top_logprobs: int | None = Field(
+        None, ge=0, le=20, description="Number of most likely tokens to return"
+    )
     n: int | None = Field(None, ge=1, description="Number of completions to generate")
     stream: bool | None = Field(None, description="Whether to stream the response")
+    stream_options: StreamOptions | None = Field(
+        None, description="Options for streaming responses"
+    )
     stop: list[str] | str | None = Field(None, description="Stop sequences")
     presence_penalty: float | None = Field(
         None, ge=-2.0, le=2.0, description="Presence penalty"
@@ -173,7 +254,16 @@ class ResponsesRequest(ValueObject):
     logit_bias: dict[str, float] | None = Field(
         None, description="Logit bias adjustments"
     )
-    user: str | None = Field(None, description="User identifier")
+    user: str | None = Field(None, description="User identifier (deprecated)")
+    safety_identifier: str | None = Field(
+        None, description="Stable identifier for safety tracking"
+    )
+    prompt_cache_key: str | None = Field(
+        None, description="Cache key for prompt caching optimization"
+    )
+    prompt_cache_retention: str | None = Field(
+        None, description="Cache retention policy (e.g., 24h)"
+    )
     seed: int | None = Field(None, description="Random seed for reproducibility")
     session_id: str | None = Field(None, description="Session identifier")
     agent: str | None = Field(None, description="Agent identifier")
@@ -181,12 +271,64 @@ class ResponsesRequest(ValueObject):
         None, description="Additional request parameters"
     )
 
-    @field_validator("messages")
+    # Tool-related fields
+    tools: list[dict[str, Any]] | None = Field(
+        None, description="Array of tools the model may call"
+    )
+    tool_choice: str | dict[str, Any] | None = Field(
+        None, description="Tool selection: none, auto, required, or specific tool"
+    )
+    parallel_tool_calls: bool | None = Field(
+        None, description="Allow model to run tool calls in parallel"
+    )
+
+    # Reasoning configuration (gpt-5, o-series)
+    reasoning: ReasoningConfig | dict[str, Any] | None = Field(
+        None, description="Configuration for reasoning models"
+    )
+
+    # Text/format configuration
+    text: TextConfig | dict[str, Any] | None = Field(
+        None, description="Configuration for text response format"
+    )
+
+    # Multi-turn conversation management
+    conversation: str | dict[str, Any] | None = Field(
+        None, description="Conversation this response belongs to"
+    )
+    previous_response_id: str | None = Field(
+        None, description="ID of previous response for multi-turn conversations"
+    )
+
+    # Advanced options
+    include: list[str] | None = Field(
+        None, description="Additional output data to include in response"
+    )
+    store: bool | None = Field(None, description="Store response for later retrieval")
+    background: bool | None = Field(
+        None, description="Run model response in background"
+    )
+    truncation: str | None = Field(
+        None, description="Truncation strategy: auto or disabled"
+    )
+    service_tier: str | None = Field(
+        None, description="Service tier: auto, default, flex, priority"
+    )
+    metadata: dict[str, str] | None = Field(
+        None, description="Key-value metadata (max 16 pairs)"
+    )
+    prompt: PromptReference | dict[str, Any] | None = Field(
+        None, description="Reference to a prompt template"
+    )
+
+    @field_validator("messages", mode="before")
     @classmethod
-    def validate_messages(cls, v: list[Any]) -> list[ChatMessage]:
+    def validate_messages(cls, v: list[Any] | None) -> list[ChatMessage] | None:
         """Validate and convert messages."""
+        if v is None:
+            return None
         if not v:
-            raise ValueError("At least one message is required")
+            return None
         return [m if isinstance(m, ChatMessage) else ChatMessage(**m) for m in v]
 
     @field_validator("n")

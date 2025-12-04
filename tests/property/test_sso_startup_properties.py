@@ -17,13 +17,36 @@ from src.core.auth.sso.startup_validation import (
 # Generators for test data
 @st.composite
 def provider_config_strategy(draw):
-    """Generate a valid ProviderConfig."""
+    """Generate a valid ProviderConfig.
+
+    OAuth2 providers require either discovery_url or authorize_url to be set.
+    SAML providers require metadata_url to be set.
+    """
     provider_type = draw(st.sampled_from(["oauth2", "saml"]))
+
+    if provider_type == "oauth2":
+        # OAuth2 requires either discovery_url or authorize_url
+        use_discovery = draw(st.booleans())
+        if use_discovery:
+            discovery_url = draw(st.text(min_size=10, max_size=100))
+            authorize_url = None
+        else:
+            discovery_url = None
+            authorize_url = draw(st.text(min_size=10, max_size=100))
+        metadata_url = None
+    else:
+        # SAML requires metadata_url
+        discovery_url = None
+        authorize_url = None
+        metadata_url = draw(st.text(min_size=10, max_size=100))
+
     return ProviderConfig(
         type=provider_type,
         client_id=draw(st.text(min_size=1, max_size=50)),
         client_secret=draw(st.text(min_size=1, max_size=50)),
-        discovery_url=draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
+        discovery_url=discovery_url,
+        authorize_url=authorize_url,
+        metadata_url=metadata_url,
         scopes=draw(st.lists(st.text(min_size=1, max_size=20), max_size=5)),
     )
 

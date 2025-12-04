@@ -15,6 +15,195 @@ The Anthropic backend connects to Anthropic's official API using an API key. It 
 - Vision capabilities
 - Strong reasoning and instruction following
 
+## Supported API Features
+
+The Anthropic backend connector provides comprehensive support for the official Anthropic Messages API. The following sections detail all supported request parameters, content types, and response formats.
+
+### Request Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | string | Model identifier (e.g., `claude-3-5-sonnet-20241022`) |
+| `messages` | array | Conversation messages with `role` and `content` |
+| `max_tokens` | integer | Maximum tokens to generate (required) |
+| `system` | string/array | System prompt (string or structured blocks with cache control) |
+| `temperature` | float | Sampling temperature (0.0-1.0) |
+| `top_p` | float | Nucleus sampling parameter |
+| `top_k` | integer | Top-k sampling parameter |
+| `stop_sequences` | array | Custom stop sequences |
+| `stream` | boolean | Enable streaming responses |
+| `metadata` | object | Request metadata including `user_id` |
+| `tools` | array | Tool definitions for function calling |
+| `tool_choice` | string/object | Tool selection strategy |
+| `service_tier` | string | Priority tier (`auto`, `standard_only`) |
+| `thinking` | object | Extended thinking configuration |
+
+### Extended Thinking
+
+Enable Claude's extended thinking capability to include the model's reasoning process in responses:
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "max_tokens": 16000,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 10000
+  },
+  "messages": [
+    {"role": "user", "content": "Solve this complex problem..."}
+  ]
+}
+```
+
+When enabled, responses may include `thinking` content blocks containing the model's step-by-step reasoning. The `budget_tokens` parameter controls how many tokens can be used for thinking.
+
+### Service Tier
+
+Control request prioritization for high-demand periods:
+
+- `"auto"` - Automatic tier selection (default)
+- `"standard_only"` - Force standard capacity tier (may queue during high demand)
+
+```json
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "max_tokens": 1024,
+  "service_tier": "auto",
+  "messages": [...]
+}
+```
+
+### Multimodal Content
+
+The backend supports multimodal inputs including images and documents.
+
+**Image Content (Base64)**:
+```json
+{
+  "type": "image",
+  "source": {
+    "type": "base64",
+    "media_type": "image/png",
+    "data": "<base64-encoded-image>"
+  }
+}
+```
+
+**Image Content (URL)**:
+```json
+{
+  "type": "image",
+  "source": {
+    "type": "url",
+    "url": "https://example.com/image.jpg"
+  }
+}
+```
+
+**Document Content (PDF)**:
+```json
+{
+  "type": "document",
+  "source": {
+    "type": "base64",
+    "media_type": "application/pdf",
+    "data": "<base64-encoded-pdf>"
+  },
+  "title": "document.pdf"
+}
+```
+
+### System Prompts with Cache Control
+
+System prompts can include cache control hints for prompt caching optimization:
+
+```json
+{
+  "system": [
+    {
+      "type": "text",
+      "text": "You are a helpful assistant with extensive domain knowledge...",
+      "cache_control": {"type": "ephemeral"}
+    }
+  ],
+  "messages": [...]
+}
+```
+
+### Tool Use / Function Calling
+
+Full support for Anthropic's tool use protocol:
+
+**Tool Definition**:
+```json
+{
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather for a location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {"type": "string", "description": "City name"}
+        },
+        "required": ["location"]
+      }
+    }
+  ]
+}
+```
+
+**Tool Choice Options**:
+
+| Value | Description |
+|-------|-------------|
+| `"auto"` | Model decides whether to use tools |
+| `"none"` | Disable tool use for this request |
+| `{"type": "any"}` | Force the model to use a tool |
+| `{"type": "tool", "name": "tool_name"}` | Force use of a specific tool |
+| `{"type": "any", "disable_parallel_tool_use": true}` | Force tool use but disable parallel calls |
+
+### Streaming Response Events
+
+When `stream: true`, the backend emits standard Anthropic SSE events:
+
+| Event | Description |
+|-------|-------------|
+| `message_start` | Initial message metadata (id, model, usage) |
+| `content_block_start` | Start of a content block (text, tool_use, thinking) |
+| `content_block_delta` | Incremental content updates |
+| `content_block_stop` | End of a content block |
+| `message_delta` | Message-level updates (stop_reason, usage) |
+| `message_stop` | End of message stream |
+| `ping` | Keep-alive event |
+
+### Response Fields
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique message identifier (e.g., `msg_01XFDUDYJgAACzvnptvVoYEL`) |
+| `type` | Always `"message"` |
+| `role` | Always `"assistant"` |
+| `content` | Array of content blocks (text, tool_use, thinking) |
+| `model` | Model used for generation |
+| `stop_reason` | Why generation stopped: `end_turn`, `max_tokens`, `stop_sequence`, `tool_use` |
+| `stop_sequence` | The matched stop sequence (if `stop_reason` is `stop_sequence`) |
+| `usage` | Token usage: `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` |
+
+### Cross-API Translation
+
+When using the Anthropic backend with requests from other API formats (OpenAI, Gemini), the proxy automatically translates parameters:
+
+| Anthropic Feature | OpenAI Equivalent | Gemini Equivalent |
+|-------------------|-------------------|-------------------|
+| `thinking` | `extra_body.thinking` | `thinkingConfig` |
+| `service_tier` | `extra_body.service_tier` | N/A |
+| Image blocks | `image_url` content parts | `inlineData` parts |
+| Document blocks | Passthrough | Passthrough |
+| `tool_choice: any` | `tool_choice: required` | `toolConfig.mode: ANY` |
+| `stop_sequences` | `stop` | `stopSequences` |
+
 ## Configuration
 
 ### Environment Variables

@@ -316,10 +316,12 @@ class TestCanonicalResponseToGemini:
         function_part = gemini_response["candidates"][0]["content"]["parts"][1]
         assert "functionCall" in function_part
         assert function_part["functionCall"]["name"] == "get_weather"
-        assert function_part["functionCall"]["args"] == '{"location": "Paris"}'
+        # Gemini API expects args as a parsed object, not a JSON string
+        assert function_part["functionCall"]["args"] == {"location": "Paris"}
 
-        # Check finish reason
-        assert gemini_response["candidates"][0]["finishReason"] == "TOOL_CALLS"
+        # Check finish reason - Gemini uses STOP when tool calls are made
+        # (there's no TOOL_CALLS finish reason in Gemini API)
+        assert gemini_response["candidates"][0]["finishReason"] == "STOP"
 
     def test_canonical_response_to_gemini_response_streaming_usage(self) -> None:
         """Test translation of usage chunk in streaming mode."""

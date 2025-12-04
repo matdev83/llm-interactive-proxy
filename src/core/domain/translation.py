@@ -286,11 +286,19 @@ class Translation(BaseTranslator):
             if total_tokens is None:
                 total_tokens = prompt_tokens + completion_tokens
 
-            return {
+            result: dict[str, Any] = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
             }
+
+            # Preserve detailed token breakdowns when present (OpenAI API parity)
+            if "prompt_tokens_details" in usage:
+                result["prompt_tokens_details"] = usage["prompt_tokens_details"]
+            if "completion_tokens_details" in usage:
+                result["completion_tokens_details"] = usage["completion_tokens_details"]
+
+            return result
         else:
             # Default normalization
             return {
@@ -1292,18 +1300,28 @@ class Translation(BaseTranslator):
                 if choice_reasoning:
                     reasoning_content = choice_reasoning
 
+            # Preserve refusal and annotations when present (OpenAI API parity)
+            refusal = msg.get("refusal")
+            annotations = msg.get("annotations")
+
             message_obj = ChatCompletionChoiceMessage(
                 role=role,
                 content=content,
                 reasoning_content=reasoning_content,
                 tool_calls=tool_calls,
+                refusal=refusal,
+                annotations=annotations,
             )
+
+            # Preserve logprobs when present (OpenAI API parity)
+            logprobs = ch.get("logprobs")
 
             choices.append(
                 ChatCompletionChoice(
                     index=idx,
                     message=message_obj,
                     finish_reason=ch.get("finish_reason"),
+                    logprobs=logprobs,
                 )
             )
 
@@ -1317,6 +1335,7 @@ class Translation(BaseTranslator):
             model=response.get("model", "unknown"),
             choices=choices,
             usage=normalized_usage,
+            service_tier=response.get("service_tier"),  # OpenAI API parity
         )
 
     @staticmethod
@@ -1623,10 +1642,12 @@ class Translation(BaseTranslator):
                         delta_dict = {}
 
                     delta_obj = StreamingChatCompletionChoiceDelta(**delta_dict)
+                    # OpenAI API parity: preserve logprobs in streaming chunks
                     choice_obj = StreamingChatCompletionChoice(
                         index=choice_dict.get("index", 0),
                         delta=delta_obj,
                         finish_reason=choice_dict.get("finish_reason"),
+                        logprobs=choice_dict.get("logprobs"),
                     )
                     canonical_choices.append(choice_obj)
 
@@ -2263,12 +2284,28 @@ class Translation(BaseTranslator):
             config["topP"] = request.top_p
         if request.temperature is not None:
             config["temperature"] = request.temperature
-        if request.max_tokens is not None:
-            config["maxOutputTokens"] = request.max_tokens
+        # OpenAI API parity: prefer max_completion_tokens over deprecated max_tokens
+        max_output = request.max_completion_tokens or request.max_tokens
+        if max_output is not None:
+            config["maxOutputTokens"] = max_output
         if request.stop:
             config["stopSequences"] = Translation._normalize_stop_sequences(
                 request.stop
             )
+
+        # Gemini API parity: additional generationConfig parameters
+        if request.n is not None and request.n > 1:
+            config["candidateCount"] = request.n
+        if request.seed is not None:
+            config["seed"] = request.seed
+        if request.presence_penalty is not None:
+            config["presencePenalty"] = request.presence_penalty
+        if request.frequency_penalty is not None:
+            config["frequencyPenalty"] = request.frequency_penalty
+        if request.logprobs is not None:
+            config["responseLogprobs"] = request.logprobs
+        if request.top_logprobs is not None:
+            config["logprobs"] = request.top_logprobs
 
         # Handle thinking budget overrides and reasoning effort mapping.
         def _resolve_thinking_budget(
@@ -2299,8 +2336,23 @@ class Translation(BaseTranslator):
 
             return effort_to_budget.get(reasoning_effort.lower(), None)
 
+        # Check for Anthropic-style thinking config in extra_body
+        anthropic_thinking = None
+        if request.extra_body and isinstance(request.extra_body, dict):
+            anthropic_thinking = request.extra_body.get("thinking")
+
+        # Resolve thinking budget from various sources
+        explicit_budget = getattr(request, "thinking_budget", None)
+        if (
+            anthropic_thinking
+            and isinstance(anthropic_thinking, dict)
+            and anthropic_thinking.get("type") == "enabled"
+        ):
+            # Anthropic thinking budget_tokens maps to Gemini thinkingBudget
+            explicit_budget = anthropic_thinking.get("budget_tokens") or explicit_budget
+
         thinking_budget = _resolve_thinking_budget(
-            request.reasoning_effort, getattr(request, "thinking_budget", None)
+            request.reasoning_effort, explicit_budget
         )
         if thinking_budget is not None:
             config["thinkingConfig"] = {
@@ -2553,18 +2605,24 @@ class Translation(BaseTranslator):
                 fcc["allowedFunctionNames"] = allowed_functions
             result["toolConfig"] = {"functionCallingConfig": fcc}
 
-        # Handle structured output for Responses API
-        if request.extra_body and "response_format" in request.extra_body:
-            response_format = request.extra_body["response_format"]
-            if response_format.get("type") == "json_schema":
-                json_schema = response_format.get("json_schema", {})
-                schema = json_schema.get("schema", {})
+        # Handle structured output - check both first-class field and extra_body
+        response_format = request.response_format
+        if not response_format and request.extra_body:
+            response_format = request.extra_body.get("response_format")
 
-                # For Gemini, add JSON mode and schema constraint to generation config
-                generation_config = result["generationConfig"]
-                if isinstance(generation_config, dict):
-                    generation_config["responseMimeType"] = "application/json"
-                    generation_config["responseSchema"] = schema
+        if (
+            response_format
+            and isinstance(response_format, dict)
+            and response_format.get("type") == "json_schema"
+        ):
+            json_schema = response_format.get("json_schema", {})
+            schema = json_schema.get("schema", {})
+
+            # For Gemini, add JSON mode and schema constraint to generation config
+            generation_config = result["generationConfig"]
+            if isinstance(generation_config, dict):
+                generation_config["responseMimeType"] = "application/json"
+                generation_config["responseSchema"] = schema
 
                 # Add schema name and description as additional context if available
                 schema_name = json_schema.get("name")
@@ -2601,6 +2659,17 @@ class Translation(BaseTranslator):
                         contents.append(
                             {"role": "user", "parts": [{"text": schema_context}]}
                         )
+
+        # Handle safetySettings passthrough from extra_body
+        if request.extra_body and isinstance(request.extra_body, dict):
+            gemini_safety = request.extra_body.get("gemini_safety_settings")
+            if gemini_safety and isinstance(gemini_safety, list):
+                result["safetySettings"] = gemini_safety
+
+            # Handle cachedContent passthrough
+            cached_content = request.extra_body.get("gemini_cached_content")
+            if cached_content:
+                result["cachedContent"] = cached_content
 
         import logging
 
@@ -2839,6 +2908,32 @@ class Translation(BaseTranslator):
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
 
+        # OpenAI API parity: additional parameters
+        if request.max_completion_tokens is not None:
+            payload["max_completion_tokens"] = request.max_completion_tokens
+        if request.logprobs is not None:
+            payload["logprobs"] = request.logprobs
+        if request.top_logprobs is not None:
+            payload["top_logprobs"] = request.top_logprobs
+        if request.parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = request.parallel_tool_calls
+        if request.service_tier is not None:
+            payload["service_tier"] = request.service_tier
+        if request.response_format is not None:
+            payload["response_format"] = request.response_format
+
+        # Phase 3: Advanced OpenAI API parity parameters
+        if request.store is not None:
+            payload["store"] = request.store
+        if request.request_metadata is not None:
+            payload["metadata"] = request.request_metadata
+        if request.prediction is not None:
+            payload["prediction"] = request.prediction
+        if request.modalities is not None:
+            payload["modalities"] = request.modalities
+        if request.audio is not None:
+            payload["audio"] = request.audio
+
         # Handle OpenAI reasoning configuration
         reasoning_payload: dict[str, Any] | None = None
         if request.reasoning is not None:
@@ -2866,7 +2961,11 @@ class Translation(BaseTranslator):
         # Handle structured output for Responses API
         if request.extra_body and "response_format" in request.extra_body:
             response_format = request.extra_body["response_format"]
-            if response_format.get("type") == "json_schema":
+            if (
+                response_format
+                and isinstance(response_format, dict)
+                and response_format.get("type") == "json_schema"
+            ):
                 # For OpenAI, we can pass the response_format directly
                 payload["response_format"] = response_format
 
@@ -3050,16 +3149,42 @@ class Translation(BaseTranslator):
                         # Handle image part
                         if part.image_url:
                             url_str = str(part.image_url.url)
-                            # Only include data URLs; skip http/https URLs
                             if url_str.startswith("data:"):
+                                # Data URL - extract base64 and media type
+                                try:
+                                    header, data = url_str.split(",", 1)
+                                    media_type = header.split(";")[0].replace(
+                                        "data:", ""
+                                    )
+                                    content_parts.append(
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": media_type
+                                                or "image/jpeg",
+                                                "data": data,
+                                            },
+                                        }
+                                    )
+                                except ValueError:
+                                    # Fallback if parsing fails
+                                    content_parts.append(
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/jpeg",
+                                                "data": url_str.split(",", 1)[-1],
+                                            },
+                                        }
+                                    )
+                            elif url_str.startswith(("http://", "https://")):
+                                # URL source - Anthropic supports URL images
                                 content_parts.append(
                                     {
                                         "type": "image",
-                                        "source": {
-                                            "type": "base64",
-                                            "media_type": "image/jpeg",
-                                            "data": url_str.split(",", 1)[-1],
-                                        },
+                                        "source": {"type": "url", "url": url_str},
                                     }
                                 )
                     elif isinstance(part, MessageContentPartText):
@@ -3110,10 +3235,12 @@ class Translation(BaseTranslator):
 
             processed_messages.append(msg_dict)
 
+        # OpenAI API parity: prefer max_completion_tokens over deprecated max_tokens
+        max_tokens = request.max_completion_tokens or request.max_tokens or 1024
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": processed_messages,
-            "max_tokens": request.max_tokens or 1024,
+            "max_tokens": max_tokens,
             "stream": request.stream,
         }
 
@@ -3172,6 +3299,21 @@ class Translation(BaseTranslator):
             metadata = request.extra_body.get("metadata")
             if metadata:
                 payload["metadata"] = metadata
+
+            # Handle extended thinking configuration
+            thinking_config = request.extra_body.get("thinking")
+            if thinking_config is not None:
+                if isinstance(thinking_config, dict):
+                    payload["thinking"] = thinking_config
+                elif hasattr(thinking_config, "model_dump"):
+                    payload["thinking"] = thinking_config.model_dump()
+                else:
+                    payload["thinking"] = {"type": str(thinking_config)}
+
+            # Handle service_tier
+            service_tier = request.extra_body.get("service_tier")
+            if service_tier is not None:
+                payload["service_tier"] = service_tier
 
             # Handle structured output for Responses API
             response_format = request.extra_body.get("response_format")
@@ -3634,20 +3776,93 @@ class Translation(BaseTranslator):
                 **other_params,
             )
 
-        # Prepare extra_body with response format
+        # Prepare extra_body with response format and other Responses API specific fields
         extra_body = dict(responses_request.extra_body or {})
         if responses_request.response_format is not None:
             extra_body["response_format"] = (
                 responses_request.response_format.model_dump()
             )
 
+        # Preserve Responses API specific parameters in extra_body
+        if responses_request.include is not None:
+            extra_body["include"] = responses_request.include
+        if responses_request.store is not None:
+            extra_body["store"] = responses_request.store
+        if responses_request.background is not None:
+            extra_body["background"] = responses_request.background
+        if responses_request.truncation is not None:
+            extra_body["truncation"] = responses_request.truncation
+        if responses_request.conversation is not None:
+            extra_body["conversation"] = responses_request.conversation
+        if responses_request.previous_response_id is not None:
+            extra_body["previous_response_id"] = responses_request.previous_response_id
+        if responses_request.prompt is not None:
+            prompt_val = responses_request.prompt
+            if hasattr(prompt_val, "model_dump"):
+                extra_body["prompt"] = prompt_val.model_dump()
+            else:
+                extra_body["prompt"] = prompt_val
+        if responses_request.prompt_cache_key is not None:
+            extra_body["prompt_cache_key"] = responses_request.prompt_cache_key
+        if responses_request.prompt_cache_retention is not None:
+            extra_body["prompt_cache_retention"] = (
+                responses_request.prompt_cache_retention
+            )
+        if responses_request.safety_identifier is not None:
+            extra_body["safety_identifier"] = responses_request.safety_identifier
+        if responses_request.stream_options is not None:
+            stream_opts = responses_request.stream_options
+            if hasattr(stream_opts, "model_dump"):
+                extra_body["stream_options"] = stream_opts.model_dump()
+            else:
+                extra_body["stream_options"] = stream_opts
+        if responses_request.text is not None:
+            text_cfg = responses_request.text
+            if hasattr(text_cfg, "model_dump"):
+                extra_body["text"] = text_cfg.model_dump()
+            else:
+                extra_body["text"] = text_cfg
+
+        # Handle instructions by prepending as system message if messages exist
+        messages = responses_request.messages or []
+        system_prompt = None
+        if responses_request.instructions:
+            system_prompt = responses_request.instructions
+
+        # Determine max_tokens: prefer max_output_tokens over max_tokens
+        effective_max_tokens = (
+            responses_request.max_output_tokens or responses_request.max_tokens
+        )
+
+        # Handle reasoning configuration
+        reasoning_config = None
+        reasoning_effort = None
+        if responses_request.reasoning:
+            reasoning_val = responses_request.reasoning
+            if isinstance(reasoning_val, dict):
+                reasoning_config = reasoning_val
+                reasoning_effort = reasoning_val.get("effort")
+            elif hasattr(reasoning_val, "model_dump"):
+                reasoning_config = reasoning_val.model_dump()
+                reasoning_effort = getattr(reasoning_val, "effort", None)
+            else:
+                reasoning_effort = getattr(reasoning_val, "effort", None)
+
+        # Handle metadata
+        request_metadata = None
+        if responses_request.metadata:
+            request_metadata = responses_request.metadata
+
         # Convert to CanonicalChatRequest
         canonical_request = CanonicalChatRequest(
             model=responses_request.model,
-            messages=responses_request.messages,
+            messages=messages,
+            system_prompt=system_prompt,
             temperature=responses_request.temperature,
             top_p=responses_request.top_p,
-            max_tokens=responses_request.max_tokens,
+            top_logprobs=responses_request.top_logprobs,
+            max_tokens=effective_max_tokens,
+            max_completion_tokens=responses_request.max_output_tokens,
             n=responses_request.n,
             stream=responses_request.stream,
             stop=responses_request.stop,
@@ -3659,6 +3874,13 @@ class Translation(BaseTranslator):
             session_id=responses_request.session_id,
             agent=responses_request.agent,
             extra_body=extra_body,
+            tools=responses_request.tools,
+            tool_choice=responses_request.tool_choice,
+            parallel_tool_calls=responses_request.parallel_tool_calls,
+            reasoning=reasoning_config,
+            reasoning_effort=reasoning_effort,
+            service_tier=responses_request.service_tier,
+            request_metadata=request_metadata,
         )
 
         return canonical_request
@@ -3849,6 +4071,10 @@ class Translation(BaseTranslator):
         if hasattr(response, "system_fingerprint") and response.system_fingerprint:
             responses_response["system_fingerprint"] = response.system_fingerprint
 
+        # Add service tier if available
+        if hasattr(response, "service_tier") and response.service_tier:
+            responses_response["service_tier"] = response.service_tier
+
         return responses_response
 
     @staticmethod
@@ -3887,12 +4113,37 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
-        """Filter extra_body entries to include only Responses API specific parameters."""
+        """Filter extra_body entries to include only Responses API specific parameters.
+
+        These are the keys specific to the OpenAI Responses API that should be preserved
+        when translating from domain format to Responses API format.
+        """
 
         if not extra_body:
             return {}
 
-        allowed_keys: set[str] = {"metadata"}
+        allowed_keys: set[str] = {
+            # Metadata and tracking
+            "metadata",
+            "safety_identifier",
+            "prompt_cache_key",
+            "prompt_cache_retention",
+            # Multi-turn conversation state
+            "conversation",
+            "previous_response_id",
+            # Processing options
+            "store",
+            "background",
+            "truncation",
+            "include",
+            # Reasoning configuration
+            "reasoning",
+            # Text/format configuration
+            "text",
+            # Service tier and streaming options
+            "service_tier",
+            "stream_options",
+        }
 
         return {key: value for key, value in extra_body.items() if key in allowed_keys}
 

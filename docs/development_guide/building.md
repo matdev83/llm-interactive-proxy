@@ -176,7 +176,7 @@ llm-interactive-proxy/
 
 ```bash
 # Bind to specific host and port
-./.venv/Scripts/python.exe -m src.core.cli --host 0.0.0.0 --port 8000
+./.venv/Scripts/python.exe -m src.core.cli --host 127.0.0.1 --port 8000
 
 # Disable authentication (local only)
 ./.venv/Scripts/python.exe -m src.core.cli --disable-auth

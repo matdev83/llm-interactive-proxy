@@ -227,6 +227,34 @@ def gemini_request_to_canonical_request(
     max_tokens = generation_config.get("maxOutputTokens")
     stop = generation_config.get("stopSequences")
 
+    # Extract additional generationConfig parameters (Gemini API parity)
+    candidate_count = generation_config.get("candidateCount")
+    seed = generation_config.get("seed")
+    presence_penalty = generation_config.get("presencePenalty")
+    frequency_penalty = generation_config.get("frequencyPenalty")
+    logprobs = generation_config.get("responseLogprobs")
+    top_logprobs = generation_config.get("logprobs")
+
+    # Handle responseMimeType and responseSchema for structured output
+    response_format: dict[str, Any] | None = None
+    response_mime_type = generation_config.get("responseMimeType")
+    response_schema = generation_config.get("responseSchema")
+
+    if response_mime_type == "application/json":
+        if response_schema:
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_schema.get("title", "response"),
+                    "schema": response_schema,
+                    "strict": True,
+                },
+            }
+        else:
+            response_format = {"type": "json_object"}
+    elif response_mime_type == "text/plain":
+        response_format = {"type": "text"}
+
     # Extract tools
     tools = []
     tool_choice: str | dict[str, Any] | None = None
@@ -258,10 +286,14 @@ def gemini_request_to_canonical_request(
 
     # Handle thinking config (reasoning effort)
     reasoning_effort = None
+    thinking_budget = None
     if "thinkingConfig" in generation_config:
         thinking_config = generation_config["thinkingConfig"]
-        if isinstance(thinking_config, dict) and "reasoning_effort" in thinking_config:
-            reasoning_effort = thinking_config["reasoning_effort"]
+        if isinstance(thinking_config, dict):
+            if "reasoning_effort" in thinking_config:
+                reasoning_effort = thinking_config["reasoning_effort"]
+            if "thinkingBudget" in thinking_config:
+                thinking_budget = thinking_config["thinkingBudget"]
 
     tool_config = request.get("toolConfig") or request.get("tool_config")
     if isinstance(tool_config, dict):
@@ -287,6 +319,17 @@ def gemini_request_to_canonical_request(
                 else:
                     tool_choice = "auto"
 
+    # Store safetySettings in extra_body for passthrough
+    extra_body: dict[str, Any] | None = None
+    safety_settings = request.get("safetySettings")
+    cached_content = request.get("cachedContent")
+    if safety_settings or cached_content:
+        extra_body = {}
+        if safety_settings:
+            extra_body["gemini_safety_settings"] = safety_settings
+        if cached_content:
+            extra_body["gemini_cached_content"] = cached_content
+
     # Create canonical request
     return CanonicalChatRequest(
         model=model,
@@ -297,10 +340,43 @@ def gemini_request_to_canonical_request(
         max_tokens=max_tokens,
         stop=stop,
         stream=stream,
-        tools=tools,  # type: ignore
+        tools=tools if tools else None,  # type: ignore
         tool_choice=tool_choice,
         reasoning_effort=reasoning_effort,
+        thinking_budget=thinking_budget,
+        n=candidate_count,
+        seed=seed,
+        presence_penalty=presence_penalty,
+        frequency_penalty=frequency_penalty,
+        logprobs=logprobs,
+        top_logprobs=top_logprobs,
+        response_format=response_format,
+        extra_body=extra_body,
     )
+
+
+def _map_finish_reason_to_gemini(finish_reason: str | None) -> str:
+    """Map canonical finish reason to Gemini finish reason format.
+
+    Gemini API uses: STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER, FINISH_REASON_UNSPECIFIED
+    OpenAI uses: stop, length, content_filter, tool_calls, function_call
+    """
+    if not finish_reason:
+        return "STOP"
+
+    finish_reason_lower = finish_reason.lower()
+    mapping = {
+        "stop": "STOP",
+        "length": "MAX_TOKENS",
+        "max_tokens": "MAX_TOKENS",
+        "content_filter": "SAFETY",
+        "safety": "SAFETY",
+        "tool_calls": "STOP",
+        "function_call": "STOP",
+        "recitation": "RECITATION",
+        "other": "OTHER",
+    }
+    return mapping.get(finish_reason_lower, finish_reason.upper())
 
 
 def canonical_response_to_gemini_response(
@@ -324,29 +400,56 @@ def canonical_response_to_gemini_response(
             for idx, choice in enumerate(response["choices"]):
                 message = choice.get("message", {})
                 content = message.get("content", "")
+                parts: list[dict[str, Any]] = []
 
-                candidate = {
-                    "content": {
-                        "parts": [{"text": content}],
-                        "role": "model",  # Always use 'model' role for Gemini responses
-                    },
-                    "finishReason": choice.get("finish_reason", "STOP").upper(),
-                    "index": idx,
-                }
+                # Add text content if present
+                if content:
+                    parts.append({"text": content})
 
                 # Handle tool calls if present
                 if "tool_calls" in message:
                     for tool_call in message["tool_calls"]:
                         if tool_call.get("type") == "function":
                             function_call = tool_call.get("function", {})
-                            candidate["content"]["parts"].append(
+                            args = function_call.get("arguments", {})
+                            # Parse JSON args if it's a string
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            parts.append(
                                 {
                                     "functionCall": {
                                         "name": function_call.get("name", ""),
-                                        "args": function_call.get("arguments", {}),
+                                        "args": args,
                                     }
                                 }
                             )
+
+                # Ensure at least one part exists
+                if not parts:
+                    parts.append({"text": ""})
+
+                candidate: dict[str, Any] = {
+                    "content": {
+                        "parts": parts,
+                        "role": "model",
+                    },
+                    "finishReason": _map_finish_reason_to_gemini(
+                        choice.get("finish_reason")
+                    ),
+                    "index": idx,
+                }
+
+                # Add safety ratings (empty by default for proxy responses)
+                candidate["safetyRatings"] = []
+
+                # Add logprobs if present
+                if "logprobs" in choice and choice["logprobs"]:
+                    candidate["avgLogprobs"] = choice["logprobs"].get(
+                        "avg_logprob", None
+                    )
 
                 candidates.append(candidate)
 
@@ -358,41 +461,83 @@ def canonical_response_to_gemini_response(
             "totalTokenCount": usage.get("total_tokens", 0),
         }
 
-        return {
+        # Add cached token count if present
+        if "cached_tokens" in usage:
+            usage_metadata["cachedContentTokenCount"] = usage["cached_tokens"]
+
+        result: dict[str, Any] = {
             "candidates": candidates,
             "usageMetadata": usage_metadata,
         }
-    else:
-        # For streaming responses
-        result: dict[str, Any] = {}
 
-        # Handle usage metadata if present
-        if "usage" in response:
-            usage = response["usage"]
-            result["usageMetadata"] = {
-                "promptTokenCount": usage.get("prompt_tokens", 0),
-                "candidatesTokenCount": usage.get("completion_tokens", 0),
-                "totalTokenCount": usage.get("total_tokens", 0),
-            }
-
-        # Handle content and finish reason if choices are present
-        if response.get("choices"):
-            choice = response["choices"][0]
-            delta = choice.get("delta", {})
-            content = delta.get("content", "")
-            finish_reason = choice.get("finish_reason")
-
-            candidate = {
-                "content": {
-                    "parts": [{"text": content}],
-                    "role": "model",
-                },
-                "index": 0,
-            }
-
-            if finish_reason:
-                candidate["finishReason"] = finish_reason.upper()
-
-            result["candidates"] = [candidate]
+        # Add model version if available
+        if "model" in response:
+            result["modelVersion"] = response["model"]
 
         return result
+    # Streaming responses
+    stream_result: dict[str, Any] = {}
+
+    # Handle usage metadata if present
+    if "usage" in response:
+        stream_usage = response["usage"]
+        stream_result["usageMetadata"] = {
+            "promptTokenCount": stream_usage.get("prompt_tokens", 0),
+            "candidatesTokenCount": stream_usage.get("completion_tokens", 0),
+            "totalTokenCount": stream_usage.get("total_tokens", 0),
+        }
+
+    # Handle content and finish reason if choices are present
+    if response.get("choices"):
+        choice = response["choices"][0]
+        delta = choice.get("delta", {})
+        content = delta.get("content", "")
+        finish_reason = choice.get("finish_reason")
+        stream_parts: list[dict[str, Any]] = []
+
+        # Add text content
+        if content:
+            stream_parts.append({"text": content})
+
+        # Handle streaming tool calls
+        tool_calls = delta.get("tool_calls")
+        if tool_calls:
+            for tool_call in tool_calls:
+                if tool_call.get("type") == "function" or "function" in tool_call:
+                    function_call = tool_call.get("function", {})
+                    args = function_call.get("arguments", "")
+                    if isinstance(args, str) and args:
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    if function_call.get("name"):
+                        stream_parts.append(
+                            {
+                                "functionCall": {
+                                    "name": function_call.get("name", ""),
+                                    "args": args if args else {},
+                                }
+                            }
+                        )
+
+        # Ensure at least empty parts list
+        if not stream_parts:
+            stream_parts.append({"text": ""})
+
+        stream_candidate: dict[str, Any] = {
+            "content": {
+                "parts": stream_parts,
+                "role": "model",
+            },
+            "index": choice.get("index", 0),
+        }
+
+        if finish_reason:
+            stream_candidate["finishReason"] = _map_finish_reason_to_gemini(
+                finish_reason
+            )
+
+        stream_result["candidates"] = [stream_candidate]
+
+    return stream_result

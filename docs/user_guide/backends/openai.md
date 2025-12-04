@@ -148,7 +148,9 @@ Combine with proxy features for cost control:
 
 ## OpenAI Responses Backend
 
-The `openai-responses` backend is a specialized connector that targets the `/v1/responses` endpoint (if available) or optimizes for structured output generation. It is primarily used for testing and specific structured data extraction workflows.
+The `openai-responses` backend is a specialized connector that targets OpenAI's `/v1/responses` endpoint for structured output generation.
+
+For detailed information about the Responses API frontend (supported parameters, response format, examples), see the [OpenAI Responses API Frontend](../frontends/openai-responses.md) documentation.
 
 ### Configuration
 

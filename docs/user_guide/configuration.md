@@ -28,7 +28,7 @@ Command-line arguments provide the highest priority configuration and are ideal 
 ```bash
 python -m src.core.cli \
   --default-backend openai \
-  --host 0.0.0.0 \
+  --host 127.0.0.1 \
   --port 8000 \
   --enable-edit-precision \
   --disable-auth
@@ -58,7 +58,7 @@ export LLM_BACKEND=openai
 export STATIC_ROUTE="gemini-oauth-plan:gemini-2.5-pro"
 
 # Proxy Configuration
-export APP_HOST=0.0.0.0
+export APP_HOST=127.0.0.1
 export APP_PORT=8000
 export PROXY_TIMEOUT=120
 

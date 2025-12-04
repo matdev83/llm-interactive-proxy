@@ -610,8 +610,15 @@ class TestResponsesAPIErrorHandling:
         assert "detail" in error_data
 
     def test_missing_required_fields_error(self, client: TestClient) -> None:
-        """Test error handling for missing required fields."""
-        # Missing messages
+        """Test error handling for missing required fields.
+
+        Note: In the OpenAI Responses API:
+        - 'messages' is optional if 'input' is provided
+        - 'response_format' is optional
+        - 'model' is the only strictly required field
+        - Invalid JSON schemas return 400 (Bad Request), not 422
+        """
+        # Test 1: Invalid JSON schema (missing properties) returns 400
         request_data = {
             "model": "mock-model",
             "response_format": {
@@ -621,16 +628,18 @@ class TestResponsesAPIErrorHandling:
         }
 
         response = client.post("/v1/responses", json=request_data)
-        assert response.status_code == 422  # Validation error
+        # 400 for invalid schema (object type without properties)
+        assert response.status_code == 400
 
-        # Missing response_format
+        # Test 2: Missing model returns 422 (Pydantic validation error)
         request_data = {
-            "model": "mock-model",
             "messages": [{"role": "user", "content": "Test"}],
         }
 
         response = client.post("/v1/responses", json=request_data)
-        assert response.status_code == 422  # Validation error
+        assert (
+            response.status_code == 422
+        )  # Validation error - missing required 'model'
 
     def test_backend_failure_error_handling(self, client: TestClient) -> None:
         """Test error handling when backend fails."""

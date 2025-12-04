@@ -285,19 +285,18 @@ class TestOpenAIToAnthropicTranslation:
         messages = anthropic_request["messages"]
         assert len(messages) == 1
 
-        # Check content parts - note: the current implementation only handles the text part
-        # and doesn't process the image part correctly
+        # Check content parts - the implementation now properly handles multimodal content
         content_parts = messages[0]["content"]
-        assert len(content_parts) == 1
+        assert len(content_parts) == 2
+
+        # First part should be text
         assert content_parts[0]["type"] == "text"
         assert content_parts[0]["text"] == "Describe this image:"
 
-        # TODO: Fix the implementation to handle multimodal content properly
-        # The following assertions would be valid once the implementation is fixed:
-        # assert len(content_parts) == 2
-        # assert content_parts[1]["type"] == "image"
-        # assert content_parts[1]["source"]["type"] == "url"
-        # assert content_parts[1]["source"]["url"] == "https://example.com/image.jpg"
+        # Second part should be the image with URL source
+        assert content_parts[1]["type"] == "image"
+        assert content_parts[1]["source"]["type"] == "url"
+        assert content_parts[1]["source"]["url"] == "https://example.com/image.jpg"
 
     def test_tool_calling(self) -> None:
         """Test translation of tool calling."""

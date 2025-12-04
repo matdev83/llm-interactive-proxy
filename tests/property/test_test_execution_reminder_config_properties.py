@@ -109,6 +109,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         disable_interactive_mode=None,
         disable_redact_api_keys_in_prompts=None,
         disable_auth=None,
+        disable_sso_captcha=None,
         force_set_project=None,
         project_dir_resolution_model=None,
         project_dir_resolution_mode=None,

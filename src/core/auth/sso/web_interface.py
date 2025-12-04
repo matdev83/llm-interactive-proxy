@@ -126,7 +126,10 @@ def create_sso_router(
             if len(providers) == 1 and not captcha_enabled:
                 provider = providers[0]
                 state = secrets.token_urlsafe(32)
-                _state_store[state] = provider
+                _state_store[state] = {
+                    "provider": provider,
+                    "agent_token_id": agent_token_id,
+                }
 
                 redirect_uri = f"{base_url}/auth/callback"
                 auth_url = await sso_service.create_authorization_url(

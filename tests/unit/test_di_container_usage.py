@@ -532,6 +532,12 @@ class TestDIContainerUsage:
                 v.get("class_name") == "CaptchaService"
                 and "core\\auth\\sso\\web_interface.py" in v.get("file", "")
             )
+            and not (
+                # SSO startup validation creates SSOService to check provider configuration
+                # This runs during startup before DI container is fully initialized
+                v.get("class_name") == "SSOService"
+                and "core\\auth\\sso\\startup_validation.py" in v.get("file", "")
+            )
         ]
 
         # Expect no DI violations; if any appear, show a detailed report

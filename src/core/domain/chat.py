@@ -33,9 +33,24 @@ class MessageContentPartImage(DomainModel):
     image_url: ImageURL
 
 
-# Extend with other multimodal types as needed (e.g., audio, video file, documents)
-# For now, text and image are common starting points.
-MessageContentPart = MessageContentPartText | MessageContentPartImage
+class InputAudio(DomainModel):
+    """Specifies the audio data for an audio input in a multimodal message."""
+
+    data: str  # Base64-encoded audio data
+    format: str  # Audio format (wav, mp3, etc.)
+
+
+class MessageContentPartAudio(DomainModel):
+    """Represents an audio content part in a multimodal message."""
+
+    type: str = "input_audio"
+    input_audio: InputAudio
+
+
+# Extended multimodal types for text, image, and audio
+MessageContentPart = (
+    MessageContentPartText | MessageContentPartImage | MessageContentPartAudio
+)
 """Type alias for possible content parts in a multimodal message."""
 
 
@@ -78,6 +93,7 @@ class FunctionDefinition(DomainModel):
     name: str
     description: str | None = None
     parameters: dict[str, Any] | None = None
+    strict: bool | None = None  # OpenAI strict mode for function parameters
 
 
 class ToolDefinition(DomainModel):
@@ -185,14 +201,29 @@ class ChatRequest(ValueObject):
     n: int | None = None
     stream: bool | None = None
     stop: list[str] | str | None = None
-    max_tokens: int | None = None
+    max_tokens: int | None = None  # Deprecated, use max_completion_tokens
+    max_completion_tokens: int | None = None  # OpenAI standard token limit
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
     logit_bias: dict[str, float] | None = None
+    logprobs: bool | None = None  # Whether to return log probabilities
+    top_logprobs: int | None = None  # Number of most likely tokens (0-20)
     user: str | None = None
     seed: int | None = None
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
+    parallel_tool_calls: bool | None = None  # Enable parallel function calling
+    response_format: dict[str, Any] | None = None  # Structured output format
+    service_tier: str | None = (
+        None  # OpenAI service tier (auto, default, flex, priority)
+    )
+    store: bool | None = None  # Store for distillation/evals (OpenAI API parity)
+    request_metadata: dict[str, str] | None = (
+        None  # Key-value metadata (OpenAI API parity)
+    )
+    prediction: dict[str, Any] | None = None  # Predicted output optimization
+    modalities: list[str] | None = None  # Output modalities (text, audio)
+    audio: dict[str, Any] | None = None  # Audio output configuration
     session_id: str | None = None
     agent: str | None = None  # Add agent field
     extra_body: dict[str, Any] | None = None
@@ -249,6 +280,8 @@ class ChatCompletionChoiceMessage(DomainModel):
     reasoning_content: str | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
+    refusal: str | None = None  # Model refusal message (OpenAI API parity)
+    annotations: list[dict[str, Any]] | None = None  # Response annotations
     metadata: dict[str, Any] | None = None
 
 
@@ -258,6 +291,7 @@ class ChatCompletionChoice(DomainModel):
     index: int
     message: ChatCompletionChoiceMessage
     finish_reason: str | None = None
+    logprobs: dict[str, Any] | None = None  # Log probability information
 
 
 # ChatUsage class is defined elsewhere in this file
@@ -274,6 +308,7 @@ class ChatResponse(ValueObject):
     choices: list[ChatCompletionChoice]
     usage: dict[str, Any] | None = None
     system_fingerprint: str | None = None
+    service_tier: str | None = None  # Actual service tier used for the request
     object: str = "chat.completion"
 
 
@@ -398,6 +433,7 @@ class StreamingChatCompletionChoice(DomainModel):
     index: int
     delta: StreamingChatCompletionChoiceDelta
     finish_reason: str | None = None
+    logprobs: dict[str, Any] | None = None  # Log probability information
 
 
 class CanonicalStreamChunk(ValueObject):
