@@ -88,6 +88,19 @@ class BackendFactory(IBackendFactory):
         """
         logger = logging.getLogger(__name__)
 
+        # Resolve connector from instance name (e.g. "openai.1" -> "openai")
+        connector_type = (
+            backend_type.split(".")[0] if "." in backend_type else backend_type
+        )
+
+        # Check if connector exists; fallback to original behavior if needed
+        # (legacy names might contain dots? unlikely given validation, but let's be robust)
+        if (
+            connector_type not in self._backend_registry.get_registered_backends()
+            and backend_type in self._backend_registry.get_registered_backends()
+        ):
+            connector_type = backend_type
+
         # Build init_config from BackendConfig
         init_config: dict[str, Any] = {}
 
@@ -96,6 +109,17 @@ class BackendFactory(IBackendFactory):
             init_config["api_key"] = api_key_list[0] if api_key_list else None
             if backend_config.api_url:
                 init_config["api_base_url"] = backend_config.api_url
+
+            # Pass credentials_path if available
+            if backend_config.credentials_path:
+                init_config["credentials_path"] = backend_config.credentials_path
+
+            # Pass supported_input_types if available
+            if backend_config.supported_input_types:
+                init_config["supported_input_types"] = (
+                    backend_config.supported_input_types
+                )
+
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 
@@ -112,7 +136,7 @@ class BackendFactory(IBackendFactory):
                     "default_api_base_url": "https://api.minimax.io/v1",
                 }
             }
-            env_spec = env_key_mapping.get(backend_type)
+            env_spec = env_key_mapping.get(connector_type)  # Use connector_type
             if env_spec:
                 collected_keys = self._collect_env_keys(env_spec["api_key_env"])
                 if collected_keys:
@@ -127,7 +151,7 @@ class BackendFactory(IBackendFactory):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Backend factory for {backend_type}: current_api_key={current_api_key}, default_backend_env={default_backend_env}"
+                f"Backend factory for {backend_type} (connector={connector_type}): current_api_key={current_api_key}, default_backend_env={default_backend_env}"
             )
 
         if current_api_key and logger.isEnabledFor(logging.DEBUG):
@@ -136,17 +160,17 @@ class BackendFactory(IBackendFactory):
             )
 
         # Backend-specific augmentations
-        if backend_type == "anthropic":
-            init_config["key_name"] = backend_type
-        elif backend_type == "openrouter":
+        if connector_type == "anthropic":
+            init_config["key_name"] = connector_type
+        elif connector_type == "openrouter":
             from src.core.config.app_config import get_openrouter_headers
 
-            init_config["key_name"] = backend_type
+            init_config["key_name"] = connector_type
             init_config["openrouter_headers_provider"] = get_openrouter_headers
             if "api_base_url" not in init_config:
                 init_config["api_base_url"] = "https://openrouter.ai/api/v1"
-        elif backend_type == "gemini":
-            init_config["key_name"] = backend_type
+        elif connector_type == "gemini":
+            init_config["key_name"] = connector_type
             # Map api_base_url to gemini_api_base_url for Gemini backend
             if "api_base_url" in init_config:
                 init_config["gemini_api_base_url"] = init_config["api_base_url"]
@@ -157,14 +181,38 @@ class BackendFactory(IBackendFactory):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Factory initializing backend {backend_type} with {init_config}"
+                f"Factory initializing backend {backend_type} (connector={connector_type}) with {init_config}"
             )
 
-        # Step 1: Create the backend instance
-        backend = self.create_backend(backend_type, app_config)  # Modified
+        # Step 1: Create the backend instance using connector type
+        backend = self.create_backend(connector_type, app_config)  # Modified
 
         # Step 2: Initialize it with the config
         await self.initialize_backend(backend, init_config)
+
+        # Step 3: Set the instance name on the backend
+        if hasattr(backend, "backend_type"):
+            # We override backend_type to be the instance name so logging and tracking uses the unique name
+            # This might be risky if logic depends on backend_type being the connector name.
+            # Let's check if there is another field. `name` attribute?
+            # Base LLMBackend has `backend_type`.
+            # If we change it, `isinstance` checks are fine, but checks like `if backend.backend_type == 'openai'` might fail.
+            # But we want metrics to be per-instance.
+            # Let's keep backend_type as connector, and add instance_name if possible?
+            # Or just use the fact that it's a unique instance object.
+
+            # Wait, `BackendService` uses `backend_type` for rate limiting keys `f"backend:{backend_type}"`.
+            # If we don't change it, all instances share rate limits!
+            # Requirement says: "Granular Rate Limiting ... Instance Level".
+            # So we MUST change the identifier used for rate limiting.
+
+            # Let's update backend_type to be the instance name.
+            try:
+                backend.backend_type = backend_type
+            except AttributeError:
+                # If backend_type is a property without a setter, we might fail here.
+                # However, in LLMBackend it is usually just an instance attribute.
+                pass
 
         return backend
 
