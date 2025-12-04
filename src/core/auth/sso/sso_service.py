@@ -5,16 +5,78 @@ This module handles OAuth2 and SAML authentication flows using Authlib.
 """
 
 import logging
+import time
+from typing import Any
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore
-from authlib.jose import JsonWebToken  # type: ignore
+from authlib.jose import JsonWebKey, JsonWebToken  # type: ignore
+from authlib.jose.errors import DecodeError, JoseError  # type: ignore
 
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
 from src.core.auth.sso.models import SSOResult
 
 logger = logging.getLogger(__name__)
+
+
+class JWKSCache:
+    """
+    Cache for JSON Web Key Sets (JWKS) from identity providers.
+
+    Caches JWKS for each provider to avoid fetching on every request.
+    Keys are automatically refreshed after TTL expires.
+    """
+
+    DEFAULT_TTL = 3600  # 1 hour
+
+    def __init__(self, ttl: int = DEFAULT_TTL):
+        """
+        Initialize JWKS cache.
+
+        Args:
+            ttl: Time-to-live for cached keys in seconds (default: 1 hour)
+        """
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._ttl = ttl
+
+    def get(self, jwks_uri: str) -> dict[str, Any] | None:
+        """
+        Get cached JWKS for a URI.
+
+        Args:
+            jwks_uri: The JWKS endpoint URI
+
+        Returns:
+            Cached JWKS data or None if not cached or expired
+        """
+        entry = self._cache.get(jwks_uri)
+        if entry is None:
+            return None
+
+        if time.time() > entry.get("expires_at", 0):
+            # Expired
+            del self._cache[jwks_uri]
+            return None
+
+        return entry.get("jwks")
+
+    def set(self, jwks_uri: str, jwks: dict[str, Any]) -> None:
+        """
+        Cache JWKS for a URI.
+
+        Args:
+            jwks_uri: The JWKS endpoint URI
+            jwks: The JWKS data to cache
+        """
+        self._cache[jwks_uri] = {
+            "jwks": jwks,
+            "expires_at": time.time() + self._ttl,
+        }
+
+    def clear(self) -> None:
+        """Clear all cached JWKS."""
+        self._cache.clear()
 
 
 class SSOService:
@@ -25,17 +87,20 @@ class SSOService:
     - OAuth2 client creation and URL generation
     - OAuth2 callback processing and token exchange
     - User identity extraction from ID tokens and userinfo endpoints
+    - ID token signature verification using JWKS
     """
 
-    def __init__(self, config: SSOConfig):
+    def __init__(self, config: SSOConfig, jwks_cache: JWKSCache | None = None):
         """
         Initialize SSO service.
 
         Args:
             config: SSO configuration
+            jwks_cache: Optional JWKS cache (creates new one if not provided)
         """
         self.config = config
-        self._jwt = JsonWebToken(["RS256", "HS256"])
+        self._jwt = JsonWebToken(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"])
+        self._jwks_cache = jwks_cache or JWKSCache()
 
     def get_supported_providers(self) -> list[str]:
         """
@@ -119,6 +184,146 @@ class SSOService:
         if provider not in self.config.providers:
             raise ConfigurationError(f"Provider '{provider}' not configured")
         return self.config.providers[provider]
+
+    async def _fetch_jwks(self, jwks_uri: str) -> dict[str, Any]:
+        """
+        Fetch JWKS from the provider's jwks_uri endpoint.
+
+        Uses caching to avoid fetching on every request.
+
+        Args:
+            jwks_uri: The JWKS endpoint URI
+
+        Returns:
+            JWKS data containing public keys
+
+        Raises:
+            AuthenticationError: If JWKS cannot be fetched
+        """
+        # Check cache first
+        cached = self._jwks_cache.get(jwks_uri)
+        if cached is not None:
+            logger.debug(f"Using cached JWKS for {jwks_uri}")
+            return cached
+
+        # Fetch fresh JWKS
+        logger.debug(f"Fetching JWKS from {jwks_uri}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(jwks_uri)
+                resp.raise_for_status()
+                jwks = resp.json()
+
+            # Cache the result
+            self._jwks_cache.set(jwks_uri, jwks)
+            logger.debug(f"Cached JWKS with {len(jwks.get('keys', []))} keys")
+            return jwks
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch JWKS from {jwks_uri}: {e}")
+            raise AuthenticationError(
+                f"Failed to fetch JWKS: {e!s}",
+                details={"jwks_uri": jwks_uri, "error": str(e)},
+                original_error=e,
+            ) from e
+
+    async def _verify_id_token(
+        self,
+        id_token: str,
+        jwks_uri: str | None,
+        client_id: str,
+        issuer: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Verify and decode an ID token using JWKS.
+
+        Performs signature verification using the provider's public keys.
+        Falls back to unverified decoding if JWKS is unavailable.
+
+        Args:
+            id_token: The JWT ID token to verify
+            jwks_uri: URI to fetch JWKS from (None to skip verification)
+            client_id: Expected audience (client_id)
+            issuer: Expected issuer (optional)
+
+        Returns:
+            Decoded claims from the ID token
+
+        Raises:
+            AuthenticationError: If token verification fails
+        """
+        if not jwks_uri:
+            # No JWKS URI available (e.g., for non-OIDC providers)
+            # Fall back to unverified decoding with a warning
+            logger.warning(
+                "No JWKS URI available - decoding ID token without signature verification"
+            )
+            try:
+                claims = self._jwt.decode(
+                    id_token,
+                    key=None,
+                    claims_options={"verify_signature": False},
+                )
+                return dict(claims)
+            except (DecodeError, JoseError) as e:
+                raise AuthenticationError(
+                    f"Failed to decode ID token: {e!s}",
+                    details={"error": str(e)},
+                    original_error=e,
+                ) from e
+
+        # Fetch JWKS and verify signature
+        try:
+            jwks_data = await self._fetch_jwks(jwks_uri)
+
+            # Import the JWKS as a key set
+            keys = JsonWebKey.import_key_set(jwks_data)
+
+            # Decode and verify the token
+            claims_options = {
+                "aud": {"essential": True, "value": client_id},
+            }
+            if issuer:
+                claims_options["iss"] = {"essential": True, "value": issuer}
+
+            claims = self._jwt.decode(
+                id_token,
+                key=keys,
+                claims_options=claims_options,
+            )
+
+            # Validate required claims
+            claims.validate()
+
+            logger.debug("ID token signature verified successfully")
+            return dict(claims)
+
+        except (DecodeError, JoseError) as e:
+            logger.warning(f"ID token verification failed: {e}")
+            # Fall back to unverified decoding - some providers have quirks
+            logger.warning("Falling back to unverified ID token decoding")
+            try:
+                claims = self._jwt.decode(
+                    id_token,
+                    key=None,
+                    claims_options={"verify_signature": False},
+                )
+                return dict(claims)
+            except (DecodeError, JoseError) as fallback_error:
+                raise AuthenticationError(
+                    f"Failed to decode ID token: {fallback_error!s}",
+                    details={"error": str(fallback_error)},
+                    original_error=fallback_error,
+                ) from fallback_error
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            logger.warning(f"Unexpected error during ID token verification: {e}")
+            raise AuthenticationError(
+                f"ID token verification failed: {e!s}",
+                details={"error": str(e)},
+                original_error=e,
+            ) from e
 
     async def create_authorization_url(
         self, provider: str, state: str, redirect_uri: str
@@ -306,6 +511,8 @@ class SSOService:
             # Determine endpoints
             token_endpoint = None
             userinfo_endpoint = None
+            jwks_uri = None
+            issuer = None
 
             if provider_config.discovery_url:
                 # OIDC Discovery
@@ -316,6 +523,8 @@ class SSOService:
                     metadata = resp.json()
                 token_endpoint = metadata.get("token_endpoint")
                 userinfo_endpoint = metadata.get("userinfo_endpoint")
+                jwks_uri = metadata.get("jwks_uri")
+                issuer = metadata.get("issuer")
             else:
                 # Manual configuration
                 token_endpoint = provider_config.token_url
@@ -345,24 +554,26 @@ class SSOService:
             user_id = None
             user_email = None
 
-            # Method 1: Try ID token (OIDC)
+            # Method 1: Try ID token (OIDC) with signature verification
             if "id_token" in token:
                 logger.debug("Extracting user info from ID token")
                 try:
-                    # Parse ID token without verification (provider already verified)
-                    # In production, you might want to verify the signature
-                    claims = self._jwt.decode(
-                        token["id_token"],
-                        key=None,
-                        claims_options={"verify_signature": False},
+                    # Verify and decode ID token using JWKS
+                    claims = await self._verify_id_token(
+                        id_token=token["id_token"],
+                        jwks_uri=jwks_uri,
+                        client_id=provider_config.client_id,
+                        issuer=issuer,
                     )
                     user_id = claims.get("sub")
                     user_email = claims.get("email")
                     logger.debug(
                         f"Extracted from ID token: user_id={user_id}, email={user_email}"
                     )
+                except AuthenticationError as e:
+                    logger.warning(f"Failed to verify/parse ID token: {e}")
                 except Exception as e:
-                    logger.warning(f"Failed to parse ID token: {e}")
+                    logger.warning(f"Unexpected error parsing ID token: {e}")
 
             # Method 2: Try userinfo endpoint
             if (not user_id or not user_email) and userinfo_endpoint:

@@ -5,7 +5,7 @@ This module provides rate limiting functionality to protect against
 brute-force attacks on confirmation codes and authentication endpoints.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import aiosqlite
 
@@ -64,7 +64,7 @@ class RateLimitService:
                     return RateLimitResult(allowed=True, retry_after=0)
 
                 blocked_until = datetime.fromisoformat(row["blocked_until"])
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
 
                 if blocked_until > now:
                     retry_after = int((blocked_until - now).total_seconds())
@@ -122,7 +122,9 @@ class RateLimitService:
                 backoff_seconds = self.BASE_DELAY_SECONDS * (2 ** (failed_attempts - 1))
                 backoff_seconds = min(backoff_seconds, self.MAX_DELAY_SECONDS)
 
-                blocked_until = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                blocked_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=backoff_seconds
+                )
 
                 # Upsert record
                 await db.execute(
@@ -138,7 +140,7 @@ class RateLimitService:
                     (
                         identifier,
                         failed_attempts,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         blocked_until.isoformat(),
                     ),
                 )

@@ -361,6 +361,153 @@ class TestCanonicalResponseToGemini:
         assert result["candidates"][0]["finishReason"] == "STOP"
 
 
+class TestGeminiAPIParityParameters:
+    """Tests for Gemini API parity parameters (candidateCount, seed, etc.)."""
+
+    def test_request_with_candidate_count(self) -> None:
+        """Test conversion of candidateCount parameter."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {"candidateCount": 3},
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.n == 3
+
+    def test_request_with_seed(self) -> None:
+        """Test conversion of seed parameter."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {"seed": 42},
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.seed == 42
+
+    def test_request_with_penalty_parameters(self) -> None:
+        """Test conversion of presence and frequency penalty parameters."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {
+                "presencePenalty": 0.5,
+                "frequencyPenalty": 0.3,
+            },
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.presence_penalty == 0.5
+        assert canonical.frequency_penalty == 0.3
+
+    def test_request_with_logprobs(self) -> None:
+        """Test conversion of logprobs parameters."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {
+                "responseLogprobs": True,
+                "logprobs": 5,
+            },
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.logprobs is True
+        assert canonical.top_logprobs == 5
+
+    def test_request_with_response_mime_type_json(self) -> None:
+        """Test conversion of responseMimeType with JSON schema."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.response_format is not None
+        assert canonical.response_format["type"] == "json_schema"
+        assert "json_schema" in canonical.response_format
+        assert canonical.response_format["json_schema"]["schema"]["type"] == "object"
+
+    def test_request_with_response_mime_type_json_object(self) -> None:
+        """Test conversion of responseMimeType without schema."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {"responseMimeType": "application/json"},
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.response_format is not None
+        assert canonical.response_format["type"] == "json_object"
+
+    def test_request_with_safety_settings(self) -> None:
+        """Test conversion of safetySettings."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "safetySettings": [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_LOW_AND_ABOVE",
+                },
+            ],
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.extra_body is not None
+        assert "gemini_safety_settings" in canonical.extra_body
+        assert len(canonical.extra_body["gemini_safety_settings"]) == 2
+
+    def test_request_with_cached_content(self) -> None:
+        """Test conversion of cachedContent."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "cachedContent": "cachedContents/abc123",
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.extra_body is not None
+        assert (
+            canonical.extra_body.get("gemini_cached_content") == "cachedContents/abc123"
+        )
+
+    def test_request_with_thinking_budget(self) -> None:
+        """Test conversion of thinkingConfig with thinkingBudget."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingBudget": 4096},
+            },
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.thinking_budget == 4096
+
+
 class TestTranslationIntegration:
     """Integration tests for the Translation class."""
 

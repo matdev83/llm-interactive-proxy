@@ -290,3 +290,119 @@ class TestStartupValidationProperties:
         )
 
         assert mode.mode == "sso"
+
+
+class TestDisabledProviderAccessProperties:
+    """Property-based tests for direct access to disabled providers."""
+
+    @given(
+        st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+        ),
+    )
+    def test_property_31_direct_access_to_disabled_provider(self, provider_name):
+        """
+        Feature: sso-authentication, Property 31: Direct Access to Disabled Provider
+
+        For any HTTP request to a disabled provider's authentication endpoint,
+        the proxy SHALL return an error response indicating the provider is disabled.
+
+        Validates: Requirements 13.3
+        """
+        # Create a config with the provider explicitly disabled
+        providers = {
+            provider_name: ProviderConfig(
+                type="oauth2",
+                client_id="test_client_id",
+                client_secret="test_client_secret",
+                enabled=False,  # Explicitly disabled
+                discovery_url="https://example.com/.well-known/openid-configuration",
+            ),
+        }
+
+        config = SSOConfig(
+            enabled=True,
+            providers=providers,
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        service = SSOService(config)
+
+        # Verify the provider is NOT in the enabled list
+        enabled = service.get_enabled_providers()
+        assert provider_name not in enabled
+
+        # Verify is_provider_enabled returns False
+        assert not service.is_provider_enabled(provider_name)
+
+        # Verify get_supported_providers still lists it (it's configured, just disabled)
+        supported = service.get_supported_providers()
+        assert provider_name in supported
+
+    @given(
+        st.lists(
+            st.text(
+                min_size=1,
+                max_size=20,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+            ),
+            min_size=2,
+            max_size=5,
+            unique=True,
+        ),
+    )
+    def test_property_31_mixed_enabled_disabled_providers(self, provider_names):
+        """
+        Feature: sso-authentication, Property 31: Direct Access to Disabled Provider
+
+        For any configuration with mixed enabled/disabled providers, accessing
+        a disabled provider's endpoint SHALL return an error, while enabled
+        providers remain accessible.
+
+        Validates: Requirements 13.3
+        """
+        # First half disabled, second half enabled
+        mid = len(provider_names) // 2
+        disabled_providers = provider_names[:mid]
+        enabled_providers = provider_names[mid:]
+
+        providers = {}
+
+        for name in disabled_providers:
+            providers[name] = ProviderConfig(
+                type="oauth2",
+                client_id=f"client_{name}",
+                client_secret=f"secret_{name}",
+                enabled=False,
+                discovery_url="https://example.com/.well-known/openid-configuration",
+            )
+
+        for name in enabled_providers:
+            providers[name] = ProviderConfig(
+                type="oauth2",
+                client_id=f"client_{name}",
+                client_secret=f"secret_{name}",
+                enabled=True,
+                discovery_url="https://example.com/.well-known/openid-configuration",
+            )
+
+        config = SSOConfig(
+            enabled=True,
+            providers=providers,
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        service = SSOService(config)
+        enabled_list = service.get_enabled_providers()
+
+        # Verify disabled providers are NOT in enabled list
+        for name in disabled_providers:
+            assert name not in enabled_list
+            assert not service.is_provider_enabled(name)
+
+        # Verify enabled providers ARE in enabled list
+        for name in enabled_providers:
+            assert name in enabled_list
+            assert service.is_provider_enabled(name)

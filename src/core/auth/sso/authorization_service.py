@@ -8,7 +8,7 @@ confirmation codes and enterprise authorization API integration.
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 import aiosqlite
@@ -139,7 +139,7 @@ class AuthorizationService:
 
         code = self.generate_confirmation_code()
         code_hash = self._hash_code(code)
-        expires_at = datetime.utcnow() + timedelta(
+        expires_at = datetime.now(timezone.utc) + timedelta(
             minutes=self.config.confirmation_code_expiry_minutes
         )
 
@@ -161,7 +161,7 @@ class AuthorizationService:
                         provider,
                         code_hash,
                         self.config.max_confirmation_attempts,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         expires_at.isoformat(),
                         client_ip,
                     ),
@@ -227,7 +227,7 @@ class AuthorizationService:
 
                 # Check expiry
                 expires_at = datetime.fromisoformat(row["expires_at"])
-                if datetime.utcnow() > expires_at:
+                if datetime.now(timezone.utc) > expires_at:
                     # Expired
                     await db.execute(
                         "DELETE FROM pending_authorizations WHERE sso_state = ?",

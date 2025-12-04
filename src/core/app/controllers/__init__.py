@@ -442,14 +442,35 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
             )
 
-    @app.post("/v1beta/models/{model}:generateContent")
+    @app.post("/v1beta/models/{model}:generateContent", response_model=None)
     async def gemini_generate_content(
         model: str,
         request: Request,
         request_data: dict[str, Any] = Body(...),
+        alt: str | None = None,
         service_provider: IServiceProvider = Depends(get_service_provider_dependency),
-    ) -> dict[str, Any]:
-        """Generate content using Gemini API format."""
+    ) -> Any:
+        """Generate content using Gemini API format.
+
+        Args:
+            model: The model identifier from the URL path.
+            request: The FastAPI request object.
+            request_data: The request body.
+            alt: Optional output format. Use 'sse' to get streaming response.
+            service_provider: The DI service provider.
+
+        Returns:
+            A dict with the response or a streaming response if alt=sse.
+        """
+        # If alt=sse, redirect to streaming endpoint
+        if alt is not None and alt.lower() == "sse":
+            return await gemini_stream_generate_content(
+                model=model,
+                request=request,
+                request_data=request_data,
+                alt=alt,
+                service_provider=service_provider,
+            )
         try:
             # Get translation service and backend service
             from src.core.interfaces.backend_service_interface import IBackendService
@@ -650,9 +671,27 @@ def register_versioned_endpoints(app: FastAPI) -> None:
         model: str,
         request: Request,
         request_data: dict[str, Any] = Body(...),
+        alt: str | None = None,
         service_provider: IServiceProvider = Depends(get_service_provider_dependency),
     ) -> Response:
-        """Stream generate content using Gemini API format."""
+        """Stream generate content using Gemini API format.
+
+        Args:
+            model: The model identifier from the URL path.
+            request: The FastAPI request object.
+            request_data: The request body.
+            alt: Optional output format. Use 'sse' for Server-Sent Events format.
+            service_provider: The DI service provider.
+
+        Returns:
+            A streaming response in SSE format.
+        """
+        # Validate alt parameter - only 'sse' or None is valid for streaming
+        if alt is not None and alt.lower() != "sse":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid alt parameter '{alt}'. Use 'sse' for streaming.",
+            )
         try:
             import json
 

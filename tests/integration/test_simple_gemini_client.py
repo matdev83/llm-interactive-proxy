@@ -185,9 +185,10 @@ def test_gemini_generate_content_endpoint_format(gemini_app):
         candidate = data["candidates"][0]
         assert "content" in candidate
         assert "finishReason" in candidate
+        # Gemini API uses STOP for tool calls (there's no TOOL_CALLS finish reason)
         assert (
-            candidate["finishReason"] == "TOOL_CALLS"
-        ), f"Expected TOOL_CALLS, got {candidate['finishReason']}"
+            candidate["finishReason"] == "STOP"
+        ), f"Expected STOP (Gemini uses STOP for tool calls), got {candidate['finishReason']}"
 
         content = candidate["content"]
         assert "parts" in content

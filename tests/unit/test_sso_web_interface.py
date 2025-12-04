@@ -276,3 +276,106 @@ def test_success_endpoint_missing_token(client):
     """Test /auth/success without token parameter."""
     response = client.get("/auth/success")
     assert response.status_code == 400
+
+
+def test_login_disabled_provider_returns_error(
+    sso_config,
+    token_service,
+    database_manager,
+    rate_limit_service,
+    authorization_service,
+    login_token,
+):
+    """
+    Test that accessing a disabled provider's login endpoint returns an error.
+
+    Validates: Requirements 13.3 (Property 31)
+    """
+    # Add a disabled provider to the config
+    sso_config.providers["disabled_provider"] = ProviderConfig(
+        type="oauth2",
+        client_id="disabled_client_id",
+        client_secret="disabled_client_secret",
+        enabled=False,  # Explicitly disabled
+        discovery_url="https://disabled.example.com/.well-known/openid-configuration",
+        scopes=["openid", "email"],
+    )
+
+    app = FastAPI()
+    router = create_sso_router(
+        sso_config=sso_config,
+        sso_service=SSOService(sso_config),
+        token_service=token_service,
+        authorization_service=authorization_service,
+        database_manager=database_manager,
+        rate_limit_service=rate_limit_service,
+        base_url="http://testserver",
+    )
+    app.include_router(router)
+    test_client = TestClient(app)
+
+    # Get login page to extract session
+    login_page = test_client.get(f"/auth/login?token={login_token}")
+    login_session = _extract_login_session(login_page.text)
+
+    # Verify disabled provider is NOT shown on login page
+    assert "disabled_provider" not in login_page.text
+
+    # Attempt to access disabled provider directly
+    response = test_client.post(
+        "/auth/login/disabled_provider",
+        data={"login_session": login_session},
+    )
+
+    # Should return 400 error indicating provider is not available
+    assert response.status_code == 400
+    assert (
+        "Invalid Provider" in response.text or "not available" in response.text.lower()
+    )
+
+
+def test_login_shows_only_enabled_providers(
+    sso_config,
+    token_service,
+    database_manager,
+    rate_limit_service,
+    authorization_service,
+    login_token,
+):
+    """
+    Test that login page shows only enabled providers.
+
+    Validates: Requirements 12.4, 12.5
+    """
+    # Add a disabled provider
+    sso_config.providers["linkedin"] = ProviderConfig(
+        type="oauth2",
+        client_id="linkedin_client_id",
+        client_secret="linkedin_client_secret",
+        enabled=False,  # Disabled
+        authorize_url="https://www.linkedin.com/oauth/v2/authorization",
+        token_url="https://www.linkedin.com/oauth/v2/accessToken",
+        scopes=["openid", "profile", "email"],
+    )
+
+    app = FastAPI()
+    router = create_sso_router(
+        sso_config=sso_config,
+        sso_service=SSOService(sso_config),
+        token_service=token_service,
+        authorization_service=authorization_service,
+        database_manager=database_manager,
+        rate_limit_service=rate_limit_service,
+        base_url="http://testserver",
+    )
+    app.include_router(router)
+    test_client = TestClient(app)
+
+    response = test_client.get(f"/auth/login?token={login_token}")
+
+    # Enabled providers should be shown
+    assert "Google" in response.text
+    assert "GitHub" in response.text
+
+    # Disabled provider should NOT be shown
+    assert "LinkedIn" not in response.text

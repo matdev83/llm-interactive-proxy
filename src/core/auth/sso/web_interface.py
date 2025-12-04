@@ -399,7 +399,7 @@ def create_sso_router(
                     )
 
                 # Authorization successful - check for existing token (re-authentication)
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
 
                 from src.core.auth.sso.models import TokenRecord
 
@@ -416,7 +416,7 @@ def create_sso_router(
                         await token_repo.update_auth_status(
                             existing_token.id,
                             authenticated=True,
-                            expiry=datetime.utcnow()
+                            expiry=datetime.now(timezone.utc)
                             + timedelta(hours=sso_config.session_lifetime_hours),
                         )
 
@@ -448,7 +448,7 @@ def create_sso_router(
                         await token_repo.update_auth_status(
                             existing_token.id,
                             authenticated=True,
-                            expiry=datetime.utcnow()
+                            expiry=datetime.now(timezone.utc)
                             + timedelta(hours=sso_config.session_lifetime_hours),
                         )
 
@@ -474,9 +474,9 @@ def create_sso_router(
                     provider=provider,
                     is_authenticated=True,
                     is_active=True,
-                    created_at=datetime.utcnow(),
-                    last_authenticated_at=datetime.utcnow(),
-                    auth_expires_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    last_authenticated_at=datetime.now(timezone.utc),
+                    auth_expires_at=datetime.now(timezone.utc)
                     + timedelta(hours=sso_config.session_lifetime_hours),
                 )
 
@@ -584,7 +584,7 @@ def create_sso_router(
                     )
 
                 # Check for existing token (re-authentication)
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
 
                 from src.core.auth.sso.models import TokenRecord
 
@@ -597,7 +597,7 @@ def create_sso_router(
                     await token_repo.update_auth_status(
                         existing_token.id,
                         authenticated=True,
-                        expiry=datetime.utcnow()
+                        expiry=datetime.now(timezone.utc)
                         + timedelta(hours=sso_config.session_lifetime_hours),
                     )
 
@@ -620,9 +620,9 @@ def create_sso_router(
                         provider=row["provider"],
                         is_authenticated=True,
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        last_authenticated_at=datetime.utcnow(),
-                        auth_expires_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        last_authenticated_at=datetime.now(timezone.utc),
+                        auth_expires_at=datetime.now(timezone.utc)
                         + timedelta(hours=sso_config.session_lifetime_hours),
                     )
 

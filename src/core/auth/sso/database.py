@@ -8,7 +8,7 @@ authorization tracking, and rate limiting with async support.
 import os
 import secrets
 import stat
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -150,7 +150,7 @@ class DatabaseManager:
         # Record schema version
         await db.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-            (self.SCHEMA_VERSION, datetime.utcnow().isoformat()),
+            (self.SCHEMA_VERSION, datetime.now(timezone.utc).isoformat()),
         )
 
         if current_version < 2:
@@ -402,7 +402,7 @@ class TokenRepository:
                     """,
                     (
                         1 if authenticated else 0,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         expiry.isoformat() if expiry else None,
                         token_id,
                     ),
@@ -516,7 +516,7 @@ class TokenRepository:
             Generated token string
         """
         token = secrets.token_urlsafe(32)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=ttl_minutes)
 
         try:
@@ -572,7 +572,7 @@ class TokenRepository:
                 expires_at = datetime.fromisoformat(row[0])
                 agent_token_id = row[1] if len(row) > 1 else None
 
-                if datetime.utcnow() > expires_at:
+                if datetime.now(timezone.utc) > expires_at:
                     # Delete expired token (cleanup)
                     await db.execute(
                         "DELETE FROM sso_login_tokens WHERE token = ?",

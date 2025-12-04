@@ -204,6 +204,165 @@ class TestOpenAIToGeminiTranslation:
         assert function["parameters"]["properties"]["location"]["type"] == "string"
 
 
+class TestGeminiAPIParityCrossTranslation:
+    """Tests for Gemini API parity cross-translation with new parameters."""
+
+    def test_domain_to_gemini_with_candidate_count(self) -> None:
+        """Test that n parameter translates to candidateCount in Gemini."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            n=3,
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "generationConfig" in gemini_request
+        assert gemini_request["generationConfig"]["candidateCount"] == 3
+
+    def test_domain_to_gemini_with_seed(self) -> None:
+        """Test that seed parameter is preserved in Gemini request."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            seed=42,
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "generationConfig" in gemini_request
+        assert gemini_request["generationConfig"]["seed"] == 42
+
+    def test_domain_to_gemini_with_penalties(self) -> None:
+        """Test that penalty parameters translate to Gemini format."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            presence_penalty=0.5,
+            frequency_penalty=0.3,
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "generationConfig" in gemini_request
+        assert gemini_request["generationConfig"]["presencePenalty"] == 0.5
+        assert gemini_request["generationConfig"]["frequencyPenalty"] == 0.3
+
+    def test_domain_to_gemini_with_logprobs(self) -> None:
+        """Test that logprobs parameters translate to Gemini format."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            logprobs=True,
+            top_logprobs=5,
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "generationConfig" in gemini_request
+        assert gemini_request["generationConfig"]["responseLogprobs"] is True
+        assert gemini_request["generationConfig"]["logprobs"] == 5
+
+    def test_domain_to_gemini_with_response_format_json_schema(self) -> None:
+        """Test that response_format with json_schema translates correctly."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "test_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                    },
+                },
+            },
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "generationConfig" in gemini_request
+        gen_config = gemini_request["generationConfig"]
+        assert gen_config["responseMimeType"] == "application/json"
+        assert "responseSchema" in gen_config
+        assert gen_config["responseSchema"]["type"] == "object"
+
+    def test_domain_to_gemini_with_safety_settings_passthrough(self) -> None:
+        """Test that safety settings in extra_body are passed through."""
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+            },
+        ]
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            extra_body={"gemini_safety_settings": safety_settings},
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "safetySettings" in gemini_request
+        assert len(gemini_request["safetySettings"]) == 1
+        assert (
+            gemini_request["safetySettings"][0]["category"]
+            == "HARM_CATEGORY_HARASSMENT"
+        )
+
+    def test_domain_to_gemini_with_cached_content_passthrough(self) -> None:
+        """Test that cached content in extra_body is passed through."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            extra_body={"gemini_cached_content": "cachedContents/abc123"},
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "cachedContent" in gemini_request
+        assert gemini_request["cachedContent"] == "cachedContents/abc123"
+
+    def test_gemini_to_domain_to_gemini_roundtrip(self) -> None:
+        """Test that Gemini -> Domain -> Gemini preserves key parameters."""
+        from src.core.domain.gemini_translation import (
+            gemini_request_to_canonical_request,
+        )
+
+        original_request = {
+            "model": "gemini-1.5-pro",
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "topP": 0.9,
+                "topK": 40,
+                "maxOutputTokens": 1000,
+                "candidateCount": 2,
+                "seed": 42,
+                "presencePenalty": 0.5,
+                "frequencyPenalty": 0.3,
+            },
+        }
+
+        # Gemini -> Domain
+        domain_request = gemini_request_to_canonical_request(original_request)
+
+        # Domain -> Gemini
+        gemini_request = Translation.from_domain_to_gemini_request(domain_request)
+
+        # Verify key parameters are preserved
+        gen_config = gemini_request["generationConfig"]
+        assert gen_config["temperature"] == 0.7
+        assert gen_config["topP"] == 0.9
+        assert gen_config["topK"] == 40
+        assert gen_config["maxOutputTokens"] == 1000
+        assert gen_config["candidateCount"] == 2
+        assert gen_config["seed"] == 42
+        assert gen_config["presencePenalty"] == 0.5
+        assert gen_config["frequencyPenalty"] == 0.3
+
+
 class TestOpenAIToAnthropicTranslation:
     """Tests for OpenAI to Anthropic translation."""
 

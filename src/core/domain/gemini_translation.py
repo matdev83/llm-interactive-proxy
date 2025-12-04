@@ -4,6 +4,7 @@ Gemini translation utilities.
 This module provides utilities for translating between Gemini API format and other formats.
 """
 
+import contextlib
 import json
 from typing import Any
 
@@ -414,10 +415,10 @@ def canonical_response_to_gemini_response(
                             args = function_call.get("arguments", {})
                             # Parse JSON args if it's a string
                             if isinstance(args, str):
-                                try:
+                                with contextlib.suppress(
+                                    json.JSONDecodeError, TypeError
+                                ):
                                     args = json.loads(args)
-                                except (json.JSONDecodeError, TypeError):
-                                    pass
                             parts.append(
                                 {
                                     "functionCall": {
@@ -446,7 +447,7 @@ def canonical_response_to_gemini_response(
                 candidate["safetyRatings"] = []
 
                 # Add logprobs if present
-                if "logprobs" in choice and choice["logprobs"]:
+                if choice.get("logprobs"):
                     candidate["avgLogprobs"] = choice["logprobs"].get(
                         "avg_logprob", None
                     )
@@ -507,10 +508,8 @@ def canonical_response_to_gemini_response(
                     function_call = tool_call.get("function", {})
                     args = function_call.get("arguments", "")
                     if isinstance(args, str) and args:
-                        try:
+                        with contextlib.suppress(json.JSONDecodeError, TypeError):
                             args = json.loads(args)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
                     if function_call.get("name"):
                         stream_parts.append(
                             {
