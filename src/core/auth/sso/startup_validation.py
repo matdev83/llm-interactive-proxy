@@ -87,7 +87,7 @@ class StartupValidator:
         Raises:
             ConfigurationError: If SSO mode is invalid
 
-        Validates: Requirements 1.2
+        Validates: Requirements 1.2, 13.4
         """
         if mode.mode != "sso":
             return
@@ -108,14 +108,30 @@ class StartupValidator:
                 "SSO mode enabled but no identity providers configured"
             )
 
+        # Validate that at least one provider is enabled and properly configured
+        from src.core.auth.sso.sso_service import SSOService
+
+        sso_service = SSOService(mode.sso_config)
+        enabled_providers = sso_service.get_enabled_providers()
+
+        if not enabled_providers:
+            raise ConfigurationError(
+                "SSO mode enabled but no identity providers are enabled and properly configured. "
+                "At least one provider must have valid credentials (client_id, client_secret, "
+                "discovery_url or authorize_url) and not be explicitly disabled (enabled: false)."
+            )
+
+        logger.info(
+            f"SSO mode validation passed with {len(enabled_providers)} enabled provider(s): "
+            f"{', '.join(enabled_providers)}"
+        )
+
         if mode.sso_config.captcha and mode.sso_config.captcha.enabled:
             captcha_config = mode.sso_config.captcha
             if not captcha_config.site_key or not captcha_config.secret_key:
                 raise ConfigurationError(
                     "Captcha is enabled for the SSO login form but site_key or secret_key is missing",
                 )
-
-        logger.info("SSO mode validation passed")
 
     def validate_no_auth_mode(self, mode: AuthenticationMode) -> None:
         """

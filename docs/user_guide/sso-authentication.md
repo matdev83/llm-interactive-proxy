@@ -68,7 +68,9 @@ The proxy supports the following identity providers out of the box:
 | **LinkedIn** | OAuth2 | Professional network authentication |
 | **AWS IAM Identity Center** | OAuth2/OIDC | AWS SSO, enterprise AWS accounts |
 
-See [Identity Provider Setup Guide](./sso_idp_setup.md) for detailed configuration instructions.
+**All five providers are enabled by default** when you configure their credentials. Users will see all configured providers on the SSO login page and can choose their preferred authentication method. Administrators can selectively disable specific providers by setting `enabled: false` in the configuration.
+
+See [Identity Provider Setup Guide](./sso-idp-setup.md) for detailed configuration instructions.
 
 ## Authorization Modes
 

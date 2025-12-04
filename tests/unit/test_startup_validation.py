@@ -146,6 +146,7 @@ class TestValidateStartupConfiguration:
                     type="oauth2",
                     client_id="test-client-id",
                     client_secret="test-client-secret",
+                    discovery_url="https://accounts.google.com/.well-known/openid-configuration",
                 )
             },
             authorization=AuthorizationConfig(mode="single_user"),
@@ -181,3 +182,112 @@ class TestValidateStartupConfiguration:
             validate_startup_configuration(
                 host="0.0.0.0",
             )
+
+    def test_sso_with_all_providers_disabled(self):
+        """Test that SSO mode fails when all providers are explicitly disabled."""
+        sso_config = SSOConfig(
+            enabled=True,
+            providers={
+                "google": ProviderConfig(
+                    type="oauth2",
+                    client_id="test-client-id",
+                    client_secret="test-client-secret",
+                    enabled=False,  # Explicitly disabled
+                    discovery_url="https://accounts.google.com/.well-known/openid-configuration",
+                ),
+                "github": ProviderConfig(
+                    type="oauth2",
+                    client_id="test-client-id",
+                    client_secret="test-client-secret",
+                    enabled=False,  # Explicitly disabled
+                    authorize_url="https://github.com/login/oauth/authorize",
+                    token_url="https://github.com/login/oauth/access_token",
+                ),
+            },
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_startup_configuration(
+                host="127.0.0.1",
+                sso_config=sso_config,
+            )
+
+        assert "no identity providers are enabled" in str(exc_info.value).lower()
+
+    def test_sso_with_providers_missing_credentials(self):
+        """Test that SSO mode fails when providers have missing credentials."""
+        sso_config = SSOConfig(
+            enabled=True,
+            providers={
+                "google": ProviderConfig(
+                    type="oauth2",
+                    client_id="",  # Missing client_id
+                    client_secret="test-client-secret",
+                    discovery_url="https://accounts.google.com/.well-known/openid-configuration",
+                ),
+            },
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_startup_configuration(
+                host="127.0.0.1",
+                sso_config=sso_config,
+            )
+
+        assert "no identity providers are enabled" in str(exc_info.value).lower()
+
+    def test_sso_with_providers_missing_endpoints(self):
+        """Test that SSO mode fails when OAuth2 providers have no discovery_url or authorize_url."""
+        sso_config = SSOConfig(
+            enabled=True,
+            providers={
+                "custom": ProviderConfig(
+                    type="oauth2",
+                    client_id="test-client-id",
+                    client_secret="test-client-secret",
+                    # Missing both discovery_url and authorize_url
+                ),
+            },
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_startup_configuration(
+                host="127.0.0.1",
+                sso_config=sso_config,
+            )
+
+        assert "no identity providers are enabled" in str(exc_info.value).lower()
+
+    def test_sso_with_at_least_one_enabled_provider(self):
+        """Test that SSO mode succeeds when at least one provider is properly configured."""
+        sso_config = SSOConfig(
+            enabled=True,
+            providers={
+                "google": ProviderConfig(
+                    type="oauth2",
+                    client_id="test-client-id",
+                    client_secret="test-client-secret",
+                    enabled=True,
+                    discovery_url="https://accounts.google.com/.well-known/openid-configuration",
+                ),
+                "github": ProviderConfig(
+                    type="oauth2",
+                    client_id="test-client-id",
+                    client_secret="test-client-secret",
+                    enabled=False,  # This one is disabled
+                    authorize_url="https://github.com/login/oauth/authorize",
+                    token_url="https://github.com/login/oauth/access_token",
+                ),
+            },
+            authorization=AuthorizationConfig(mode="single_user"),
+        )
+
+        mode = validate_startup_configuration(
+            host="127.0.0.1",
+            sso_config=sso_config,
+        )
+
+        assert mode.mode == "sso"

@@ -12,6 +12,40 @@ The LLM Proxy supports the following identity providers:
 - **LinkedIn** - OAuth2
 - **AWS IAM Identity Center** (formerly AWS SSO) - OAuth2/OIDC
 
+## Provider Selection
+
+**All five providers are enabled by default** when you configure their credentials. Users will see all configured providers on the SSO login page and can choose their preferred authentication method.
+
+### Enabling/Disabling Providers
+
+- **To enable a provider**: Configure its `client_id`, `client_secret`, and endpoint URLs. The provider will automatically appear on the login page.
+- **To disable a provider**: Set `enabled: false` in the provider configuration, or remove the provider section entirely.
+- **Requirement**: At least one provider must be enabled for SSO mode to start.
+
+**Example - Disable GitHub while keeping Google enabled:**
+
+```yaml
+sso:
+  enabled: true
+  providers:
+    google:
+      enabled: true  # This provider will appear on login page
+      type: "oauth2"
+      client_id: "YOUR_CLIENT_ID"
+      client_secret: "YOUR_SECRET"
+      discovery_url: "https://accounts.google.com/.well-known/openid-configuration"
+      scopes: ["openid", "email", "profile"]
+    
+    github:
+      enabled: false  # This provider will NOT appear on login page
+      type: "oauth2"
+      client_id: "YOUR_CLIENT_ID"
+      client_secret: "YOUR_SECRET"
+      authorize_url: "https://github.com/login/oauth/authorize"
+      token_url: "https://github.com/login/oauth/access_token"
+      scopes: ["user:email", "read:user"]
+```
+
 ## Quick Start
 
 ### Using Configuration File
@@ -83,7 +117,8 @@ from src.core.auth.sso import create_google_config
 
 config = create_google_config(
     client_id="123456789.apps.googleusercontent.com",
-    client_secret="GOCSPX-abc123def456"
+    client_secret="GOCSPX-abc123def456",
+    enabled=True  # Optional: defaults to True
 )
 ```
 

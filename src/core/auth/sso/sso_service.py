@@ -46,6 +46,63 @@ class SSOService:
         """
         return list(self.config.providers.keys())
 
+    def get_enabled_providers(self) -> list[str]:
+        """
+        Return list of enabled and configured identity providers.
+
+        A provider is included if:
+        - It has valid configuration (client_id, client_secret, discovery_url or authorize_url)
+        - It is not explicitly disabled (enabled: false)
+
+        Returns:
+            List of enabled provider names
+        """
+        enabled = []
+        for name, _config in self.config.providers.items():
+            if self.is_provider_enabled(name):
+                enabled.append(name)
+        return enabled
+
+    def is_provider_enabled(self, provider: str) -> bool:
+        """
+        Check if a specific provider is enabled and configured.
+
+        A provider is considered enabled if:
+        1. It exists in the configuration
+        2. It has the enabled flag set to True (or not set, defaulting to True)
+        3. It has valid configuration (client_id, client_secret)
+        4. It has either discovery_url (OIDC) or authorize_url (manual OAuth2)
+
+        Args:
+            provider: Provider name
+
+        Returns:
+            True if provider is enabled and configured, False otherwise
+        """
+        if provider not in self.config.providers:
+            return False
+
+        config = self.config.providers[provider]
+
+        # Check if explicitly disabled
+        if not config.enabled:
+            return False
+
+        # Check if has required credentials
+        if not config.client_id or not config.client_secret:
+            return False
+
+        # Check if has endpoint configuration
+        if config.type == "oauth2":
+            # OAuth2 requires either discovery_url or authorize_url
+            if not config.discovery_url and not config.authorize_url:
+                return False
+        elif config.type == "saml" and not config.metadata_url:
+            # SAML requires metadata_url
+            return False
+
+        return True
+
     def _get_provider_config(self, provider: str) -> ProviderConfig:
         """
         Get provider configuration or raise error.

@@ -8,7 +8,9 @@ making it easy to integrate with Google, Microsoft, GitHub, LinkedIn, and AWS.
 from src.core.auth.sso.config import ProviderConfig
 
 
-def create_google_config(client_id: str, client_secret: str) -> ProviderConfig:
+def create_google_config(
+    client_id: str, client_secret: str, enabled: bool = True
+) -> ProviderConfig:
     """
     Create Google OAuth2/OIDC provider configuration.
 
@@ -43,6 +45,7 @@ def create_google_config(client_id: str, client_secret: str) -> ProviderConfig:
         type="oauth2",
         client_id=client_id,
         client_secret=client_secret,
+        enabled=enabled,
         discovery_url="https://accounts.google.com/.well-known/openid-configuration",
         scopes=["openid", "email", "profile"],
     )
@@ -52,6 +55,7 @@ def create_microsoft_config(
     client_id: str,
     client_secret: str,
     tenant_id: str = "common",
+    enabled: bool = True,
 ) -> ProviderConfig:
     """
     Create Microsoft Azure AD/Entra ID OAuth2/OIDC provider configuration.
@@ -108,12 +112,15 @@ def create_microsoft_config(
         type="oauth2",
         client_id=client_id,
         client_secret=client_secret,
+        enabled=enabled,
         discovery_url=discovery_url,
         scopes=["openid", "email", "profile"],
     )
 
 
-def create_github_config(client_id: str, client_secret: str) -> ProviderConfig:
+def create_github_config(
+    client_id: str, client_secret: str, enabled: bool = True
+) -> ProviderConfig:
     """
     Create GitHub OAuth2 provider configuration.
 
@@ -151,6 +158,7 @@ def create_github_config(client_id: str, client_secret: str) -> ProviderConfig:
         type="oauth2",
         client_id=client_id,
         client_secret=client_secret,
+        enabled=enabled,
         authorize_url="https://github.com/login/oauth/authorize",
         token_url="https://github.com/login/oauth/access_token",
         userinfo_url="https://api.github.com/user",
@@ -158,7 +166,9 @@ def create_github_config(client_id: str, client_secret: str) -> ProviderConfig:
     )
 
 
-def create_linkedin_config(client_id: str, client_secret: str) -> ProviderConfig:
+def create_linkedin_config(
+    client_id: str, client_secret: str, enabled: bool = True
+) -> ProviderConfig:
     """
     Create LinkedIn OAuth2 provider configuration.
 
@@ -196,6 +206,7 @@ def create_linkedin_config(client_id: str, client_secret: str) -> ProviderConfig
         type="oauth2",
         client_id=client_id,
         client_secret=client_secret,
+        enabled=enabled,
         authorize_url="https://www.linkedin.com/oauth/v2/authorization",
         token_url="https://www.linkedin.com/oauth/v2/accessToken",
         # LinkedIn userinfo is fetched via provider-specific logic in SSOService
@@ -208,6 +219,7 @@ def create_aws_iam_identity_center_config(
     client_id: str,
     client_secret: str,
     region: str = "us-east-1",
+    enabled: bool = True,
     _start_url: str | None = None,
 ) -> ProviderConfig:
     """
@@ -277,6 +289,7 @@ def create_aws_iam_identity_center_config(
         type="oauth2",
         client_id=client_id,
         client_secret=client_secret,
+        enabled=enabled,
         discovery_url=discovery_url,
         scopes=["openid", "email", "profile"],
     )

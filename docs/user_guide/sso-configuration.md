@@ -48,9 +48,12 @@ sso:
     widget_mode: "invisible"
   
   # Identity providers
+  # All five providers (Google, Microsoft, GitHub, LinkedIn, AWS) are available
+  # by default when configured. To disable a specific provider, set enabled: false
   providers:
     # Google OAuth2/OIDC
     google:
+      enabled: true  # Optional: set to false to disable this provider
       type: "oauth2"
       client_id: "123.apps.googleusercontent.com"
       client_secret: "GOCSPX-secret"
@@ -59,6 +62,7 @@ sso:
     
     # Microsoft Azure AD/Entra ID
     microsoft:
+      enabled: true  # Optional: set to false to disable this provider
       type: "oauth2"
       client_id: "12345678-1234-1234-1234-123456789012"
       client_secret: "secret"
@@ -67,6 +71,7 @@ sso:
     
     # GitHub OAuth2
     github:
+      enabled: true  # Optional: set to false to disable this provider
       type: "oauth2"
       client_id: "Iv1.abc123"
       client_secret: "secret"
@@ -77,6 +82,7 @@ sso:
     
     # LinkedIn OAuth2
     linkedin:
+      enabled: true  # Optional: set to false to disable this provider
       type: "oauth2"
       client_id: "abc123"
       client_secret: "secret"
@@ -86,6 +92,7 @@ sso:
     
     # AWS IAM Identity Center
     aws:
+      enabled: true  # Optional: set to false to disable this provider
       type: "oauth2"
       client_id: "abc123"
       client_secret: "secret"
@@ -134,15 +141,27 @@ Use Cloudflare Turnstile to protect the public `/auth/login` form without pre-re
 
 ### Provider Options
 
+**Provider Selection Behavior:**
+- All five supported providers (Google, Microsoft, GitHub, LinkedIn, AWS IAM Identity Center) are available by default when configured
+- A provider appears on the login page if it has valid credentials AND is not explicitly disabled
+- At least one provider must be enabled for SSO mode to start
+- Providers without credentials or with `enabled: false` are automatically hidden from the login page
+
+#### Common Provider Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | boolean | No | true | Enable/disable this provider. Set to false to hide from login page |
+| `type` | string | Yes | - | Must be "oauth2" |
+| `client_id` | string | Yes | - | OAuth2 client ID from IdP |
+| `client_secret` | string | Yes | - | OAuth2 client secret from IdP |
+| `scopes` | array | Yes | - | List of OAuth2 scopes to request |
+
 #### OAuth2/OIDC with Discovery (Google, Microsoft, AWS)
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `type` | string | Yes | Must be "oauth2" |
-| `client_id` | string | Yes | OAuth2 client ID from IdP |
-| `client_secret` | string | Yes | OAuth2 client secret from IdP |
 | `discovery_url` | string | Yes | OIDC discovery endpoint URL |
-| `scopes` | array | Yes | List of OAuth2 scopes to request |
 
 #### OAuth2 Manual Configuration (GitHub, LinkedIn)
 

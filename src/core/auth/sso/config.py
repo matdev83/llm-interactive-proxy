@@ -16,6 +16,7 @@ class ProviderConfig:
     type: Literal["oauth2", "saml"]
     client_id: str
     client_secret: str
+    enabled: bool = True  # Default: True (provider is enabled)
     discovery_url: str | None = None  # For OIDC
     metadata_url: str | None = None  # For SAML
     authorize_url: str | None = None  # Manual OAuth2
@@ -43,7 +44,7 @@ class AuthorizationConfig:
 class CaptchaConfig:
     """Configuration for bot protection on the public SSO form."""
 
-    enabled: bool = True
+    enabled: bool = False  # Default: disabled (requires site_key and secret_key)
     provider: Literal["cloudflare_turnstile"] = "cloudflare_turnstile"
     site_key: str | None = None
     secret_key: str | None = None

@@ -169,11 +169,48 @@ def example_convenience_function():
     print()
 
 
+def example_provider_selection():
+    """Example: Enabling and disabling specific providers."""
+    print("=== Provider Selection (Enable/Disable) ===")
+
+    # All providers are enabled by default
+    google_enabled = create_google_config(
+        client_id="123.apps.googleusercontent.com",
+        client_secret="GOCSPX-secret",
+        enabled=True,  # Default: True
+    )
+    print(f"Google enabled: {google_enabled.enabled}")
+
+    # Explicitly disable a provider
+    github_disabled = create_github_config(
+        client_id="Iv1.abc123",
+        client_secret="github_secret",
+        enabled=False,  # This provider won't appear on login page
+    )
+    print(f"GitHub enabled: {github_disabled.enabled}")
+
+    # Create SSO config with mixed enabled/disabled providers
+    sso_config = SSOConfig(
+        enabled=True,
+        providers={
+            "google": google_enabled,  # Will appear on login page
+            "github": github_disabled,  # Will NOT appear on login page
+        },
+    )
+
+    print(f"\nConfigured providers: {list(sso_config.providers.keys())}")
+    print("Note: Only Google will appear on the login page")
+    print()
+
+
 def example_full_sso_config():
     """Example: Creating a complete SSO configuration with multiple providers."""
     print("=== Complete SSO Configuration ===")
 
     # Create SSO configuration
+    # All five providers (Google, Microsoft, GitHub, LinkedIn, AWS) are
+    # enabled by default when configured. Users will see all configured
+    # providers on the login page.
     sso_config = SSOConfig(
         enabled=True,
         session_lifetime_hours=24,
@@ -231,6 +268,7 @@ def main():
     example_linkedin_configuration()
     example_aws_configuration()
     example_convenience_function()
+    example_provider_selection()
     example_full_sso_config()
 
 

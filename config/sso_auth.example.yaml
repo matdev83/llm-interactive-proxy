@@ -38,11 +38,14 @@ sso:
     # timeout_seconds: 5.0
 
   # Identity Provider Configurations
-  # Configure one or more providers below
+  # All five providers below are available by default when configured.
+  # To use a provider, fill in the credentials (client_id, client_secret, etc.)
+  # To disable a provider, set "enabled: false"
   providers:
     # Google OAuth2/OIDC
     # Setup: https://console.cloud.google.com/apis/credentials
     google:
+      enabled: true  # Set to false to disable this provider
       type: "oauth2"
       client_id: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
       client_secret: "YOUR_GOOGLE_CLIENT_SECRET"
@@ -55,6 +58,7 @@ sso:
     # Microsoft Azure AD / Entra ID
     # Setup: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RegisteredApps
     microsoft:
+      enabled: true  # Set to false to disable this provider
       type: "oauth2"
       client_id: "YOUR_AZURE_CLIENT_ID"
       client_secret: "YOUR_AZURE_CLIENT_SECRET"
@@ -72,6 +76,7 @@ sso:
     # GitHub OAuth2
     # Setup: https://github.com/settings/developers
     github:
+      enabled: true  # Set to false to disable this provider
       type: "oauth2"
       client_id: "YOUR_GITHUB_CLIENT_ID"
       client_secret: "YOUR_GITHUB_CLIENT_SECRET"
@@ -85,6 +90,7 @@ sso:
     # LinkedIn OAuth2
     # Setup: https://www.linkedin.com/developers/apps
     linkedin:
+      enabled: true  # Set to false to disable this provider
       type: "oauth2"
       client_id: "YOUR_LINKEDIN_CLIENT_ID"
       client_secret: "YOUR_LINKEDIN_CLIENT_SECRET"
@@ -98,6 +104,7 @@ sso:
     # AWS IAM Identity Center (formerly AWS SSO)
     # Setup: IAM Identity Center > Applications > Add application
     aws:
+      enabled: true  # Set to false to disable this provider
       type: "oauth2"
       client_id: "YOUR_AWS_CLIENT_ID"
       client_secret: "YOUR_AWS_CLIENT_SECRET"
@@ -110,17 +117,32 @@ sso:
 
 # Usage Notes:
 #
-# 1. Choose ONE or MORE providers to enable
-# 2. Remove or comment out providers you don't need
-# 3. Fill in YOUR_* placeholders with actual credentials
-# 4. For Microsoft, adjust the tenant ID in the discovery_url
-# 5. For AWS, adjust the region in the discovery_url
+# 1. All five providers (Google, Microsoft, GitHub, LinkedIn, AWS) are available
+#    by default when you configure their credentials
 #
-# 6. Redirect URI for all providers should be:
-#    http://localhost:8080/auth/callback (adjust port if needed)
+# 2. To enable a provider:
+#    - Fill in the client_id, client_secret, and discovery_url/authorize_url
+#    - Ensure "enabled: true" (this is the default)
 #
-# 7. Start the proxy with SSO enabled:
+# 3. To disable a provider:
+#    - Set "enabled: false" for that provider
+#    - Or remove/comment out the entire provider section
+#
+# 4. At least ONE provider must be enabled and configured
+#
+# 5. For Microsoft, adjust the tenant ID in the discovery_url:
+#    - "common" for multi-tenant
+#    - "organizations" for work/school only
+#    - Specific tenant ID for single-tenant
+#
+# 6. For AWS, adjust the region in the discovery_url (e.g., us-east-1)
+#
+# 7. Redirect URI for all providers should be:
+#    http://localhost:8080/auth/callback (adjust host/port if needed)
+#
+# 8. Start the proxy with SSO enabled:
 #    python -m src.anthropic_server --sso-config config/sso_auth.yaml
 #
-# 8. Users will authenticate via browser, then receive an agent token
-#    to configure in their AI coding agent (Cursor, Continue, Cline, etc.)
+# 9. Users will see all enabled providers on the login page, choose one,
+#    authenticate via browser, then receive an agent token to configure
+#    in their AI coding agent (Cursor, Continue, Cline, etc.)
