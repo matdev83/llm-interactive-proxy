@@ -75,8 +75,9 @@ async def test_gemini_models_cached() -> None:
     # Set the models manually for testing
     backend.available_models = ["g1"]
 
-    # Verify that the models are set
-    assert backend.get_available_models() == ["g1"]
+    # Verify that the models are set (with vendor prefix)
+    # Note: get_available_models() now returns vendor-prefixed model names
+    assert backend.get_available_models() == ["google/g1"]
 
 
 def test_auto_default_backend(monkeypatch) -> None:

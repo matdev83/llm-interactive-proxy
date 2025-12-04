@@ -11,7 +11,7 @@ from typing import Any, cast
 import httpx
 from fastapi import HTTPException
 
-from src.connectors.base import LLMBackend
+from src.connectors.base import LLMBackend, add_vendor_prefix
 from src.connectors.mixins.usage_calculation_mixin import UsageCalculationMixin
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -51,6 +51,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
     """
 
     backend_type: str = "gemini"
+
+    # Vendor prefix for Google models in unified model routing
+    VENDOR_PREFIX: str = "google"
 
     def __init__(
         self,
@@ -102,13 +105,28 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 self.available_models = []
 
     def get_available_models(self) -> list[str]:
-        """Return cached Gemini model names. For immediate use, prefer async version."""
-        return list(self.available_models)
+        """Return cached Gemini model names with vendor prefix.
+
+        Returns:
+            List of model names with 'google/' vendor prefix.
+            For example: ['google/gemini-pro', 'google/gemini-pro-vision']
+        """
+        return [
+            add_vendor_prefix(m, self.VENDOR_PREFIX)
+            for m in (self.available_models or [])
+        ]
 
     async def get_available_models_async(self) -> list[str]:
-        """Return Gemini model names, fetching them if not cached."""
+        """Return Gemini model names with vendor prefix, fetching them if not cached.
+
+        Returns:
+            List of model names with 'google/' vendor prefix.
+        """
         await self._ensure_models_loaded()
-        return list(self.available_models)
+        return [
+            add_vendor_prefix(m, self.VENDOR_PREFIX)
+            for m in (self.available_models or [])
+        ]
 
     # Translation is now handled by TranslationService
 

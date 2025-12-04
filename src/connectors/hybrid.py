@@ -150,6 +150,19 @@ class HybridConnector(LLMBackend):
 
         logger.info("Hybrid backend initialized successfully")
 
+    def get_available_models(self) -> list[str]:
+        """Return available models for the hybrid backend.
+
+        The hybrid backend is a meta-connector that composes other backends.
+        It doesn't have its own models - instead, you specify backend:model
+        pairs in the request using the format:
+        "hybrid:[reasoning-backend:model,execution-backend:model]"
+
+        Returns:
+            Empty list - models are specified per-request, not enumerated.
+        """
+        return []
+
     def _parse_hybrid_model_spec(self, model_spec: str) -> HybridModelSpec:
         """Parse hybrid model specification with optional URI parameters.
 

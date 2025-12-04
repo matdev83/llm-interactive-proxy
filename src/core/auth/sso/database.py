@@ -572,6 +572,9 @@ class TokenRepository:
                 expires_at = datetime.fromisoformat(row[0])
                 agent_token_id = row[1] if len(row) > 1 else None
 
+                # Assume UTC if no timezone info
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) > expires_at:
                     # Delete expired token (cleanup)
                     await db.execute(

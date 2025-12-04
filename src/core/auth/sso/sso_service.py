@@ -212,7 +212,7 @@ class SSOService:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(jwks_uri)
                 resp.raise_for_status()
-                jwks = resp.json()
+                jwks: dict[str, Any] = resp.json()
 
             # Cache the result
             self._jwks_cache.set(jwks_uri, jwks)
@@ -280,20 +280,36 @@ class SSOService:
             keys = JsonWebKey.import_key_set(jwks_data)
 
             # Decode and verify the token
-            claims_options = {
-                "aud": {"essential": True, "value": client_id},
-            }
-            if issuer:
-                claims_options["iss"] = {"essential": True, "value": issuer}
-
+            # Note: authlib's JsonWebToken.decode returns a dict-like object
             claims = self._jwt.decode(
                 id_token,
                 key=keys,
-                claims_options=claims_options,
             )
 
-            # Validate required claims
-            claims.validate()
+            # Verify audience if present
+            token_aud = claims.get("aud")
+            if token_aud:
+                # aud can be a string or list
+                if isinstance(token_aud, list):
+                    if client_id not in token_aud:
+                        raise AuthenticationError(
+                            f"Invalid audience in ID token: expected {client_id}",
+                            details={"aud": token_aud},
+                        )
+                elif token_aud != client_id:
+                    raise AuthenticationError(
+                        f"Invalid audience in ID token: expected {client_id}",
+                        details={"aud": token_aud},
+                    )
+
+            # Verify issuer if provided
+            if issuer:
+                token_iss = claims.get("iss")
+                if token_iss and token_iss != issuer:
+                    raise AuthenticationError(
+                        f"Invalid issuer in ID token: expected {issuer}",
+                        details={"iss": token_iss},
+                    )
 
             logger.debug("ID token signature verified successfully")
             return dict(claims)

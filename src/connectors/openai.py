@@ -36,7 +36,7 @@ from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
-from .base import LLMBackend
+from .base import LLMBackend, add_vendor_prefix
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -52,6 +52,12 @@ class OpenAIConnector(LLMBackend):
     """
 
     backend_type: str = "openai"
+
+    # Vendor prefix for model names in unified model routing.
+    # Subclasses should override this to use their vendor name.
+    # Set to None for multi-vendor backends (like OpenRouter) that receive
+    # models already prefixed from upstream.
+    VENDOR_PREFIX: str | None = "openai"
 
     def __init__(
         self,
@@ -1109,6 +1115,22 @@ class OpenAIConnector(LLMBackend):
         response.raise_for_status()
         result = response.json()
         return result  # type: ignore[no-any-return]  # type: ignore[no-any-return]
+
+    def get_available_models(self) -> list[str]:
+        """Return available models with vendor prefix for unified model routing.
+
+        Uses the class-level VENDOR_PREFIX to prefix model names. Subclasses
+        can override VENDOR_PREFIX to use their vendor name, or set it to None
+        for multi-vendor backends that receive pre-prefixed models from upstream.
+
+        Returns:
+            List of model names with vendor prefix (e.g., ['openai/gpt-4']).
+        """
+        models = self.available_models or []
+        if self.VENDOR_PREFIX is None:
+            # Multi-vendor backend: models are already prefixed from upstream
+            return list(models)
+        return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in models]
 
     # StreamProducer protocol implementation
     async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:

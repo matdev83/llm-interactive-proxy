@@ -248,6 +248,9 @@ class TestBackendServiceTargeted:
             ) -> None:  # pragma: no cover - unused
                 return None
 
+            def get_available_models(self) -> list[str]:
+                return ["google/gemini-2.5-pro"]
+
             async def chat_completions(  # pragma: no cover - unused in this test
                 self,
                 request_data: ChatRequest,

@@ -48,6 +48,7 @@ from src.connectors._openai_codex_capabilities import (
 from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
 from src.connectors._openai_codex_request_translator import CodexRequestTranslator
 from src.connectors._openai_codex_session_detector import SessionDetector
+from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
@@ -62,6 +63,9 @@ from src.core.services.translation_service import TranslationService
 from src.core.services.universal_tool_executor import UniversalToolExecutor
 
 logger = logging.getLogger(__name__)
+
+# Vendor prefix for OpenAI models in unified model naming convention
+OPENAI_VENDOR_PREFIX = "openai"
 
 
 def _load_json_env(var_name: str) -> Any:
@@ -3455,6 +3459,9 @@ class OpenAICodexConnector(OpenAIConnector):
         identity: Any | None = None,
         **kwargs: Any,
     ):
+        # Strip vendor prefix (e.g., "openai/") for unified model naming
+        effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
+
         # Validate restricted access
         if not self._enable_codex_backend_debugging_override:
             logger.warning(
@@ -3547,6 +3554,18 @@ class OpenAICodexConnector(OpenAIConnector):
             ):
                 self._degrade([f"Authentication failed: {e!s}"])
             raise
+
+    def get_available_models(self) -> list[str]:
+        """Return available models with vendor prefix for unified model routing.
+
+        Returns:
+            List of available model names with 'openai/' vendor prefix.
+            For example: ['openai/gpt-4', 'openai/gpt-3.5-turbo']
+        """
+        return [
+            add_vendor_prefix(m, OPENAI_VENDOR_PREFIX)
+            for m in (self.available_models or [])
+        ]
 
     def __del__(self) -> None:
         """Cleanup file watcher on destruction."""

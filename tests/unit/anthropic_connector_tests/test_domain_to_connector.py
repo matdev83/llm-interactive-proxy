@@ -556,11 +556,12 @@ async def test_list_models(
     assert models_data[0]["name"] == "claude-3-opus-20240229"
 
     # Verify that available_models is populated
+    # Note: get_available_models() returns vendor-prefixed model names
     await anthropic_backend._ensure_models_loaded()
     available_models = anthropic_backend.get_available_models()
-    assert "claude-3-opus-20240229" in available_models
-    assert "claude-3-sonnet-20240229" in available_models
-    assert "claude-3-haiku-20240307" in available_models
+    assert "anthropic/claude-3-opus-20240229" in available_models
+    assert "anthropic/claude-3-sonnet-20240229" in available_models
+    assert "anthropic/claude-3-haiku-20240307" in available_models
     assert len(available_models) == 3
 
 

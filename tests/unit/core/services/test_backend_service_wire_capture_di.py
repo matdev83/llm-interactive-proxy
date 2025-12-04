@@ -75,6 +75,10 @@ class DummyBackend(LLMBackend):
     async def models(self):
         return []
 
+    def get_available_models(self) -> list[str]:
+        """Return empty list for mock."""
+        return []
+
 
 class DummyAppState(IApplicationState):
     def __init__(self):

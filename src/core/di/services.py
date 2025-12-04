@@ -1805,6 +1805,35 @@ def register_core_services(
                         exc_info=True,
                     )
 
+            # Register DroidAntigravityPathFixHandler if enabled
+            try:
+                if getattr(
+                    app_config.session, "droid_antigravity_path_fix_enabled", False
+                ):
+                    from src.core.services.tool_call_handlers.droid_antigravity_path_fix_handler import (
+                        DroidAntigravityPathFixHandler,
+                    )
+
+                    path_fix_handler = DroidAntigravityPathFixHandler(enabled=True)
+                    try:
+                        reactor.register_handler_sync(path_fix_handler)
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Registered DroidAntigravityPathFixHandler with priority 50"
+                            )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register droid antigravity path fix handler: {e}",
+                                exc_info=True,
+                            )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register DroidAntigravityPathFixHandler: {e}",
+                        exc_info=True,
+                    )
+
         return reactor
 
     _add_singleton(

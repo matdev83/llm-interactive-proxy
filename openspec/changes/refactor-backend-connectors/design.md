@@ -61,27 +61,27 @@ Implementation MUST follow TDD patterns:
 ### Data Flow
 
 #### Strategy A: API Key Backends (e.g., OpenRouter, OpenAI)
-1.  **Config Loading**:
-    -   Scan Env Vars: `OPENROUTER_API_KEY_1` -> `openrouter.1`.
-    -   (Optional) Check `config/backends/backend-instances/openrouter.1.yaml` for overrides (e.g. `api_url`).
-2.  **Creation**:
-    -   Create instance `openrouter.1` with key from env var.
-3.  **Rotation / Load Balancing**:
-    -   Request comes for `openrouter:model`.
-    -   `BackendService` detects multiple instances (`openrouter.1`, `openrouter.2`).
-    -   Selects instance via Round Robin strategy.
+1.  **Discovery**:
+    -   Scan `config.yaml` -> Creates `openrouter` (legacy/default instance).
+    -   Scan Env Vars: `OPENROUTER_API_KEY_1` -> Creates `openrouter.1`.
+2.  **Configuration**:
+    -   For each instance (e.g., `openrouter.1`), check `config/backends/backend-instances/openrouter.1.yaml`.
+    -   If found, load settings (e.g., `api_url`, `allow_concurrent_use`) and merge. **Note**: For Type A, the file does *not* trigger discovery, only configuration.
+3.  **Grouping**:
+    -   BackendService groups `[openrouter, openrouter.1]` under the `openrouter` connector key for load balancing.
 
 #### Strategy B: Credential File Backends (e.g., Qwen-OAuth, Gemini-OAuth)
-1.  **Config Loading**:
+1.  **Discovery**:
+    -   Scan `config.yaml` -> Creates `qwen-oauth` (legacy/default).
     -   Glob `config/backends/backend-instances/qwen-oauth.*.yaml`.
-    -   File `qwen-oauth.user1.yaml` exists -> Create instance `qwen-oauth.user1`.
-    -   File `qwen-oauth.user2.yaml` exists -> Create instance `qwen-oauth.user2`.
-2.  **Fallback**:
-    -   If NO files found matching `qwen-oauth.*.yaml`:
-    -   Create default instance `qwen-oauth.1` using default credential path.
-3.  **Validation**:
-    -   Check `qwen-oauth.user1` and `qwen-oauth.user2` `credentials_path`.
-    -   If identical, raise Error.
+    -   File `qwen-oauth.user1.yaml` exists -> Creates `qwen-oauth.user1`.
+2.  **Configuration**:
+    -   The YAML file acts as *both* discovery source AND configuration source.
+    -   Contains `credentials_path` + settings (`allow_concurrent_use`).
+3.  **Fallback**:
+    -   If NO instances found (no config.yaml entry, no files), create default `qwen-oauth.1` using default credential path.
+4.  **Validation**:
+    -   Check uniqueness of `credentials_path` across ALL instances (legacy + file-discovered).
 
 ## Components
 
@@ -101,19 +101,20 @@ Add:
 Update `__init__`:
 1.  **Discovery Logic**:
     -   Categorize connectors: `api_key_based` vs `file_based`.
-    -   Apply **Strategy A** for `api_key_based`.
-    -   Apply **Strategy B** for `file_based`.
-        -   Glob files.
-        -   Extract instance names.
-        -   Load configs.
-        -   Check uniqueness of `credentials_path`.
-        -   Apply fallback if list empty.
+    -   **Legacy**: Load from `config.yaml`.
+    -   **Type A**: Scan Env Vars -> Add instances. Check YAML for overrides.
+    -   **Type B**: Scan YAML files -> Add instances.
+        -   Extract instance name from filename.
+        -   Load config.
+    -   **Validation**: Enforce `credentials_path` uniqueness across the entire set.
+    -   **Fallback**: Apply fallbacks for Type B if empty.
 
 ### BackendService (`src/core/services/backend_service.py`)
 -   **Instance Registry**: Maintain map of `connector_type -> list[instance_name]`.
+    -   Example: `openrouter -> [openrouter, openrouter.1, openrouter.2]`.
 -   **Global Model Routing Table**:
     -   Map `model_name -> list[instance_name]`.
-    -   Populated after backend initialization (via `list_models`).
+    -   Populated via parallel `list_models` calls during startup.
     -   Handles prefixes (e.g. maps `google/gemini-pro` to `gemini-pro` if backend reports it without vendor prefix, or supports direct matching).
 -   **Load Balancer**: Implement Round Robin selection.
 -   **Failover**: If selected instance fails (e.g. rate limit), try next instance in the group before failing over to a different model/backend.
@@ -128,4 +129,4 @@ Update `__init__`:
 -   **File Naming**: Strict `<connector>.<name>.yaml` requirement.
 -   **Rotation State**: Need to track last used instance per connector type (thread-safe).
 -   **State Complexity**: Managing two layers of rate limits requires careful state updates and checks.
--   **Model Discovery Latency**: Building the global routing table requires initializing backends and fetching models, which might delay startup slightly or require async population.
+-   **Model Discovery Latency**: Building the global routing table requires initializing backends and fetching models. **Mitigation**: Perform model fetching in parallel (`asyncio.gather`) during startup.

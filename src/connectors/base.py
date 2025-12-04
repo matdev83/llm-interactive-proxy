@@ -13,6 +13,44 @@ if TYPE_CHECKING:
     from src.core.interfaces.response_processor_interface import IResponseProcessor
 
 
+def strip_vendor_prefix(model: str, vendor: str) -> str:
+    """Strip vendor prefix from model name if present.
+
+    This utility helps single-vendor backends accept both vendor-prefixed
+    and non-prefixed model names for backward compatibility.
+
+    Args:
+        model: Model name (e.g., "google/gemini-2.5-pro" or "gemini-2.5-pro")
+        vendor: Expected vendor prefix (e.g., "google")
+
+    Returns:
+        Model name without vendor prefix (e.g., "gemini-2.5-pro")
+    """
+    prefix = f"{vendor}/"
+    if model.startswith(prefix):
+        return model[len(prefix) :]
+    return model
+
+
+def add_vendor_prefix(model: str, vendor: str) -> str:
+    """Add vendor prefix to model name if not present.
+
+    This utility helps single-vendor backends return fully qualified
+    model names in get_available_models() for unified model routing.
+
+    Args:
+        model: Model name (e.g., "gemini-2.5-pro")
+        vendor: Vendor prefix to add (e.g., "google")
+
+    Returns:
+        Model name with vendor prefix (e.g., "google/gemini-2.5-pro")
+    """
+    prefix = f"{vendor}/"
+    if model.startswith(prefix):
+        return model
+    return f"{prefix}{model}"
+
+
 class LLMBackend(abc.ABC):
     """
     Abstract base class for Large Language Model (LLM) backends.
@@ -60,14 +98,28 @@ class LLMBackend(abc.ABC):
             **kwargs: Configuration parameters for the backend.
         """
 
+    @abc.abstractmethod
     def get_available_models(self) -> list[str]:
         """
         Get a list of available models for this backend.
 
+        IMPORTANT: All implementations MUST return model names with vendor prefixes
+        in the format "<vendor>/<model-name>" for unified model routing.
+
+        Examples:
+            - ["google/gemini-2.5-pro", "google/gemini-2.5-flash"]
+            - ["anthropic/claude-3-opus", "anthropic/claude-3-sonnet"]
+            - ["openai/gpt-4", "openai/gpt-3.5-turbo"]
+
+        For multi-vendor backends (like OpenRouter), models should already
+        include the vendor prefix from the upstream provider.
+
+        Use the `add_vendor_prefix()` utility function to ensure consistent
+        prefixing when returning models from single-vendor backends.
+
         Returns:
-            A list of model identifiers supported by this backend.
+            A list of model identifiers with vendor prefixes (e.g., "vendor/model-name").
         """
-        return []
 
     def set_retry_after(self, retry_after_seconds: float) -> None:
         """

@@ -10,6 +10,7 @@ This module provides FastAPI endpoints for the SSO authentication flow:
 
 import logging
 import secrets
+import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, Response
@@ -64,9 +65,83 @@ def create_sso_router(
 
     # Store state -> provider mapping for callback validation
     # In production, this should be in Redis or database
+    # Each entry includes '_created_at' timestamp for TTL cleanup
     _state_store: dict[str, str | dict[str, Any]] = {}
     _login_sessions: dict[str, dict[str, Any]] = {}
+    # TTL for OAuth state entries (15 minutes - OAuth flows should complete quickly)
+    _state_ttl_seconds: int = 900
+    # Maximum entries to prevent memory exhaustion from abandoned flows
+    _max_state_entries: int = 1000
     captcha_service = captcha_service or CaptchaService(sso_config.captcha)
+
+    def _cleanup_expired_state() -> None:
+        """Remove expired entries from state stores to prevent memory leaks.
+
+        This is called before adding new entries to ensure abandoned OAuth flows
+        don't accumulate indefinitely.
+        """
+        now = time.time()
+
+        # Cleanup _state_store
+        expired_states = [
+            key
+            for key, value in _state_store.items()
+            if isinstance(value, dict)
+            and now - value.get("_created_at", 0) > _state_ttl_seconds
+        ]
+        for key in expired_states:
+            del _state_store[key]
+        if expired_states and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cleaned up %d expired OAuth state entries", len(expired_states)
+            )
+
+        # Cleanup _login_sessions
+        expired_sessions = [
+            key
+            for key, value in _login_sessions.items()
+            if now - value.get("_created_at", 0) > _state_ttl_seconds
+        ]
+        for key in expired_sessions:
+            del _login_sessions[key]
+        if expired_sessions and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cleaned up %d expired login session entries", len(expired_sessions)
+            )
+
+        # Enforce max entries limit (remove oldest first)
+        if len(_state_store) > _max_state_entries:
+            # Sort by creation time and remove oldest
+            sorted_states = sorted(
+                [
+                    (k, v)
+                    for k, v in _state_store.items()
+                    if isinstance(v, dict) and "_created_at" in v
+                ],
+                key=lambda x: x[1].get("_created_at", 0),
+            )
+            to_remove = len(_state_store) - _max_state_entries
+            for key, _ in sorted_states[:to_remove]:
+                del _state_store[key]
+            if to_remove > 0 and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted %d oldest OAuth state entries due to capacity limit",
+                    to_remove,
+                )
+
+        if len(_login_sessions) > _max_state_entries:
+            sorted_sessions = sorted(
+                _login_sessions.items(),
+                key=lambda x: x[1].get("_created_at", 0),
+            )
+            to_remove = len(_login_sessions) - _max_state_entries
+            for key, _ in sorted_sessions[:to_remove]:
+                del _login_sessions[key]
+            if to_remove > 0 and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted %d oldest login session entries due to capacity limit",
+                    to_remove,
+                )
 
     async def _get_request_value(request: Request, key: str) -> str | None:
         """Extract a value from form data or query parameters."""
@@ -108,7 +183,8 @@ def create_sso_router(
             # Store agent_token_id in state for re-authentication flow
             # This will be retrieved in callback to update existing token
 
-            providers = sso_service.get_supported_providers()
+            # Get only enabled providers (not disabled ones)
+            providers = sso_service.get_enabled_providers()
 
             if not providers:
                 return HTMLResponse(
@@ -126,9 +202,11 @@ def create_sso_router(
             if len(providers) == 1 and not captcha_enabled:
                 provider = providers[0]
                 state = secrets.token_urlsafe(32)
+                _cleanup_expired_state()
                 _state_store[state] = {
                     "provider": provider,
                     "agent_token_id": agent_token_id,
+                    "_created_at": time.time(),
                 }
 
                 redirect_uri = f"{base_url}/auth/callback"
@@ -139,10 +217,12 @@ def create_sso_router(
                 return RedirectResponse(url=auth_url, status_code=302)
 
             login_session = secrets.token_urlsafe(16)
+            _cleanup_expired_state()
             _login_sessions[login_session] = {
                 "providers": providers,
                 "captcha_required": captcha_enabled,
                 "agent_token_id": agent_token_id,
+                "_created_at": time.time(),
             }
 
             captcha_config = sso_config.captcha if captcha_enabled else None
@@ -235,9 +315,11 @@ def create_sso_router(
 
             # Generate state for CSRF protection
             state = secrets.token_urlsafe(32)
+            _cleanup_expired_state()
             _state_store[state] = {
                 "provider": provider,
                 "agent_token_id": agent_token_id,
+                "_created_at": time.time(),
             }
 
             redirect_uri = f"{base_url}/auth/callback"

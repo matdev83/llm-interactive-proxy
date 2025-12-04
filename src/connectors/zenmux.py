@@ -26,6 +26,9 @@ class ZenmuxConnector(OpenAIConnector):
 
     backend_type: str = "zenmux"
 
+    # ZenMux is a multi-vendor gateway - models are already prefixed from upstream
+    VENDOR_PREFIX: str | None = None
+
     def __init__(
         self,
         client: httpx.AsyncClient,

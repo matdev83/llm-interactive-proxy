@@ -36,6 +36,7 @@ class StreamingResponseEnvelope(InternalDTO):
     content: AsyncIterator[ProcessedResponse] | None = None
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
+    status_code: int = 200
     cancel_callback: Callable[[], Awaitable[None]] | None = None
     metadata: dict[str, Any] | None = None
 

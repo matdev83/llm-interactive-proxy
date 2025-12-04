@@ -298,11 +298,12 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
     expected_models = ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
     zai_backend.available_models = expected_models.copy()
 
-    # Verify that get_available_models returns the expected models
+    # Verify that get_available_models returns the expected models with vendor prefix
+    # Note: get_available_models() now returns vendor-prefixed model names
     available_models = zai_backend.get_available_models()
-    assert "glm-4.5" in available_models
-    assert "glm-4.5-flash" in available_models
-    assert "glm-4.5-air" in available_models
+    assert "zhipu/glm-4.5" in available_models
+    assert "zhipu/glm-4.5-flash" in available_models
+    assert "zhipu/glm-4.5-air" in available_models
     assert len(available_models) == 3
 
     # Setup a new mock response for the list_models call
@@ -359,8 +360,9 @@ async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
         backend.available_models = expected_models.copy()
 
         # Verify that default models are used
+        # Note: get_available_models() now returns vendor-prefixed model names
         available_models = backend.get_available_models()
         # Default models are defined in _load_default_models method
-        assert "glm-4.5" in available_models
-        assert "glm-4.5-flash" in available_models
-        assert "glm-4.5-air" in available_models
+        assert "zhipu/glm-4.5" in available_models
+        assert "zhipu/glm-4.5-flash" in available_models
+        assert "zhipu/glm-4.5-air" in available_models

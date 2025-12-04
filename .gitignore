@@ -28,6 +28,12 @@ build/
 GEMINI.md
 .agent.md
 .kiro/
+.factory/
+.gemini/
+.mypy_cache_cli/
+.mypy_cache_tests/
+.ruff_cache/
+.agent/
 
 # Test and coverage artifacts
 .pytest_cache/

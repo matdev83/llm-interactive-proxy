@@ -46,6 +46,7 @@
 --enable-antigravity-backend-debugging-override
 --enable-brute-force-protection
 --enable-cline-backend-debugging-override
+--enable-droid-antigravity-path-fix
 --enable-edit-precision
 --enable-gemini-oauth-free-backend-debugging-override
 --enable-gemini-oauth-plan-backend-debugging-override

@@ -226,7 +226,10 @@ class AuthorizationService:
                     )
 
                 # Check expiry
+                # Parse the datetime and assume UTC if no timezone info
                 expires_at = datetime.fromisoformat(row["expires_at"])
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) > expires_at:
                     # Expired
                     await db.execute(

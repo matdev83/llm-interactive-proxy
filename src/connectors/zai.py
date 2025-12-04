@@ -16,6 +16,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 
+from .base import add_vendor_prefix
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
@@ -29,6 +30,9 @@ class ZAIConnector(OpenAIConnector):
     """ZAI backend connector for Zhipu AI's GLM models."""
 
     backend_type: str = "zai"
+
+    # Vendor prefix for Zhipu AI models in unified model routing
+    VENDOR_PREFIX: str | None = "zhipu"
 
     def __init__(
         self,
@@ -121,15 +125,20 @@ class ZAIConnector(OpenAIConnector):
         )
 
     def get_available_models(self) -> list[str]:
-        """
-        Get a list of available models for this backend.
+        """Get available models with vendor prefix for unified model routing.
 
         Returns:
-            A list of model identifiers supported by this backend.
+            List of model names with 'zhipu/' vendor prefix.
+            For example: ['zhipu/glm-4', 'zhipu/glm-4-plus']
         """
-        if hasattr(self, "available_models") and self.available_models:
-            return self.available_models
-        return self._default_models.copy()
+        raw_models = (
+            self.available_models
+            if hasattr(self, "available_models") and self.available_models
+            else self._default_models.copy()
+        )
+        if self.VENDOR_PREFIX is None:
+            return raw_models
+        return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in raw_models]
 
     async def _prepare_payload(
         self,

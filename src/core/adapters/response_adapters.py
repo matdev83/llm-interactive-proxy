@@ -34,6 +34,7 @@ def to_fastapi_streaming_response(
         content=envelope.body_iterator,
         media_type=envelope.media_type,
         headers=envelope.headers,
+        status_code=envelope.status_code,
     )
 
 

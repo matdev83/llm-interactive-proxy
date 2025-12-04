@@ -487,6 +487,43 @@ aws:
   scopes: ["openid", "email", "profile"]
 ```
 
+## Known Limitations
+
+### Configuration Hot Reload
+
+**The SSO configuration does not support hot reload.** Changes to the SSO configuration (provider credentials, enabled/disabled status, authorization mode, etc.) require a server restart to take effect.
+
+This limitation applies to:
+- Adding or removing identity providers
+- Changing provider credentials (client_id, client_secret)
+- Enabling or disabling specific providers
+- Changing authorization mode (single_user ↔ enterprise)
+- Updating session lifetime settings
+
+**Why this limitation exists:**
+- SSO configuration is loaded at startup and cached for performance
+- JWKS (JSON Web Key Sets) are cached with a 1-hour TTL
+- OAuth2 clients are initialized once per provider
+
+**Workaround for zero-downtime updates:**
+
+If you need to update SSO configuration without downtime, consider:
+
+1. **Load balancer rotation**: Run multiple proxy instances behind a load balancer and update one at a time
+
+2. **Blue-green deployment**: Deploy a new instance with updated configuration, then switch traffic
+
+3. **Graceful restart**: If your orchestration supports it, use rolling restarts:
+   ```bash
+   # Kubernetes
+   kubectl rollout restart deployment/llm-proxy
+   
+   # Docker Compose
+   docker-compose up -d --force-recreate llm-proxy
+   ```
+
+**Note**: Agent tokens stored in the database are not affected by restarts. Users do not need to re-authenticate after a proxy restart - their existing tokens remain valid.
+
 ## Security Best Practices
 
 ### Protecting Secrets

@@ -97,6 +97,10 @@ class _FakeBackend(LLMBackend):
                 content=content, headers={"content-type": "application/json"}
             )
 
+    def get_available_models(self) -> list[str]:
+        """Return empty list for fake backend."""
+        return []
+
 
 def _register_fake_backend_once() -> None:
     if "fake" not in backend_registry._factories:

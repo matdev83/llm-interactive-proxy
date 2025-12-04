@@ -57,6 +57,10 @@ class _DummyBackend(LLMBackend):
             )
         return ResponseEnvelope(content={"message": "ok"})
 
+    def get_available_models(self) -> list[str]:
+        """Return empty list for mock."""
+        return []
+
 
 @pytest.mark.asyncio
 async def test_call_completion_applies_cooldown_on_429(

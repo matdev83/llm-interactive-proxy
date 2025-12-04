@@ -64,6 +64,9 @@ class RateLimitService:
                     return RateLimitResult(allowed=True, retry_after=0)
 
                 blocked_until = datetime.fromisoformat(row["blocked_until"])
+                # Assume UTC if no timezone info
+                if blocked_until.tzinfo is None:
+                    blocked_until = blocked_until.replace(tzinfo=timezone.utc)
                 now = datetime.now(timezone.utc)
 
                 if blocked_until > now:

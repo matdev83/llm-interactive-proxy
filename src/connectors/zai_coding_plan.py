@@ -33,6 +33,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     """
 
     backend_type: str = "zai-coding-plan"
+
+    # ZAI coding plan serves multiple vendor models, models may already be prefixed
+    VENDOR_PREFIX: str | None = None
     _DEFAULT_MODEL: str = "glm-4.6"
     _LEGACY_MODEL: str = "claude-sonnet-4-20250514"
     _SUPPORTED_MODELS: tuple[str, ...] = (_DEFAULT_MODEL, _LEGACY_MODEL)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +39,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         enabled: bool = True,
         streaming_buffer_size: int = 4096,
         per_model_config: dict[str, dict[str, Any]] | None = None,
+        reasoning_ttl_seconds: int = 300,
+        max_reasoning_entries: int = 1000,
     ) -> None:
         """Initialize the think tags fix middleware.
 
@@ -45,6 +48,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             enabled: Whether the middleware is enabled globally
             streaming_buffer_size: Default maximum buffer size for streaming chunks
             per_model_config: Per-backend/model configuration dict
+            reasoning_ttl_seconds: TTL for reasoning entries to prevent data leaks (default: 5 min)
+            max_reasoning_entries: Maximum reasoning entries to prevent memory exhaustion
         """
         super().__init__(priority=5)  # Run early in the pipeline
         self._enabled = enabled
@@ -52,13 +57,17 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         self._per_model_config: dict[str, dict[str, Any]] = per_model_config or {}
         self._logger = logging.getLogger(__name__)
 
+        # TTL configuration for reasoning cleanup to prevent cross-session data leaks
+        self._reasoning_ttl_seconds = reasoning_ttl_seconds
+        self._max_reasoning_entries = max_reasoning_entries
+
         # Streaming state management
         self._streaming_buffers: dict[str, str] = (
             {}
         )  # Buffer accumulated chunks per session
         self._reasoning_extracted: dict[str, dict[str, Any]] = (
             {}
-        )  # Track extracted reasoning per session
+        )  # Track extracted reasoning per session (with _created_at timestamp)
         self._stream_states: dict[str, str] = {}  # Track streaming state per session
         self._session_aliases: dict[str, str] = {}
 
@@ -224,8 +233,13 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         # Initialize session state if needed
         if session_id not in self._streaming_buffers:
             self._streaming_buffers[session_id] = ""
-            self._reasoning_extracted[session_id] = {}
+            self._reasoning_extracted[session_id] = {"_created_at": time.time()}
             self._stream_states[session_id] = "waiting"  # waiting, in_think, post_think
+
+        # Cleanup expired reasoning entries to prevent cross-session data leaks
+        # NOTE: This must run AFTER buffer initialization to avoid removing aliases
+        # for sessions that were just created but not yet added to buffers
+        self._cleanup_expired_reasoning()
 
         current_buffer = self._streaming_buffers[session_id]
         current_state = self._stream_states[session_id]
@@ -328,7 +342,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                 "streaming_extraction": True,
             }
 
-            # Store reasoning for this session
+            # Store reasoning for this session (with timestamp for TTL cleanup)
+            reasoning_metadata["_created_at"] = time.time()
             self._reasoning_extracted[session_id] = reasoning_metadata
 
             self._logger.info(
@@ -353,12 +368,13 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         fixed_content, reasoning_content = self._fix_think_tags(buffer_content)
 
         if reasoning_content is not None:
-            # Store reasoning metadata for later retrieval
+            # Store reasoning metadata for later retrieval (with timestamp for TTL cleanup)
             self._reasoning_extracted[session_id] = {
                 "reasoning": reasoning_content,
                 "reasoning_format": "extracted_from_think_tags",
                 "think_tags_fixed": True,
                 "streaming_extraction": True,
+                "_created_at": time.time(),
             }
             return fixed_content
 
@@ -372,7 +388,52 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         """
         self._streaming_buffers.pop(session_id, None)
         self._stream_states.pop(session_id, None)
-        # Keep reasoning_extracted for potential later retrieval
+        # Note: reasoning_extracted is kept briefly for potential later retrieval
+        # but will be cleaned up by _cleanup_expired_reasoning based on TTL
+
+    def _cleanup_expired_reasoning(self) -> None:
+        """Remove expired reasoning entries to prevent cross-session data leaks.
+
+        This is called periodically during streaming processing to ensure
+        reasoning data from old sessions doesn't accumulate indefinitely.
+        """
+        now = time.time()
+
+        # Cleanup expired entries
+        expired = [
+            session_id
+            for session_id, data in self._reasoning_extracted.items()
+            if now - data.get("_created_at", 0) > self._reasoning_ttl_seconds
+        ]
+        for session_id in expired:
+            del self._reasoning_extracted[session_id]
+        if expired and self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Cleaned up %d expired reasoning entries", len(expired))
+
+        # Enforce max entries limit (remove oldest first)
+        if len(self._reasoning_extracted) > self._max_reasoning_entries:
+            sorted_entries = sorted(
+                self._reasoning_extracted.items(),
+                key=lambda x: x[1].get("_created_at", 0),
+            )
+            to_remove = len(self._reasoning_extracted) - self._max_reasoning_entries
+            for session_id, _ in sorted_entries[:to_remove]:
+                del self._reasoning_extracted[session_id]
+            if to_remove > 0 and self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Evicted %d oldest reasoning entries due to capacity limit",
+                    to_remove,
+                )
+
+        # Also cleanup stale session aliases
+        stale_aliases = [
+            alias
+            for alias, target in self._session_aliases.items()
+            if target not in self._streaming_buffers
+            and target not in self._reasoning_extracted
+        ]
+        for alias in stale_aliases:
+            del self._session_aliases[alias]
 
     def _get_session_reasoning(self, session_id: str) -> dict[str, Any] | None:
         """Get extracted reasoning for a session.
@@ -381,9 +442,15 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             session_id: The session identifier
 
         Returns:
-            Reasoning metadata if available, None otherwise
+            Reasoning metadata if available, None otherwise (excludes internal fields)
         """
-        return self._reasoning_extracted.get(session_id)
+        data = self._reasoning_extracted.get(session_id)
+        if data is None:
+            return None
+        # Filter out internal metadata fields
+        result = {k: v for k, v in data.items() if not k.startswith("_")}
+        # Return None if no actual reasoning data
+        return result if result else None
 
     def _ensure_processed_response(self, response: Any) -> ProcessedResponse:
         """Normalize arbitrary response objects into ProcessedResponse instances."""
@@ -655,10 +722,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             session_id: The session identifier
 
         Returns:
-            Reasoning metadata if available, None otherwise
+            Reasoning metadata if available, None otherwise (excludes internal fields)
         """
-        reasoning = self._reasoning_extracted.get(session_id)
-        # Return None if reasoning is empty dict or None
-        if not reasoning:
+        data = self._reasoning_extracted.get(session_id)
+        if data is None:
             return None
-        return reasoning
+        # Filter out internal metadata fields (e.g., _created_at)
+        result = {k: v for k, v in data.items() if not k.startswith("_")}
+        # Return None if no actual reasoning data
+        return result if result else None

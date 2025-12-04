@@ -1,5 +1,35 @@
 # Changelog
 
+## [2025-12-05]
+
+### Added: Multi-Instance Backend Support and Multimodal Input Types
+
+- **Multimodal Input Types**: New domain model for handling diverse input types
+  - **Input Type Enum**: `MultimodalInputType` with support for image, PDF, audio, video, and text
+  - **MIME Type Registry**: Comprehensive mapping of supported MIME types for each input type
+  - **Validation**: Backend configuration validation against known multimodal types
+
+- **Multi-Instance Backend Architecture**: Support for multiple backend instances of the same type
+  - **Instance Naming**: Structured naming convention `<connector-name>.<instance-name>` with validation
+  - **Backend Discovery**: Registry-based discovery of available backend instances
+  - **Routing Logic**: Enhanced backend factory with instance-aware routing capabilities
+
+- **Enhanced Backend Configuration**:
+  - **Concurrent Use Control**: `allow_concurrent_use` flag for backend instances
+  - **Credentials Path**: Configurable credentials storage location
+  - **Input Type Declaration**: `supported_input_types` for backend capability declaration
+  - **Connector Specification**: Explicit `connector` field for backend type identification
+
+- **Backend Factory Refactoring**: Major overhaul of backend creation and management
+  - **Instance Registry**: Dynamic tracking of backend instances with refresh capabilities
+  - **Factory Methods**: Enhanced `create_backend()` and `ensure_backend()` methods
+  - **Configuration Integration**: Deep integration with app configuration system
+
+- **Testing Infrastructure**: Comprehensive test coverage for new features
+  - **Backend Discovery Tests**: Validation of instance naming and discovery logic
+  - **Backend Routing Tests**: Multi-instance routing behavior verification
+  - **Configuration Tests**: Input type validation and backend settings
+
 ## [2025-12-04]
 
 ### Added: Anthropic Multimodal and Thinking Support

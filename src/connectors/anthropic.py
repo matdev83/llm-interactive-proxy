@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import httpx
 
-from src.connectors.base import LLMBackend
+from src.connectors.base import LLMBackend, add_vendor_prefix, strip_vendor_prefix
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_VERSION_HEADER = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
+
+# Vendor prefix for Anthropic models in unified model naming convention
+ANTHROPIC_VENDOR_PREFIX = "anthropic"
 
 
 class AnthropicBackend(LLMBackend):
@@ -107,13 +110,26 @@ class AnthropicBackend(LLMBackend):
                 self.available_models = []
 
     def get_available_models(self) -> list[str]:
-        """Return cached Anthropic model names. For immediate use, prefer async version."""
-        return list(self.available_models)
+        """Return cached Anthropic model names with vendor prefix.
+
+        Returns:
+            List of model names with 'anthropic/' vendor prefix.
+            For example: ['anthropic/claude-3-opus', 'anthropic/claude-3-sonnet']
+        """
+        return [
+            add_vendor_prefix(m, ANTHROPIC_VENDOR_PREFIX) for m in self.available_models
+        ]
 
     async def get_available_models_async(self) -> list[str]:
-        """Return Anthropic model names, fetching them if not cached."""
+        """Return Anthropic model names with vendor prefix, fetching them if not cached.
+
+        Returns:
+            List of model names with 'anthropic/' vendor prefix.
+        """
         await self._ensure_models_loaded()
-        return list(self.available_models)
+        return [
+            add_vendor_prefix(m, ANTHROPIC_VENDOR_PREFIX) for m in self.available_models
+        ]
 
     # -----------------------------------------------------------
     # Core entry - called by proxy
@@ -134,6 +150,9 @@ class AnthropicBackend(LLMBackend):
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Send request to Anthropic Messages endpoint and return domain response envelope."""
+        # Strip vendor prefix (e.g., "anthropic/") for unified model naming
+        effective_model = strip_vendor_prefix(effective_model, ANTHROPIC_VENDOR_PREFIX)
+
         # Allow per-call api_key or fall back to instance-api_key set during initialize
         effective_api_key = api_key or getattr(self, "api_key", None)
         if effective_api_key is None:

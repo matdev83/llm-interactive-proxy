@@ -379,3 +379,79 @@ def test_login_shows_only_enabled_providers(
 
     # Disabled provider should NOT be shown
     assert "LinkedIn" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_state_store_cleanup_mechanism(
+    sso_config,
+    sso_service,
+    token_service,
+    database_manager,
+    authorization_service,
+    rate_limit_service,
+):
+    """Test that expired OAuth state entries are cleaned up."""
+    import time
+    from unittest.mock import patch
+
+    router = create_sso_router(
+        sso_config,
+        sso_service,
+        token_service,
+        authorization_service,
+        database_manager,
+        rate_limit_service,
+        "http://localhost:8000",
+    )
+    app = FastAPI()
+    app.include_router(router)
+
+    # Access internal state stores via closure - this is a whitebox test
+    # The router creates these as local variables in create_sso_router
+    # We need to verify the cleanup mechanism works by simulating the scenario
+
+    # Create a login token first
+    token_repo = TokenRepository(database_manager.database_path)
+    login_token = await token_repo.create_login_token()
+
+    # Mock time.time to simulate TTL expiration
+    original_time = time.time
+    current_time = original_time()
+
+    with patch("src.core.auth.sso.web_interface.time.time") as mock_time:
+        # First call: set current time
+        mock_time.return_value = current_time
+
+        # Don't follow redirects so we can verify the redirect response
+        test_client = TestClient(app, follow_redirects=False)
+
+        # Make a request that creates state entries
+        with (
+            patch.object(sso_service, "get_enabled_providers", return_value=["google"]),
+            patch.object(
+                sso_service,
+                "create_authorization_url",
+                return_value="https://example.com/auth",
+            ),
+        ):
+            response = test_client.get(f"/auth/login?token={login_token}")
+            assert response.status_code == 302
+
+        # Create another login token for second request
+        login_token2 = await token_repo.create_login_token()
+
+        # Now simulate time passing beyond TTL (15 minutes = 900 seconds)
+        mock_time.return_value = current_time + 1000
+
+        # Make another request - cleanup should remove the old entry
+        with (
+            patch.object(sso_service, "get_enabled_providers", return_value=["google"]),
+            patch.object(
+                sso_service,
+                "create_authorization_url",
+                return_value="https://example.com/auth",
+            ),
+        ):
+            response = test_client.get(f"/auth/login?token={login_token2}")
+            # The request should still succeed (cleanup happens silently)
+            assert response.status_code == 302

@@ -17,11 +17,12 @@
     -   Ensure `BackendConfig` has `api_url` and `credentials_path`.
     -   Update `BackendSettings` to support arbitrary backend keys.
     -   Implement `_discover_backend_instances` method in `BackendSettings` (or helper) to pass the tests created in Task 1.
+    -   **Legacy/Default Handling**: Ensure instances from `config.yaml` are correctly registered alongside discovered ones.
 
 - [ ] **4. Create TDD Tests for Factory & Routing** <!-- id: 3 -->
     -   Create `tests/unit/core/services/test_backend_routing.py`.
     -   Test factory resolution of connector from instance name.
-    -   Test Round Robin selection logic.
+    -   Test Round Robin selection logic (including mixed Legacy + Dynamic instances).
     -   Test model-centric routing (no backend specified).
     -   Test granular rate limiting (instance vs model).
 
@@ -30,6 +31,7 @@
         -   Resolve connector from prefix.
         -   Pass `supported_input_types` to backend instance.
         -   Ensure config passed to backend is treated as immutable.
+    -   **Parallel Initialization**: Implement `asyncio.gather` pattern for initial model fetching to mitigate startup latency.
 
 - [ ] **6. Implement Concurrency Control & Load Balancing** <!-- id: 5 -->
     -   Update `BackendService` to track instance usage.

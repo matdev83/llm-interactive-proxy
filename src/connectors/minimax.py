@@ -24,6 +24,9 @@ class MinimaxConnector(OpenAIConnector):
 
     backend_type: str = "minimax"
 
+    # Vendor prefix for Minimax models in unified model routing
+    VENDOR_PREFIX: str | None = "minimax"
+
     def __init__(
         self,
         client: httpx.AsyncClient,

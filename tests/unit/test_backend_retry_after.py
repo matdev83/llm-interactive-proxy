@@ -22,6 +22,10 @@ class MockBackend(LLMBackend):
     async def initialize(self, **kwargs):
         """Mock initialize."""
 
+    def get_available_models(self) -> list[str]:
+        """Return empty list for mock."""
+        return []
+
 
 @pytest.fixture
 def mock_backend():

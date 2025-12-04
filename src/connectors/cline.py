@@ -28,6 +28,9 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
 
     backend_type = "cline"
 
+    # Cline is a multi-vendor router - models are already prefixed from upstream
+    VENDOR_PREFIX: str | None = None
+
     _ENVIRONMENT_BASES: dict[str, str] = {
         "production": "https://api.cline.bot",
         "staging": "https://core-api.staging.int.cline.bot",

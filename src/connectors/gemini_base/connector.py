@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
     from watchdog.observers.api import BaseObserver
 
+from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.gemini import GeminiBackend
 from src.connectors.gemini_base.config import (
     CODE_ASSIST_ENDPOINT,
@@ -80,6 +81,7 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     InvalidRequestError,
+    RateLimitExceededError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -96,6 +98,9 @@ from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALU
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+# Vendor prefix for Google models in unified model naming convention
+GOOGLE_VENDOR_PREFIX = "google"
 
 
 def _get_google_transport_requests():
@@ -1155,6 +1160,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             self._available_models_set = set(self.available_models or [])
         return self._available_models_set
 
+    def get_available_models(self) -> list[str]:
+        """Return available models with vendor prefix for unified model routing.
+
+        Returns:
+            List of available model names with 'google/' vendor prefix.
+            For example: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash']
+        """
+        return [
+            add_vendor_prefix(m, GOOGLE_VENDOR_PREFIX)
+            for m in (self.available_models or [])
+        ]
+
     def validate_model(self, model_name: str) -> None:
         """
         Validate that the requested model is available on this backend.
@@ -1487,11 +1504,62 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         await self._ensure_healthy()
 
         try:
-            # Use the effective model (strip gemini-oauth-plan: prefix if present)
+            # Use the effective model (strip backend and vendor prefixes if present)
             model_name = effective_model
+
+            # Strip backend prefix (e.g., "gemini-oauth-plan:")
             prefix = "gemini-oauth-plan:"
             if model_name.startswith(prefix):
                 model_name = model_name[len(prefix) :]
+
+            # Strip vendor prefix (e.g., "google/") for unified model naming
+            model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
+
+            # Check if model is in cooldown - prevent spamming rate-limited models
+            if self._is_in_cooldown(model_name):
+                state = self._model_retry_states.get(model_name)
+                cooldown_remaining = (
+                    state.cooldown_until - time.time() if state else 0
+                )
+
+                logger.info(
+                    "Model %s is in cooldown for %.1fs more; checking fallback options",
+                    model_name,
+                    cooldown_remaining,
+                )
+
+                # Try fallback model if available and not in cooldown
+                fallback = self._get_fallback_model(model_name)
+                original_model = model_name
+                fallback_found = False
+
+                if fallback:
+                    fallback_models = (
+                        fallback if isinstance(fallback, list) else [fallback]
+                    )
+                    for fb_model in fallback_models:
+                        if not self._is_in_cooldown(fb_model):
+                            logger.info(
+                                "Using fallback model %s (original %s in cooldown)",
+                                fb_model,
+                                original_model,
+                            )
+                            model_name = fb_model
+                            fallback_found = True
+                            break
+
+                if not fallback_found:
+                    # All models (original + fallbacks) are in cooldown
+                    raise RateLimitExceededError(
+                        message=(
+                            f"Model {original_model} is rate-limited. "
+                            f"Available again in {cooldown_remaining:.0f}s."
+                        ),
+                        details={
+                            "retry_after": cooldown_remaining,
+                            "model": original_model,
+                        },
+                    )
 
             # Check if streaming is requested
             is_streaming = getattr(request_data, "stream", False)

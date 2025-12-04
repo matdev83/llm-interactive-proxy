@@ -433,11 +433,27 @@ class ToolCallReactorService(IToolCallReactor):
 
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
-    """In-memory implementation of tool call history tracking."""
+    """In-memory implementation of tool call history tracking.
 
-    def __init__(self) -> None:
-        """Initialize the history tracker."""
+    Implements TTL-based cleanup to prevent unbounded memory growth from
+    accumulated tool call history across sessions.
+    """
+
+    def __init__(
+        self,
+        session_ttl_seconds: int = 3600,
+        max_sessions: int = 10000,
+    ) -> None:
+        """Initialize the history tracker.
+
+        Args:
+            session_ttl_seconds: TTL for session history (default: 1 hour)
+            max_sessions: Maximum number of sessions to track (default: 10000)
+        """
         self._history: dict[str, list[dict[str, Any]]] = {}
+        self._session_last_access: dict[str, datetime] = {}
+        self._session_ttl_seconds = session_ttl_seconds
+        self._max_sessions = max_sessions
         self._lock = asyncio.Lock()
 
     async def record_tool_call(
@@ -466,7 +482,11 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         normalized_context["timestamp"] = normalized_timestamp
 
         async with self._lock:
+            # Cleanup expired sessions periodically
+            await self._cleanup_expired_sessions_locked()
+
             session_history = self._history.setdefault(session_id, [])
+            self._session_last_access[session_id] = datetime.now(timezone.utc)
 
             entry = {
                 "tool_name": tool_name,
@@ -521,6 +541,35 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
 
             return count
 
+    async def _cleanup_expired_sessions_locked(self) -> None:
+        """Remove expired session histories to prevent cross-session data leaks.
+
+        Must be called while holding self._lock.
+        """
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self._session_ttl_seconds)
+
+        # Find and remove expired sessions
+        expired = [
+            session_id
+            for session_id, last_access in self._session_last_access.items()
+            if last_access < cutoff
+        ]
+        for session_id in expired:
+            self._history.pop(session_id, None)
+            self._session_last_access.pop(session_id, None)
+
+        # Enforce max sessions limit (remove oldest first)
+        if len(self._history) > self._max_sessions:
+            sorted_sessions = sorted(
+                self._session_last_access.items(),
+                key=lambda x: x[1],
+            )
+            to_remove = len(self._history) - self._max_sessions
+            for session_id, _ in sorted_sessions[:to_remove]:
+                self._history.pop(session_id, None)
+                self._session_last_access.pop(session_id, None)
+
     async def clear_history(self, session_id: str | None = None) -> None:
         """Clear the call history.
 
@@ -531,8 +580,10 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         async with self._lock:
             if session_id is None:
                 self._history.clear()
+                self._session_last_access.clear()
             elif session_id in self._history:
                 self._history[session_id].clear()
+                self._session_last_access.pop(session_id, None)
 
 
 import sys

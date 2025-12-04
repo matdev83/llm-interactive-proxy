@@ -29,6 +29,10 @@ class OpenRouterBackend(OpenAIConnector):
 
     backend_type: str = "openrouter"
 
+    # OpenRouter is a multi-vendor backend - models are already prefixed
+    # from upstream providers (e.g., "anthropic/claude-3", "openai/gpt-4")
+    VENDOR_PREFIX: str | None = None
+
     def __init__(
         self,
         client: httpx.AsyncClient,

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 if TYPE_CHECKING:
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Vendor prefix for Qwen models in unified model naming convention
+QWEN_VENDOR_PREFIX = "qwen"
 
 TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
 CLI_REFRESH_THRESHOLD_SECONDS = 120.0
@@ -938,8 +941,18 @@ class QwenOAuthConnector(OpenAIConnector):
         return self._default_endpoint
 
     def get_available_models(self) -> list[str]:
-        """Return available Qwen models if functional."""
-        return self.available_models if self.is_functional else []
+        """Return available Qwen models with vendor prefix for unified model routing.
+
+        Returns:
+            List of available model names with 'qwen/' vendor prefix.
+            For example: ['qwen/qwen3-coder-plus', 'qwen/qwen-turbo']
+        """
+        if not self.is_functional:
+            return []
+        return [
+            add_vendor_prefix(m, QWEN_VENDOR_PREFIX)
+            for m in (self.available_models or [])
+        ]
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule a reload of OAuth credentials on the active event loop."""
@@ -1279,6 +1292,9 @@ class QwenOAuthConnector(OpenAIConnector):
             if ":" in model_name:
                 # Extract just the model name part after the last colon
                 model_name = model_name.split(":")[-1]
+
+            # Strip vendor prefix (e.g., "qwen/") for unified model naming
+            model_name = strip_vendor_prefix(model_name, QWEN_VENDOR_PREFIX)
 
             # Further clean up the model name to remove any prefixes like "models/"
             if model_name.startswith("models/"):

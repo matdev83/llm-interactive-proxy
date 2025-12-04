@@ -543,6 +543,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable the Anthropic OAuth backend connector for debugging. Reserved for internal development.",
     )
+    debugging_overrides_group.add_argument(
+        "--enable-droid-antigravity-path-fix",
+        action="store_true",
+        dest="droid_antigravity_path_fix_enabled",
+        default=False,
+        help="Enable automatic path fixing for Droid agent with Gemini Antigravity backend. Reserved for internal development.",
+    )
 
     brute_force_toggle_group = parser.add_mutually_exclusive_group()
     brute_force_toggle_group.add_argument(

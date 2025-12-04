@@ -82,6 +82,7 @@ from src.core.domain.responses import (
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
+from .base import add_vendor_prefix
 from .gemini import GeminiBackend
 
 logger = logging.getLogger(__name__)
@@ -747,18 +748,20 @@ class GeminiCliAcpConnector(GeminiBackend):
             return len(text.split()) * 2
 
     def get_available_models(self) -> list[str]:
-        """Get list of available models.
+        """Get list of available models with vendor prefix.
 
         Returns:
-            List of model identifiers
+            List of model identifiers with 'google/' vendor prefix.
+            For example: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro']
         """
-        return [
+        raw_models = [
             "gemini-2.5-flash",
             "gemini-2.5-pro",
             "gemini-2.0-flash",
             "gemini-1.5-flash",
             "gemini-1.5-pro",
         ]
+        return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in raw_models]
 
     async def shutdown(self) -> None:
         """Release resources owned by the connector."""

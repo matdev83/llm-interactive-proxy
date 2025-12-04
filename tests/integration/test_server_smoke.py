@@ -46,6 +46,11 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
 def _start_server(port: int, log_file: str) -> subprocess.Popen:
     """Start the proxy via CLI in a subprocess so logging is configured."""
     env = os.environ.copy()
+    # Clear potential interfering API keys
+    for key in list(env.keys()):
+        if (key.endswith("_API_KEY") or "_API_KEY_" in key) and "OPENROUTER" not in key:
+            del env[key]
+
     # Ensure at least one backend is functional for smoke test
     env["OPENROUTER_API_KEY_1"] = "test-key-for-smoke-test"
     env["COMMAND_PREFIX"] = "!/"
