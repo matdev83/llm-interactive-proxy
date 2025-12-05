@@ -1,0 +1,309 @@
+"""Async event bus implementation.
+
+This module provides a simple but robust async event bus for the pub/sub pattern.
+It allows components to communicate in a decoupled manner through events.
+Supports topic-based filtering for targeted event delivery.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections import defaultdict
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
+from weakref import WeakSet
+
+from src.core.interfaces.event_bus_interface import IEventBus
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Event handler type
+EventHandler = Callable[[T], Coroutine[Any, Any, None]]
+
+# Sentinel for broadcast topic (handlers that receive all events)
+_BROADCAST_TOPIC = None
+
+
+class EventBus(IEventBus):
+    """Asynchronous event bus implementation with topic support.
+
+    This event bus provides a pub/sub mechanism where:
+    - Handlers are invoked concurrently for each published event
+    - Errors in one handler don't affect other handlers
+    - Events can be published with or without waiting for completion
+    - Topic-based filtering allows targeted event delivery
+
+    Topic behavior:
+    - subscribe(event_type, handler, topic="api.openai.com") - only gets events
+      published with that exact topic
+    - subscribe(event_type, handler, topic=None) - gets ALL events (broadcast)
+    - publish(event, topic="api.openai.com") - goes to topic handlers + broadcast
+    - publish(event, topic=None) - goes to ALL handlers
+    """
+
+    def __init__(self) -> None:
+        """Initialize the event bus."""
+        # Structure: event_type -> topic -> list of handlers
+        # topic=None is used for broadcast handlers
+        self._handlers: dict[type, dict[str | None, list[EventHandler[Any]]]] = (
+            defaultdict(lambda: defaultdict(list))
+        )
+        self._pending_tasks: WeakSet[asyncio.Task[Any]] = WeakSet()
+        self._lock = asyncio.Lock()
+        self._shutting_down = False
+
+    def subscribe(
+        self,
+        event_type: type[T],
+        handler: EventHandler[T],
+        topic: str | None = None,
+    ) -> None:
+        """Subscribe a handler to a specific event type, optionally filtered by topic.
+
+        Args:
+            event_type: The class of events to subscribe to.
+            handler: An async callable that will be invoked when
+                     events of the specified type are published.
+            topic: Optional topic filter. If None, handler receives all events.
+        """
+        if self._shutting_down:
+            logger.warning(
+                "Attempted to subscribe handler during shutdown: %s for %s",
+                handler,
+                event_type.__name__,
+            )
+            return
+
+        topic_handlers = self._handlers[event_type][topic]
+        if handler not in topic_handlers:
+            topic_handlers.append(handler)
+            if logger.isEnabledFor(logging.DEBUG):
+                handler_name = (
+                    handler.__name__ if hasattr(handler, "__name__") else handler
+                )
+                topic_str = f"topic={topic}" if topic else "broadcast"
+                logger.debug(
+                    "Subscribed handler %s to event type %s (%s)",
+                    handler_name,
+                    event_type.__name__,
+                    topic_str,
+                )
+
+    def unsubscribe(
+        self,
+        event_type: type[T],
+        handler: EventHandler[T],
+        topic: str | None = None,
+    ) -> None:
+        """Unsubscribe a handler from a specific event type and topic.
+
+        Args:
+            event_type: The class of events to unsubscribe from.
+            handler: The handler to remove.
+            topic: The topic the handler was subscribed to.
+        """
+        try:
+            self._handlers[event_type][topic].remove(handler)
+            if logger.isEnabledFor(logging.DEBUG):
+                handler_name = (
+                    handler.__name__ if hasattr(handler, "__name__") else handler
+                )
+                topic_str = f"topic={topic}" if topic else "broadcast"
+                logger.debug(
+                    "Unsubscribed handler %s from event type %s (%s)",
+                    handler_name,
+                    event_type.__name__,
+                    topic_str,
+                )
+        except ValueError:
+            if logger.isEnabledFor(logging.DEBUG):
+                handler_name = (
+                    handler.__name__ if hasattr(handler, "__name__") else handler
+                )
+                topic_str = f"topic={topic}" if topic else "broadcast"
+                logger.debug(
+                    "Handler %s was not subscribed to %s (%s)",
+                    handler_name,
+                    event_type.__name__,
+                    topic_str,
+                )
+
+    async def publish(self, event: T, topic: str | None = None) -> None:
+        """Publish an event to all subscribed handlers.
+
+        Handlers are invoked concurrently. Errors in individual handlers
+        are logged but don't prevent other handlers from being called.
+
+        Args:
+            event: The event instance to publish.
+            topic: Optional topic for targeted delivery.
+        """
+        if self._shutting_down:
+            logger.warning(
+                "Attempted to publish event during shutdown: %s",
+                type(event).__name__,
+            )
+            return
+
+        event_type = type(event)
+        handlers = self._get_handlers_for_event(event_type, topic)
+
+        if not handlers:
+            if logger.isEnabledFor(logging.DEBUG):
+                topic_str = f"topic={topic}" if topic else "broadcast"
+                logger.debug(
+                    "No handlers for event type %s (%s)",
+                    event_type.__name__,
+                    topic_str,
+                )
+            return
+
+        # Invoke all handlers concurrently
+        tasks = [
+            asyncio.create_task(self._invoke_handler(handler, event))
+            for handler in handlers
+        ]
+
+        if tasks:
+            # Wait for all handlers to complete
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def publish_nowait(self, event: T, topic: str | None = None) -> None:
+        """Publish an event without waiting for handlers to complete.
+
+        This method schedules handlers to run but returns immediately.
+
+        Args:
+            event: The event instance to publish.
+            topic: Optional topic for targeted delivery.
+        """
+        if self._shutting_down:
+            logger.warning(
+                "Attempted to publish_nowait during shutdown: %s",
+                type(event).__name__,
+            )
+            return
+
+        event_type = type(event)
+        handlers = self._get_handlers_for_event(event_type, topic)
+
+        if not handlers:
+            if logger.isEnabledFor(logging.DEBUG):
+                topic_str = f"topic={topic}" if topic else "broadcast"
+                logger.debug(
+                    "No handlers for event type %s (%s)",
+                    event_type.__name__,
+                    topic_str,
+                )
+            return
+
+        # Schedule handlers without waiting
+        for handler in handlers:
+            task = asyncio.create_task(self._invoke_handler(handler, event))
+            self._pending_tasks.add(task)
+
+    def _get_handlers_for_event(
+        self, event_type: type, topic: str | None = None
+    ) -> list[EventHandler[Any]]:
+        """Get all handlers for an event type and topic.
+
+        Args:
+            event_type: The event class.
+            topic: The topic to match. If provided, returns handlers for that
+                   topic plus broadcast handlers. If None, returns all handlers.
+
+        Returns:
+            List of handlers that should receive the event.
+        """
+        handlers: list[EventHandler[Any]] = []
+
+        # Get handlers for the exact type and all parent types
+        for registered_type, topic_map in self._handlers.items():
+            if issubclass(event_type, registered_type):
+                if topic is not None:
+                    # Specific topic: get topic handlers + broadcast handlers
+                    handlers.extend(topic_map.get(topic, []))
+                    handlers.extend(topic_map.get(_BROADCAST_TOPIC, []))
+                else:
+                    # No topic (broadcast publish): get ALL handlers
+                    for topic_handlers in topic_map.values():
+                        handlers.extend(topic_handlers)
+
+        return handlers
+
+    async def _invoke_handler(
+        self,
+        handler: EventHandler[Any],
+        event: Any,
+    ) -> None:
+        """Safely invoke a single handler with an event.
+
+        Args:
+            handler: The handler to invoke.
+            event: The event to pass to the handler.
+        """
+        handler_name = (
+            handler.__name__ if hasattr(handler, "__name__") else str(handler)
+        )
+        try:
+            await handler(event)
+        except Exception:
+            logger.exception(
+                "Error in event handler %s for event %s",
+                handler_name,
+                type(event).__name__,
+            )
+
+    def has_subscribers(self, event_type: type[T], topic: str | None = None) -> bool:
+        """Check if there are any subscribers for an event type.
+
+        Args:
+            event_type: The event class to check.
+            topic: Optional topic to check. If None, checks for any subscribers.
+
+        Returns:
+            True if at least one handler is subscribed.
+        """
+        topic_map = self._handlers.get(event_type)
+        if not topic_map:
+            return False
+
+        if topic is not None:
+            # Check specific topic + broadcast
+            return bool(topic_map.get(topic)) or bool(topic_map.get(_BROADCAST_TOPIC))
+        else:
+            # Check any handlers exist
+            return any(handlers for handlers in topic_map.values())
+
+    async def shutdown(self) -> None:
+        """Gracefully shut down the event bus.
+
+        Waits for pending event handlers to complete and clears all subscriptions.
+        """
+        self._shutting_down = True
+
+        # Wait for any pending tasks with timeout
+        pending = [t for t in self._pending_tasks if not t.done()]
+        if pending:
+            logger.info(
+                "Waiting for %d pending event handlers to complete", len(pending)
+            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Timeout waiting for event handlers, cancelling")
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+
+        # Clear all handlers
+        self._handlers.clear()
+        self._pending_tasks.clear()
+
+        logger.info("Event bus shutdown complete")

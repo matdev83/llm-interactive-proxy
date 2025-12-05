@@ -1807,9 +1807,11 @@ def register_core_services(
 
             # Register DroidAntigravityPathFixHandler if enabled
             try:
-                if getattr(
+                # Check both session and root config for the flag
+                flag_enabled = getattr(
                     app_config.session, "droid_antigravity_path_fix_enabled", False
-                ):
+                ) or getattr(app_config, "droid_antigravity_path_fix_enabled", False)
+                if flag_enabled:
                     from src.core.services.tool_call_handlers.droid_antigravity_path_fix_handler import (
                         DroidAntigravityPathFixHandler,
                     )
@@ -1908,6 +1910,27 @@ def register_core_services(
         FileSandboxingHandler, implementation_factory=_file_sandboxing_handler_factory
     )
 
+    # Register BackendRoutingService
+    def _backend_routing_service_factory(
+        provider: IServiceProvider,
+    ) -> BackendRoutingService:
+        from src.core.config.app_config import AppConfig
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
+        )
+        from src.core.services.backend_routing_service import BackendRoutingService
+
+        config_provider = provider.get_required_service(IBackendConfigProvider)  # type: ignore[type-abstract]
+        app_config = provider.get_required_service(AppConfig)
+
+        return BackendRoutingService(config_provider, app_config.routing)
+
+    from src.core.services.backend_routing_service import BackendRoutingService
+
+    _add_singleton(
+        BackendRoutingService, implementation_factory=_backend_routing_service_factory
+    )
+
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
         # Import required modules
@@ -1999,6 +2022,11 @@ def register_core_services(
                 "Failed to enable failover strategy: %s", e, exc_info=True
             )
 
+        # Get routing service
+        from src.core.services.backend_routing_service import BackendRoutingService
+
+        routing_service = provider.get_service(BackendRoutingService)
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -2010,6 +2038,7 @@ def register_core_services(
             failover_coordinator=failover_coordinator,
             failover_strategy=failover_strategy,
             wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
+            routing_service=routing_service,
         )
 
     # Register backend service and bind to interface

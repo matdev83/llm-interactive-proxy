@@ -224,11 +224,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         tc["extra_content"] = {"google": {"thought_signature": sig}}
                     elif hasattr(tc, "extra_content"):
                         tc.extra_content = {"google": {"thought_signature": sig}}
-                    logger.debug(
-                        "Injected thought_signature for tool_call_id=%s (session=%s)",
-                        tc_id,
-                        session_id[:8] if session_id else "none",
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Injected thought_signature for tool_call_id=%s (session=%s)",
+                            tc_id,
+                            session_id[:8] if session_id else "none",
+                        )
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
@@ -1518,9 +1520,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # Check if model is in cooldown - prevent spamming rate-limited models
             if self._is_in_cooldown(model_name):
                 state = self._model_retry_states.get(model_name)
-                cooldown_remaining = (
-                    state.cooldown_until - time.time() if state else 0
-                )
+                cooldown_remaining = state.cooldown_until - time.time() if state else 0
 
                 logger.info(
                     "Model %s is in cooldown for %.1fs more; checking fallback options",
@@ -2116,7 +2116,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 except Exception:
                                     logger.log(
                                         TRACE_LEVEL,
-                                        "Code Assist sanitized tools payload present (non-serializable)"
+                                        "Code Assist sanitized tools payload present (non-serializable)",
                                     )
                         response = await asyncio.to_thread(
                             auth_session.request,

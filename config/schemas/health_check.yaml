@@ -1,0 +1,110 @@
+# Health Check Configuration Schema
+# This schema defines the configuration for backend endpoint health checks
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "health_check"
+title: "Health Check Configuration"
+description: "Configuration for ICMP ping and HTTP health checks on backend API endpoints"
+type: object
+
+properties:
+  enabled:
+    type: boolean
+    default: true
+    description: "Master switch to enable/disable all health checks"
+
+  log_healthy_checks:
+    type: boolean
+    default: false
+    description: "Log successful health checks (can be verbose)"
+
+  ping:
+    type: object
+    description: "ICMP ping health check configuration"
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Enable ping checks"
+      interval_seconds:
+        type: integer
+        minimum: 5
+        maximum: 3600
+        default: 30
+        description: "How often to run ping checks (seconds)"
+      timeout_seconds:
+        type: integer
+        minimum: 1
+        maximum: 60
+        default: 5
+        description: "Timeout for each ping attempt (seconds)"
+      failure_threshold:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 3
+        description: "Number of consecutive failures before marking unhealthy"
+      count:
+        type: integer
+        minimum: 1
+        maximum: 10
+        default: 1
+        description: "Number of ping packets to send per check"
+    additionalProperties: false
+
+  http:
+    type: object
+    description: "HTTP health check configuration"
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Enable HTTP checks"
+      interval_seconds:
+        type: integer
+        minimum: 5
+        maximum: 3600
+        default: 60
+        description: "How often to run HTTP checks (seconds)"
+      timeout_seconds:
+        type: integer
+        minimum: 1
+        maximum: 120
+        default: 10
+        description: "Timeout for each HTTP request (seconds)"
+      failure_threshold:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 2
+        description: "Number of consecutive failures before marking unhealthy"
+      method:
+        type: string
+        enum: ["GET", "HEAD"]
+        default: "HEAD"
+        description: "HTTP method to use for health checks"
+      path:
+        type: string
+        default: ""
+        description: "Path to probe (appended to API URL)"
+      accept_any_response:
+        type: boolean
+        default: true
+        description: "If true, any valid HTTP response (even 4xx/5xx) is considered success"
+    additionalProperties: false
+
+additionalProperties: false
+
+examples:
+  - enabled: true
+    ping:
+      enabled: true
+      interval_seconds: 30
+      timeout_seconds: 5
+      failure_threshold: 3
+    http:
+      enabled: true
+      interval_seconds: 60
+      timeout_seconds: 10
+      failure_threshold: 2
+

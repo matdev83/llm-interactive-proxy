@@ -708,6 +708,32 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Global default policy when no patterns match: 'allow' or 'deny' (overrides config)",
     )
 
+    # Routing Control arguments
+    routing_group = parser.add_argument_group(
+        "Routing Control", "Options for restricting routing methods"
+    )
+    routing_group.add_argument(
+        "--disable-routing-with-backend-ids",
+        action="store_true",
+        dest="disable_routing_with_backend_ids",
+        default=None,
+        help="Disable routing using explicit backend identifiers (e.g., openai.1:model)",
+    )
+    routing_group.add_argument(
+        "--disable-routing-with-backend-names",
+        action="store_true",
+        dest="disable_routing_with_backend_names",
+        default=None,
+        help="Disable routing using backend names (e.g., openai:model). Implies --disable-routing-with-backend-ids",
+    )
+    routing_group.add_argument(
+        "--disable-routing-with-only-model-names",
+        action="store_true",
+        dest="disable_routing_with_only_model_names",
+        default=None,
+        help="Disable automatic resolution of backend instances from model name only (e.g., gpt-4)",
+    )
+
     # LLM Assessment arguments
     assessment_group = parser.add_argument_group(
         "LLM Assessment", "Options for LLM-based conversation assessment"
@@ -1511,6 +1537,37 @@ def apply_cli_args(
     if tool_access_overrides:
         session = cli_overrides.setdefault("session", {})
         session["tool_access_global_overrides"] = tool_access_overrides
+
+    # Routing Control configuration
+    routing_overrides: dict[str, Any] = {}
+    if getattr(args, "disable_routing_with_backend_ids", None) is not None:
+        routing_overrides["disable_backend_ids"] = args.disable_routing_with_backend_ids
+        record_cli(
+            "routing.disable_backend_ids",
+            args.disable_routing_with_backend_ids,
+            "--disable-routing-with-backend-ids",
+        )
+    if getattr(args, "disable_routing_with_backend_names", None) is not None:
+        routing_overrides["disable_backend_names"] = (
+            args.disable_routing_with_backend_names
+        )
+        record_cli(
+            "routing.disable_backend_names",
+            args.disable_routing_with_backend_names,
+            "--disable-routing-with-backend-names",
+        )
+    if getattr(args, "disable_routing_with_only_model_names", None) is not None:
+        routing_overrides["disable_model_names"] = (
+            args.disable_routing_with_only_model_names
+        )
+        record_cli(
+            "routing.disable_model_names",
+            args.disable_routing_with_only_model_names,
+            "--disable-routing-with-only-model-names",
+        )
+
+    if routing_overrides:
+        cli_overrides["routing"] = routing_overrides
 
     # LLM Assessment configuration
     assessment_overrides: dict[str, Any] = {}

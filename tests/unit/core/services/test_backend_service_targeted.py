@@ -157,6 +157,11 @@ class TestBackendServiceTargeted:
             extra_body={},  # No backend_type specified
         )
 
+        # Mock resolve_backend_and_model to simulate backend parsing
+        service._resolve_backend_and_model = AsyncMock(
+            return_value=("openai", "gpt-4", {})
+        )
+
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act
             response = await service.call_completion(chat_request)
@@ -215,6 +220,11 @@ class TestBackendServiceTargeted:
         mock_session.state.backend_config.model = "gpt-4"
         mock_session.state.backend_config.interactive_mode = False
         mock_session.history = []  # Ensure history has a len()
+
+        # Mock resolve_backend_and_model to simulate backend resolution from session
+        service._resolve_backend_and_model = AsyncMock(
+            return_value=("openai", "test-model", {})
+        )
 
         with (
             patch.object(
@@ -364,12 +374,22 @@ class TestBackendServiceTargeted:
             content={"id": "resp", "choices": []},
             headers={},
         )
+        # Mock is_backend_functional to return False
         mock_backend.is_backend_functional = Mock(return_value=False)
+        # Ensure _endpoint_healthy exists for validation error reporting
+        mock_backend._endpoint_healthy = False
+        # Ensure _last_health_change_reason exists for validation error reporting
+        mock_backend._last_health_change_reason = "Test reason"
 
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
             model="test-model",
             extra_body={},
+        )
+        
+        # Mock resolve_backend_and_model
+        service._resolve_backend_and_model = AsyncMock(
+            return_value=("openai", "test-model", {})
         )
 
         with (
@@ -484,6 +504,11 @@ class TestBackendServiceTargeted:
             session_service,
             app_state,
             backend_config_provider=StubProvider(provider_backend_config),
+        )
+        
+        # Mock resolve_backend_and_model
+        service._resolve_backend_and_model = AsyncMock(
+            return_value=("openai", "gpt-4", {})
         )
 
         chat_request = ChatRequest(

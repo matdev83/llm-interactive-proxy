@@ -19,7 +19,7 @@ class TestBackendConfigProvider:
         """Test getting a backend config using attribute access."""
         # Arrange
         app_config = AppConfig(
-            backends=BackendSettings(test_backend=BackendConfig(api_key=["test-key"]))
+            backends=BackendSettings(test_backend=BackendConfig(api_key="test-key"))
         )
         provider = BackendConfigProvider(app_config)
 
@@ -29,13 +29,13 @@ class TestBackendConfigProvider:
         # Assert
         assert config is not None
         assert isinstance(config, BackendConfig)
-        assert config.api_key == ["test-key"]
+        assert config.api_key == "test-key"
 
     def test_get_backend_config_with_dict_access(self) -> None:
         """Test getting a backend config using dictionary access."""
         # Arrange
         app_config = AppConfig(
-            backends=BackendSettings(openai=BackendConfig(api_key=["test-key"]))
+            backends=BackendSettings(openai=BackendConfig(api_key="test-key"))
         )
         provider = BackendConfigProvider(app_config)
 
@@ -45,7 +45,7 @@ class TestBackendConfigProvider:
         # Assert
         assert config is not None
         assert isinstance(config, BackendConfig)
-        assert config.api_key == ["test-key"]
+        assert config.api_key == "test-key"
 
     def test_get_backend_config_with_nonexistent_backend(self) -> None:
         """Test getting a config for a backend that doesn't exist."""
@@ -59,7 +59,7 @@ class TestBackendConfigProvider:
         # Assert
         assert config is not None
         assert isinstance(config, BackendConfig)
-        assert config.api_key == []
+        assert config.api_key is None
 
     def test_get_backend_config_with_empty_backend(self) -> None:
         """Test getting a config for a backend with empty config."""
@@ -73,15 +73,15 @@ class TestBackendConfigProvider:
         # Assert
         assert config is not None
         assert isinstance(config, BackendConfig)
-        assert config.api_key == []
+        assert config.api_key is None
 
     def test_iter_backend_names(self) -> None:
         """Test iterating over backend names."""
         # Arrange
         app_config = AppConfig(
             backends=BackendSettings(
-                test_backend1=BackendConfig(api_key=["test-key"]),
-                test_backend2=BackendConfig(api_key=["test-key-2"]),
+                test_backend1=BackendConfig(api_key="test-key"),
+                test_backend2=BackendConfig(api_key="test-key-2"),
             )
         )
         provider = BackendConfigProvider(app_config)
@@ -99,7 +99,7 @@ class TestBackendConfigProvider:
         app_config = AppConfig(
             backends=BackendSettings(
                 default_backend="openai",
-                custom_backend=BackendConfig(api_key=["test-key"]),
+                custom_backend=BackendConfig(api_key="test-key"),
             )
         )
         provider = BackendConfigProvider(app_config)

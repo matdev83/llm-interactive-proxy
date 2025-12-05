@@ -37,6 +37,7 @@ from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
+from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
 from src.rate_limit import parse_retry_delay
 
@@ -61,6 +62,7 @@ class BackendService(IBackendService):
         failover_strategy: IFailoverStrategy | None = None,
         failover_coordinator: IFailoverCoordinator | None = None,
         wire_capture: IWireCapture | None = None,
+        routing_service: BackendRoutingService | None = None,
     ):
         """Initialize the backend service.
 
@@ -73,6 +75,7 @@ class BackendService(IBackendService):
             app_state: Application state service
             backend_configs: Configurations for backends
             failover_routes: Routes for backend failover
+            routing_service: Service for instance routing and discovery
         """
         self._factory = factory
         self._rate_limiter = rate_limiter
@@ -85,6 +88,7 @@ class BackendService(IBackendService):
         self._backend_configs: dict[str, Any] = {}
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
+        self._routing_service = routing_service
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -1046,6 +1050,9 @@ class BackendService(IBackendService):
 
         Uses the extracted strategy when enabled and available, otherwise falls
         back to coordinator-provided attempts.
+
+        When circuit breaker is enabled, filters out backends whose API endpoints
+        are unhealthy.
         """
         use_strategy: bool = False
         try:
@@ -1060,14 +1067,61 @@ class BackendService(IBackendService):
 
         if use_strategy and self._failover_strategy is not None:
             try:
-                return self._failover_strategy.get_failover_plan(model, backend_type)
+                plan = self._failover_strategy.get_failover_plan(model, backend_type)
+                return self._filter_unhealthy_backends(plan)
             except (BackendError, RateLimitExceededError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Failover strategy failed: {e}", exc_info=True)
                 # Fall back to coordinator attempts on error
 
         attempts = self._failover_coordinator.get_failover_attempts(model, backend_type)
-        return [(a.backend, a.model) for a in attempts]
+        plan = [(a.backend, a.model) for a in attempts]
+        return self._filter_unhealthy_backends(plan)
+
+    def _filter_unhealthy_backends(
+        self, plan: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
+        """Filter out backends with unhealthy API endpoints.
+
+        Args:
+            plan: List of (backend, model) tuples.
+
+        Returns:
+            Filtered list excluding unhealthy backends (if circuit breaker enabled).
+        """
+        # Check if circuit breaker is enabled
+        # Use getattr for defensive programming - test configs may not have health_check
+        health_check = getattr(self._config, "health_check", None)
+        if health_check is None or not getattr(health_check, "circuit_breaker_enabled", True):
+            return plan
+
+        filtered: list[tuple[str, str]] = []
+        for backend_name, model_name in plan:
+            backend = self._backends.get(backend_name)
+            if backend is None:
+                # Backend not yet created, include it (health unknown)
+                filtered.append((backend_name, model_name))
+                continue
+
+            if backend.is_backend_functional():
+                filtered.append((backend_name, model_name))
+            else:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Skipping backend %s (unhealthy endpoint) in failover plan",
+                        backend_name,
+                    )
+
+        if not filtered and plan:
+            # If all backends were filtered out, return original plan
+            # to avoid complete failure when health checks are too strict
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "All backends filtered as unhealthy, falling back to original plan"
+                )
+            return plan
+
+        return filtered
 
     async def call_completion(
         self,
@@ -2086,11 +2140,37 @@ class BackendService(IBackendService):
         if not backend_type:
             from src.core.domain.model_utils import parse_model_with_params
 
+            # Pass empty string as default to detect if backend was specified
             parsed_backend, parsed_model, uri_params = parse_model_with_params(
-                effective_model, default_backend
+                effective_model, ""
             )
-            backend_type = parsed_backend
+
+            if not parsed_backend:
+                # No backend specified in model string (Variant 3)
+                if self._routing_service:
+                    # Try discovery
+                    discovered = self._routing_service.resolve_backend_instance(
+                        None, parsed_model
+                    )
+                    if discovered:
+                        parsed_backend = discovered
+
+            # Fallback to default backend if discovery failed or not used
+            backend_type = parsed_backend or default_backend
             effective_model = parsed_model
+
+            # If we have a backend type (either parsed or default), try to route it (Variant 2)
+            if self._routing_service:
+                resolved = self._routing_service.resolve_backend_instance(
+                    backend_type, effective_model
+                )
+                if resolved:
+                    if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
+                        logger.debug(
+                            f"RoutingService resolved '{backend_type}' -> '{resolved}'"
+                        )
+                    backend_type = resolved
+
         else:
             # Backend type is already set (from session or extra_body)
             # Still need to parse URI parameters from the model string
@@ -2099,6 +2179,18 @@ class BackendService(IBackendService):
             # Parse with empty default backend since we already have backend_type
             _, parsed_model, uri_params = parse_model_with_params(effective_model, "")
             effective_model = parsed_model
+
+            # Try to route the explicitly set backend (Variant 2)
+            if self._routing_service:
+                resolved = self._routing_service.resolve_backend_instance(
+                    backend_type, effective_model
+                )
+                if resolved:
+                    if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
+                        logger.debug(
+                            f"RoutingService resolved '{backend_type}' -> '{resolved}'"
+                        )
+                    backend_type = resolved
 
         # Apply static_route override if configured
         app_config = cast(AppConfig, self._config)

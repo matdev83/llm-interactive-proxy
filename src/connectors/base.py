@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import abc
+import logging
 import time
-from typing import TYPE_CHECKING, Any, cast
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Generator, cast
 
 from src.core.config.app_config import AppConfig
+from src.core.domain.connection_activity import ConnectionType
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.health_aware_interface import IHealthAware
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 if TYPE_CHECKING:
     from src.core.interfaces.response_processor_interface import IResponseProcessor
+
+logger = logging.getLogger(__name__)
 
 
 def strip_vendor_prefix(model: str, vendor: str) -> str:
@@ -51,26 +58,120 @@ def add_vendor_prefix(model: str, vendor: str) -> str:
     return f"{prefix}{model}"
 
 
-class LLMBackend(abc.ABC):
+class LLMBackend(abc.ABC, IHealthAware):
     """
     Abstract base class for Large Language Model (LLM) backends.
     Defines the interface for interacting with different LLM providers.
+
+    Implements IHealthAware for automatic health state notifications:
+    - Tracks endpoint health status
+    - Receives notifications when API endpoint health changes
+    - Integrates with circuit breaker logic via is_backend_functional()
+
+    Activity Tracking:
+    - Optionally tracks active connections for diagnostics
+    - Provides RX/TX byte counters per session
+    - Use set_activity_tracker() to enable activity tracking
     """
 
     backend_type: str
 
     def __init__(
         self, config: AppConfig, response_processor: IResponseProcessor | None = None
-    ) -> None:  # Modified
+    ) -> None:
         self._response_processor = response_processor
-        self.config = config  # Stored config
+        self.config = config
         self._retry_after_until: float | None = None
+        # Health-aware state
+        self._endpoint_healthy: bool = True
+        self._api_url: str | None = None
+        self._last_health_change_reason: str | None = None
+        # Activity tracking (optional)
+        self._activity_tracker: IConnectionActivityTracker | None = None
+        self._instance_name: str | None = None
+
+    @property
+    def api_url(self) -> str | None:
+        """The API URL this backend is configured to use.
+
+        Returns:
+            The API endpoint URL, or None if not yet initialized.
+        """
+        return self._api_url
+
+    @api_url.setter
+    def api_url(self, value: str | None) -> None:
+        """Set the API URL for this backend."""
+        self._api_url = value
+
+    @property
+    def is_endpoint_healthy(self) -> bool:
+        """Current health status of the backend's API endpoint.
+
+        Returns:
+            True if the endpoint is considered healthy.
+        """
+        # Use getattr for defensive programming - some test backends may not
+        # call super().__init__() and thus won't have this attribute
+        return getattr(self, "_endpoint_healthy", True)
+
+    async def on_endpoint_healthy(self, api_url: str) -> None:
+        """Called when the API endpoint becomes healthy (recovery).
+
+        Updates internal state and logs the recovery event.
+
+        Args:
+            api_url: The API URL that became healthy.
+        """
+        my_url = getattr(self, "_api_url", None)
+        if my_url and my_url != api_url:
+            # Not our URL, ignore
+            return
+
+        previous_state = getattr(self, "_endpoint_healthy", True)
+        self._endpoint_healthy = True
+        self._last_health_change_reason = None
+
+        if not previous_state:
+            # State transition: unhealthy -> healthy
+            logger.warning(
+                "Backend %s: endpoint %s health recovered",
+                getattr(self, "backend_type", "unknown"),
+                api_url,
+            )
+
+    async def on_endpoint_unhealthy(self, api_url: str, reason: str) -> None:
+        """Called when the API endpoint becomes unhealthy (degradation).
+
+        Updates internal state, logs a warning, and enables circuit breaker.
+
+        Args:
+            api_url: The API URL that became unhealthy.
+            reason: Human-readable reason for the health degradation.
+        """
+        my_url = getattr(self, "_api_url", None)
+        if my_url and my_url != api_url:
+            # Not our URL, ignore
+            return
+
+        previous_state = getattr(self, "_endpoint_healthy", True)
+        self._endpoint_healthy = False
+        self._last_health_change_reason = reason
+
+        if previous_state:
+            # State transition: healthy -> unhealthy
+            logger.warning(
+                "Backend %s: endpoint %s health degraded: %s",
+                getattr(self, "backend_type", "unknown"),
+                api_url,
+                reason,
+            )
 
     @abc.abstractmethod
     async def chat_completions(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list,  # Messages after command processing (domain objects or dicts)
+        processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
@@ -162,7 +263,35 @@ class LLMBackend(abc.ABC):
     def is_backend_functional(self) -> bool:
         """
         Check if this backend is currently functional.
-        Default implementation returns True. Subclasses can override.
+
+        A backend is functional if:
+        - Its API endpoint is healthy (ping and HTTP checks passing)
+        - Any subclass-specific conditions are met
+
+        Subclasses can override _is_backend_functional_internal() to add
+        additional conditions without losing endpoint health checking.
+
+        Returns:
+            True if the backend is functional and can accept requests.
+        """
+        # Check endpoint health first (circuit breaker)
+        # Use getattr for defensive programming - some test backends may not
+        # call super().__init__() and thus won't have this attribute
+        if not getattr(self, "_endpoint_healthy", True):
+            return False
+
+        # Check subclass-specific conditions
+        return self._is_backend_functional_internal()
+
+    def _is_backend_functional_internal(self) -> bool:
+        """
+        Internal check for subclass-specific functionality conditions.
+
+        Subclasses should override this method instead of is_backend_functional()
+        to add additional checks while preserving endpoint health checking.
+
+        Returns:
+            True if the backend passes subclass-specific functional checks.
         """
         return True
 
@@ -176,6 +305,96 @@ class LLMBackend(abc.ABC):
     def get_validation_errors(self) -> list[str]:
         """
         Get a list of validation errors if the backend is not functional.
-        Default implementation returns an empty list. Subclasses can override.
+
+        Includes endpoint health status if unhealthy.
+
+        Returns:
+            List of validation error messages.
         """
-        return []
+        errors: list[str] = []
+
+        # Use getattr for defensive programming
+        if not getattr(self, "_endpoint_healthy", True):
+            reason = getattr(self, "_last_health_change_reason", None) or "unknown reason"
+            errors.append(f"API endpoint unhealthy: {reason}")
+
+        return errors
+
+    # -------------------------------------------------------------------------
+    # Activity Tracking Methods
+    # -------------------------------------------------------------------------
+
+    def set_activity_tracker(
+        self, tracker: IConnectionActivityTracker, instance_name: str
+    ) -> None:
+        """Configure activity tracking for this backend.
+
+        Args:
+            tracker: The activity tracker service to use.
+            instance_name: The unique name of this backend instance.
+        """
+        self._activity_tracker = tracker
+        self._instance_name = instance_name
+
+    @property
+    def instance_name(self) -> str:
+        """Get the instance name for this backend.
+
+        Returns:
+            The instance name, or backend_type if not set.
+        """
+        return self._instance_name or getattr(self, "backend_type", "unknown")
+
+    @contextmanager
+    def track_connection(
+        self,
+        session_id: str,
+        connection_type: ConnectionType,
+        model: str | None = None,
+    ) -> Generator[None, None, None]:
+        """Context manager to track a connection's lifecycle.
+
+        If no activity tracker is configured, this is a no-op.
+
+        Args:
+            session_id: Unique identifier for the session/request.
+            connection_type: Whether streaming or non-streaming.
+            model: The model being used (optional).
+
+        Yields:
+            None - the connection is tracked in the background.
+        """
+        tracker = self._activity_tracker
+        if tracker is None:
+            yield
+            return
+
+        with tracker.track_connection(
+            session_id=session_id,
+            backend_name=self.instance_name,
+            connection_type=connection_type,
+            model=model,
+        ):
+            yield
+
+    def increment_rx(self, session_id: str, byte_count: int) -> None:
+        """Increment received bytes counter for a session.
+
+        Args:
+            session_id: The session identifier.
+            byte_count: Number of bytes received.
+        """
+        tracker = self._activity_tracker
+        if tracker is not None:
+            tracker.increment_rx(session_id, self.instance_name, byte_count)
+
+    def increment_tx(self, session_id: str, byte_count: int) -> None:
+        """Increment transmitted bytes counter for a session.
+
+        Args:
+            session_id: The session identifier.
+            byte_count: Number of bytes transmitted.
+        """
+        tracker = self._activity_tracker
+        if tracker is not None:
+            tracker.increment_tx(session_id, self.instance_name, byte_count)

@@ -121,6 +121,9 @@ class MockBackend(LLMBackend):
         client: httpx.AsyncClient,
         available_models: list[str] | None = None,
     ) -> None:
+        # Initialize base class to ensure health attributes are present
+        # MockBackend doesn't use real config, so pass a mock or empty config
+        super().__init__(config=Mock())
         self.client = client
         self.available_models = available_models or ["model1", "model2"]
         self.initialize_called = False
@@ -587,6 +590,8 @@ class TestBackendServiceCompletions:
 
         class TrackingBackend(LLMBackend):
             def __init__(self) -> None:
+                # Initialize base class to ensure health attributes are present
+                super().__init__(config=Mock())
                 self.calls: list[dict[str, Any]] = []
                 self._responses: list[object] = [
                     BackendError(

@@ -38,66 +38,13 @@ def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
     }
 
 
-def _collect_api_keys_from_env(
-    base_name: str,
-    env: Mapping[str, str],
-    resolution: ParameterResolution | None = None,
-) -> dict[str, str]:
-    """Collect API keys from environment variables with parameter resolution tracking."""
-    single_key = env.get(base_name)
-    numbered_keys: dict[str, str] = {}
-    numbered_key_names = []
-    for i in range(1, 21):
-        key_name = f"{base_name}_{i}"
-        key = env.get(key_name)
-        if key:
-            numbered_keys[key_name] = key
-            numbered_key_names.append(key_name)
-
-    if single_key and numbered_keys:
-        logger.warning(
-            "Both %s and %s_<n> environment variables are set. Prioritizing %s_<n> and ignoring %s.",
-            base_name,
-            base_name,
-            base_name,
-            base_name,
-        )
-        if resolution is not None:
-            resolution.record(
-                f"backends.{base_name.lower().replace('_', '')}.api_key",
-                list(numbered_keys.values()),
-                ParameterSource.ENVIRONMENT,
-                origin=",".join(numbered_key_names),
-            )
-        return numbered_keys
-
-    if single_key:
-        result = {base_name: single_key}
-        if resolution is not None:
-            resolution.record(
-                f"backends.{base_name.lower().replace('_', '')}.api_key",
-                list(result.values()),
-                ParameterSource.ENVIRONMENT,
-                origin=base_name,
-            )
-        return result
-
-    if resolution is not None and numbered_keys:
-        resolution.record(
-            f"backends.{base_name.lower().replace('_', '')}.api_key",
-            list(numbered_keys.values()),
-            ParameterSource.ENVIRONMENT,
-            origin=",".join(numbered_key_names),
-        )
-    return numbered_keys
-
-
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
 )
+from src.core.domain.configuration.health_check_config import HealthCheckConfig
 from src.core.domain.configuration.reasoning_aliases_config import (
     ReasoningAliasesConfig,
 )
@@ -253,7 +200,7 @@ class BackendConfig(DomainModel):
 
     model_config = ConfigDict(frozen=True)
 
-    api_key: list[str] = Field(default_factory=list)
+    api_key: str | None = None
     api_url: str | None = None
     models: list[str] = Field(default_factory=list)
     timeout: int = 120  # seconds
@@ -293,11 +240,14 @@ class BackendConfig(DomainModel):
 
     @field_validator("api_key", mode="before")
     @classmethod
-    def validate_api_key(cls, v: Any) -> list[str]:
-        """Ensure api_key is always a list."""
-        if isinstance(v, str):
-            return [v]
-        return v if isinstance(v, list) else []
+    def validate_api_key(cls, v: Any) -> str | None:
+        """Ensure api_key is always a string or None."""
+        if isinstance(v, list) and v:
+            # Legacy list support: take first
+            return str(v[0])
+        if isinstance(v, list) and not v:
+            return None
+        return v
 
     @field_validator("api_url")
     @classmethod
@@ -377,6 +327,26 @@ class LoggingConfig(DomainModel):
     cbor_capture_dir: str | None = None
     # Optional fixed session ID for CBOR capture; auto-generated if not provided
     cbor_capture_session_id: str | None = None
+
+
+class RoutingConfig(DomainModel):
+    """Configuration for routing policies."""
+
+    model_config = ConfigDict(frozen=True)
+
+    disable_backend_ids: bool = False
+    disable_backend_names: bool = False
+    disable_model_names: bool = False
+
+    @model_validator(mode="after")
+    def validate_at_least_one_method_enabled(self) -> "RoutingConfig":
+        """Ensure at least one routing method remains available."""
+        if self.disable_backend_names and self.disable_model_names:
+            raise ValueError(
+                "Invalid routing config: cannot disable both backend names and "
+                "model-only routing. At least one routing method must remain available."
+            )
+        return self
 
 
 class ToolCallReactorConfig(DomainModel):
@@ -564,6 +534,7 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_message: str | None = None
     test_execution_reminder_enabled: bool | None = None
     test_execution_reminder_message: str | None = None
+    droid_antigravity_path_fix_enabled: bool = False
     fix_think_tags_enabled: bool = False
     fix_think_tags_streaming_buffer_size: int = 4096
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
@@ -807,6 +778,9 @@ class BackendSettings(DomainModel):
         """Discover backend instances via env vars and config files."""
         import re
 
+        # Track instances discovered via environment variables
+        env_discovered_instances: set[str] = set()
+
         # Strategy A: API Key Backends (Env Vars)
         # Format: {CONNECTOR_UPPERCASE}_API_KEY_{N} -> connector.N
         # We need a mapping from connector name to env var prefix.
@@ -834,8 +808,9 @@ class BackendSettings(DomainModel):
                     # Don't overwrite if defined in config.yaml (passed via data)
                     if instance_name not in self.__dict__:
                         self.__dict__[instance_name] = BackendConfig(
-                            api_key=[api_key], connector=connector
+                            api_key=api_key, connector=connector
                         )
+                        env_discovered_instances.add(instance_name)
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 f"Discovered backend instance via env: {instance_name}"
@@ -847,6 +822,9 @@ class BackendSettings(DomainModel):
 
         # Allow override for testing (mocking BACKEND_INSTANCES_DIR if it were a module constant)
         config_dir = BACKEND_INSTANCES_DIR
+
+        # Track instances that have a dedicated configuration file
+        file_configured_instances: set[str] = set()
 
         if config_dir.exists():
             for config_file in config_dir.glob("*.yaml"):
@@ -866,6 +844,7 @@ class BackendSettings(DomainModel):
                         continue
 
                     instance_name = f"{connector}.{match.group('name')}"
+                    file_configured_instances.add(instance_name)
 
                     try:
                         import yaml
@@ -908,6 +887,17 @@ class BackendSettings(DomainModel):
                         logger.error(
                             f"Error loading backend instance config {filename}: {e}"
                         )
+
+        # Check for missing config files for environment-discovered instances
+        for instance_name in env_discovered_instances:
+            if instance_name not in file_configured_instances:
+                expected_path = BACKEND_INSTANCES_DIR / f"{instance_name}.yaml"
+                logger.warning(
+                    "Backend instance '%s' created from environment variables but no configuration file found. "
+                    "Using default settings. Expected file location: %s",
+                    instance_name,
+                    expected_path,
+                )
 
         # Validation: Uniqueness check for file-based credentials
         # We need to check if multiple instances of the same connector use the same credentials path
@@ -1201,6 +1191,12 @@ class AppConfig(DomainModel, IConfig):
     # Replacement settings
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
 
+    # Health check settings for backend endpoints
+    health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+
+    # Routing settings
+    routing: RoutingConfig = Field(default_factory=RoutingConfig)
+
     # Virtual Tool Calling (VTC) client detection patterns
     # Case-insensitive substring matching against User-Agent header
     vtc_client_patterns: list[str] = Field(
@@ -1254,6 +1250,8 @@ class AppConfig(DomainModel, IConfig):
             "codebuff",
             "usage_tracking",
             "replacement",
+            "health_check",
+            "routing",
             "vtc_client_patterns",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
@@ -2076,6 +2074,31 @@ class AppConfig(DomainModel, IConfig):
             ),
         }
 
+        # Routing configuration
+        config["routing"] = {
+            "disable_backend_ids": _env_to_bool(
+                "DISABLE_ROUTING_WITH_BACKEND_IDS",
+                False,
+                env,
+                path="routing.disable_backend_ids",
+                resolution=resolution,
+            ),
+            "disable_backend_names": _env_to_bool(
+                "DISABLE_ROUTING_WITH_BACKEND_NAMES",
+                False,
+                env,
+                path="routing.disable_backend_names",
+                resolution=resolution,
+            ),
+            "disable_model_names": _env_to_bool(
+                "DISABLE_ROUTING_WITH_ONLY_MODEL_NAMES",
+                False,
+                env,
+                path="routing.disable_model_names",
+                resolution=resolution,
+            ),
+        }
+
         config["identity"] = AppIdentityConfig(
             title=HeaderConfig(
                 override_value=_get_env_value(
@@ -2149,12 +2172,9 @@ class AppConfig(DomainModel, IConfig):
         assert isinstance(config_backends, dict)
 
         # Collect and assign API keys for specific backends
-        openrouter_keys = _collect_api_keys_from_env(
-            "OPENROUTER_API_KEY", env, resolution
-        )
-        if openrouter_keys:
+        if env.get("OPENROUTER_API_KEY"):
             config_backends["openrouter"] = config_backends.get("openrouter", {})
-            config_backends["openrouter"]["api_key"] = list(openrouter_keys.values())
+            config_backends["openrouter"]["api_key"] = env["OPENROUTER_API_KEY"]
             config_backends["openrouter"]["api_url"] = _get_env_value(
                 env,
                 "OPENROUTER_API_BASE_URL",
@@ -2177,15 +2197,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.openrouter.api_key",
                     config_backends["openrouter"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="OPENROUTER_API_KEY*",
+                    origin="OPENROUTER_API_KEY",
                 )
 
-        gemini_keys: dict[str, str] = _collect_api_keys_from_env(
-            "GEMINI_API_KEY", env, resolution
-        )
-        if gemini_keys:
+        if env.get("GEMINI_API_KEY"):
             config_backends["gemini"] = config_backends.get("gemini", {})
-            config_backends["gemini"]["api_key"] = list(gemini_keys.values())
+            config_backends["gemini"]["api_key"] = env["GEMINI_API_KEY"]
             config_backends["gemini"]["api_url"] = _get_env_value(
                 env,
                 "GEMINI_API_BASE_URL",
@@ -2208,15 +2225,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.gemini.api_key",
                     config_backends["gemini"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="GEMINI_API_KEY*",
+                    origin="GEMINI_API_KEY",
                 )
 
-        anthropic_keys: dict[str, str] = _collect_api_keys_from_env(
-            "ANTHROPIC_API_KEY", env, resolution
-        )
-        if anthropic_keys:
+        if env.get("ANTHROPIC_API_KEY"):
             config_backends["anthropic"] = config_backends.get("anthropic", {})
-            config_backends["anthropic"]["api_key"] = list(anthropic_keys.values())
+            config_backends["anthropic"]["api_key"] = env["ANTHROPIC_API_KEY"]
             config_backends["anthropic"]["api_url"] = _get_env_value(
                 env,
                 "ANTHROPIC_API_BASE_URL",
@@ -2239,15 +2253,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.anthropic.api_key",
                     config_backends["anthropic"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="ANTHROPIC_API_KEY*",
+                    origin="ANTHROPIC_API_KEY",
                 )
 
-        zai_keys: dict[str, str] = _collect_api_keys_from_env(
-            "ZAI_API_KEY", env, resolution
-        )
-        if zai_keys:
+        if env.get("ZAI_API_KEY"):
             config_backends["zai"] = config_backends.get("zai", {})
-            config_backends["zai"]["api_key"] = list(zai_keys.values())
+            config_backends["zai"]["api_key"] = env["ZAI_API_KEY"]
             config_backends["zai"]["api_url"] = _get_env_value(
                 env,
                 "ZAI_API_BASE_URL",
@@ -2270,15 +2281,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.zai.api_key",
                     config_backends["zai"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="ZAI_API_KEY*",
+                    origin="ZAI_API_KEY",
                 )
 
-        zenmux_keys: dict[str, str] = _collect_api_keys_from_env(
-            "ZENMUX_API_KEY", env, resolution
-        )
-        if zenmux_keys:
+        if env.get("ZENMUX_API_KEY"):
             config_backends["zenmux"] = config_backends.get("zenmux", {})
-            config_backends["zenmux"]["api_key"] = list(zenmux_keys.values())
+            config_backends["zenmux"]["api_key"] = env["ZENMUX_API_KEY"]
             config_backends["zenmux"]["api_url"] = _get_env_value(
                 env,
                 "ZENMUX_API_BASE_URL",
@@ -2301,15 +2309,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.zenmux.api_key",
                     config_backends["zenmux"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="ZENMUX_API_KEY*",
+                    origin="ZENMUX_API_KEY",
                 )
 
-        openai_keys: dict[str, str] = _collect_api_keys_from_env(
-            "OPENAI_API_KEY", env, resolution
-        )
-        if openai_keys:
+        if env.get("OPENAI_API_KEY"):
             config_backends["openai"] = config_backends.get("openai", {})
-            config_backends["openai"]["api_key"] = list(openai_keys.values())
+            config_backends["openai"]["api_key"] = env["OPENAI_API_KEY"]
             config_backends["openai"]["api_url"] = _get_env_value(
                 env,
                 "OPENAI_API_BASE_URL",
@@ -2332,15 +2337,12 @@ class AppConfig(DomainModel, IConfig):
                     "backends.openai.api_key",
                     config_backends["openai"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="OPENAI_API_KEY*",
+                    origin="OPENAI_API_KEY",
                 )
 
-        minimax_keys: dict[str, str] = _collect_api_keys_from_env(
-            "MINIMAX_API_KEY", env, resolution
-        )
-        if minimax_keys:
+        if env.get("MINIMAX_API_KEY"):
             config_backends["minimax"] = config_backends.get("minimax", {})
-            config_backends["minimax"]["api_key"] = list(minimax_keys.values())
+            config_backends["minimax"]["api_key"] = env["MINIMAX_API_KEY"]
             config_backends["minimax"]["api_url"] = _get_env_value(
                 env,
                 "MINIMAX_API_BASE_URL",
@@ -2363,7 +2365,7 @@ class AppConfig(DomainModel, IConfig):
                     "backends.minimax.api_key",
                     config_backends["minimax"]["api_key"],
                     ParameterSource.ENVIRONMENT,
-                    origin="MINIMAX_API_KEY*",
+                    origin="MINIMAX_API_KEY",
                 )
 
         # Handle default backend if it's not explicitly configured above

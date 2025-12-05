@@ -73,8 +73,8 @@ class TestBackendDiscovery:
             # Check if instances were created
             assert hasattr(settings, "openai.1")
             assert hasattr(settings, "openai.2")
-            assert settings.get("openai.1").api_key == [val1]
-            assert settings.get("openai.2").api_key == [val2]
+            assert settings.get("openai.1").api_key == val1
+            assert settings.get("openai.2").api_key == val2
 
             # Ensure file-based connector didn't pick up env var
             # gemini-oauth-free is not in env_prefixes dict in the implementation
@@ -83,8 +83,9 @@ class TestBackendDiscovery:
             cfg_fallback = settings.__dict__.get("gemini-oauth-free.1")
             if cfg_fallback is not None:
                 # Fallback instance exists, but api_key should be empty (not from env var)
+                # api_key is now a string or None, not a list
                 assert (
-                    cfg_fallback.api_key == []
+                    cfg_fallback.api_key is None
                 ), "File-based connector should not pick up api_key from env var"
 
     def test_strategy_b_file_discovery(self, mock_backend_registry, tmp_path):

@@ -321,6 +321,10 @@ def register_routes(app: FastAPI) -> None:
                     result["ChatController_resolvable"] = cc is not None
                 except Exception as e:
                     result["ChatController_error"] = str(e)
+
+                # Include endpoint health states
+                result["endpoint_health"] = _get_endpoint_health_info(sp)
+
             # Also include registered descriptor names from global service collection
             try:
                 from src.core.di.services import get_service_collection
@@ -362,6 +366,86 @@ def register_routes(app: FastAPI) -> None:
         except Exception as e:
             result["error"] = str(e)
         return result
+
+
+def _get_endpoint_health_info(sp: IServiceProvider) -> dict[str, Any]:
+    """Get endpoint health information from the health check system.
+
+    Args:
+        sp: Service provider to resolve health services.
+
+    Returns:
+        Dictionary containing endpoint health states and backend info.
+    """
+    health_info: dict[str, Any] = {"enabled": False, "endpoints": [], "backends": []}
+
+    try:
+        from src.core.services.health.backend_notifier import BackendHealthNotifier
+        from src.core.services.health.endpoint_registry import EndpointRegistry
+
+        # Get endpoint registry for health states
+        try:
+            endpoint_registry = sp.get_service(EndpointRegistry)
+        except Exception:
+            endpoint_registry = None
+
+        if endpoint_registry is None:
+            # Health check stage may not have run yet
+            health_info["note"] = (
+                "Health check system not initialized (no backends registered yet)"
+            )
+            return health_info
+
+        health_info["enabled"] = True
+
+        # Get all endpoint health states
+        health_states = endpoint_registry.get_all_health_states()
+        endpoints_list = []
+        for url, state in health_states.items():
+            backends_using_url = list(endpoint_registry.get_backends_for_url(url))
+            endpoints_list.append(
+                {
+                    **state.to_dict(),
+                    "backends_using_url": backends_using_url,
+                }
+            )
+        health_info["endpoints"] = endpoints_list
+
+        # Get backend instance health info from notifier
+        try:
+            backend_notifier = sp.get_service(BackendHealthNotifier)
+        except Exception:
+            backend_notifier = None
+
+        if backend_notifier:
+            backends_list = []
+            for url, backends in backend_notifier._backends.items():
+                for backend in backends:
+                    backend_type = getattr(backend, "backend_type", "unknown")
+                    backends_list.append(
+                        {
+                            "api_url": url,
+                            "backend_type": backend_type,
+                            "is_endpoint_healthy": backend.is_endpoint_healthy,
+                        }
+                    )
+            health_info["backends"] = backends_list
+
+        # Summary stats
+        total_endpoints = len(health_states)
+        healthy_endpoints = sum(1 for s in health_states.values() if s.is_healthy)
+        health_info["summary"] = {
+            "total_endpoints": total_endpoints,
+            "healthy_endpoints": healthy_endpoints,
+            "unhealthy_endpoints": total_endpoints - healthy_endpoints,
+        }
+
+    except ImportError as e:
+        health_info["error"] = f"Health check module not available: {e}"
+    except Exception as e:
+        health_info["error"] = f"Error getting health info: {e}"
+
+    return health_info
 
 
 def register_versioned_endpoints(app: FastAPI) -> None:
@@ -925,7 +1009,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     app.include_router(models_router, prefix="/v1")
 
     # Register diagnostics endpoints
-    from src.core.app.controllers.diagnostics_controller import router as diagnostics_router
+    from src.core.app.controllers.diagnostics_controller import (
+        router as diagnostics_router,
+    )
 
     app.include_router(diagnostics_router)
 

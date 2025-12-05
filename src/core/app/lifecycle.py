@@ -38,6 +38,9 @@ class AppLifecycle:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Starting application lifecycle...")
 
+        # Start health check services
+        await self._start_health_checks()
+
         # Start background tasks
         self._start_background_tasks()
 
@@ -54,6 +57,51 @@ class AppLifecycle:
 
         # Close any remaining connections
         await self._close_connections()
+
+    async def _start_health_checks(self) -> None:
+        """Start health check services if enabled."""
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.services.health.backend_notifier import (
+                BackendHealthNotifier,
+            )
+            from src.core.services.health.health_check_scheduler import (
+                HealthCheckScheduler,
+            )
+            from src.core.services.health.logging_handler import HealthLoggingHandler
+            from src.core.services.health.state_manager import HealthStateManager
+
+            # Start state manager (subscribes to check events)
+            state_manager = provider.get_service(HealthStateManager)
+            if state_manager:
+                await state_manager.start()
+
+            # Start logging handler (subscribes to transition events)
+            logging_handler = provider.get_service(HealthLoggingHandler)
+            if logging_handler:
+                await logging_handler.start()
+
+            # Start backend notifier (routes health events to backends)
+            backend_notifier = provider.get_service(BackendHealthNotifier)
+            if backend_notifier:
+                await backend_notifier.start()
+
+            # Start scheduler (runs background check loops)
+            scheduler = provider.get_service(HealthCheckScheduler)
+            if scheduler:
+                await scheduler.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Health check services started")
+
+        except ImportError:
+            # Health check services not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error starting health check services: %s", e)
 
     def _start_background_tasks(self) -> None:
         """Start background tasks."""
@@ -91,10 +139,63 @@ class AppLifecycle:
         if not provider:
             return
 
+        # Shutdown health check services
+        await self._shutdown_health_checks(provider)
+
         # Get wire capture service and shut it down
         wire_capture_service = provider.get_service(IWireCapture)
         if wire_capture_service and hasattr(wire_capture_service, "shutdown"):
             await wire_capture_service.shutdown()
+
+    async def _shutdown_health_checks(self, provider: Any) -> None:
+        """Shutdown health check services.
+
+        Args:
+            provider: The service provider.
+        """
+        try:
+            from src.core.services.health.backend_notifier import (
+                BackendHealthNotifier,
+            )
+            from src.core.services.health.health_check_scheduler import (
+                HealthCheckScheduler,
+            )
+            from src.core.services.health.logging_handler import HealthLoggingHandler
+            from src.core.services.health.state_manager import HealthStateManager
+
+            # Stop scheduler first
+            scheduler = provider.get_service(HealthCheckScheduler)
+            if scheduler:
+                await scheduler.shutdown()
+
+            # Stop backend notifier
+            backend_notifier = provider.get_service(BackendHealthNotifier)
+            if backend_notifier:
+                await backend_notifier.stop()
+
+            # Stop state manager
+            state_manager = provider.get_service(HealthStateManager)
+            if state_manager:
+                await state_manager.stop()
+
+            # Stop logging handler
+            logging_handler = provider.get_service(HealthLoggingHandler)
+            if logging_handler:
+                await logging_handler.stop()
+
+            # Shutdown event bus
+            from src.core.interfaces.event_bus_interface import IEventBus
+
+            event_bus = provider.get_service(IEventBus)
+            if event_bus:
+                await event_bus.shutdown()
+
+        except ImportError:
+            # Health check services not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error shutting down health check services: %s", e)
 
     async def _session_cleanup_task(self, interval: int, max_age: int) -> None:
         """Background task for cleaning up expired sessions.

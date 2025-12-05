@@ -35,6 +35,9 @@
 --disable-pytest-compression
 --disable-pytest-full-suite-steering
 --disable-redact-api-keys-in-prompts
+--disable-routing-with-backend-ids
+--disable-routing-with-backend-names
+--disable-routing-with-only-model-names
 --disable-sso-captcha
 --edit-precision-exclude-agents
 --edit-precision-min-top-p

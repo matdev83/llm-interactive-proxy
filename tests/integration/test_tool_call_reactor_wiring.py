@@ -222,3 +222,59 @@ async def test_all_reactor_handlers_work_with_filtering():
 
     # Assert - Should still work and return the message
     assert result2 is message
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_droid_antigravity_path_fix_handler_wires_when_enabled():
+    """
+    The DroidAntigravityPathFixHandler should be registered when the feature flag
+    is enabled in configuration.
+    """
+    # Arrange
+    config = AppConfig.model_validate(
+        {
+            "session": {
+                "droid_antigravity_path_fix_enabled": True,
+            }
+        }
+    )
+    builder = ApplicationBuilder().add_default_stages()
+
+    # Act
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+    reactor_middleware = service_provider.get_required_service(
+        ToolCallReactorMiddleware
+    )
+
+    registered_handlers = reactor_middleware.get_registered_handlers()
+
+    # Assert
+    assert "droid_antigravity_path_fix_handler" in registered_handlers
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_droid_antigravity_path_fix_handler_not_wired_when_disabled():
+    """
+    The DroidAntigravityPathFixHandler should NOT be registered when the feature flag
+    is disabled (default).
+    """
+    # Arrange
+    config = AppConfig()
+    builder = ApplicationBuilder().add_default_stages()
+
+    # Act
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+    reactor_middleware = service_provider.get_required_service(
+        ToolCallReactorMiddleware
+    )
+
+    registered_handlers = reactor_middleware.get_registered_handlers()
+
+    # Assert
+    assert "droid_antigravity_path_fix_handler" not in registered_handlers

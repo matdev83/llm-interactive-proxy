@@ -9,6 +9,7 @@ from .base import InitializationStage
 from .command import CommandStage
 from .controller import ControllerStage
 from .core_services import CoreServicesStage
+from .health_check import HealthCheckStage
 from .infrastructure import InfrastructureStage
 from .processor import ProcessorStage
 
@@ -21,6 +22,7 @@ class DefaultApplicationStages:
             InfrastructureStage(),
             CoreServicesStage(),
             BackendStage(),
+            HealthCheckStage(),  # After backends so we can monitor their URLs
             CommandStage(),
             ProcessorStage(),
             ControllerStage(),

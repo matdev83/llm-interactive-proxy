@@ -284,7 +284,7 @@ Create different backend configurations for:
 
 - Adjust `requests_per_minute` and `tokens_per_minute` in model limits
 - Check provider's actual rate limits
-- Consider using multiple API keys with rotation
+- Consider using API Key Rotation (via multiple backend instances) with load balancing
 
 ### Context Window Errors
 

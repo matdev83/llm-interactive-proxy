@@ -65,7 +65,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         self.config = config  # Stored config
         self.translation_service = translation_service
         self.available_models: list[str] = []
-        self.api_keys: list[str] = []
 
     async def initialize(self, **kwargs: Any) -> None:
         """Store configuration for lazy initialization."""

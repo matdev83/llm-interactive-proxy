@@ -119,11 +119,48 @@ class BackendStage(InitializationStage):
                 translation_service: TranslationService = provider.get_required_service(
                     TranslationService
                 )
+
+                # Get endpoint registry if available (for health checks)
+                endpoint_registry = None
+                try:
+                    from src.core.services.health.endpoint_registry import (
+                        EndpointRegistry,
+                    )
+
+                    endpoint_registry = provider.get_service(EndpointRegistry)
+                except Exception:
+                    pass  # Health checks not enabled or not yet registered
+
+                # Get backend notifier if available (for health notifications)
+                backend_notifier = None
+                try:
+                    from src.core.services.health.backend_notifier import (
+                        BackendHealthNotifier,
+                    )
+
+                    backend_notifier = provider.get_service(BackendHealthNotifier)
+                except Exception:
+                    pass  # Health notifications not enabled or not yet registered
+
+                # Get activity tracker if available (for connection monitoring)
+                activity_tracker = None
+                try:
+                    from src.core.interfaces.activity_tracker_interface import (
+                        IConnectionActivityTracker,
+                    )
+
+                    activity_tracker = provider.get_service(IConnectionActivityTracker)
+                except Exception:
+                    pass  # Activity tracking not enabled or not yet registered
+
                 return BackendFactory(  # noqa: DI-bypass (factory construction)
                     httpx_client,
                     backend_registry_instance,
                     app_config,
                     translation_service,
+                    endpoint_registry,
+                    backend_notifier,
+                    activity_tracker,
                 )
 
             services.add_singleton(

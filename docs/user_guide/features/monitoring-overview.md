@@ -1,8 +1,34 @@
 # Monitoring and Analytics Overview
 
-The LLM Interactive Proxy provides comprehensive monitoring and analytics capabilities to help you understand usage patterns, track costs, and optimize performance.
+The LLM Interactive Proxy provides comprehensive monitoring and analytics capabilities to help you understand usage patterns, track costs, optimize performance, and ensure backend availability.
 
 ## Available Features
+
+### Backend Health Checks
+
+**[Backend Health Checks](health-checks.md)** monitors the health of backend API endpoints and automatically excludes unhealthy backends from request routing.
+
+**Key Capabilities:**
+- ICMP ping checks for network reachability
+- HTTP probe checks for application-level health
+- Circuit breaker to exclude unhealthy backends from routing
+- Real-time backend notifications on health changes
+- REST API for health status monitoring
+
+**Use Cases:**
+- Automatic failover when backend APIs become unavailable
+- Multi-region deployment with intelligent routing
+- Proactive monitoring and alerting
+- Preventing requests to unreachable endpoints
+
+**Quick Start:**
+```bash
+# Check health status
+curl "http://localhost:8000/internal/health" | jq '.endpoint_health'
+
+# View summary
+curl "http://localhost:8000/internal/health" | jq '.endpoint_health.summary'
+```
 
 ### Usage Tracking and Statistics
 
@@ -58,17 +84,32 @@ curl "http://localhost:8000/v1/usage/export?start_date=2025-12-01T00:00:00Z&end_
 
 ## Comparison Matrix
 
-| Feature | Token Tracking | Cost Tracking | Performance Metrics | Request Details | Real-time API |
-|---------|---------------|---------------|---------------------|-----------------|---------------|
-| **Usage Tracking** | ✓ (4 points) | ✓ | ✓ (TTFT, latency) | ✓ (full details) | ✓ |
-| **Replacement Metrics** | - | - | - | ✓ (replacements) | ✓ |
-| **Wire Capture** | - | - | - | ✓ (full payload) | - |
+| Feature | Token Tracking | Cost Tracking | Performance Metrics | Request Details | Real-time API | Health Monitoring |
+|---------|---------------|---------------|---------------------|-----------------|---------------|-------------------|
+| **Health Checks** | - | - | ✓ (latency) | - | ✓ | ✓ (ping, HTTP) |
+| **Usage Tracking** | ✓ (4 points) | ✓ | ✓ (TTFT, latency) | ✓ (full details) | ✓ | - |
+| **Replacement Metrics** | - | - | - | ✓ (replacements) | ✓ | - |
+| **Wire Capture** | - | - | - | ✓ (full payload) | - | - |
 
 ## Configuration
 
 ### Enable All Monitoring Features
 
 ```yaml
+# Health checks (enabled by default)
+health_check:
+  enabled: true
+  circuit_breaker_enabled: true
+  notify_backends: true
+  ping:
+    enabled: true
+    interval_seconds: 30.0
+    failure_threshold: 3
+  http:
+    enabled: true
+    interval_seconds: 60.0
+    failure_threshold: 2
+
 # Usage tracking (enabled by default)
 usage_tracking:
   enabled: true
@@ -257,6 +298,7 @@ If statistics queries are slow:
 
 ## Related Documentation
 
+- **[Health Checks Guide](health-checks.md)** - Backend health monitoring and circuit breaker
 - **[Usage Tracking User Guide](usage-tracking.md)** - Complete feature documentation
 - **[Usage Tracking Integration Guide](../../../docs/usage-tracking-integration.md)** - Developer integration guide
 - **[Wire Capture Guide](../debugging/wire-capture.md)** - Traffic recording and analysis

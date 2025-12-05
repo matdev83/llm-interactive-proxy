@@ -28,7 +28,7 @@ class MockBackendBase:
             name: The name of the backend
         """
         self.name = name
-        self.api_keys = ["test-key"]
+        self.api_key = "test-key"
         self.available_models = [f"{name}-model-1", f"{name}-model-2"]
 
         # Create a mock for chat_completions

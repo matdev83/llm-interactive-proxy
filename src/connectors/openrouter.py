@@ -43,7 +43,6 @@ class OpenRouterBackend(OpenAIConnector):
         self.api_base_url = "https://openrouter.ai/api/v1"
         self.headers_provider: Callable[[Any, str], dict[str, str]] | None = None
         self.key_name: str | None = None
-        self.api_keys: list[str] = []
 
     def _build_openrouter_header_context(self) -> dict[str, str]:
         """Create a minimal context dictionary for header providers expecting config."""

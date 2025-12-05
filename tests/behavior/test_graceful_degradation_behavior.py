@@ -641,7 +641,9 @@ class TestOracleImprovementsBehavior:
         # This is more efficient than the old behavior of spamming the rate-limited API.
         # First request: initial attempt + 1 degradation probe = 2 calls
         # Subsequent requests: 0 calls (skip directly to fallback due to cooldown check)
-        assert connector._api_call_count["gemini-2.5-pro"] >= 2  # At least 2 from first request
+        assert (
+            connector._api_call_count["gemini-2.5-pro"] >= 2
+        )  # At least 2 from first request
 
     @pytest.mark.slow
     @pytest.mark.asyncio

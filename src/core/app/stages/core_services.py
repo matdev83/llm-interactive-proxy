@@ -267,11 +267,48 @@ class CoreServicesStage(InitializationStage):
                 logger.error(f"Failed to register core services from DI module: {e}")
             raise
 
+        # Register connection activity tracker
+        self._register_activity_tracker(services)
+
         # Register wire capture service
         self._register_wire_capture_service(services)
 
         # Register usage tracking services
         self._register_usage_tracking_services(services, config)
+
+    def _register_activity_tracker(self, services: ServiceCollection) -> None:
+        """Register connection activity tracker service.
+
+        The activity tracker provides real-time visibility into active connections
+        through backend connectors with RX/TX byte counters per session.
+        """
+        try:
+            from src.core.interfaces.activity_tracker_interface import (
+                IConnectionActivityTracker,
+            )
+            from src.core.services.connection_activity_tracker import (
+                ConnectionActivityTracker,
+                get_activity_tracker,
+            )
+
+            # Register the global singleton instance
+            def activity_tracker_factory(
+                provider: IServiceProvider,
+            ) -> ConnectionActivityTracker:
+                return get_activity_tracker()
+
+            services.add_singleton(
+                ConnectionActivityTracker, implementation_factory=activity_tracker_factory
+            )
+            services.add_singleton(
+                IConnectionActivityTracker, implementation_factory=activity_tracker_factory
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered connection activity tracker service")
+        except ImportError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register activity tracker service: {e}")
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.

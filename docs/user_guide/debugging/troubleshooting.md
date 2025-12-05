@@ -243,17 +243,14 @@ This guide covers common issues and their solutions when using the LLM Interacti
 2. **Check if it's backend rate limiting**:
    - Review your API plan limits
    - Upgrade your API plan
-   - Enable API key rotation
+   - Use multiple backend instances (e.g. `openai.1`, `openai.2`) for load balancing
 
-3. **Enable API key rotation**:
+3. **Enable API Key Rotation (multi-instance load balancing)**:
    ```yaml
-   backends:
-     openai:
-       api_keys:
-         - key: $OPENAI_API_KEY_1
-         - key: $OPENAI_API_KEY_2
-         - key: $OPENAI_API_KEY_3
-       rotation_strategy: round_robin
+   # Configure multiple backend instances in environment or config files
+   # Environment:
+   # OPENAI_API_KEY_1=sk-...
+   # OPENAI_API_KEY_2=sk-...
    ```
 
 4. **Adjust brute-force protection** (if proxy-side):

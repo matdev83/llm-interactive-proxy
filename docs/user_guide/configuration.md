@@ -102,7 +102,7 @@ proxy_timeout: 120             # Global request timeout (seconds)
 command_prefix: "!/"           # Command prefix for in-chat commands
 strict_command_detection: false # Require commands to be at start of message
 context_window_override: null  # Override context window size (int)
-disable_health_checks: false   # Disable health check endpoints
+disable_health_checks: false   # Disable /health endpoint (not the health monitoring system)
 gcp_project_id: null           # Google Cloud Project ID
 gemini_credentials_path: null  # Path to Gemini credentials JSON
 ```
@@ -123,25 +123,25 @@ backends:
   
   # Backend-specific configurations
   openai:
-    api_key: ["sk-..."]        # List of API keys
+    api_key: "sk-..."          # API key string (or None)
     api_url: "https://api.openai.com/v1"
     timeout: 120
     models: []                 # Optional list of supported models
     
   anthropic:
-    api_key: ["sk-ant-..."]
+    api_key: "sk-ant-..."
     api_url: "https://api.anthropic.com/v1"
     
   gemini:
-    api_key: ["..."]
+    api_key: "..."
     api_url: "https://generativelanguage.googleapis.com"
     
   openrouter:
-    api_key: ["sk-or-..."]
+    api_key: "sk-or-..."
     api_url: "https://openrouter.ai/api/v1"
 
   minimax:
-    api_key: ["..."]
+    api_key: "..."
     api_url: "https://api.minimax.io/v1"
     
   # Custom/Other backends follow the same structure
@@ -384,7 +384,62 @@ failover_routes:
   "primary-model-id":
     policy: "round-robin"
     elements: ["backup-model-1", "backup-model-2"]
+
+# Routing Control
+routing:
+  disable_backend_ids: false        # Disable routing via explicit backend IDs (e.g. openai.1:gpt-4)
+  disable_backend_names: false      # Disable routing via backend names (e.g. openai:gpt-4)
+  disable_model_names: false        # Disable routing via model name only (e.g. gpt-4)
 ```
+
+### Health Check Settings (`health_check`)
+
+Configure backend API endpoint health monitoring and circuit breaker behavior.
+See [Health Checks Guide](features/health-checks.md) for complete documentation.
+
+```yaml
+health_check:
+  # Master switch for health check system
+  enabled: true
+  
+  # Circuit breaker - exclude unhealthy backends from routing
+  circuit_breaker_enabled: true
+  
+  # Notify backend instances when their API URL health changes
+  notify_backends: true
+  
+  # Log successful health checks (can be verbose)
+  log_healthy_checks: false
+  
+  # ICMP Ping check configuration
+  ping:
+    enabled: true
+    interval_seconds: 30.0      # Seconds between checks
+    timeout_seconds: 5.0        # Ping timeout
+    failure_threshold: 3        # Consecutive failures before marking unhealthy
+  
+  # HTTP probe configuration
+  http:
+    enabled: true
+    interval_seconds: 60.0      # Seconds between checks
+    timeout_seconds: 10.0       # Request timeout
+    failure_threshold: 2        # Consecutive failures before marking unhealthy
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the health check system |
+| `circuit_breaker_enabled` | bool | `true` | Exclude unhealthy backends from routing |
+| `notify_backends` | bool | `true` | Notify backend instances of health changes |
+| `log_healthy_checks` | bool | `false` | Log successful checks |
+| `ping.enabled` | bool | `true` | Enable ICMP ping checks |
+| `ping.interval_seconds` | float | `30.0` | Seconds between ping checks |
+| `ping.timeout_seconds` | float | `5.0` | Ping timeout |
+| `ping.failure_threshold` | int | `3` | Failures before unhealthy |
+| `http.enabled` | bool | `true` | Enable HTTP probe checks |
+| `http.interval_seconds` | float | `60.0` | Seconds between HTTP checks |
+| `http.timeout_seconds` | float | `10.0` | HTTP request timeout |
+| `http.failure_threshold` | int | `2` | Failures before unhealthy |
 
 ### Other Settings
 

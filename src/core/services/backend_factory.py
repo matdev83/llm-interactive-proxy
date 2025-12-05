@@ -3,16 +3,21 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from src.connectors.base import LLMBackend
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
 from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.services.backend_registry import BackendRegistry
+
+if TYPE_CHECKING:
+    from src.core.services.health.backend_notifier import BackendHealthNotifier
+    from src.core.services.health.endpoint_registry import EndpointRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +34,9 @@ class BackendFactory(IBackendFactory):
         backend_registry: BackendRegistry,
         config: AppConfig,
         translation_service: ITranslationService,
+        endpoint_registry: EndpointRegistry | None = None,
+        backend_notifier: BackendHealthNotifier | None = None,
+        activity_tracker: IConnectionActivityTracker | None = None,
     ) -> None:
         """Initialize the backend factory.
 
@@ -36,11 +44,18 @@ class BackendFactory(IBackendFactory):
             httpx_client: HTTP client for API calls
             backend_registry: The registry for discovering backends
             config: The application configuration
+            translation_service: Service for translation/format conversion
+            endpoint_registry: Optional registry for health check tracking
+            backend_notifier: Optional notifier for health event subscriptions
+            activity_tracker: Optional tracker for connection activity monitoring
         """
         self._client = httpx_client
         self._backend_registry = backend_registry
         self._config = config  # Stored config
         self._translation_service = translation_service
+        self._endpoint_registry = endpoint_registry
+        self._backend_notifier = backend_notifier
+        self._activity_tracker = activity_tracker
 
     def create_backend(
         self, backend_type: str, config: AppConfig | None = None
@@ -106,8 +121,8 @@ class BackendFactory(IBackendFactory):
         init_config: dict[str, Any] = {}
 
         if backend_config is not None:
-            api_key_list = backend_config.api_key
-            init_config["api_key"] = api_key_list[0] if api_key_list else None
+            # Pass api_key directly (now a string)
+            init_config["api_key"] = backend_config.api_key
             if backend_config.api_url:
                 init_config["api_base_url"] = backend_config.api_url
 
@@ -139,9 +154,10 @@ class BackendFactory(IBackendFactory):
             }
             env_spec = env_key_mapping.get(connector_type)  # Use connector_type
             if env_spec:
-                collected_keys = self._collect_env_keys(env_spec["api_key_env"])
-                if collected_keys:
-                    current_api_key = collected_keys[0]
+                # Use standard env var for API key (no collection)
+                api_key_env = env_spec["api_key_env"]
+                current_api_key = os.environ.get(api_key_env)
+                if current_api_key:
                     init_config["api_key"] = current_api_key
                     api_base_url = init_config.get("api_base_url")
                     if not api_base_url:
@@ -212,26 +228,111 @@ class BackendFactory(IBackendFactory):
             with suppress(AttributeError):
                 backend.backend_type = backend_type
 
+        # Step 4: Store the API URL on the backend and register for health checks
+        api_url = init_config.get("api_base_url") or init_config.get(
+            "gemini_api_base_url"
+        )
+        if api_url:
+            # Store API URL on backend for health-aware interface
+            backend.api_url = api_url
+
+        # Step 5: Register the backend's API URL in the endpoint registry for health checks
+        self._register_endpoint_for_health_check(backend_type, init_config)
+
+        # Step 6: Register backend for health notifications
+        self._register_backend_for_notifications(backend)
+
+        # Step 7: Configure activity tracking if available
+        self._configure_activity_tracking(backend, backend_type)
+
         return backend
 
-    @staticmethod
-    def _collect_env_keys(base_name: str) -> list[str]:
-        """Collect API keys from environment variables supporting numbered suffixes."""
+    def _configure_activity_tracking(
+        self, backend: LLMBackend, instance_name: str
+    ) -> None:
+        """Configure activity tracking for a backend instance.
 
-        keys: list[str] = []
-        single_key = os.environ.get(base_name)
-        numbered_keys: list[str] = []
-        for index in range(1, 21):
-            numbered_value = os.environ.get(f"{base_name}_{index}")
-            if numbered_value:
-                numbered_keys.append(numbered_value)
+        Args:
+            backend: The backend instance to configure.
+            instance_name: The unique name for this backend instance.
+        """
+        if self._activity_tracker is None:
+            return
 
-        if numbered_keys:
-            keys.extend(numbered_keys)
-        elif single_key:
-            keys.append(single_key)
+        try:
+            backend.set_activity_tracker(self._activity_tracker, instance_name)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Configured activity tracking for backend %s", instance_name
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to configure activity tracking for backend %s: %s",
+                    instance_name,
+                    e,
+                )
 
-        return keys
+    def _register_endpoint_for_health_check(
+        self,
+        backend_name: str,
+        init_config: dict[str, Any],
+    ) -> None:
+        """Register a backend's API URL in the endpoint registry for health checks.
+
+        Args:
+            backend_name: The unique backend instance name.
+            init_config: The initialization config containing API URL.
+        """
+        if self._endpoint_registry is None:
+            return
+
+        # Determine the API URL from the init config
+        api_url = init_config.get("api_base_url") or init_config.get(
+            "gemini_api_base_url"
+        )
+        if not api_url:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "No API URL found for backend %s, skipping health check registration",
+                    backend_name,
+                )
+            return
+
+        try:
+            self._endpoint_registry.register_backend(backend_name, api_url)
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to register backend %s for health checks: %s",
+                    backend_name,
+                    e,
+                )
+
+    def _register_backend_for_notifications(self, backend: LLMBackend) -> None:
+        """Register a backend to receive health state notifications.
+
+        Args:
+            backend: The backend instance to register for notifications.
+        """
+        if self._backend_notifier is None:
+            return
+
+        if not backend.api_url:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Backend has no API URL, skipping notification registration"
+                )
+            return
+
+        try:
+            self._backend_notifier.register_backend(backend)
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to register backend for health notifications: %s",
+                    e,
+                )
 
     @staticmethod
     def create(service_provider: IServiceProvider) -> BackendFactory:

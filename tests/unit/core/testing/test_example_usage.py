@@ -175,8 +175,7 @@ class TestCreateTestConfig:
         config = create_test_config()
 
         assert config.backends.openai is not None
-        assert len(config.backends.openai.api_key) == 1
-        assert config.backends.openai.api_key[0] == "test_key"
+        assert config.backends.openai.api_key == "test_key"
 
 
 class TestCreateValidatedTestApp:

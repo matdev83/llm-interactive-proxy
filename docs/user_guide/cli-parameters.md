@@ -230,6 +230,14 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--blocked-tools PATTERNS` | N/A | Comma-separated regex for blocked tools. |
 | `--default-policy POLICY` | N/A | Default policy: 'allow' or 'deny'. |
 
+### Routing Control
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--disable-routing-with-backend-ids` | `DISABLE_ROUTING_WITH_BACKEND_IDS=true` | Disable routing using explicit backend instance IDs (e.g. `openai.1:gpt-4`). |
+| `--disable-routing-with-backend-names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies disabling IDs. |
+| `--disable-routing-with-only-model-names` | `DISABLE_ROUTING_WITH_ONLY_MODEL_NAMES=true` | Disable routing using only model names (e.g. `gpt-4`). |
+
 ### Pytest Integration
 
 | CLI Argument | Environment Variable | Description |

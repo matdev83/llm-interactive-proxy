@@ -103,7 +103,7 @@ class BackendConfigProvider(IBackendConfigProvider):
 
             # First, try to find one with a non-empty API key
             for lookup_name, cfg, method in found_configs:
-                if cfg.api_key:  # Non-empty api_key list
+                if cfg.api_key:  # Non-empty api_key
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             f"Using config from '{lookup_name}' ({method}) with non-empty api_key: {cfg.api_key}"
@@ -199,7 +199,7 @@ class BackendConfigProvider(IBackendConfigProvider):
                 ):
                     continue
 
-                if value.api_key:  # Non-empty api_key list
+                if value.api_key:  # Non-empty api_key
                     result.add(name)
 
         # Then check backends via get_backend_config for any we missed

@@ -83,7 +83,7 @@ async def test_ensure_backend_with_backend_config(factory: BackendFactory) -> No
     backend_type = "openai"
     app_config = factory._config
     backend_config = BackendConfig(
-        api_key=["test-api-key"],
+        api_key="test-api-key",
         api_url="https://custom-api.example.com",
         extra={"timeout": 30},
     )
@@ -154,7 +154,7 @@ async def test_ensure_backend_anthropic_specific(factory: BackendFactory) -> Non
     # Arrange
     backend_type = "anthropic"
     app_config = factory._config
-    backend_config = BackendConfig(api_key=["anthropic-key"])
+    backend_config = BackendConfig(api_key="anthropic-key")
     mock_backend = MagicMock()
 
     # Act
@@ -185,7 +185,7 @@ async def test_ensure_backend_openrouter_specific(factory: BackendFactory) -> No
     # Arrange
     backend_type = "openrouter"
     app_config = factory._config
-    backend_config = BackendConfig(api_key=["openrouter-key"])
+    backend_config = BackendConfig(api_key="openrouter-key")
     mock_backend = MagicMock()
 
     # Act
@@ -218,7 +218,7 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
     # Arrange
     backend_type = "gemini"
     app_config = factory._config
-    backend_config = BackendConfig(api_key=["gemini-key"])
+    backend_config = BackendConfig(api_key="gemini-key")
     mock_backend = MagicMock()
 
     # Act
@@ -256,7 +256,7 @@ async def test_ensure_backend_custom_api_url_not_overridden(
     backend_type = "gemini"
     app_config = factory._config
     backend_config = BackendConfig(
-        api_key=["gemini-key"], api_url="https://custom-gemini-api.example.com"
+        api_key="gemini-key", api_url="https://custom-gemini-api.example.com"
     )
     mock_backend = MagicMock()
 

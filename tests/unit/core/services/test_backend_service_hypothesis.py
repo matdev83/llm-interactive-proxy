@@ -31,6 +31,8 @@ class MockBackend(LLMBackend):
         client: httpx.AsyncClient,
         available_models: list[str] | None = None,
     ) -> None:
+        # Initialize base class to ensure health attributes are present
+        super().__init__(config=Mock())
         self.client = client
         self.available_models = available_models or ["model1", "model2"]
         self.initialize_called = False
@@ -234,6 +236,11 @@ class TestBackendServiceHypothesis:
             extra_body={"backend_type": BackendType.OPENAI},
         )
 
+        # Mock resolve_backend_and_model
+        service._resolve_backend_and_model = AsyncMock(
+            return_value=("openai", model_name, {})
+        )
+
         with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
             # Act
             response = await service.call_completion(chat_request)
@@ -369,6 +376,10 @@ class TestBackendServiceHypothesis:
         for error_msg in error_messages:
             # Create a new mock for each iteration to avoid shared state
             mock_backend = MockBackend(client)
+            # Ensure attributes needed for validation reporting
+            mock_backend._endpoint_healthy = True
+            mock_backend._last_health_change_reason = None
+            
             # Use BackendError instead of generic Exception to match what the backend would throw
             mock_backend.chat_completions_mock.side_effect = BackendError(
                 message=error_msg, backend_name="test-backend"
@@ -377,6 +388,11 @@ class TestBackendServiceHypothesis:
                 messages=[ChatMessage(role="user", content="Hello")],
                 model="test-model",
                 extra_body={"backend_type": BackendType.OPENAI},
+            )
+
+            # Mock resolve_backend_and_model
+            service._resolve_backend_and_model = AsyncMock(
+                return_value=("openai", "test-model", {})
             )
 
             with patch.object(

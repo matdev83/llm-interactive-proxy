@@ -395,11 +395,23 @@ class ServiceCollection(IServiceCollection):
 
         def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
             """Create BackendFactory with all required dependencies."""
+            # Get endpoint registry if available (for health checks)
+            endpoint_registry = None
+            try:
+                from src.core.services.health.endpoint_registry import (
+                    EndpointRegistry,
+                )
+
+                endpoint_registry = provider.get_service(EndpointRegistry)
+            except Exception:
+                pass  # Health checks not enabled
+
             return BackendFactory(  # noqa: DI-bypass
                 provider.get_required_service(httpx.AsyncClient),
                 provider.get_required_service(BackendRegistry),
                 provider.get_required_service(AppConfig),
                 provider.get_required_service(TranslationService),
+                endpoint_registry,
             )
 
         self.add_singleton(

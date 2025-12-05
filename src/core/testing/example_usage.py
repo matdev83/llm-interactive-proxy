@@ -171,7 +171,7 @@ def create_test_config() -> AppConfig:
         host="localhost",
         port=9000,
         backends=BackendSettings(
-            default_backend="openai", openai=BackendConfig(api_key=["test_key"])
+            default_backend="openai", openai=BackendConfig(api_key="test_key")
         ),
         auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
     )

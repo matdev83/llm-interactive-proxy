@@ -158,6 +158,7 @@ class FallbackModelDiscovery:
         "claude-sonnet-4-5",
         "claude-3-5-sonnet",
         "claude-3-5-sonnet-v2",
+        "anthropic/claude-opus-4-5",
     ]
 
     def __init__(

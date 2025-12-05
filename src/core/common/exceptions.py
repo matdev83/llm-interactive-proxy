@@ -293,3 +293,15 @@ class APITimeoutError(BackendError):
         self, message: str = "API timeout", details: dict | None = None, **kwargs
     ):
         super().__init__(message, backend_name=None, details=details, **kwargs)
+
+
+class RoutingError(LLMProxyError):
+    """Raised when routing fails due to policy restrictions or configuration issues."""
+
+    def __init__(
+        self,
+        message: str = "Routing failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=403, **kwargs)

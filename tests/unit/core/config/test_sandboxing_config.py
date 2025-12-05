@@ -371,6 +371,11 @@ class TestSandboxingConfigSerialization:
         )
 
         config_path = tmp_path / "config.yaml"
+        # Since we are creating a test config, we need to ensure minimal required fields are set
+        # to pass schema validation during load
+        if not config.backends.openai.api_key:
+            object.__setattr__(config.backends.openai, "api_key", "test-key")
+
         config.save(config_path)
 
         # Load the saved config

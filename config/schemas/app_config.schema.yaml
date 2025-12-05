@@ -144,6 +144,7 @@ properties:
         default: 1
       fix_think_tags_enabled: { type: boolean }
       fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
+      droid_antigravity_path_fix_enabled: { type: boolean }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object
@@ -254,6 +255,41 @@ properties:
     type: array
     items: { type: string }
     default: ["cline", "kilo", "roo"]
+  health_check:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      circuit_breaker_enabled: { type: boolean }
+      notify_backends: { type: boolean }
+      log_healthy_checks: { type: boolean }
+      ping:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          interval_seconds: { type: number, minimum: 0.1 }
+          timeout_seconds: { type: number, minimum: 0.1 }
+          failure_threshold: { type: integer, minimum: 1 }
+          count: { type: integer, minimum: 1 }
+      http:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          interval_seconds: { type: number, minimum: 0.1 }
+          timeout_seconds: { type: number, minimum: 0.1 }
+          failure_threshold: { type: integer, minimum: 1 }
+          method: { type: string, enum: [GET, HEAD] }
+          path: { type: string }
+          accept_any_response: { type: boolean }
+  routing:
+    type: object
+    additionalProperties: false
+    properties:
+      disable_backend_ids: { type: boolean }
+      disable_backend_names: { type: boolean }
+      disable_model_names: { type: boolean }
   usage_tracking:
     type: object
     additionalProperties: false

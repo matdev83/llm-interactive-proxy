@@ -128,6 +128,8 @@ class MockServiceScope(IServiceScope):
 #
 # Mock Backend Service
 #
+from src.connectors.base import LLMBackend
+
 class MockBackendService(IBackendService, IBackendProcessor):
     """A mock backend service for testing."""
 
@@ -139,6 +141,10 @@ class MockBackendService(IBackendService, IBackendProcessor):
         self.validations: dict[str, dict[str, bool]] = {
             "openrouter": {"test-model": True}
         }
+
+    def get_active_backends(self) -> dict[str, LLMBackend]:
+        """Get all active backend instances."""
+        return {}
 
     def add_response(
         self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception
@@ -165,6 +171,10 @@ class MockBackendService(IBackendService, IBackendProcessor):
         from src.core.domain.chat import ChatResponse
         from src.core.domain.responses import ResponseEnvelope as _ResponseEnvelope
 
+        # Handle StreaminResponseEnvelope directly (it's async iterable, but not just any async iterable)
+        if isinstance(response, StreamingResponseEnvelope):
+            return response
+            
         if hasattr(response, "__aiter__"):
             return response
 

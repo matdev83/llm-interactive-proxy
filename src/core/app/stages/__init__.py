@@ -4,6 +4,7 @@ from .base import InitializationStage
 from .command import CommandStage
 from .controller import ControllerStage
 from .core_services import CoreServicesStage
+from .health_check import HealthCheckStage
 from .infrastructure import InfrastructureStage
 from .processor import ProcessorStage
 from .test_stages import RealBackendTestStage
@@ -14,6 +15,7 @@ __all__ = [
     "ControllerStage",
     "CoreServicesStage",
     "DefaultApplicationStages",
+    "HealthCheckStage",
     "InfrastructureStage",
     "InitializationStage",
     "ProcessorStage",

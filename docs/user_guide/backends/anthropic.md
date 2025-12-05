@@ -429,7 +429,7 @@ See [URI Model Parameters](../features/uri-model-parameters.md) for more details
 ### 429 Rate Limit Exceeded
 
 - Anthropic has rate limits based on your account tier
-- Consider enabling API key rotation with multiple keys
+- Consider using API Key Rotation (via multiple backend instances) for load balancing
 - Use failover to switch to alternative models
 
 ### Model Not Found

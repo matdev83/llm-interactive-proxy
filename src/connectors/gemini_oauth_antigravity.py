@@ -27,6 +27,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.base import strip_vendor_prefix
 from src.connectors.gemini_base.credential_providers import (
     AntigravitySQLiteCredentialProvider,
 )
@@ -48,6 +49,9 @@ from src.core.domain.chat import (
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
+
+# Vendor prefixes that need to be stripped for Antigravity backend
+ANTHROPIC_VENDOR_PREFIX = "anthropic"
 
 from .gemini_oauth_base import GeminiOAuthBaseConnector
 
@@ -189,6 +193,10 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         if model_name.startswith(prefix):
             model_name = model_name[len(prefix) :]
 
+        # Strip vendor prefix (e.g., "anthropic/") for Antigravity backend
+        # The remote backend requires model names without vendor prefixes
+        model_name = strip_vendor_prefix(model_name, ANTHROPIC_VENDOR_PREFIX)
+
         # Skip strict model validation - Antigravity sandbox supports both Gemini and Claude
         # NOTE: Claude models have limited multi-turn tool calling support when using this backend.
         # The proxy converts domain format -> Gemini format (functionCall without IDs),
@@ -196,11 +204,11 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         # This can cause "tool_use.id: Field required" errors in follow-up requests with history.
         # self.validate_model(model_name)
 
-        # Delegate to parent implementation
+        # Delegate to parent implementation with the stripped model name
         response = await super().chat_completions(
             request_data=request_data,
             processed_messages=processed_messages,
-            effective_model=effective_model,
+            effective_model=model_name,
             identity=identity,
             openrouter_api_base_url=openrouter_api_base_url,
             openrouter_headers_provider=openrouter_headers_provider,

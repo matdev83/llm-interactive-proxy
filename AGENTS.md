@@ -32,7 +32,8 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 1. **Environment**: Windows-based. ALWAYS use `./.venv/Scripts/python.exe`.
 2. **Config**: `cp config/config.example.yaml config/config.yaml` (if missing).
 3. **Start**: `./.venv/Scripts/python.exe -m src.core.cli`
-4. **Docs**: Check `docs/` for architecture deep-dives.
+4. **Onboarding**: Open `@README.md` for fundamenal project description.
+5. **Docs**: Check `docs/` for architecture deep-dives.
 
 ## Key Architecture Paths
 

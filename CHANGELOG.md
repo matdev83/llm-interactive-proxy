@@ -2,6 +2,25 @@
 
 ## [2025-12-05]
 
+### Added: Health Checks and Advanced Routing
+
+- **Backend Health Monitoring**: Comprehensive system for detecting and managing unhealthy backends
+  - **Multi-Layer Checks**: ICMP ping for network reachability and HTTP probes for application health
+  - **Circuit Breaker**: Automatic exclusion of unhealthy backends from routing logic to prevent failures
+  - **Real-time Notifications**: Event-driven system to notify backend instances of health state changes
+  - **Health API**: REST endpoint (`/internal/health`) for monitoring system status
+  - **Configurable Thresholds**: Custom settings for check intervals, timeouts, and failure thresholds
+
+- **Advanced Routing Policies**: Enhanced control over request routing and load balancing
+  - **Round Robin Load Balancing**: Automatic distribution of traffic across multiple instances of the same backend
+  - **Routing Policies**: granular control to enable/disable routing by backend ID, backend name, or model name
+  - **Model-Based Discovery**: Dynamic resolution of suitable backends based on requested model capabilities
+  - **Policy Enforcement**: strict validation of routing requests against configured policies
+
+- **Internal Event Bus**: Decoupled communication infrastructure
+  - **Event-Driven Architecture**: Pub/sub pattern for internal system events (e.g., `EndpointHealthChanged`)
+  - **Activity Tracking**: Centralized monitoring of connection activity and health events
+
 ### Added: Multi-Instance Backend Support and Multimodal Input Types
 
 - **Multimodal Input Types**: New domain model for handling diverse input types
