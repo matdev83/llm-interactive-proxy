@@ -2102,18 +2102,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             code_assist_request.pop("tools", None)
                             code_assist_request.pop("toolConfig", None)
                         request_body = _build_request_body()
-                        if logger.isEnabledFor(logging.DEBUG):
+                        if logger.isEnabledFor(TRACE_LEVEL):
                             tools_snapshot = request_body.get("request", {}).get(
                                 "tools"
                             )
                             if tools_snapshot:
                                 try:
-                                    logger.debug(
+                                    logger.log(
+                                        TRACE_LEVEL,
                                         "Code Assist sanitized tools payload: %s",
                                         json.dumps(tools_snapshot)[:1000],
                                     )
                                 except Exception:
-                                    logger.debug(
+                                    logger.log(
+                                        TRACE_LEVEL,
                                         "Code Assist sanitized tools payload present (non-serializable)"
                                     )
                         response = await asyncio.to_thread(
