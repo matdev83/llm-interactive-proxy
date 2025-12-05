@@ -3,6 +3,7 @@
 Detects Factory Droid clients from request metadata (headers, system prompt, tools).
 Used to enable Droid-specific tool translation when routing through Codex backend.
 """
+
 from __future__ import annotations
 
 import logging
@@ -100,9 +101,7 @@ class DroidSessionDetector:
         # No detection
         return DroidDetectionResult(is_droid=False)
 
-    def _detect_from_user_agent(
-        self, headers: dict[str, str]
-    ) -> DroidDetectionResult:
+    def _detect_from_user_agent(self, headers: dict[str, str]) -> DroidDetectionResult:
         """Detect Droid from User-Agent header."""
         user_agent = headers.get("User-Agent", "")
         if not user_agent:
@@ -168,9 +167,7 @@ class DroidSessionDetector:
         # Require at least 2 Droid-specific tools for detection
         # (to avoid false positives from common tool names)
         if len(found_droid_tools) >= 2:
-            logger.debug(
-                f"Detected Droid from tool names: {found_droid_tools}"
-            )
+            logger.debug(f"Detected Droid from tool names: {found_droid_tools}")
             return DroidDetectionResult(
                 is_droid=True,
                 detection_method="tool_names",
@@ -179,4 +176,3 @@ class DroidSessionDetector:
             )
 
         return DroidDetectionResult(is_droid=False)
-

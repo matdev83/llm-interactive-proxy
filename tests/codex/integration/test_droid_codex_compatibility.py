@@ -6,6 +6,8 @@ real captured session data from Factory Droid.
 Test isolation: All tests in this file are auto-marked with @pytest.mark.codex
 by conftest.py and excluded from default pytest runs.
 """
+
+import contextlib
 import json
 import zlib
 from pathlib import Path
@@ -85,9 +87,9 @@ class TestDroidCodexCompatibility:
 
         for droid_tool, (expected_codex, min_args) in native_mappings.items():
             codex_name, _ = translator.translate_tool_call(droid_tool, min_args)
-            assert codex_name == expected_codex, (
-                f"{droid_tool} should map to {expected_codex}, got {codex_name}"
-            )
+            assert (
+                codex_name == expected_codex
+            ), f"{droid_tool} should map to {expected_codex}, got {codex_name}"
 
     def test_proxy_tools_map_to_proxy_markers(self):
         """Proxy-side tools should map to __proxy_* markers."""
@@ -101,9 +103,9 @@ class TestDroidCodexCompatibility:
 
         for tool_name in proxy_tools:
             codex_name, _ = translator.translate_tool_call(tool_name, {})
-            assert codex_name.startswith("__proxy_"), (
-                f"{tool_name} should map to __proxy_* marker, got {codex_name}"
-            )
+            assert codex_name.startswith(
+                "__proxy_"
+            ), f"{tool_name} should map to __proxy_* marker, got {codex_name}"
 
     def test_detector_identifies_droid_tools(self):
         """Detector should identify Droid from tool definitions."""
@@ -215,17 +217,17 @@ class TestDroidCodexCompatibility:
                     if isinstance(entry_data, dict):
                         tools = entry_data.get("tools", [])
                         for tool in tools:
-                            if isinstance(tool, dict) and tool.get("type") == "function":
+                            if (
+                                isinstance(tool, dict)
+                                and tool.get("type") == "function"
+                            ):
                                 func = tool.get("function", {})
                                 name = func.get("name", "")
                                 if name:
                                     found_tools.add(name)
                                     # Verify translation doesn't raise
-                                    try:
+                                    with contextlib.suppress(ValueError):
                                         translator.translate_tool_call(name, {})
-                                    except ValueError:
-                                        # Unknown tool is acceptable for this test
-                                        pass
 
         except Exception as e:
             pytest.skip(f"Could not load capture: {e}")
@@ -296,4 +298,3 @@ class TestDroidDetectorWithRealData:
 
         result = detector.detect(headers=headers, messages=messages)
         assert result.is_droid is False
-

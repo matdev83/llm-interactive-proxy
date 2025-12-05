@@ -308,6 +308,51 @@ async def _list_models_impl(
                         has_credentials = any(
                             bool(extra.get(hint)) for hint in credential_hints
                         )
+            
+            # Special case for opencode-zen: verify credentials file existence
+            # This backend doesn't require explicit configuration in config file,
+            # but relies on the presence of the credentials file.
+            if backend_type == "opencode-zen" and not has_credentials:
+                try:
+                    # Instantiate just to check credential path logic
+                    # We need a minimal config here
+                    temp_backend = backend_factory.create_backend(backend_type, config)
+                    # We can't easily access the private method _get_default_credentials_path
+                    # without violating encapsulation, but we can try to check if it's functional
+                    # However, create_backend doesn't initialize it fully.
+                    
+                    # Alternatively, we can manually check the known default path
+                    import os
+                    from pathlib import Path
+                    import sys
+                    
+                    default_creds_exist = False
+                    
+                    # Replicate logic from OpencodeZenConnector._get_default_credentials_path
+                    paths_to_check = []
+                    if sys.platform == "win32" or os.name == "nt":
+                        localappdata = os.environ.get("LOCALAPPDATA")
+                        if localappdata:
+                            paths_to_check.append(Path(localappdata) / "opencode" / "auth.json")
+                        paths_to_check.append(Path.home() / ".local" / "share" / "opencode" / "auth.json")
+                    else:
+                        xdg_data_home = os.environ.get("XDG_DATA_HOME")
+                        if xdg_data_home:
+                            paths_to_check.append(Path(xdg_data_home) / "opencode" / "auth.json")
+                        paths_to_check.append(Path.home() / ".local" / "share" / "opencode" / "auth.json")
+                    
+                    # Check env var override
+                    env_path = os.getenv("OPENCODE_AUTH_PATH")
+                    if env_path:
+                        paths_to_check.insert(0, Path(env_path))
+                        
+                    if any(p.exists() for p in paths_to_check):
+                        has_credentials = True
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug("Detected opencode-zen credentials on disk, enabling backend")
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Failed to check opencode-zen credentials: {e}")
 
             should_try_backend = backend_type in functional_backends or has_credentials
 
@@ -324,6 +369,21 @@ async def _list_models_impl(
                 backend_instance: Any = backend_factory.create_backend(
                     backend_type, config
                 )
+
+                # Ensure backend is initialized (especially important for opencode-zen which needs to load credentials)
+                if hasattr(backend_instance, "initialize") and inspect.iscoroutinefunction(
+                    backend_instance.initialize
+                ):
+                    try:
+                        await backend_instance.initialize()
+                    except Exception as init_exc:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to initialize backend %s: %s", backend_type, init_exc
+                            )
+                        # Depending on the backend, failure to initialize might mean it's unusable.
+                        # For opencode-zen, initialize sets is_functional.
+                        pass
 
                 # Get available models from the backend. Prefer async helper when available.
                 models: list[str]

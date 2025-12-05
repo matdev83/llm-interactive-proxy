@@ -6,7 +6,6 @@ which identifies Factory Droid clients from request metadata.
 Test isolation: All tests in this file are auto-marked with @pytest.mark.codex
 by conftest.py and excluded from default pytest runs.
 """
-import pytest
 
 
 class TestDroidSessionDetector:
@@ -132,4 +131,3 @@ class TestDroidSessionDetector:
             ]
         )
         assert result.is_droid is True
-

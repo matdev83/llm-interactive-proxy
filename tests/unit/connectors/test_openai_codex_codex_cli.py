@@ -43,24 +43,43 @@ async def connector() -> AsyncIterator[OpenAICodexConnector]:
 
 
 def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
-    assert connector._is_codex_model("gpt-5-codex") is True
-    assert connector._is_codex_model("codex-mini-latest") is True
+    """Test that _is_codex_model only recognizes supported Codex models.
+
+    Supported models are explicitly listed in SUPPORTED_CODEX_MODELS:
+    - gpt-5.1-codex-max
+    - gpt-5.1-codex
+    - gpt-5.1-codex-mini
+    - gpt-5.1
+    """
+    # Valid models (with and without vendor prefix)
+    assert connector._is_codex_model("gpt-5.1-codex-max") is True
+    assert connector._is_codex_model("gpt-5.1-codex") is True
+    assert connector._is_codex_model("gpt-5.1-codex-mini") is True
+    assert connector._is_codex_model("gpt-5.1") is True
+    assert connector._is_codex_model("openai/gpt-5.1-codex-max") is True
+    assert connector._is_codex_model("openai/gpt-5.1") is True
+
+    # Invalid models
+    assert connector._is_codex_model("gpt-5-codex") is False  # Old naming (no .1), not supported
+    assert connector._is_codex_model("codex-mini-latest") is False  # Not a supported model
     assert connector._is_codex_model("gpt-4.1") is False
+    assert connector._is_codex_model("gpt-4") is False
+    assert connector._is_codex_model("claude-3") is False
 
 
 @pytest.mark.asyncio
 async def test_build_codex_payload_structure(connector: OpenAICodexConnector) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello Codex!")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
 
     payload, conversation_id = connector._build_codex_payload(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
-    assert payload["model"] == "gpt-5-codex"
+    assert payload["model"] == "gpt-5.1-codex"
     assert payload["stream"] is True
     assert payload["prompt_cache_key"] == conversation_id
 
@@ -100,7 +119,7 @@ async def test_build_codex_payload_custom_prompt_mode(
             ChatMessage(role="system", content="Stay curious"),
             ChatMessage(role="user", content="hello"),
         ],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         extra_body={
             "codex_capabilities": {
                 "prompt_mode": "custom_only",
@@ -110,7 +129,7 @@ async def test_build_codex_payload_custom_prompt_mode(
     )
 
     payload, _ = connector._build_codex_payload(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
     assert payload.get("instructions") == "Stay curious"
@@ -136,7 +155,7 @@ async def test_build_codex_payload_merge_custom_prompt(
     custom_prompt = "Behave like an expert pair programmer."
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hi!")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         extra_body={
             "codex_capabilities": {"prompt_mode": "merge_custom"},
             "codex_system_prompt": custom_prompt,
@@ -144,7 +163,7 @@ async def test_build_codex_payload_merge_custom_prompt(
     )
 
     payload, _ = connector._build_codex_payload(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
     instructions = payload.get("instructions", "")
@@ -161,11 +180,11 @@ async def test_codex_default_mode_merges_client_system_prompt(
             ChatMessage(role="system", content="Prioritize security fixes."),
             ChatMessage(role="user", content="hello"),
         ],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
     )
 
     payload, _ = connector._build_codex_payload(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
     instructions = (payload.get("instructions") or "").rstrip()
@@ -202,12 +221,12 @@ async def test_codex_xml_mode_handles_structured_tool_calls(
     user_msg = ChatMessage(role="user", content="List files")
     chat_request = ChatRequest(
         messages=[user_msg, assistant_msg, tool_msg],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         extra_body={"codex_capabilities": {"tool_text_format": "codex_xml"}},
     )
 
     items = connector._build_codex_input_items(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
     function_calls = [item for item in items if item["type"] == "function_call"]
@@ -243,7 +262,7 @@ async def test_config_default_capabilities_from_backend_extra() -> None:
         connector = OpenAICodexConnector(client=client, config=config)
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="hello")],
-            model="gpt-5-codex",
+            model="gpt-5.1-codex",
         )
         capabilities = connector._resolve_capabilities(chat_request)
         assert capabilities.tool_text_format == "codex_xml"
@@ -267,10 +286,10 @@ async def test_prompt_configuration_applies_prepend_append() -> None:
         connector = OpenAICodexConnector(client=client, config=config)
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="hello")],
-            model="gpt-5-codex",
+            model="gpt-5.1-codex",
         )
         payload, _ = connector._build_codex_payload(
-            chat_request, chat_request.messages, "gpt-5-codex"
+            chat_request, chat_request.messages, "gpt-5.1-codex"
         )
         instructions = payload.get("instructions", "")
         assert instructions.startswith("<environment constraints>")
@@ -330,11 +349,11 @@ async def test_tool_schema_custom_only_uses_config_defaults() -> None:
         connector = OpenAICodexConnector(client=client, config=config)
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="hello")],
-            model="gpt-5-codex",
+            model="gpt-5.1-codex",
             extra_body={"codex_capabilities": {"tool_schema_mode": "custom_only"}},
         )
         payload, _ = connector._build_codex_payload(
-            chat_request, chat_request.messages, "gpt-5-codex"
+            chat_request, chat_request.messages, "gpt-5.1-codex"
         )
         tools = payload.get("tools", [])
         assert len(tools) == 1
@@ -353,7 +372,7 @@ async def test_renderer_configuration_alias_and_default() -> None:
         connector = OpenAICodexConnector(client=client, config=config)
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="hello")],
-            model="gpt-5-codex",
+            model="gpt-5.1-codex",
         )
         capabilities = connector._resolve_capabilities(chat_request)
         renderer_key = connector._select_renderer_key(capabilities)
@@ -375,7 +394,7 @@ async def test_codex_passthrough_skips_translation(
     """Verify that native-like payloads bypass the translation method."""
     # This payload is structurally similar to a native Codex/Responses payload
     native_payload = {
-        "model": "gpt-5-codex",
+        "model": "gpt-5.1-codex",
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
         "stream": True,
     }
@@ -389,11 +408,11 @@ async def test_codex_passthrough_skips_translation(
     # and setting the capabilities.
     capabilities = CodexClientCapabilities(codex_passthrough=True)
     payload, _ = connector._build_codex_payload(
-        native_payload, [], "gpt-5-codex", capabilities=capabilities
+        native_payload, [], "gpt-5.1-codex", capabilities=capabilities
     )
 
     # The payload should be the native one, with minor adjustments
-    assert payload["model"] == "gpt-5-codex"
+    assert payload["model"] == "gpt-5.1-codex"
     assert payload["stream"] is True
     assert payload["input"][0]["role"] == "user"
 
@@ -423,11 +442,11 @@ async def test_streaming_refresh_rebuilds_authorization_header(
 ) -> None:
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
     payload = {
-        "model": "gpt-5-codex",
+        "model": "gpt-5.1-codex",
         "input": [],
         "tools": [],
         "prompt_cache_key": "conv-123",
@@ -492,7 +511,7 @@ async def test_streaming_refresh_rebuilds_authorization_header(
     result = await connector._call_codex_responses_api(
         request_data=request,
         processed_messages=request.messages,
-        effective_model="gpt-5-codex",
+        effective_model="gpt-5.1-codex",
         domain_request=request,
     )
 
@@ -515,11 +534,11 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
 ) -> None:
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
     payload = {
-        "model": "gpt-5-codex",
+        "model": "gpt-5.1-codex",
         "input": [],
         "tools": [],
         "prompt_cache_key": "conv-123",
@@ -607,7 +626,7 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
     result = await connector._call_codex_responses_api(
         request_data=request,
         processed_messages=request.messages,
-        effective_model="gpt-5-codex",
+        effective_model="gpt-5.1-codex",
         domain_request=request,
     )
 
@@ -638,11 +657,11 @@ async def test_streaming_handshake_exceeds_retry_limit(
 ) -> None:
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
     payload = {
-        "model": "gpt-5-codex",
+        "model": "gpt-5.1-codex",
         "input": [],
         "tools": [],
         "prompt_cache_key": "conv-limit",
@@ -688,7 +707,7 @@ async def test_streaming_handshake_exceeds_retry_limit(
     result = await connector._call_codex_responses_api(
         request_data=request,
         processed_messages=request.messages,
-        effective_model="gpt-5-codex",
+        effective_model="gpt-5.1-codex",
         domain_request=request,
     )
 
@@ -711,11 +730,11 @@ async def test_streaming_auth_failure_chunk_unrecoverable(
 ) -> None:
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
     payload = {
-        "model": "gpt-5-codex",
+        "model": "gpt-5.1-codex",
         "input": [],
         "tools": [],
         "prompt_cache_key": "conv-321",
@@ -769,7 +788,7 @@ async def test_streaming_auth_failure_chunk_unrecoverable(
     result = await connector._call_codex_responses_api(
         request_data=request,
         processed_messages=request.messages,
-        effective_model="gpt-5-codex",
+        effective_model="gpt-5.1-codex",
         domain_request=request,
     )
 
@@ -803,12 +822,12 @@ async def test_chat_completions_routes_to_codex_api(
 
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello Codex!")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=True,
     )
 
     result = await connector.chat_completions(
-        chat_request, chat_request.messages, "gpt-5-codex"
+        chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
     assert result == "codex-result"
@@ -857,7 +876,7 @@ async def test_chat_completions_non_codex_falls_back_to_parent(
 def test_resolve_capabilities_defaults(connector: OpenAICodexConnector) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
     )
 
     capabilities = connector._resolve_capabilities(chat_request)
@@ -870,7 +889,7 @@ def test_resolve_capabilities_from_extra_body(
 ) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         extra_body={
             "client_capabilities": {
                 "protocol": "openai-responses",
@@ -896,7 +915,7 @@ def test_resolve_capabilities_for_cline_agent(
 ) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         agent="cline",
     )
 
@@ -911,7 +930,7 @@ async def test_codex_retries_after_token_refresh(
 ) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=False,
     )
 
@@ -933,7 +952,7 @@ async def test_codex_retries_after_token_refresh(
     result = await connector._call_codex_responses_api(
         chat_request,
         chat_request.messages,
-        "gpt-5-codex",
+        "gpt-5.1-codex",
         chat_request,
     )
 
@@ -962,10 +981,10 @@ async def test_build_codex_input_items_function_call_and_output(
     items = connector._build_codex_input_items(
         ChatRequest(
             messages=[user_message, assistant_message, tool_message],
-            model="gpt-5-codex",
+            model="gpt-5.1-codex",
         ),
         [user_message, assistant_message, tool_message],
-        "gpt-5-codex",
+        "gpt-5.1-codex",
     )
 
     # env context + user + function call + output
@@ -1004,14 +1023,14 @@ async def test_build_codex_input_items_textual_tool_flow(
 
     chat_request = ChatRequest(
         messages=messages,
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         extra_body={"codex_capabilities": {"tool_text_format": "codex_xml"}},
     )
 
     items = connector._build_codex_input_items(
         chat_request,
         messages,
-        "gpt-5-codex",
+        "gpt-5.1-codex",
     )
 
     function_calls = [item for item in items if item["type"] == "function_call"]
@@ -1041,7 +1060,7 @@ async def test_codex_refresh_failure_propagates(
 ) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=False,
     )
 
@@ -1063,7 +1082,7 @@ async def test_codex_refresh_failure_propagates(
         await connector._call_codex_responses_api(
             chat_request,
             chat_request.messages,
-            "gpt-5-codex",
+            "gpt-5.1-codex",
             chat_request,
         )
 
@@ -1076,7 +1095,7 @@ async def test_codex_api_http_error_propagation(
 ) -> None:
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5-codex",
+        model="gpt-5.1-codex",
         stream=False,
     )
     mocker.patch.object(
@@ -1106,7 +1125,7 @@ async def test_codex_api_http_error_propagation(
 
     with pytest.raises(HTTPException) as exc_info:
         await connector.chat_completions(
-            chat_request, chat_request.messages, "gpt-5-codex"
+            chat_request, chat_request.messages, "gpt-5.1-codex"
         )
 
     assert exc_info.value.status_code == 429

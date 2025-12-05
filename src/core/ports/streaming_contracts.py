@@ -563,21 +563,28 @@ class StreamingContent:
 
         # Add main content
         if self.content is not None:
-            if isinstance(self.content, bytes):
+            # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict first
+            working_content = self.content
+            if hasattr(working_content, "model_dump") and callable(
+                working_content.model_dump
+            ):
+                working_content = working_content.model_dump()
+
+            if isinstance(working_content, bytes):
                 try:
-                    delta["content"] = self.content.decode("utf-8")
+                    delta["content"] = working_content.decode("utf-8")
                 except UnicodeDecodeError:
                     # Handle invalid UTF-8 bytes by using latin-1 or repr
-                    delta["content"] = self.content.decode("latin-1")
-            elif isinstance(self.content, dict):
+                    delta["content"] = working_content.decode("latin-1")
+            elif isinstance(working_content, dict):
                 # Check if this is already an OpenAI-formatted chunk
                 # If so, use it directly instead of wrapping it again
-                if "choices" in self.content or "usage" in self.content:
+                if "choices" in working_content or "usage" in working_content:
                     # Check if tool_calls are "virtual" (extracted from XML content)
                     is_virtual_tc = self.metadata.get("_virtual_tool_calls", False)
 
                     # Make a copy of content to potentially modify
-                    content_copy = dict(self.content)
+                    content_copy = dict(working_content)
 
                     # If virtual, STRIP tool_calls from the delta (they're already there)
                     if is_virtual_tc:
@@ -626,15 +633,15 @@ class StreamingContent:
                     return result.encode()
                 # If we reach here with a StopChunkWithUsage, something is wrong.
                 # The chunk should have been handled above (it has choices+usage).
-                if isinstance(self.content, StopChunkWithUsage):
-                    raise UsageChunkLeakError(chunk_id=self.content.get("id"))
-                delta["content"] = json.dumps(self.content)
-            elif isinstance(self.content, str):
-                delta["content"] = self.content
+                if isinstance(working_content, StopChunkWithUsage):
+                    raise UsageChunkLeakError(chunk_id=working_content.get("id"))
+                delta["content"] = json.dumps(working_content)
+            elif isinstance(working_content, str):
+                delta["content"] = working_content
             else:
-                delta["content"] = str(self.content)
+                delta["content"] = str(working_content)
         else:
-            delta["content"] = str(self.content)
+            delta["content"] = str(working_content) if working_content else ""
 
         # Build response data
         response_data: dict[str, Any] = {"choices": [{"delta": delta}]}
@@ -663,17 +670,24 @@ class StreamingContent:
         Returns:
             Dictionary representation of the streaming content
         """
+        # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict first
+        working_content = self.content
+        if hasattr(working_content, "model_dump") and callable(
+            working_content.model_dump
+        ):
+            working_content = working_content.model_dump()
+
         content_value: str | dict | None
-        if isinstance(self.content, bytes):
+        if isinstance(working_content, bytes):
             try:
-                content_value = self.content.decode("utf-8")
+                content_value = working_content.decode("utf-8")
             except UnicodeDecodeError:
                 # Handle invalid UTF-8 bytes by using latin-1
-                content_value = self.content.decode("latin-1")
-        elif isinstance(self.content, dict):
-            content_value = self.content
+                content_value = working_content.decode("latin-1")
+        elif isinstance(working_content, dict):
+            content_value = working_content
         else:
-            content_value = str(self.content)
+            content_value = str(working_content)
 
         return {
             "content": content_value,

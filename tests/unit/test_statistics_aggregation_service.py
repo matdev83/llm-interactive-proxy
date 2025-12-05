@@ -45,7 +45,7 @@ def test_rolling_window_stats_basic(store_and_service):
     for i in range(10):
         record = UsageRecord(
             id=str(uuid.uuid4()),
-            timestamp=now - timedelta(minutes=i),
+            timestamp=now - timedelta(minutes=i, microseconds=1000),
             session_id=f"session-{i}",
             turn_number=1,
             backend_type="openai",

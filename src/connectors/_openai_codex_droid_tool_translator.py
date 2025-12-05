@@ -17,12 +17,13 @@ Tool Mapping:
     FetchUrl         -> __proxy_*          Handle proxy-side (no Codex equivalent)
     ExitSpecMode     -> __proxy_*          Handle proxy-side (conversation control)
 """
+
 from __future__ import annotations
 
 import logging
 import shlex
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class DroidToolTranslator:
     (e.g., TodoWrite, WebSearch) when there's no Codex equivalent.
     """
 
-    # Tools that map directly to Codex native tools
+    # Tools that map directly to Codex native tools (Droid -> Codex)
     CODEX_NATIVE_TOOLS = {
         "Read": "read_file",
         "LS": "list_dir",
@@ -57,6 +58,17 @@ class DroidToolTranslator:
         "Edit": "apply_patch",
         "Create": "apply_patch",
         "Glob": "grep_files",
+    }
+
+    # Reverse mapping: Codex tool names -> Droid tool names
+    # Used to translate tool calls FROM Codex backend responses TO Droid client
+    CODEX_TO_DROID_TOOLS = {
+        "read_file": "Read",
+        "list_dir": "LS",
+        "shell": "Execute",
+        "grep_files": "Grep",
+        "apply_patch": "Edit",
+        "view_image": "Read",  # Map view_image to Read as fallback
     }
 
     # Tools that should be handled proxy-side
@@ -84,11 +96,9 @@ class DroidToolTranslator:
         """
         # Check if it's a native Codex tool
         if tool_name in self.CODEX_NATIVE_TOOLS:
-            translator_method = getattr(
-                self, f"_translate_{tool_name.lower()}", None
-            )
+            translator_method = getattr(self, f"_translate_{tool_name.lower()}", None)
             if translator_method:
-                return translator_method(arguments)
+                return cast(tuple[str, dict[str, Any]], translator_method(arguments))
             # Fallback for tools without specific translators
             codex_name = self.CODEX_NATIVE_TOOLS[tool_name]
             return codex_name, arguments
@@ -101,9 +111,165 @@ class DroidToolTranslator:
         logger.warning(f"Unknown Droid tool: {tool_name}")
         raise ValueError(f"Unknown Droid tool: {tool_name}")
 
-    def _translate_read(
-        self, arguments: dict[str, Any]
+    def translate_codex_to_droid(
+        self, codex_tool_name: str, codex_arguments: dict[str, Any]
     ) -> tuple[str, dict[str, Any]]:
+        """Translate a Codex tool call back to Droid format.
+
+        Used when processing backend responses to translate tool calls
+        from Codex format to Droid format.
+
+        Args:
+            codex_tool_name: The Codex tool name (e.g., "shell", "read_file")
+            codex_arguments: The tool arguments from Codex
+
+        Returns:
+            Tuple of (droid_tool_name, droid_arguments)
+        """
+        droid_tool_name = self.CODEX_TO_DROID_TOOLS.get(codex_tool_name)
+        if not droid_tool_name:
+            # Unknown Codex tool - pass through as-is
+            logger.debug(
+                "Unknown Codex tool '%s', passing through without translation",
+                codex_tool_name,
+            )
+            return codex_tool_name, codex_arguments
+
+        # Get reverse translator if exists
+        translator_method = getattr(self, f"_reverse_translate_{codex_tool_name}", None)
+        if translator_method:
+            return cast(tuple[str, dict[str, Any]], translator_method(codex_arguments))
+
+        # Default: just map the name, keep arguments as-is
+        return droid_tool_name, codex_arguments
+
+    def _reverse_translate_read_file(
+        self, codex_args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Translate read_file back to Read.
+
+        Codex read_file:
+            - path: File path
+            - start_line: Optional start line
+            - end_line: Optional end line
+
+        Droid Read:
+            - file_path: Absolute path to file
+            - offset: Optional line offset
+            - limit: Optional number of lines
+        """
+        droid_args: dict[str, Any] = {
+            "file_path": codex_args.get("path") or codex_args.get("file_path", ""),
+        }
+
+        start_line = codex_args.get("start_line")
+        end_line = codex_args.get("end_line")
+
+        if start_line is not None:
+            droid_args["offset"] = start_line
+
+        if end_line is not None and start_line is not None:
+            droid_args["limit"] = end_line - start_line
+        elif end_line is not None:
+            droid_args["limit"] = end_line
+
+        return "Read", droid_args
+
+    def _reverse_translate_shell(
+        self, codex_args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Translate shell back to Execute.
+
+        Codex shell:
+            - command: Array of command parts
+
+        Droid Execute:
+            - command: Full command string
+        """
+        command = codex_args.get("command", [])
+        if isinstance(command, list):
+            # Join command parts with proper quoting
+            command_str = shlex.join(command)
+        else:
+            command_str = str(command)
+
+        return "Execute", {"command": command_str}
+
+    def _reverse_translate_list_dir(
+        self, codex_args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Translate list_dir back to LS.
+
+        Codex list_dir:
+            - path: Directory path
+
+        Droid LS:
+            - directory_path: Directory path
+        """
+        return "LS", {"directory_path": codex_args.get("path", ".")}
+
+    def _reverse_translate_grep_files(
+        self, codex_args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Translate grep_files back to Grep.
+
+        Codex grep_files:
+            - pattern: Search pattern
+            - path: Optional search path
+            - options: Optional array of grep options
+
+        Droid Grep:
+            - pattern: Search pattern
+            - path: Optional path
+            - type: Optional file type filter
+            - glob: Optional glob pattern
+        """
+        droid_args: dict[str, Any] = {
+            "pattern": codex_args.get("pattern", ""),
+        }
+
+        if "path" in codex_args:
+            droid_args["path"] = codex_args["path"]
+
+        return "Grep", droid_args
+
+    def _reverse_translate_apply_patch(
+        self, codex_args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Translate apply_patch back to Edit.
+
+        This is a complex translation - Codex uses diff format while
+        Droid uses old_str/new_str format. For now, we pass through
+        the patch content and let the client handle it.
+
+        Codex apply_patch:
+            - file_path: Target file
+            - content: Diff/patch content
+            - is_new_file: Whether creating new file
+
+        Droid Edit:
+            - file_path: Target file
+            - old_str: String to find
+            - new_str: Replacement string
+        """
+        file_path = codex_args.get("file_path", "")
+
+        # If it's a new file creation, map to Create tool behavior
+        if codex_args.get("is_new_file"):
+            return "Create", {
+                "file_path": file_path,
+                "content": codex_args.get("content", ""),
+            }
+
+        # For edits, we pass through as-is since the diff format
+        # is complex to reverse-engineer
+        return "Edit", {
+            "file_path": file_path,
+            "old_str": "",  # Placeholder - actual diff handling needed
+            "new_str": codex_args.get("content", ""),
+        }
+
+    def _translate_read(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         """Translate Read tool to read_file.
 
         Droid Read:
@@ -135,9 +301,7 @@ class DroidToolTranslator:
 
         return "read_file", codex_args
 
-    def _translate_ls(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_ls(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         """Translate LS tool to list_dir.
 
         Droid LS:
@@ -150,10 +314,7 @@ class DroidToolTranslator:
         """
         codex_args: dict[str, Any] = {}
 
-        if "directory_path" in arguments:
-            codex_args["path"] = arguments["directory_path"]
-        else:
-            codex_args["path"] = "."
+        codex_args["path"] = arguments.get("directory_path", ".")
 
         # Note: ignorePatterns is not directly supported by Codex list_dir
         # It could be handled proxy-side if needed
@@ -195,9 +356,7 @@ class DroidToolTranslator:
 
         return "shell", codex_args
 
-    def _translate_grep(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_grep(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         """Translate Grep tool to grep_files.
 
         Droid Grep:
@@ -238,9 +397,7 @@ class DroidToolTranslator:
 
         return "grep_files", codex_args
 
-    def _translate_glob(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_glob(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         """Translate Glob tool to grep_files (files-only mode).
 
         Droid Glob:
@@ -267,9 +424,7 @@ class DroidToolTranslator:
 
         return "grep_files", codex_args
 
-    def _translate_edit(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_edit(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         """Translate Edit tool to apply_patch.
 
         Droid Edit:
@@ -312,9 +467,7 @@ class DroidToolTranslator:
 
         return "apply_patch", codex_args
 
-    def format_result(
-        self, codex_result: dict[str, Any], original_tool: str
-    ) -> str:
+    def format_result(self, codex_result: dict[str, Any], original_tool: str) -> str:
         """Format a Codex result back to Droid format.
 
         Droid expects tool results as plain strings:
@@ -323,7 +476,7 @@ class DroidToolTranslator:
 
         Args:
             codex_result: The result from Codex tool execution
-            original_tool: The original Droid tool name
+            original_tool: The original Droid tool name (currently unused)
 
         Returns:
             Formatted string result for Droid
@@ -344,4 +497,3 @@ class DroidToolTranslator:
 
         # Fallback to string representation
         return str(codex_result)
-

@@ -6,7 +6,6 @@ which translates Codex tool results back to Droid's expected format.
 Test isolation: All tests in this file are auto-marked with @pytest.mark.codex
 by conftest.py and excluded from default pytest runs.
 """
-import pytest
 
 
 class TestDroidResultFormatter:
@@ -105,4 +104,3 @@ class TestDroidResultFormatter:
         # Should have some string representation
         assert isinstance(result, str)
         assert "custom_field" in result or "value" in result
-

@@ -1,27 +1,24 @@
-<!-- KIRO-SPEC:START -->
-# Kiro Spec-Driven Development
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
 
-## When to Use Kiro Specs
+These instructions are for AI assistants working in this project.
 
-**Suggest spec workflow** when request involves: new features, breaking changes, architecture shifts, complex integrations, or unclear requirements needing structured analysis.
+Always open `@/openspec/AGENTS.md` when the request:
 
-**Code directly** for: quick fixes, simple bugs, trivial changes, or when user explicitly says "just code this".
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
 
-## Kiro Commands (User-Triggered)
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
 
-When working on specs, the user will invoke `/kiro:*` commands. Follow the instructions provided in each command's context.
+Keep this managed block so 'openspec update' can refresh the instructions.
 
-**Workflow order**: `spec-init` → `spec-requirements` → `spec-design` → `spec-tasks` → `spec-impl`
+<!-- OPENSPEC:END -->
 
-**Spec-driven rule**: When a spec exists at `.kiro/specs/{feature}/`, no code edits until `requirements.md` and `design.md` are approved (check `spec.json` for approval status). Every task in `tasks.md` must reference at least one acceptance criterion from requirements.
-
-**Key locations**:
-
-- Specs: `.kiro/specs/{feature-name}/` (requirements.md, design.md, tasks.md, research.md)
-- Steering (project memory): `.kiro/steering/` - load when generating specs
-- Templates: `.kiro/settings/templates/`
-- Rules: `.kiro/settings/rules/`
-<!-- KIRO-SPEC:END -->
+## Agent Onboarding & Development Guidelines
 
 ## Project Identity
 
@@ -67,11 +64,6 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 3. **Regression**: Run full suite after multi-file changes.
 4. **Style**: PEP 8, Async/Await correctness, Exception Hierarchy (`LLMProxyError`).
 5. **Safety**: Never remove features without explicit request.
-6. **Post-edit QA**: After each Python file edit, run:
-
-   ```powershell
-   ./.venv/Scripts/python.exe -m ruff check --fix <file> && ./.venv/Scripts/python.exe -m black <file> && ./.venv/Scripts/python.exe -m mypy <file>
-   ```
 
 ## Common Pitfalls
 

@@ -256,6 +256,21 @@ class OpenAICodexConnector(OpenAIConnector):
     _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
         "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
     ).lower() not in {"0", "false", "no"}
+
+    # Supported Codex models - exhaustive list
+    SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-mini",
+        "gpt-5.1",
+    )
+
+    # Reasoning effort levels supported by Codex backend
+    REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
+    DEFAULT_REASONING_EFFORT: str = "medium"
+    # Only gpt-5.1-codex-max supports xhigh reasoning effort
+    XHIGH_SUPPORTED_MODELS: tuple[str, ...] = ("gpt-5.1-codex-max",)
+
     CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
     CODEX_ORIGINATOR = "codex_cli_rs"
@@ -880,11 +895,16 @@ class OpenAICodexConnector(OpenAIConnector):
 
         return settings
 
-    @staticmethod
-    def _is_codex_model(model_name: str) -> bool:
-        """Return True when the model routes through the Codex Responses API."""
-        lowered = model_name.lower()
-        return lowered.startswith(("gpt-5-codex", "codex-"))
+    @classmethod
+    def _is_codex_model(cls, model_name: str) -> bool:
+        """Return True when the model is a supported Codex model.
+
+        Only models in SUPPORTED_CODEX_MODELS are recognized.
+        Model name can include vendor prefix (openai/) which will be stripped.
+        """
+        # Strip vendor prefix if present
+        clean_model = strip_vendor_prefix(model_name.lower(), OPENAI_VENDOR_PREFIX)
+        return clean_model in (m.lower() for m in cls.SUPPORTED_CODEX_MODELS)
 
     def _codex_user_agent(self) -> str:
         """Build a Codex CLI compatible User-Agent string."""
@@ -1258,8 +1278,16 @@ class OpenAICodexConnector(OpenAIConnector):
                 tool_dict = dict(tool)
             else:
                 continue
+            # Handle both formats:
+            # - Codex format: {"name": "tool_name", "type": "function", ...}
+            # - OpenAI format: {"type": "function", "function": {"name": "tool_name", ...}}
             name_value = tool_dict.get("name")
+            if not name_value and isinstance(tool_dict.get("function"), dict):
+                name_value = tool_dict["function"].get("name")
             if isinstance(name_value, str) and name_value.strip():
+                # Normalize to Codex format (top-level name)
+                if "name" not in tool_dict:
+                    tool_dict["name"] = name_value
                 custom_tools.append(tool_dict)
             else:
                 logger.debug(
@@ -1428,10 +1456,18 @@ class OpenAICodexConnector(OpenAIConnector):
         )
 
         reasoning_payload = getattr(request_data, "reasoning", None)
-        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        # Use pre-resolved reasoning effort from chat_completions if available
+        reasoning_effort = getattr(
+            request_data, "_codex_resolved_reasoning_effort", None
+        )
+        if reasoning_effort is None:
+            # Fallback for direct calls without going through chat_completions
+            reasoning_effort = getattr(request_data, "reasoning_effort", None)
+            if reasoning_effort is None:
+                reasoning_effort = self.DEFAULT_REASONING_EFFORT
         if not reasoning_payload:
             reasoning_payload = {
-                "effort": (reasoning_effort or "medium"),
+                "effort": reasoning_effort,
                 "summary": "auto",
             }
 
@@ -2452,6 +2488,87 @@ class OpenAICodexConnector(OpenAIConnector):
 
         return result
 
+    # Class-level cache for tracking tool_call_id -> Codex tool name mapping
+    # This is needed because streaming sends name once, then only arguments
+    _droid_tool_name_cache: dict[str, str] = {}
+
+    def _translate_chunk_tool_calls_for_droid(
+        self, chunk: Any, droid_translator: Any
+    ) -> Any:
+        """Translate Codex tool calls in a streaming chunk to Droid format.
+
+        Handles streaming where:
+        - First chunk for a tool call has {"function": {"name": "shell", "arguments": ""}}
+        - Subsequent chunks only have {"function": {"arguments": "..."}}
+
+        We cache the tool_call_id -> Codex name, then translate when we see name.
+
+        Args:
+            chunk: The streaming chunk (CanonicalStreamChunk or similar)
+            droid_translator: DroidToolTranslator instance
+
+        Returns:
+            The modified chunk with translated tool calls
+        """
+
+        def _translate_tool_call(tc: dict[str, Any]) -> None:
+            """Translate a single tool call dict in-place."""
+            if not isinstance(tc, dict) or "function" not in tc:
+                return
+
+            func = tc.get("function")
+            if not isinstance(func, dict):
+                return
+
+            tc_id = tc.get("id", "")
+            original_name = func.get("name")
+
+            # If we have a name, cache it and translate
+            if original_name:
+                # Cache the original Codex name
+                if tc_id:
+                    self._droid_tool_name_cache[tc_id] = original_name
+
+                # Translate to Droid name
+                try:
+                    droid_name, _ = droid_translator.translate_codex_to_droid(
+                        original_name, {}
+                    )
+                    func["name"] = droid_name
+                    logger.debug(
+                        "Translated tool call: %s -> %s (id=%s)",
+                        original_name,
+                        droid_name,
+                        tc_id,
+                    )
+                except Exception as e:
+                    logger.debug("Failed to translate tool %s: %s", original_name, e)
+
+        try:
+            # Handle CanonicalStreamChunk (Pydantic model)
+            if hasattr(chunk, "choices") and chunk.choices:
+                for choice in chunk.choices:
+                    if hasattr(choice, "delta") and choice.delta:
+                        delta = choice.delta
+                        tool_calls = getattr(delta, "tool_calls", None)
+                        if tool_calls:
+                            for tc in tool_calls:
+                                if isinstance(tc, dict):
+                                    _translate_tool_call(tc)
+
+            # Handle dict-based chunks
+            elif isinstance(chunk, dict) and "choices" in chunk:
+                for choice in chunk.get("choices", []):
+                    delta = choice.get("delta", {})
+                    if delta and "tool_calls" in delta:
+                        for tc in delta["tool_calls"]:
+                            _translate_tool_call(tc)
+
+        except Exception as e:
+            logger.debug("Error translating chunk tool calls: %s", e)
+
+        return chunk
+
     async def _call_codex_responses_api(
         self,
         request_data: Any,
@@ -2512,6 +2629,63 @@ class OpenAICodexConnector(OpenAIConnector):
                     detection_result.detection_method,
                     detection_result.confidence,
                 )
+
+        # Detect Droid client for tool call translation in responses
+        is_droid_client = False
+        droid_translator = None
+        try:
+            from src.connectors._openai_codex_droid_session_detector import (
+                DroidSessionDetector,
+            )
+            from src.connectors._openai_codex_droid_tool_translator import (
+                DroidToolTranslator,
+            )
+
+            # Extract tools from request for detection
+            request_tools = getattr(request_data, "tools", []) or []
+            tools_for_detection = []
+            for tool in request_tools:
+                if hasattr(tool, "model_dump"):
+                    tools_for_detection.append(tool.model_dump())
+                elif isinstance(tool, dict):
+                    tools_for_detection.append(tool)
+
+            # Extract messages for detection
+            messages_for_detection = []
+            for msg in processed_messages:
+                if isinstance(msg, dict):
+                    messages_for_detection.append(msg)
+
+            droid_detector = DroidSessionDetector()
+            droid_detection = droid_detector.detect(
+                headers=None,  # TODO: Extract headers if available
+                messages=messages_for_detection,
+                tools=tools_for_detection,
+            )
+            is_droid_client = droid_detection.is_droid
+
+            if is_droid_client:
+                droid_translator = DroidToolTranslator()
+                logger.info(
+                    "Droid client detected for session %s (method: %s, confidence: %.2f). "
+                    "Codex->Droid tool translation enabled.",
+                    session_id,
+                    droid_detection.detection_method,
+                    droid_detection.confidence,
+                )
+
+                # Store in processing context
+                if hasattr(domain_request, "processing_context"):
+                    if domain_request.processing_context is None:
+                        domain_request.processing_context = {}
+                    domain_request.processing_context["is_droid_client"] = True
+                    domain_request.processing_context["droid_detection_method"] = (
+                        droid_detection.detection_method
+                    )
+        except ImportError:
+            logger.debug("Droid session detector not available")
+        except Exception as e:
+            logger.debug("Droid detection failed: %s", e)
 
         # Parse and translate XML tool invocations for KiloCode clients
         translated_tools: dict[str, list[dict[str, Any]]] = {
@@ -2768,6 +2942,15 @@ class OpenAICodexConnector(OpenAIConnector):
                                         "Codex streaming chunk reported authentication failure; attempting token refresh."
                                     )
                                     break
+
+                                # Translate Codex tool calls to Droid format if Droid client
+                                if is_droid_client and droid_translator is not None:
+                                    processed_chunk = (
+                                        self._translate_chunk_tool_calls_for_droid(
+                                            processed_chunk, droid_translator
+                                        )
+                                    )
+
                                 yield processed_chunk
 
                         if restart_stream:
@@ -3451,6 +3634,66 @@ class OpenAICodexConnector(OpenAIConnector):
         with contextlib.suppress(Exception):
             await self.list_models()
 
+    def _resolve_reasoning_effort(
+        self, model: str, uri_params: dict[str, Any], request_data: Any
+    ) -> str:
+        """Resolve reasoning effort from URI params, request data, or default.
+
+        Priority:
+        1. URI parameter (e.g., ?reasoning_effort=high)
+        2. request_data.reasoning_effort attribute
+        3. Default: medium
+
+        Args:
+            model: The model name (without vendor prefix)
+            uri_params: Parsed URI parameters from model string
+            request_data: The request data object
+
+        Returns:
+            Validated reasoning effort level
+        """
+        # Priority 1: URI parameter
+        effort = uri_params.get("reasoning_effort")
+        if isinstance(effort, list):
+            effort = effort[0] if effort else None
+        if isinstance(effort, str):
+            effort = effort.lower().strip()
+
+        # Priority 2: request_data attribute
+        if not effort:
+            effort = getattr(request_data, "reasoning_effort", None)
+            if isinstance(effort, str):
+                effort = effort.lower().strip()
+
+        # Priority 3: Default
+        if not effort:
+            effort = self.DEFAULT_REASONING_EFFORT
+
+        # Validate effort level
+        if effort not in self.REASONING_EFFORT_LEVELS:
+            logger.warning(
+                "Invalid reasoning_effort '%s', falling back to '%s'. "
+                "Supported levels: %s",
+                effort,
+                self.DEFAULT_REASONING_EFFORT,
+                ", ".join(self.REASONING_EFFORT_LEVELS),
+            )
+            effort = self.DEFAULT_REASONING_EFFORT
+
+        # Enforce xhigh restriction: only gpt-5.1-codex-max supports xhigh
+        if effort == "xhigh" and model.lower() not in (
+            m.lower() for m in self.XHIGH_SUPPORTED_MODELS
+        ):
+            logger.info(
+                "Model '%s' does not support 'xhigh' reasoning effort. "
+                "Downgrading to 'high'. Only %s support 'xhigh'.",
+                model,
+                ", ".join(self.XHIGH_SUPPORTED_MODELS),
+            )
+            effort = "high"
+
+        return effort
+
     async def chat_completions(  # type: ignore[override]
         self,
         request_data: Any,
@@ -3459,8 +3702,41 @@ class OpenAICodexConnector(OpenAIConnector):
         identity: Any | None = None,
         **kwargs: Any,
     ):
-        # Strip vendor prefix (e.g., "openai/") for unified model naming
-        effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
+        from src.core.domain.model_utils import parse_model_with_params
+
+        # Parse URI parameters from model string (e.g., "openai-codex:openai/gpt-5.1?reasoning_effort=high")
+        uri_params: dict[str, Any] = {}
+
+        # Strip backend prefix (e.g., "openai-codex:") first
+        model_for_parsing = effective_model
+        if ":" in model_for_parsing and not model_for_parsing.startswith("openai/"):
+            # Strip backend prefix: "openai-codex:openai/gpt-5.1-codex-max" -> "openai/gpt-5.1-codex-max"
+            model_for_parsing = model_for_parsing.split(":", 1)[1]
+
+        # Parse URI parameters from model string
+        try:
+            _, parsed_model, uri_params = parse_model_with_params(model_for_parsing)
+            # parsed_model may still have vendor prefix, strip it
+            effective_model = strip_vendor_prefix(parsed_model, OPENAI_VENDOR_PREFIX)
+        except Exception as e:
+            logger.debug("Failed to parse model URI params: %s", e)
+            # Fallback to simple stripping
+            if ":" in effective_model:
+                effective_model = effective_model.split(":", 1)[1]
+            effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
+            # Remove any query string
+            if "?" in effective_model:
+                effective_model = effective_model.split("?", 1)[0]
+
+        # Store resolved reasoning effort in request context for _build_codex_payload
+        resolved_reasoning_effort = self._resolve_reasoning_effort(
+            effective_model, uri_params, request_data
+        )
+        # Attach to request_data for use in _build_codex_payload
+        if hasattr(request_data, "__dict__"):
+            request_data._codex_resolved_reasoning_effort = resolved_reasoning_effort
+        elif isinstance(request_data, dict):
+            request_data["_codex_resolved_reasoning_effort"] = resolved_reasoning_effort
 
         # Validate restricted access
         if not self._enable_codex_backend_debugging_override:
@@ -3556,15 +3832,19 @@ class OpenAICodexConnector(OpenAIConnector):
             raise
 
     def get_available_models(self) -> list[str]:
-        """Return available models with vendor prefix for unified model routing.
+        """Return available Codex models with vendor prefix for unified model routing.
 
         Returns:
-            List of available model names with 'openai/' vendor prefix.
-            For example: ['openai/gpt-4', 'openai/gpt-3.5-turbo']
+            List of supported Codex model names with 'openai/' vendor prefix.
+            Only returns the exhaustive list of supported models:
+            - openai/gpt-5.1-codex-max
+            - openai/gpt-5.1-codex
+            - openai/gpt-5.1-codex-mini
+            - openai/gpt-5.1
         """
         return [
             add_vendor_prefix(m, OPENAI_VENDOR_PREFIX)
-            for m in (self.available_models or [])
+            for m in self.SUPPORTED_CODEX_MODELS
         ]
 
     def __del__(self) -> None:

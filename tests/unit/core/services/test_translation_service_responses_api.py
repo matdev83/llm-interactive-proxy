@@ -175,7 +175,13 @@ class TestResponsesApiTranslation:
         assert direct_domain_chunk.choices[0].delta.content == "partial"
 
     def test_to_domain_stream_chunk_responses_message_item(self):
-        """Message output items should be mapped to content deltas."""
+        """Message output items should emit role but suppress content.
+
+        NOTE: Content is suppressed because Codex Responses API sends both
+        incremental text.delta events AND a final output_item.done with the
+        complete message. To avoid duplicate content, we only emit role here
+        since the text was already streamed via text.delta events.
+        """
 
         chunk = (
             "event: response.output_item.done\n"
@@ -188,7 +194,8 @@ class TestResponsesApiTranslation:
         domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
 
         delta = domain_chunk.choices[0].delta
-        assert delta.content == "Hello world"
+        # Content is suppressed to avoid duplication with text.delta events
+        assert delta.content is None
         assert delta.role == "assistant"
 
     def test_to_domain_stream_chunk_responses_function_call(self):

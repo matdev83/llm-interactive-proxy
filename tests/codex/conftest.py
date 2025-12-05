@@ -9,6 +9,7 @@ To run codex tests:
 To run all tests INCLUDING codex:
     ./.venv/Scripts/python.exe -m pytest -m "not slow"
 """
+
 import pytest
 
 
@@ -19,4 +20,3 @@ def pytest_collection_modifyitems(config, items):
         fspath_str = str(item.fspath)
         if "tests/codex" in fspath_str or "tests\\codex" in fspath_str:
             item.add_marker(pytest.mark.codex)
-

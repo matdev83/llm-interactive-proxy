@@ -320,10 +320,18 @@ class BackendService(IBackendService):
                     return b"data: [DONE]\n\n"
                 return f"data: {content}\n\n".encode()
 
+            # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict
+            if hasattr(content, "model_dump") and callable(content.model_dump):
+                return f"data: {json.dumps(content.model_dump())}\n\n".encode()
+
             if isinstance(content, dict):
                 return f"data: {json.dumps(content)}\n\n".encode()
 
-            return f"data: {content}\n\n".encode()
+            # Fallback: try to JSON serialize, otherwise use str representation
+            try:
+                return f"data: {json.dumps(content)}\n\n".encode()
+            except (TypeError, ValueError):
+                return f"data: {content}\n\n".encode()
 
         async def _adapter() -> Any:
             done_sent = False

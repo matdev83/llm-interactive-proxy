@@ -84,6 +84,9 @@ class Translation(BaseTranslator):
 
     _codex_tool_call_index_base: dict[str, int] = {}
     _codex_tool_call_item_index: dict[str, dict[str, int]] = {}
+    # Cache for function names: call_id -> function_name
+    # Used because output_item.added sends the name, but function_call_arguments.done doesn't
+    _codex_function_name_cache: dict[str, str] = {}
 
     @classmethod
     def _reset_tool_call_state(cls, response_id: str | None) -> None:
@@ -91,6 +94,18 @@ class Translation(BaseTranslator):
             return
         cls._codex_tool_call_index_base.pop(response_id, None)
         cls._codex_tool_call_item_index.pop(response_id, None)
+        # Note: We don't clear function name cache here as call_ids are unique
+
+    @classmethod
+    def _cache_function_name(cls, call_id: str, name: str) -> None:
+        """Cache function name for a tool call ID."""
+        if call_id and name:
+            cls._codex_function_name_cache[call_id] = name
+
+    @classmethod
+    def _get_cached_function_name(cls, call_id: str) -> str:
+        """Get cached function name for a tool call ID."""
+        return cls._codex_function_name_cache.get(call_id, "")
 
     @classmethod
     def _assign_tool_call_index(
@@ -1930,12 +1945,15 @@ class Translation(BaseTranslator):
                     )
 
             if item_type == "message":
-                text = _extract_text(item.get("content", []))
-                message_delta: dict[str, Any] = {"content": text} if text else {}
+                # NOTE: Codex Responses API sends both incremental text.delta events
+                # AND a final output_item.done with the complete message. To avoid
+                # duplicate content, we suppress the content here since it was
+                # already streamed via text.delta events.
+                # Only emit role if present, but skip the duplicate content.
                 role = item.get("role")
                 if role:
-                    message_delta["role"] = role
-                return _build_chunk(message_delta or None)
+                    return _build_chunk({"role": role})
+                return _build_chunk()
 
             if item_type == "function_call":
                 arguments = item.get("arguments", "{}")
@@ -2081,9 +2099,42 @@ class Translation(BaseTranslator):
                 "details": error_payload,
             }
 
+        if event_type == "response.output_item.added":
+            # Extract function call metadata from output_item.added events
+            # This is where the function name is first announced in streaming
+            item = chunk.get("item") or {}
+            item_type = item.get("type")
+
+            if item_type == "function_call":
+                # Emit the function name so clients know what tool is being called
+                call_id = (
+                    item.get("call_id")
+                    or item.get("id")
+                    or f"call_{uuid.uuid4().hex[:8]}"
+                )
+                name = item.get("name", "")
+                tool_index = Translation._assign_tool_call_index(
+                    chunk_id, chunk.get("output_index"), call_id
+                )
+                delta = {
+                    "tool_calls": [
+                        {
+                            "index": tool_index,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": "",  # Arguments come via delta events
+                            },
+                        }
+                    ]
+                }
+                return _build_chunk(delta)
+            # For non-function_call items, return empty chunk
+            return _build_chunk()
+
         if event_type in {
             "response.output_text.done",
-            "response.output_item.added",
             "response.custom_tool_call_input.done",
             "response.custom_tool_call_input.delta",
             "response.function_call_arguments.delta",

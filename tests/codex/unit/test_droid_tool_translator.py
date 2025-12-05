@@ -6,6 +6,7 @@ which translates Factory Droid tool calls to OpenAI Codex format.
 Test isolation: All tests in this file are auto-marked with @pytest.mark.codex
 by conftest.py and excluded from default pytest runs.
 """
+
 import pytest
 
 
@@ -186,9 +187,7 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
-            "Execute", {"command": "pwd"}
-        )
+        tool_name, args = translator.translate_tool_call("Execute", {"command": "pwd"})
         assert tool_name == "shell"
         assert args["command"] == ["pwd"]
 
@@ -351,4 +350,3 @@ class TestProxySideTools:
         translator = DroidToolTranslator()
         with pytest.raises(ValueError, match="Unknown Droid tool"):
             translator.translate_tool_call("UnknownTool", {"arg": "value"})
-
