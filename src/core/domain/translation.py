@@ -1893,7 +1893,10 @@ class Translation(BaseTranslator):
 
         if event_type == "response.function_call_arguments.done":
             call_id = chunk.get("item_id") or chunk.get("call_id")
+            # Try to get name from event, but fall back to cached name from output_item.added
             name = chunk.get("name") or ""
+            if not name and call_id:
+                name = Translation._get_cached_function_name(call_id)
             arguments = chunk.get("arguments")
             if isinstance(arguments, dict | list):
                 arguments = json.dumps(arguments)
@@ -2113,6 +2116,10 @@ class Translation(BaseTranslator):
                     or f"call_{uuid.uuid4().hex[:8]}"
                 )
                 name = item.get("name", "")
+
+                # Cache the function name for later use in function_call_arguments.done
+                Translation._cache_function_name(call_id, name)
+
                 tool_index = Translation._assign_tool_call_index(
                     chunk_id, chunk.get("output_index"), call_id
                 )
