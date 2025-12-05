@@ -145,11 +145,11 @@ class BackendStage(InitializationStage):
                 # Get activity tracker if available (for connection monitoring)
                 activity_tracker = None
                 try:
-                    from src.core.interfaces.activity_tracker_interface import (
-                        IConnectionActivityTracker,
+                    from src.core.services.connection_activity_tracker import (
+                        ConnectionActivityTracker,
                     )
 
-                    activity_tracker = provider.get_service(IConnectionActivityTracker)
+                    activity_tracker = provider.get_service(ConnectionActivityTracker)
                 except Exception:
                     pass  # Activity tracking not enabled or not yet registered
 

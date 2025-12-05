@@ -116,4 +116,3 @@ class GlobalActivitySnapshot:
             "total_bytes_rx": self.total_bytes_rx,
             "total_bytes_tx": self.total_bytes_tx,
         }
-

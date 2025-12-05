@@ -386,7 +386,7 @@ class TestBackendServiceTargeted:
             model="test-model",
             extra_body={},
         )
-        
+
         # Mock resolve_backend_and_model
         service._resolve_backend_and_model = AsyncMock(
             return_value=("openai", "test-model", {})
@@ -505,7 +505,7 @@ class TestBackendServiceTargeted:
             app_state,
             backend_config_provider=StubProvider(provider_backend_config),
         )
-        
+
         # Mock resolve_backend_and_model
         service._resolve_backend_and_model = AsyncMock(
             return_value=("openai", "gpt-4", {})

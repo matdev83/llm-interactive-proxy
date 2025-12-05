@@ -8,11 +8,43 @@ from pydantic import BaseModel
 
 from src.core.app.controllers.models_controller import get_backend_service
 from src.core.interfaces.backend_service import IBackendService
-from src.core.services.connection_activity_tracker import get_activity_tracker
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _is_activity_tracking_enabled() -> bool:
+    """Check if activity tracking is enabled in the DI container."""
+    try:
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.services.connection_activity_tracker import (
+            ConnectionActivityTracker,
+        )
+
+        provider = get_or_build_service_provider()
+        tracker = provider.get_service(ConnectionActivityTracker)
+        return tracker is not None
+    except Exception:
+        return False
+
+
+def _get_activity_tracker_if_enabled():
+    """Get the activity tracker if activity tracking is enabled.
+
+    Returns:
+        ConnectionActivityTracker instance or None if tracking is disabled.
+    """
+    try:
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.services.connection_activity_tracker import (
+            ConnectionActivityTracker,
+        )
+
+        provider = get_or_build_service_provider()
+        return provider.get_service(ConnectionActivityTracker)
+    except Exception:
+        return None
 
 
 class ModelInfo(BaseModel):
@@ -58,6 +90,7 @@ class BackendInstanceInfo(BaseModel):
 class GlobalActivityInfo(BaseModel):
     """Global activity summary across all backends."""
 
+    enabled: bool = True
     total_active_connections: int
     total_bytes_rx: int
     total_bytes_tx: int
@@ -69,6 +102,7 @@ class DiagnosticResponse(BaseModel):
     timestamp: float
     instances: list[BackendInstanceInfo]
     global_activity: GlobalActivityInfo | None = None
+    activity_tracking_enabled: bool = False
 
 
 async def verify_local_access(request: Request) -> None:
@@ -95,19 +129,22 @@ async def get_diagnostics(
     - Backend instance status (functional, rate-limited, validation errors)
     - Available models per backend
     - Active connection activity with RX/TX byte counters per session
+      (only when activity tracking is enabled via --enable-activity-tracking)
     """
     active_backends = backend_service.get_active_backends()
     instances = []
 
-    # Get activity tracker for connection info
-    try:
-        activity_tracker = get_activity_tracker()
-        global_snapshot = activity_tracker.get_global_snapshot()
-    except Exception:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Failed to get activity tracker snapshot", exc_info=True)
-        activity_tracker = None
-        global_snapshot = None
+    # Check if activity tracking is enabled and get tracker
+    activity_tracker = _get_activity_tracker_if_enabled()
+    activity_tracking_enabled = activity_tracker is not None
+    global_snapshot = None
+
+    if activity_tracker is not None:
+        try:
+            global_snapshot = activity_tracker.get_global_snapshot()
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to get activity tracker snapshot", exc_info=True)
 
     for name, backend in active_backends.items():
         # Derive connector type from instance name (e.g., "openai.1" -> "openai")
@@ -130,7 +167,7 @@ async def get_diagnostics(
         if hasattr(backend, "get_validation_errors"):
             validation_errors = backend.get_validation_errors()
 
-        # Get activity info for this backend
+        # Get activity info for this backend (only if tracking is enabled)
         activity_info = None
         if activity_tracker is not None:
             try:
@@ -176,6 +213,7 @@ async def get_diagnostics(
     global_activity = None
     if global_snapshot is not None:
         global_activity = GlobalActivityInfo(
+            enabled=True,
             total_active_connections=global_snapshot.total_active_connections,
             total_bytes_rx=global_snapshot.total_bytes_rx,
             total_bytes_tx=global_snapshot.total_bytes_tx,
@@ -185,6 +223,7 @@ async def get_diagnostics(
         timestamp=time.time(),
         instances=instances,
         global_activity=global_activity,
+        activity_tracking_enabled=activity_tracking_enabled,
     )
 
 
@@ -198,11 +237,25 @@ async def get_activity() -> GlobalActivityInfo:
 
     This lightweight endpoint returns only the activity counters
     without backend status information.
+
+    Note: Activity tracking must be enabled via --enable-activity-tracking
+    for this endpoint to return meaningful data.
     """
+    activity_tracker = _get_activity_tracker_if_enabled()
+
+    if activity_tracker is None:
+        # Activity tracking is disabled
+        return GlobalActivityInfo(
+            enabled=False,
+            total_active_connections=0,
+            total_bytes_rx=0,
+            total_bytes_tx=0,
+        )
+
     try:
-        activity_tracker = get_activity_tracker()
         snapshot = activity_tracker.get_global_snapshot()
         return GlobalActivityInfo(
+            enabled=True,
             total_active_connections=snapshot.total_active_connections,
             total_bytes_rx=snapshot.total_bytes_rx,
             total_bytes_tx=snapshot.total_bytes_tx,
@@ -210,6 +263,7 @@ async def get_activity() -> GlobalActivityInfo:
     except Exception:
         logger.warning("Failed to get activity snapshot", exc_info=True)
         return GlobalActivityInfo(
+            enabled=True,  # Tracking is enabled but errored
             total_active_connections=0,
             total_bytes_rx=0,
             total_bytes_tx=0,

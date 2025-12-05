@@ -105,12 +105,11 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
 
         # Only handle if the path needs fixing (is invalid/relative)
         needs_fix = self._needs_path_fix(path)
-        if not needs_fix:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "DroidAntigravityPathFix: path '%s' doesn't need fixing",
-                    path,
-                )
+        if not needs_fix and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "DroidAntigravityPathFix: path '%s' doesn't need fixing",
+                path,
+            )
         return needs_fix
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:

@@ -2,6 +2,20 @@
 
 ## [2025-12-05]
 
+### Added: Factory Droid Support and Enhanced Activity Monitoring
+
+- **Factory Droid Support**: Seamless integration for Factory Droid clients
+  - **Client Detection**: Automatic detection via User-Agent, system prompts, and tool signatures
+  - **Tool Translation**: Intelligent translation of Droid's PascalCase tools to Codex-compatible formats
+  - **Session Adaptation**: Droid-specific session handling and tool response formatting
+  - **Proxy-Side Tools**: Support for client-specific tools like TodoWrite and WebSearch
+
+- **Connection Activity Monitoring**: Real-time visibility into proxy traffic
+  - **CLI Tool**: New `inspect_activity.py` script for live monitoring of active connections
+  - **Documentation**: Comprehensive guide at `docs/user_guide/features/activity-monitoring.md`
+  - **Performance**: Optimized lock-free tracking with minimal overhead
+  - **Visualizations**: Rich terminal UI for monitoring connection states, RX/TX rates, and session details
+
 ### Added: Health Checks and Advanced Routing
 
 - **Backend Health Monitoring**: Comprehensive system for detecting and managing unhealthy backends

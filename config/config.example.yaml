@@ -9,6 +9,11 @@ public_url: null
 proxy_timeout: 120
 command_prefix: "!/"
 
+# Activity tracking (disabled by default for performance)
+# Enable via CLI: --enable-activity-tracking
+# Enable via env: ENABLE_ACTIVITY_TRACKING=1
+enable_activity_tracking: false
+
 # Authentication
 auth:
   disable_auth: false  # Set to true to disable API key authentication

@@ -50,7 +50,7 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert os.environ.get("PROXY_PORT") == "1234"
     assert os.environ.get("COMMAND_PREFIX") == "$" + "/"
     assert cfg.backends.default_backend == "gemini"
-    assert cfg.backends.gemini.api_key == ["TESTKEY"]
+    assert cfg.backends.gemini.api_key == "TESTKEY"
     assert cfg.port == 1234
     assert cfg.command_prefix == "$/"
     # cleanup environment variables set by apply_cli_args
@@ -63,7 +63,7 @@ def test_app_config_from_env_loads_zenmux(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("ZENMUX_TIMEOUT", "45")
 
     config = AppConfig.from_env()
-    assert config.backends.zenmux.api_key == ["zen-key"]
+    assert config.backends.zenmux.api_key == "zen-key"
     assert config.backends.zenmux.api_url == "https://custom.zenmux/api"
     assert config.backends.zenmux.timeout == 45
 
@@ -163,9 +163,9 @@ def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> Non
     if isinstance(cfg, tuple):
         cfg = cfg[0]
 
-    assert cfg.backends.gemini.api_key == ["gemini-key"]
-    assert cfg.backends.openrouter.api_key == ["openrouter-key"]
-    assert cfg.backends.zai.api_key == ["zai-key"]
+    assert cfg.backends.gemini.api_key == "gemini-key"
+    assert cfg.backends.openrouter.api_key == "openrouter-key"
+    assert cfg.backends.zai.api_key == "zai-key"
 
 
 def test_cli_planning_phase_overrides_merge(

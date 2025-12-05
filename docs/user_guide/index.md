@@ -59,6 +59,7 @@ Advanced features that enhance the proxy's capabilities:
 
 - **[Monitoring Overview](features/monitoring-overview.md)** - Overview of all monitoring and analytics capabilities
 - **[Backend Health Checks](features/health-checks.md)** - Automated health monitoring and circuit breaker for backend API endpoints
+- **[Connection Activity Monitoring](features/activity-monitoring.md)** - Real-time visibility into active connections with RX/TX byte counters
 - **[Usage Tracking and Statistics](features/usage-tracking.md)** - Comprehensive monitoring of token consumption, costs, performance metrics, and request patterns across all backends
 
 ### Client Integration

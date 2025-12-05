@@ -2,7 +2,6 @@ from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
-
 from src.core.common.exceptions import RoutingError
 from src.core.config.app_config import BackendConfig, RoutingConfig
 from src.core.services.backend_routing_service import BackendRoutingService

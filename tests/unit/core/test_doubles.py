@@ -130,6 +130,7 @@ class MockServiceScope(IServiceScope):
 #
 from src.connectors.base import LLMBackend
 
+
 class MockBackendService(IBackendService, IBackendProcessor):
     """A mock backend service for testing."""
 
@@ -174,7 +175,7 @@ class MockBackendService(IBackendService, IBackendProcessor):
         # Handle StreaminResponseEnvelope directly (it's async iterable, but not just any async iterable)
         if isinstance(response, StreamingResponseEnvelope):
             return response
-            
+
         if hasattr(response, "__aiter__"):
             return response
 

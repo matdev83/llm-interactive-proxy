@@ -82,6 +82,9 @@ class _StubBackendService(IBackendService):
     ) -> tuple[bool, str | None]:
         return True, None
 
+    async def get_active_backends(self) -> list[str]:
+        return []
+
 
 class _StubResponseProcessor(IResponseProcessor):
     async def process_response(

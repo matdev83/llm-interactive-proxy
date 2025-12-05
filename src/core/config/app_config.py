@@ -247,7 +247,7 @@ class BackendConfig(DomainModel):
             return str(v[0])
         if isinstance(v, list) and not v:
             return None
-        return v
+        return str(v) if v is not None else None
 
     @field_validator("api_url")
     @classmethod
@@ -339,7 +339,7 @@ class RoutingConfig(DomainModel):
     disable_model_names: bool = False
 
     @model_validator(mode="after")
-    def validate_at_least_one_method_enabled(self) -> "RoutingConfig":
+    def validate_at_least_one_method_enabled(self) -> RoutingConfig:
         """Ensure at least one routing method remains available."""
         if self.disable_backend_names and self.disable_model_names:
             raise ValueError(
@@ -1134,6 +1134,7 @@ class AppConfig(DomainModel, IConfig):
     gcp_project_id: str | None = None
     gemini_credentials_path: str | None = None
     disable_health_checks: bool = False
+    enable_activity_tracking: bool = False  # Disabled by default for performance
 
     # Rate limit settings
     default_rate_limit: int = 60
@@ -1311,6 +1312,13 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="disable_health_checks",
+                resolution=resolution,
+            ),
+            "enable_activity_tracking": _env_to_bool(
+                "ENABLE_ACTIVITY_TRACKING",
+                False,
+                env,
+                path="enable_activity_tracking",
                 resolution=resolution,
             ),
             "host": _get_env_value(

@@ -12,8 +12,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING
 
 from src.core.domain.connection_activity import (
     BackendActivitySnapshot,
@@ -319,4 +320,3 @@ def reset_activity_tracker() -> None:
         if _global_tracker is not None:
             _global_tracker.clear()
         _global_tracker = None
-

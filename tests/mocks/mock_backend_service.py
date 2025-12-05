@@ -64,3 +64,6 @@ class MockBackendService(IBackendService):
         self, backend: str, model: str
     ) -> tuple[bool, str | None]:
         return True, None
+
+    async def get_active_backends(self) -> list[str]:
+        return ["test-backend"]

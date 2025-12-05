@@ -7,8 +7,9 @@ through backend connectors.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.core.domain.connection_activity import (
@@ -31,7 +32,7 @@ class IConnectionActivityTracker(ABC):
         self,
         session_id: str,
         backend_name: str,
-        connection_type: "ConnectionType",
+        connection_type: ConnectionType,
         model: str | None = None,
     ) -> Generator[None, None, None]:
         """Context manager to track a connection's lifecycle.
@@ -70,7 +71,7 @@ class IConnectionActivityTracker(ABC):
         """
 
     @abstractmethod
-    def get_backend_snapshot(self, backend_name: str) -> "BackendActivitySnapshot":
+    def get_backend_snapshot(self, backend_name: str) -> BackendActivitySnapshot:
         """Get activity snapshot for a specific backend.
 
         Args:
@@ -81,10 +82,9 @@ class IConnectionActivityTracker(ABC):
         """
 
     @abstractmethod
-    def get_global_snapshot(self) -> "GlobalActivitySnapshot":
+    def get_global_snapshot(self) -> GlobalActivitySnapshot:
         """Get global activity snapshot across all backends.
 
         Returns:
             Snapshot of current activity across all backends.
         """
-

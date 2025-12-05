@@ -296,12 +296,12 @@ def create_test_config() -> AppConfig:
     backend_settings = BackendSettings(default_backend=default_backend)
 
     # Always include openai as a fallback
-    backend_settings.__dict__["openai"] = BackendConfig(api_key=["test_key"])
+    backend_settings.__dict__["openai"] = BackendConfig(api_key="test_key")
 
     # Add the default backend if it's not openai
     if default_backend != "openai":
         backend_settings.__dict__[default_backend] = BackendConfig(
-            api_key=[f"test_key_{default_backend}"]
+            api_key=f"test_key_{default_backend}"
         )
 
     # Get command prefix from environment if set

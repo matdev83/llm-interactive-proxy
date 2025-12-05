@@ -267,8 +267,8 @@ class CoreServicesStage(InitializationStage):
                 logger.error(f"Failed to register core services from DI module: {e}")
             raise
 
-        # Register connection activity tracker
-        self._register_activity_tracker(services)
+        # Register connection activity tracker (if enabled)
+        self._register_activity_tracker(services, config)
 
         # Register wire capture service
         self._register_wire_capture_service(services)
@@ -276,12 +276,28 @@ class CoreServicesStage(InitializationStage):
         # Register usage tracking services
         self._register_usage_tracking_services(services, config)
 
-    def _register_activity_tracker(self, services: ServiceCollection) -> None:
+    def _register_activity_tracker(
+        self, services: ServiceCollection, config: AppConfig
+    ) -> None:
         """Register connection activity tracker service.
 
         The activity tracker provides real-time visibility into active connections
         through backend connectors with RX/TX byte counters per session.
+
+        This feature is disabled by default for performance. Enable via:
+        - CLI: --enable-activity-tracking
+        - Env: ENABLE_ACTIVITY_TRACKING=1
+        - Config: enable_activity_tracking: true
         """
+        # Check if activity tracking is enabled
+        if not getattr(config, "enable_activity_tracking", False):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Activity tracking disabled (enable_activity_tracking=%s)",
+                    getattr(config, "enable_activity_tracking", False),
+                )
+            return
+
         try:
             from src.core.interfaces.activity_tracker_interface import (
                 IConnectionActivityTracker,
@@ -298,14 +314,16 @@ class CoreServicesStage(InitializationStage):
                 return get_activity_tracker()
 
             services.add_singleton(
-                ConnectionActivityTracker, implementation_factory=activity_tracker_factory
+                ConnectionActivityTracker,
+                implementation_factory=activity_tracker_factory,
             )
             services.add_singleton(
-                IConnectionActivityTracker, implementation_factory=activity_tracker_factory
+                IConnectionActivityTracker,
+                implementation_factory=activity_tracker_factory,
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered connection activity tracker service")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Activity tracking enabled - connection monitoring active")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register activity tracker service: {e}")

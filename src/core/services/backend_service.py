@@ -1092,7 +1092,9 @@ class BackendService(IBackendService):
         # Check if circuit breaker is enabled
         # Use getattr for defensive programming - test configs may not have health_check
         health_check = getattr(self._config, "health_check", None)
-        if health_check is None or not getattr(health_check, "circuit_breaker_enabled", True):
+        if health_check is None or not getattr(
+            health_check, "circuit_breaker_enabled", True
+        ):
             return plan
 
         filtered: list[tuple[str, str]] = []
@@ -2145,15 +2147,13 @@ class BackendService(IBackendService):
                 effective_model, ""
             )
 
-            if not parsed_backend:
-                # No backend specified in model string (Variant 3)
-                if self._routing_service:
-                    # Try discovery
-                    discovered = self._routing_service.resolve_backend_instance(
-                        None, parsed_model
-                    )
-                    if discovered:
-                        parsed_backend = discovered
+            if not parsed_backend and self._routing_service:
+                # Try discovery
+                discovered = self._routing_service.resolve_backend_instance(
+                    None, parsed_model
+                )
+                if discovered:
+                    parsed_backend = discovered
 
             # Fallback to default backend if discovery failed or not used
             backend_type = parsed_backend or default_backend

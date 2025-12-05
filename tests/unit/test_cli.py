@@ -468,13 +468,13 @@ def test_cli_creates_log_directory_for_custom_path(tmp_path: Path) -> None:
         ("--zai-api-key", "zai", None),
     ],
 )
-def test_cli_api_keys_are_stored_as_lists(
+def test_cli_api_keys_are_stored_as_strings(
     monkeypatch: pytest.MonkeyPatch,
     flag: str,
     backend_name: str,
     env_var: str | None,
 ) -> None:
-    """CLI API key flags should normalize single keys into singleton lists."""
+    """CLI API key flags should normalize single keys into strings."""
 
     if env_var:
         monkeypatch.delenv(env_var, raising=False)
@@ -484,7 +484,7 @@ def test_cli_api_keys_are_stored_as_lists(
         config = _unwrap_config(apply_cli_args(args))
 
     backend_config = config.backends[backend_name]
-    assert backend_config.api_key == ["test-key"]
+    assert backend_config.api_key == "test-key"
 
     # The environment variable should not be set
     if env_var:

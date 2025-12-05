@@ -3,8 +3,9 @@ from __future__ import annotations
 import abc
 import logging
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.connection_activity import ConnectionType
@@ -315,7 +316,9 @@ class LLMBackend(abc.ABC, IHealthAware):
 
         # Use getattr for defensive programming
         if not getattr(self, "_endpoint_healthy", True):
-            reason = getattr(self, "_last_health_change_reason", None) or "unknown reason"
+            reason = (
+                getattr(self, "_last_health_change_reason", None) or "unknown reason"
+            )
             errors.append(f"API endpoint unhealthy: {reason}")
 
         return errors
@@ -343,7 +346,12 @@ class LLMBackend(abc.ABC, IHealthAware):
         Returns:
             The instance name, or backend_type if not set.
         """
-        return self._instance_name or getattr(self, "backend_type", "unknown")
+        if self._instance_name:
+            return self._instance_name
+        backend_type = getattr(self, "backend_type", None)
+        if isinstance(backend_type, str):
+            return backend_type
+        return "unknown"
 
     @contextmanager
     def track_connection(

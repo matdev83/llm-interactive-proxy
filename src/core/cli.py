@@ -496,6 +496,15 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Exclude agents matching this regex from edit-precision tuning",
     )
 
+    # Activity tracking (disabled by default for performance)
+    parser.add_argument(
+        "--enable-activity-tracking",
+        dest="enable_activity_tracking",
+        action="store_true",
+        default=None,
+        help="Enable real-time connection activity tracking (RX/TX counters per session)",
+    )
+
     # Backend Debugging Overrides
     debugging_overrides_group = parser.add_argument_group(
         "Backend Debugging Overrides",
@@ -956,6 +965,16 @@ def apply_cli_args(
             "context_window_override",
             args.force_context_window,
             "--force-context-window",
+        )
+
+    # Activity tracking (disabled by default for performance)
+    if getattr(args, "enable_activity_tracking", None):
+        cli_overrides["enable_activity_tracking"] = True
+        os.environ["ENABLE_ACTIVITY_TRACKING"] = "1"
+        record_cli(
+            "enable_activity_tracking",
+            True,
+            "--enable-activity-tracking",
         )
 
     # Thinking budget override (for reasoning/thinking tokens)

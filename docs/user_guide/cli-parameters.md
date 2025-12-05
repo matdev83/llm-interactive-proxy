@@ -31,7 +31,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--disable-gemini-oauth-fallback` | `DISABLE_GEMINI_OAUTH_FALLBACK=1` | Disable automatic Gemini OAuth fallback to `gemini-2.5-flash`. |
 | `--disable-hybrid-backend` | `DISABLE_HYBRID_BACKEND=1` | Disable the hybrid backend (enabled by default). |
 | `--hybrid-backend-repeat-messages` | `HYBRID_BACKEND_REPEAT_MESSAGES=1` | Repeat reasoning output as an artificial message in the session. |
-| `--reasoning-injection-probability FLOAT` | `REASONING_INJECTION_PROBABILITY` | Probability of using the reasoning model in the hybrid backend (0.0 to 1.0). |
+| `--reasoning-injection-probability FLOAT` (or `--reasoning_injection_probability`) | `REASONING_INJECTION_PROBABILITY` | Probability of using the reasoning model in the hybrid backend (0.0 to 1.0). |
 | `--hybrid-reasoning-model-timeout SECONDS` | `HYBRID_REASONING_MODEL_TIMEOUT` | Timeout for the reasoning model call in hybrid scenarios (default: 60). |
 | `--hybrid-reasoning-force-initial-turns N` | `HYBRID_REASONING_FORCE_INITIAL_TURNS` | Number of turns at start of session to force reasoning model usage (default: 4). |
 | `--model-alias PATTERN=REPLACEMENT` | `MODEL_ALIASES` (JSON string) | Add a model name rewrite rule (regex pattern and replacement). Can be used multiple times. |
@@ -203,6 +203,14 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--edit-precision-override-top-k` | `EDIT_PRECISION_OVERRIDE_TOP_K` | Enable top_k override. |
 | `--edit-precision-exclude-agents REGEX` | `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX` | Exclude agents matching regex. |
 
+### Activity Tracking
+
+Real-time connection activity tracking for debugging and monitoring. Disabled by default for performance.
+
+| CLI Argument | Environment Variable | Config File | Description |
+| :--- | :--- | :--- | :--- |
+| `--enable-activity-tracking` | `ENABLE_ACTIVITY_TRACKING=1` | `enable_activity_tracking: true` | Enable connection activity tracking (RX/TX counters per session). |
+
 ### LLM Assessment
 
 | CLI Argument | Environment Variable | Description |
@@ -317,3 +325,4 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
 | `--enable-gemini-oauth-free-backend-debugging-override` | Enable Gemini OAuth Free debugging. |
 | `--enable-gemini-oauth-plan-backend-debugging-override` | Enable Gemini OAuth Plan debugging. |
 | `--enable-qwen-oauth-backend-debugging-override` | Enable Qwen OAuth debugging. |
+| `--enable-droid-antigravity-path-fix` | Enable automatic path fixing for Droid agent with Gemini Antigravity backend. |

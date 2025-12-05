@@ -379,7 +379,7 @@ class TestBackendServiceHypothesis:
             # Ensure attributes needed for validation reporting
             mock_backend._endpoint_healthy = True
             mock_backend._last_health_change_reason = None
-            
+
             # Use BackendError instead of generic Exception to match what the backend would throw
             mock_backend.chat_completions_mock.side_effect = BackendError(
                 message=error_msg, backend_name="test-backend"
