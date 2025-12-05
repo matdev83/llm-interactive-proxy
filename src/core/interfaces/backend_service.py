@@ -90,3 +90,11 @@ class IBackendService(ABC):
             A backend instance
         """
         raise NotImplementedError("Subclasses must implement get_backend")
+
+    @abstractmethod
+    def get_active_backends(self) -> dict[str, LLMBackend]:
+        """Get all active backend instances.
+
+        Returns:
+             A dictionary mapping backend instance names to LLMBackend objects.
+        """

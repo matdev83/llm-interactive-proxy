@@ -924,6 +924,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     # Expose models at both /models and /v1/models for compatibility
     app.include_router(models_router, prefix="/v1")
 
+    # Register diagnostics endpoints
+    from src.core.app.controllers.diagnostics_controller import router as diagnostics_router
+
+    app.include_router(diagnostics_router)
+
 
 def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
     """Register anthropic endpoints."""

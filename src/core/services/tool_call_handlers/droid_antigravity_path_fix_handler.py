@@ -61,7 +61,7 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         Returns True only if:
         1. Handler is enabled
         2. Agent contains "droid" (case-insensitive)
-        3. Backend:model contains the Antigravity patterns
+        3. Backend contains "gemini-oauth-antigravity" (case-insensitive)
         4. Tool arguments contain a path that needs fixing
 
         Args:
@@ -76,23 +76,42 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         # Check agent name (from calling_agent or context)
         agent_name = context.calling_agent or ""
         if "droid" not in agent_name.lower():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "DroidAntigravityPathFix: agent '%s' doesn't contain 'droid'",
+                    agent_name,
+                )
             return False
 
-        # Check backend:model combination
-        backend_model = f"{context.backend_name}:{context.model_name}".lower()
-        if not (
-            "gemini-oauth-antigravity:gemini" in backend_model
-            or "gemini-oauth-antigravity:google/gemini" in backend_model
-        ):
+        # Check backend name (just needs to contain gemini-oauth-antigravity)
+        backend_name = (context.backend_name or "").lower()
+        if "gemini-oauth-antigravity" not in backend_name:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "DroidAntigravityPathFix: backend '%s' doesn't contain 'gemini-oauth-antigravity'",
+                    context.backend_name,
+                )
             return False
 
         # Check if there's a path that needs fixing
         path = self._extract_path(context.tool_arguments)
         if not path:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "DroidAntigravityPathFix: no path found in arguments %s",
+                    context.tool_arguments,
+                )
             return False
 
         # Only handle if the path needs fixing (is invalid/relative)
-        return self._needs_path_fix(path)
+        needs_fix = self._needs_path_fix(path)
+        if not needs_fix:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "DroidAntigravityPathFix: path '%s' doesn't need fixing",
+                    path,
+                )
+        return needs_fix
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
         """Fix the path in tool arguments.

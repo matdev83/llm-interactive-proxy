@@ -2341,6 +2341,14 @@ class BackendService(IBackendService):
                 backend_name=backend_type,
             )
 
+    def get_active_backends(self) -> dict[str, LLMBackend]:
+        """Get all active backend instances.
+
+        Returns:
+             A dictionary mapping backend instance names to LLMBackend objects.
+        """
+        return self._backends.copy()
+
     async def _handle_backend_call_failover(
         self,
         request: ChatRequest,

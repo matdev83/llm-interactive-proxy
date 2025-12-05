@@ -1418,6 +1418,11 @@ def apply_cli_args(
             "--test-execution-reminder-enabled/--no-test-execution-reminder-enabled",
         )
 
+    # Droid Antigravity path fix flag (internal debugging feature)
+    if getattr(args, "droid_antigravity_path_fix_enabled", None) is True:
+        session = cli_overrides.setdefault("session", {})
+        session["droid_antigravity_path_fix_enabled"] = True
+
     # Pytest context saving flag
     if getattr(args, "pytest_context_saving_enabled", None) is not None:
         session = cli_overrides.setdefault("session", {})
