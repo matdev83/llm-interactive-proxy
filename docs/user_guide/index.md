@@ -46,6 +46,10 @@ Advanced features that enhance the proxy's capabilities:
 - **[Think Tags Fix](features/think-tags-fix.md)** - Correct improperly formatted thinking tags in model responses
 - **[Edit Precision Tuning](features/edit-precision.md)** - Automatically adjust temperature and top_p for code editing tasks
 
+### Session Memory
+
+- **[ProxyMem: Cross-Session Memory](proxymem-memory.md)** - Persistent context across sessions with LLM-generated summaries and intelligent context injection
+
 ### Development Tools
 
 - **[Pytest Output Compression](features/pytest-compression.md)** - Compress verbose pytest output to save context tokens

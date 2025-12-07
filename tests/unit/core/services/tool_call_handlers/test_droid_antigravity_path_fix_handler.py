@@ -101,13 +101,13 @@ class TestDroidAntigravityPathFixHandler:
     async def test_can_handle_non_matching_backend(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
-        """Handler should not match non-Antigravity backends."""
+        """Handler should match even if backend is not Antigravity."""
         context = self._create_context(
             backend_name="openai",
             tool_arguments={"file_path": "src/file.py"},
         )
         result = await enabled_handler.can_handle(context)
-        assert result is False, "Should not match non-Antigravity backend"
+        assert result is True, "Should match regardless of backend for Droid agents"
 
     @pytest.mark.asyncio
     async def test_can_handle_absolute_path_not_needed(

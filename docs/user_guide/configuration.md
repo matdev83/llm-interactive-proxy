@@ -441,6 +441,55 @@ health_check:
 | `http.timeout_seconds` | float | `10.0` | HTTP request timeout |
 | `http.failure_threshold` | int | `2` | Failures before unhealthy |
 
+### ProxyMem (Cross-Session Memory)
+
+ProxyMem provides persistent context across sessions by capturing interactions, generating LLM summaries, and injecting relevant history into new sessions.
+
+```yaml
+memory:
+  # Enable the feature
+  available: true
+  default_enabled: false
+  
+  # Models for summary and context generation
+  summary_model: "openai:gpt-4o-mini"
+  context_model: "openai:gpt-4o-mini"
+  
+  # Database
+  database_path: "./var/memory.sqlite3"
+  retention_days: 90
+  
+  # Session behavior
+  session_timeout_minutes: 30
+  max_context_tokens: 2000
+  context_relevance_threshold: 0.5
+  
+  # Privacy controls
+  redaction_patterns:
+    - "(?i)(api[_-]?key|password|secret|token)\\s*[=:]\\s*[^\\s]*"
+  disabled_users: []
+  disabled_clients: []
+  
+  # Single-user mode (for personal deployments)
+  single_user_mode: false
+  fixed_user_id: null
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `available` | bool | `false` | Enable the memory feature |
+| `default_enabled` | bool | `false` | Enable memory by default for new sessions |
+| `summary_model` | str | `null` | Model for summary generation (`backend:model`) |
+| `context_model` | str | `null` | Model for context retrieval (`backend:model`) |
+| `database_path` | str | `./var/memory.sqlite3` | SQLite database location |
+| `retention_days` | int | `90` | Days to retain summaries |
+| `session_timeout_minutes` | int | `30` | Inactivity timeout |
+| `max_context_tokens` | int | `2000` | Maximum tokens for injected context |
+| `context_relevance_threshold` | float | `0.5` | Minimum relevance score |
+| `single_user_mode` | bool | `false` | Use fixed user ID |
+
+> **See Also:** [ProxyMem: Cross-Session Memory](proxymem-memory.md) for detailed documentation including commands, privacy controls, and troubleshooting.
+
 ### Other Settings
 
 ```yaml

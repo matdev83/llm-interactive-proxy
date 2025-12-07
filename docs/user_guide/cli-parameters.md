@@ -198,6 +198,8 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--memory-disable-user ID` | `MEMORY_DISABLED_USERS` | Disable memory for specific user ID. Can be used multiple times. |
 | `--memory-disable-client ID` | `MEMORY_DISABLED_CLIENTS` | Disable memory for specific client ID. Can be used multiple times. |
 
+> **See Also:** [ProxyMem: Cross-Session Memory](proxymem-memory.md) for detailed documentation on the memory feature.
+
 ### Planning Phase
 
 | CLI Argument | Environment Variable | Description |

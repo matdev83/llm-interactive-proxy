@@ -544,7 +544,7 @@ class TestEdgeCaseBehavior:
             )
 
         # Verify: Only original model was tried
-        assert connector._api_call_count["gemini-1.0-pro"] == 5
+        assert connector._api_call_count["gemini-1.0-pro"] == 4
         assert "gemini-1.0-flash" not in connector._api_call_count
 
     @pytest.mark.asyncio

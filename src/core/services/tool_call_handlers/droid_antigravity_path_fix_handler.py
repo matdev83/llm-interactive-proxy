@@ -24,12 +24,10 @@ logger = logging.getLogger(__name__)
 
 
 class DroidAntigravityPathFixHandler(IToolCallHandler):
-    """Handler that fixes path formatting for Droid + Gemini Antigravity sessions.
+    """Handler that fixes path formatting for Droid sessions.
 
     This is an internal debugging handler that activates only when:
     - User agent OR app title contains "droid" (case-insensitive)
-    - Backend:model contains "gemini-oauth-antigravity:gemini" or
-      "gemini-oauth-antigravity:google/gemini" (case-insensitive)
 
     When activated, it transforms relative paths to absolute Windows paths:
     - Prepends backslash to paths not starting with \\ or /
@@ -61,8 +59,7 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         Returns True only if:
         1. Handler is enabled
         2. Agent contains "droid" (case-insensitive)
-        3. Backend contains "gemini-oauth-antigravity" (case-insensitive)
-        4. Tool arguments contain a path that needs fixing
+        3. Tool arguments contain a path that needs fixing
 
         Args:
             context: The tool call context
@@ -80,16 +77,6 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
                 logger.debug(
                     "DroidAntigravityPathFix: agent '%s' doesn't contain 'droid'",
                     agent_name,
-                )
-            return False
-
-        # Check backend name (just needs to contain gemini-oauth-antigravity)
-        backend_name = (context.backend_name or "").lower()
-        if "gemini-oauth-antigravity" not in backend_name:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "DroidAntigravityPathFix: backend '%s' doesn't contain 'gemini-oauth-antigravity'",
-                    context.backend_name,
                 )
             return False
 
