@@ -20,6 +20,8 @@ from src.core.memory.interfaces import LLMCaller
 from src.core.memory.models import (
     CapturedInteraction,
     FileChange,
+    FileEditEvent,
+    GitCommitEvent,
     GitOperation,
     SessionSummary,
     TaskItem,
@@ -204,6 +206,8 @@ class SummaryGenerator:
         branch: str | None = None,
         head_sha: str | None = None,
         is_partial: bool = False,
+        deterministic_file_edits: list[FileEditEvent] | None = None,
+        deterministic_git_commits: list[GitCommitEvent] | None = None,
     ) -> SummaryResult:
         """Generate a summary for a session.
 
@@ -219,6 +223,8 @@ class SummaryGenerator:
             branch: Git branch name.
             head_sha: Git HEAD SHA.
             is_partial: Whether the capture was partial (overflow).
+            deterministic_file_edits: List of file edit events from tool calls.
+            deterministic_git_commits: List of git commit events from tool calls.
 
         Returns:
             SummaryResult with success status and summary or error.
@@ -252,6 +258,16 @@ class SummaryGenerator:
         prompt_template = self._prompt_loader.load_summary_prompt()
         now = datetime.now(timezone.utc)
 
+        # Format deterministic file edits for prompt injection
+        file_edits_str = self._format_file_edits_for_prompt(
+            deterministic_file_edits or []
+        )
+
+        # Format deterministic git commits for prompt injection
+        git_commits_str = self._format_git_commits_for_prompt(
+            deterministic_git_commits or []
+        )
+
         variables = {
             "session_transcript": transcript,
             "session_id": session_id,
@@ -266,6 +282,8 @@ class SummaryGenerator:
             "summary_schema_version": self._config.summary_schema_version,
             "summary_prompt_version": self._config.summary_prompt_version,
             "max_tokens": str(self._config.max_summary_tokens),
+            "deterministic_file_edits": file_edits_str,
+            "deterministic_git_commits": git_commits_str,
         }
 
         prompt = self._prompt_loader.substitute_variables(prompt_template, variables)
@@ -341,6 +359,64 @@ class SummaryGenerator:
             with contextlib.suppress(re.error):
                 text = re.sub(pattern, "[REDACTED]", text)
         return text
+
+    def _format_file_edits_for_prompt(
+        self,
+        file_edits: list[FileEditEvent],
+    ) -> str:
+        """Format file edit events for prompt injection.
+
+        Produces a machine-readable list of file edits with action, path,
+        tool, and timestamp for each entry. If empty, returns NONE marker.
+
+        Args:
+            file_edits: List of deterministic file edit events.
+
+        Returns:
+            Formatted string for prompt substitution.
+        """
+        if not file_edits:
+            return "NONE (no deterministic file edits recorded)"
+
+        lines = ["(action | path | tool | timestamp)"]
+        for edit in file_edits:
+            tool_name = edit.tool or "unknown"
+            timestamp = edit.timestamp.isoformat()
+            lines.append(f"{edit.action} | {edit.path} | {tool_name} | {timestamp}")
+
+        return "\n".join(lines)
+
+    def _format_git_commits_for_prompt(
+        self,
+        git_commits: list[GitCommitEvent],
+    ) -> str:
+        """Format git commit events for prompt injection.
+
+        Produces a machine-readable list of git commits with hash, branch,
+        message, and timestamp for each entry. If empty, returns NONE marker.
+
+        Args:
+            git_commits: List of deterministic git commit events.
+
+        Returns:
+            Formatted string for prompt substitution.
+        """
+        if not git_commits:
+            return "NONE (no deterministic git commits recorded)"
+
+        lines = ["(hash | branch | message | timestamp)"]
+        for commit in git_commits:
+            branch = commit.branch or "unknown"
+            message = commit.message or "no message"
+            # Truncate long messages
+            if len(message) > 80:
+                message = message[:77] + "..."
+            timestamp = commit.timestamp.isoformat()
+            lines.append(
+                f"{commit.commit_hash[:12]} | {branch} | {message} | {timestamp}"
+            )
+
+        return "\n".join(lines)
 
     async def _process_large_transcript(self, transcript: str) -> str:
         """Process a large transcript by chunking and summarizing chunks.

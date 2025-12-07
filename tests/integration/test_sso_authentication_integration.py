@@ -72,7 +72,7 @@ async def token_repository(database_manager, sso_config):
 @pytest.fixture
 def token_service():
     """Create test token service with lighter parameters for faster tests."""
-    return TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+    return TokenService.create_for_environment()
 
 
 @pytest.fixture

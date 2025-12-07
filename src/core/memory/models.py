@@ -38,6 +38,39 @@ class GitOperation(DomainModel):
     details: str
 
 
+class FileEditEvent(DomainModel):
+    """Deterministic record of a file edit captured from tool calls.
+
+    Captures file edit operations from proxy tool hooks (e.g., apply_patch,
+    write-file, append-file) with normalized paths and action classification.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str  # normalized relative to project_root when available
+    action: Literal["created", "modified", "deleted", "unknown"]
+    tool: str | None = None  # original tool name for auditability
+    timestamp: datetime
+
+
+class GitCommitEvent(DomainModel):
+    """Deterministic record of a git commit event captured from tool calls.
+
+    Captures git commit operations detected from proxy tool hooks.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    commit_hash: str
+    message: str | None = None
+    branch: str | None = None
+    timestamp: datetime
+
+
+# Type alias for deterministic tool events
+ToolEvent = FileEditEvent | GitCommitEvent
+
+
 class TestRun(DomainModel):
     """Test execution details."""
 
@@ -79,6 +112,9 @@ class SessionData(DomainModel):
     estimated_tokens: int | None = None
     redaction_applied: bool = False
     interactions: list[CapturedInteraction] = Field(default_factory=list)
+    # Deterministic tool events from proxy hooks
+    deterministic_file_edits: list[FileEditEvent] = Field(default_factory=list)
+    deterministic_git_commits: list[GitCommitEvent] = Field(default_factory=list)
 
 
 class SessionSummary(DomainModel):

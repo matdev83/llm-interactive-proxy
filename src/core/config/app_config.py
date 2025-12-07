@@ -18,6 +18,7 @@ from pydantic import (
 
 from src.core.auth.sso.config import SSOConfig
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
+from src.core.database.config import DatabaseConfig
 
 BACKEND_INSTANCES_DIR = Path("config/backends/backend-instances")
 
@@ -1201,6 +1202,9 @@ class AppConfig(DomainModel, IConfig):
 
     # ProxyMem - cross-session memory layer settings
     memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
+
+    # Unified database configuration (SQLModel/Alembic)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
 
     # Virtual Tool Calling (VTC) client detection patterns
     # Case-insensitive substring matching against User-Agent header

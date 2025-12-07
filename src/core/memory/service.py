@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING
 
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
-from src.core.memory.models import CapturedInteraction
+from src.core.memory.models import (
+    CapturedInteraction,
+    FileEditEvent,
+    GitCommitEvent,
+    ToolEvent,
+)
+from src.core.memory.tool_event_collector import DeterministicToolEventCollector
 
 if TYPE_CHECKING:
     from src.core.memory.repository import IMemoryRepository
@@ -43,6 +49,7 @@ class MemoryService:
         config: MemoryConfiguration,
         repository: IMemoryRepository,
         capture_buffer: SessionCaptureBuffer | None = None,
+        tool_event_collector: DeterministicToolEventCollector | None = None,
     ):
         """Initialize the memory service.
 
@@ -50,11 +57,15 @@ class MemoryService:
             config: Memory configuration.
             repository: Repository for persisting summaries.
             capture_buffer: Optional capture buffer (created if not provided).
+            tool_event_collector: Optional tool event collector (created if not provided).
         """
         self._config = config
         self._repository = repository
         self._capture_buffer = capture_buffer or SessionCaptureBuffer(
             max_buffer_size_bytes=config.max_buffer_size_bytes
+        )
+        self._tool_event_collector = (
+            tool_event_collector or DeterministicToolEventCollector()
         )
         self._session_states: dict[str, SessionMemoryState] = {}
         self._state_lock = asyncio.Lock()
@@ -150,8 +161,9 @@ class MemoryService:
                 del self._session_states[session_id]
                 logger.debug("Memory disabled for session %s", session_id)
 
-        # Clear the capture buffer without returning data
+        # Clear the capture buffer and tool events without returning data
         await self._capture_buffer.clear_session(session_id)
+        await self._tool_event_collector.clear_session(session_id)
 
     async def capture_interaction(
         self,
@@ -173,6 +185,34 @@ class MemoryService:
                 session_id,
             )
         return result
+
+    async def record_tool_event(
+        self,
+        session_id: str,
+        event: ToolEvent,
+    ) -> bool:
+        """Record a deterministic tool event (file edit or git commit).
+
+        Events are only recorded when memory is enabled for the session.
+        File paths are normalized relative to the project root when available.
+
+        Args:
+            session_id: The session identifier.
+            event: The tool event to record.
+
+        Returns:
+            True if the event was recorded, False if session not enabled.
+        """
+        async with self._state_lock:
+            if session_id not in self._session_states:
+                return False
+            state = self._session_states[session_id]
+            project_root = state.project_root
+
+        await self._tool_event_collector.record_tool_event(
+            session_id, event, project_root
+        )
+        return True
 
     async def mark_session_complete(
         self,
@@ -242,6 +282,16 @@ class MemoryService:
         Returns tuple of (interactions, is_partial).
         """
         return await self._capture_buffer.get_and_clear(session_id)
+
+    async def get_captured_tool_events(
+        self, session_id: str
+    ) -> tuple[list[FileEditEvent], list[GitCommitEvent]]:
+        """Get captured tool events for a session.
+
+        Returns tuple of (file_edits, git_commits).
+        Clears the events from the collector after retrieval.
+        """
+        return await self._tool_event_collector.get_and_clear(session_id)
 
     async def get_pending_analysis_session(self) -> str | None:
         """Get the next session ID pending analysis.

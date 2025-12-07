@@ -30,6 +30,29 @@
   - `test_feature_parity_ci.py`: Verifies all middleware have Feature versions
   - Automatic detection of parity violations at build time
 
+### Added: SQLModel Database Migration and Deterministic Tool Event Tracking
+
+- **Database Migration**: Migrated memory system from SQLite to SQLModel/Alembic for improved persistence and scalability
+  - **SQLModel Integration**: New `SQLModelMemoryRepository` using SQLAlchemy models for type-safe database operations
+  - **Alembic Migrations**: Added database migration support with automatic schema versioning
+  - **Dependency Injection**: Updated DI container to register SQLModel repositories and database engine
+  - **Backward Compatibility**: Legacy `MemoryRepository` preserved during transition period
+
+- **Deterministic Tool Event Tracking**: Added capture and recording of deterministic file edits and git commits from proxy tool calls
+  - **Tool Event Models**: New `FileEditEvent` and `GitCommitEvent` models for structured event data
+  - **Event Collector**: `DeterministicToolEventCollector` captures events with session isolation and path normalization
+  - **Memory Service Integration**: Enhanced `MemoryService` to record and retrieve tool events for session summaries
+  - **Summary Generation**: Updated summary generator to include deterministic file edits and git commits in session transcripts
+  - **Prompt Enhancement**: Memory summary prompts now incorporate tool event data for more accurate context
+
+- **Gemini Connector Enhancements**: Improved model handling and public alias mapping
+  - **Model Mapping**: Added `_public_to_internal_model_map` for aliasing public model names (e.g., `gemini-3-pro` → `gemini-3-pro-preview`)
+  - **Dynamic Model Exposure**: Updated `get_available_models()` to expose public aliases while maintaining internal compatibility
+
+- **SSO Token Service Optimization**: Enhanced token hashing parameters for testing performance
+  - **Testing Parameters**: Reduced memory cost and iterations for faster test execution while maintaining security
+  - **Production Safety**: Preserved secure parameters for production environments
+
 ### Added: Memory Feature (ProxyMem)
 
 - **Core Functionality**: Intelligent memory retention for long-term sessions.

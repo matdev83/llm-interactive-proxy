@@ -42,8 +42,9 @@ class TokenService:
         is_test = os.getenv("PYTEST_CURRENT_TEST") is not None
 
         if is_test:
-            # Fast parameters for testing (8 MB, 1 iteration, 1 thread)
-            return cls(memory_cost=8192, time_cost=1, parallelism=1)
+            # Fast parameters for testing (8 KB, 1 iteration, 1 thread)
+            # 8 KB is the absolute minimum allowed by some implementations
+            return cls(memory_cost=8, time_cost=1, parallelism=1)
         else:
             # Production parameters (64 MB, 3 iterations, 4 threads)
             return cls()
@@ -62,8 +63,8 @@ class TokenService:
             time_cost: Number of iterations (default: 3 for production)
             parallelism: Number of parallel threads (default: 4 for production)
 
-        For testing, use lighter parameters to speed up tests:
-            TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+        For testing, use create_for_environment() or the lightest parameters:
+            TokenService(memory_cost=8, time_cost=1, parallelism=1)
 
         Production defaults use 2025-recommended security parameters:
         - memory_cost: 65536 (64 MB)

@@ -1,4 +1,13 @@
-"""SQLite implementation of MemoryRepository for ProxyMem."""
+"""SQLite implementation of MemoryRepository for ProxyMem.
+
+.. deprecated::
+    This module is deprecated in favor of the SQLModel-based implementation
+    at `src.core.database.repositories.memory_repository.SQLModelMemoryRepository`.
+    
+    The legacy implementation remains for backward compatibility during the
+    transition period. New code should use the SQLModel implementation via
+    the DI container by requesting `IMemoryRepository` or `SQLModelMemoryRepository`.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +35,11 @@ class MemoryRepository:
     """SQLite-backed repository for ProxyMem session summaries."""
 
     def __init__(self, config: MemoryConfiguration):
+        logger.error(
+            "DEPRECATED: MemoryRepository (aiosqlite) is deprecated. "
+            "Use SQLModelMemoryRepository from src.core.database.repositories instead. "
+            "This legacy implementation will be removed in a future release."
+        )
         self._config = config
         self._db_path = Path(config.database_path)
         self._initialized = False

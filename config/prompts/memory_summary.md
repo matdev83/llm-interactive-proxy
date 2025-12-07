@@ -55,10 +55,23 @@ Respond with ONLY well-formed XML (no prose, no markdown, no code fences) follow
 </session_summary>
 
 ## Session Transcript
+
 {session_transcript}
 
+## Deterministic File Edits (from proxy tool calls)
+
+{deterministic_file_edits}
+
+## Deterministic Git Commits (from proxy tool calls)
+
+{deterministic_git_commits}
+
 Guidelines:
-- Use only information explicitly present in the transcript; if unsure, use UNKNOWN.
+
+- Use only information explicitly present in the transcript and deterministic lists; if unsure, use UNKNOWN.
+- The deterministic lists above are authoritative: copy their entries into `<touched_files>` and `<git_operations>` (augment with brief details if helpful) and do not omit or alter provided paths/hashes.
+- When the deterministic file edits list is not "NONE", each file path MUST appear in `<touched_files>` with the corresponding status.
+- When the deterministic git commits list is not "NONE", each commit hash MUST appear in `<git_operations>` as a commit operation.
 - Keep the title to one sentence.
 - Prefer relative paths for files; include commit hashes when mentioned.
 - Do not include markdown, JSON, or commentary; return only XML matching the template.

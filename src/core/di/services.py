@@ -14,6 +14,14 @@ from typing import Any, TypeVar, cast
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
+from src.core.database.config import DatabaseConfig
+from src.core.database.engine import DatabaseEngine
+from src.core.database.repositories.memory_repository import SQLModelMemoryRepository
+from src.core.database.repositories.sso_repository import (
+    SQLModelAuthorizationRepository,
+    SQLModelRateLimitRepository,
+    SQLModelTokenRepository,
+)
 from src.core.di.container import ServiceCollection
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
@@ -1190,6 +1198,80 @@ def register_core_services(
             logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
         # Continue if concrete BackendRequestManager is registered
 
+    # =========================================================================
+    # Database Layer Registration (SQLModel)
+    # =========================================================================
+
+    # Register database configuration
+    def _database_config_factory(
+        provider: IServiceProvider,
+    ) -> DatabaseConfig:
+        cfg = provider.get_required_service(AppConfig)
+        return cfg.database
+
+    _add_singleton(DatabaseConfig, implementation_factory=_database_config_factory)
+
+    # Register database engine
+    def _database_engine_factory(
+        provider: IServiceProvider,
+    ) -> DatabaseEngine:
+        db_config = provider.get_required_service(DatabaseConfig)
+        return DatabaseEngine(db_config)
+
+    _add_singleton(DatabaseEngine, implementation_factory=_database_engine_factory)
+
+    # Register SQLModel memory repository
+    def _sqlmodel_memory_repository_factory(
+        provider: IServiceProvider,
+    ) -> SQLModelMemoryRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return SQLModelMemoryRepository(engine)
+
+    _add_singleton(
+        SQLModelMemoryRepository,
+        implementation_factory=_sqlmodel_memory_repository_factory,
+    )
+
+    # Register SQLModel token repository
+    def _sqlmodel_token_repository_factory(
+        provider: IServiceProvider,
+    ) -> SQLModelTokenRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return SQLModelTokenRepository(engine)
+
+    _add_singleton(
+        SQLModelTokenRepository,
+        implementation_factory=_sqlmodel_token_repository_factory,
+    )
+
+    # Register SQLModel rate limit repository
+    def _sqlmodel_rate_limit_repository_factory(
+        provider: IServiceProvider,
+    ) -> SQLModelRateLimitRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return SQLModelRateLimitRepository(engine)
+
+    _add_singleton(
+        SQLModelRateLimitRepository,
+        implementation_factory=_sqlmodel_rate_limit_repository_factory,
+    )
+
+    # Register SQLModel authorization repository
+    def _sqlmodel_authorization_repository_factory(
+        provider: IServiceProvider,
+    ) -> SQLModelAuthorizationRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return SQLModelAuthorizationRepository(engine)
+
+    _add_singleton(
+        SQLModelAuthorizationRepository,
+        implementation_factory=_sqlmodel_authorization_repository_factory,
+    )
+
+    # =========================================================================
+    # Memory Layer Registration (Legacy - will be migrated to SQLModel)
+    # =========================================================================
+
     # Register memory configuration
     def _memory_configuration_factory(
         provider: IServiceProvider,
@@ -1201,14 +1283,30 @@ def register_core_services(
         MemoryConfiguration, implementation_factory=_memory_configuration_factory
     )
 
-    # Register memory repository
-    def _memory_repository_factory(provider: IServiceProvider) -> MemoryRepository:
+    # Register memory repository - use SQLModel implementation
+    # Note: Legacy MemoryRepository is kept for backward compatibility during transition
+    # New code should inject IMemoryRepository or SQLModelMemoryRepository
+
+    def _memory_repository_factory(
+        provider: IServiceProvider,
+    ) -> SQLModelMemoryRepository:
+        return provider.get_required_service(SQLModelMemoryRepository)
+
+    # Register IMemoryRepository to use SQLModel implementation
+    _add_singleton(
+        cast(type, IMemoryRepository),
+        implementation_factory=_memory_repository_factory,
+    )
+
+    # Legacy registration for code still using concrete MemoryRepository type
+    def _legacy_memory_repository_factory(
+        provider: IServiceProvider,
+    ) -> MemoryRepository:
         cfg = provider.get_required_service(MemoryConfiguration)
         return MemoryRepository(cfg)
 
-    _add_singleton(MemoryRepository, implementation_factory=_memory_repository_factory)
     _add_singleton(
-        cast(type, IMemoryRepository), implementation_factory=_memory_repository_factory
+        MemoryRepository, implementation_factory=_legacy_memory_repository_factory
     )
 
     # Register prompt loader
@@ -1224,7 +1322,7 @@ def register_core_services(
     # Register summary generator
     def _summary_generator_factory(provider: IServiceProvider) -> SummaryGenerator:
         cfg = provider.get_required_service(MemoryConfiguration)
-        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        repo = provider.get_required_service(SQLModelMemoryRepository)
         loader = provider.get_required_service(PromptLoader)
         return SummaryGenerator(
             config=cfg,
@@ -1237,7 +1335,7 @@ def register_core_services(
     # Register context injector
     def _context_injector_factory(provider: IServiceProvider) -> ContextInjector:
         cfg = provider.get_required_service(MemoryConfiguration)
-        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        repo = provider.get_required_service(SQLModelMemoryRepository)
         loader = provider.get_required_service(PromptLoader)
         return ContextInjector(
             config=cfg,
@@ -1250,7 +1348,7 @@ def register_core_services(
     # Register memory service
     def _memory_service_factory(provider: IServiceProvider) -> MemoryService:
         cfg = provider.get_required_service(MemoryConfiguration)
-        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        repo = provider.get_required_service(SQLModelMemoryRepository)
         return MemoryService(config=cfg, repository=repo)
 
     _add_singleton(MemoryService, implementation_factory=_memory_service_factory)
@@ -1263,7 +1361,7 @@ def register_core_services(
         provider: IServiceProvider,
     ) -> DatabaseMaintenance:
         cfg = provider.get_required_service(MemoryConfiguration)
-        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        repo = provider.get_required_service(SQLModelMemoryRepository)
         return DatabaseMaintenance(config=cfg, repository=repo)
 
     _add_singleton(

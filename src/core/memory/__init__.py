@@ -12,23 +12,30 @@ from src.core.memory.maintenance import DatabaseMaintenance
 from src.core.memory.models import (
     CapturedInteraction,
     FileChange,
+    FileEditEvent,
+    GitCommitEvent,
     GitOperation,
     SessionData,
     SessionSummary,
     TaskItem,
     TestRun,
+    ToolEvent,
 )
 from src.core.memory.prompt_loader import PromptLoader
 from src.core.memory.repository import IMemoryRepository
 from src.core.memory.service import MemoryService, SessionMemoryState
 from src.core.memory.sqlite_repository import MemoryRepository
 from src.core.memory.summary_generator import SummaryGenerator, SummaryValidator
+from src.core.memory.tool_event_collector import DeterministicToolEventCollector
 
 __all__ = [
     "CapturedInteraction",
     "ContextInjector",
     "DatabaseMaintenance",
+    "DeterministicToolEventCollector",
     "FileChange",
+    "FileEditEvent",
+    "GitCommitEvent",
     "GitOperation",
     "IMemoryRepository",
     "MemoryConfiguration",
@@ -43,4 +50,5 @@ __all__ = [
     "SummaryValidator",
     "TaskItem",
     "TestRun",
+    "ToolEvent",
 ]

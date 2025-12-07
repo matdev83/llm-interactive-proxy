@@ -172,7 +172,7 @@ def test_property_4_unauthenticated_request_sandbox_response(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -224,7 +224,7 @@ def test_property_9_unknown_token_rejection(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -276,7 +276,7 @@ def test_property_10_token_response_indistinguishability(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -335,7 +335,7 @@ def test_property_4_malformed_auth_header_sandbox_response(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -379,7 +379,7 @@ def test_property_26_sandbox_session_isolation(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -452,7 +452,7 @@ def test_property_13_session_expiry_status_change(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -533,7 +533,7 @@ def test_property_25_expired_session_sandbox_response(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -611,7 +611,7 @@ def test_property_4_consistent_sandbox_responses(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
             sandbox_handler = SandboxHandler("http://localhost:8080/auth/login")
             middleware = AuthMiddleware(
@@ -672,7 +672,7 @@ def test_property_12_reauthentication_status_update(
             await db_manager.initialize_schema()
 
             # Use fast configuration for tests
-            token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+            token_service = TokenService.create_for_environment()
             token_repository = TokenRepository(db_path)
 
             # Create an initial token for the user (expired session)

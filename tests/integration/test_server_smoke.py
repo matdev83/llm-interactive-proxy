@@ -174,6 +174,9 @@ def test_server_starts_and_logs_cleanly(tmp_path: "os.PathLike[str]") -> None:
     try:
         # Simple, dependency-free endpoint with reduced timeout
         r = requests.get(f"http://127.0.0.1:{port}/docs", timeout=3)
+        if r.status_code != 200:
+            output = _stop_server(proc)
+            pytest.fail(f"Server returned {r.status_code} on /docs. Output:\n{output}")
         assert r.status_code == 200
     finally:
         output = _stop_server(proc)

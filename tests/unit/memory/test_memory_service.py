@@ -317,3 +317,82 @@ class TestMemoryService:
             assert result2 is True
         finally:
             await repo.close()
+
+    @pytest.mark.asyncio
+    async def test_record_tool_event_file_edit(self, service: MemoryService) -> None:
+        """Test recording a file edit tool event."""
+        from src.core.memory.models import FileEditEvent
+
+        await service.enable_for_session("sess-1", "user-1")
+
+        event = FileEditEvent(
+            path="src/test.py",
+            action="modified",
+            tool="apply_patch",
+            timestamp=datetime.now(timezone.utc),
+        )
+        result = await service.record_tool_event("sess-1", event)
+        assert result is True
+
+        file_edits, git_commits = await service.get_captured_tool_events("sess-1")
+        assert len(file_edits) == 1
+        assert len(git_commits) == 0
+        assert file_edits[0].path == "src/test.py"
+        assert file_edits[0].action == "modified"
+
+    @pytest.mark.asyncio
+    async def test_record_tool_event_git_commit(self, service: MemoryService) -> None:
+        """Test recording a git commit tool event."""
+        from src.core.memory.models import GitCommitEvent
+
+        await service.enable_for_session("sess-1", "user-1")
+
+        event = GitCommitEvent(
+            commit_hash="abc123def456",
+            message="Fix bug",
+            branch="main",
+            timestamp=datetime.now(timezone.utc),
+        )
+        result = await service.record_tool_event("sess-1", event)
+        assert result is True
+
+        file_edits, git_commits = await service.get_captured_tool_events("sess-1")
+        assert len(file_edits) == 0
+        assert len(git_commits) == 1
+        assert git_commits[0].commit_hash == "abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_record_tool_event_fails_for_disabled_session(
+        self, service: MemoryService
+    ) -> None:
+        """Test recording tool event fails for non-enabled session."""
+        from src.core.memory.models import FileEditEvent
+
+        event = FileEditEvent(
+            path="test.py",
+            action="created",
+            timestamp=datetime.now(timezone.utc),
+        )
+        result = await service.record_tool_event("nonexistent", event)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_tool_events_cleared_on_disable(self, service: MemoryService) -> None:
+        """Test that tool events are cleared when session is disabled."""
+        from src.core.memory.models import FileEditEvent
+
+        await service.enable_for_session("sess-1", "user-1")
+
+        event = FileEditEvent(
+            path="test.py",
+            action="created",
+            timestamp=datetime.now(timezone.utc),
+        )
+        await service.record_tool_event("sess-1", event)
+
+        await service.disable_for_session("sess-1")
+
+        file_edits, git_commits = await service.get_captured_tool_events("sess-1")
+        assert len(file_edits) == 0
+        assert len(git_commits) == 0
+

@@ -141,6 +141,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         ("gemini-3", 1_000_000),
     )
 
+    # Mapping from public aliases (without vendor prefix) to internal model names
+    _public_to_internal_model_map: dict[str, str] = {
+        "gemini-3-pro": "gemini-3-pro-preview",
+    }
+
     _project_id: str | None = None
 
     # Server-side storage for Gemini thought_signatures.
@@ -1169,10 +1174,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             List of available model names with 'google/' vendor prefix.
             For example: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash']
         """
-        return [
-            add_vendor_prefix(m, GOOGLE_VENDOR_PREFIX)
-            for m in (self.available_models or [])
-        ]
+        # Create reverse mapping for exposure
+        internal_to_public = {
+            v: k for k, v in self._public_to_internal_model_map.items()
+        }
+
+        models = []
+        for m in self.available_models or []:
+            # Map internal name to public alias if exists
+            public_name = internal_to_public.get(m, m)
+            models.append(add_vendor_prefix(public_name, GOOGLE_VENDOR_PREFIX))
+
+        return models
 
     def validate_model(self, model_name: str) -> None:
         """
@@ -1516,6 +1529,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Strip vendor prefix (e.g., "google/") for unified model naming
             model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
+
+            # Map public alias to internal model name if exists
+            model_name = self._public_to_internal_model_map.get(model_name, model_name)
 
             # Check if model is in cooldown - prevent spamming rate-limited models
             if self._is_in_cooldown(model_name):

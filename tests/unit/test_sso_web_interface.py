@@ -85,7 +85,7 @@ def sso_service(sso_config):
 @pytest.fixture
 def token_service():
     """Create test token service with lighter parameters."""
-    return TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+    return TokenService.create_for_environment()
 
 
 @pytest.fixture

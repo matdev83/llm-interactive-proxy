@@ -30,7 +30,7 @@ async def initialized_db(temp_db_path):
 async def test_find_by_user_id_returns_token_for_existing_user(initialized_db):
     """Test that find_by_user_id returns token for existing user."""
     # Setup
-    token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+    token_service = TokenService.create_for_environment()
     token_repository = TokenRepository(initialized_db)
 
     # Create a token for a user
@@ -77,7 +77,7 @@ async def test_find_by_user_id_returns_none_for_nonexistent_user(initialized_db)
 async def test_find_by_user_id_returns_most_recent_token(initialized_db):
     """Test that find_by_user_id returns the most recent token when multiple exist."""
     # Setup
-    token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+    token_service = TokenService.create_for_environment()
     token_repository = TokenRepository(initialized_db)
 
     user_id = "test-user-456"
@@ -126,7 +126,7 @@ async def test_find_by_user_id_returns_most_recent_token(initialized_db):
 async def test_find_by_user_id_ignores_inactive_tokens(initialized_db):
     """Test that find_by_user_id ignores inactive tokens."""
     # Setup
-    token_service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+    token_service = TokenService.create_for_environment()
     token_repository = TokenRepository(initialized_db)
 
     user_id = "test-user-789"

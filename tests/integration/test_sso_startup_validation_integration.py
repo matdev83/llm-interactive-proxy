@@ -226,7 +226,11 @@ def test_middleware_disables_legacy_auth_when_sso_enabled(tmp_path):
 def test_middleware_allows_legacy_auth_when_sso_disabled():
     """
     Test that middleware configuration allows legacy auth when SSO is disabled.
+    Ensures that environment variables (DISABLE_AUTH) do not interfere.
     """
+    import os
+    from unittest import mock
+
     from src.core.app.middleware_config import configure_middleware
 
     # Create a mock config with SSO disabled and legacy API keys
@@ -253,8 +257,9 @@ def test_middleware_allows_legacy_auth_when_sso_disabled():
     app = FastAPI()
     config = MockConfig()
 
-    # Configure middleware
-    configure_middleware(app, config)
+    # Configure middleware with mocked environment to ensure checks pass
+    with mock.patch.dict(os.environ, {"DISABLE_AUTH": "false"}, clear=False):
+        configure_middleware(app, config)
 
     # Check that APIKeyMiddleware WAS added (legacy auth enabled)
     from src.core.security import APIKeyMiddleware
