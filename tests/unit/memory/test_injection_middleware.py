@@ -14,6 +14,8 @@ def create_mock_memory_service(
     enabled: bool = True,
     user_id: str | None = "user-1",
     project_root: str | None = "/project",
+    tenant_id: str | None = None,
+    project_id: str | None = None,
 ) -> MagicMock:
     """Create a mock memory service."""
     service = MagicMock()
@@ -21,6 +23,11 @@ def create_mock_memory_service(
     service.is_enabled_for_session = AsyncMock(return_value=enabled)
     service.get_session_user_id = AsyncMock(return_value=user_id)
     service.get_session_project_root = AsyncMock(return_value=project_root)
+    # Create mock session state
+    session_state = MagicMock()
+    session_state.tenant_id = tenant_id
+    session_state.project_id = project_id
+    service.get_session_state = AsyncMock(return_value=session_state)
     return service
 
 
@@ -169,17 +176,23 @@ class TestContextInjectionMiddleware:
         assert injector.get_context_for_session.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_skips_when_no_context(self) -> None:
-        """Test that injection is skipped when no relevant context."""
+    async def test_injects_marker_when_no_context(self) -> None:
+        """Test that marker is injected when no relevant context (per Req 8.11)."""
         service = create_mock_memory_service()
+        # When context is None, format_context_for_injection returns marker
         injector = create_mock_context_injector(None)
+        injector.format_context_for_injection.return_value = (
+            "[NO_PRIOR_CONTEXT_PROVIDED]"
+        )
         config = create_mock_config()
         middleware = ContextInjectionMiddleware(service, injector, config)
 
         request = create_mock_request([create_mock_message("user", "Hello")])
         await middleware.maybe_inject_context("session-1", request)
 
-        request.model_copy.assert_not_called()
+        # Per Req 8.11: Marker should still be injected
+        injector.format_context_for_injection.assert_called()
+        request.model_copy.assert_called_once()
 
     def test_clear_session_allows_reinjection(self) -> None:
         """Test that clearing a session allows re-injection."""

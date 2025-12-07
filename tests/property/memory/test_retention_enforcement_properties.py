@@ -7,9 +7,8 @@ Validates: Requirements 10.1, 10.2 - Retention enforcement
 
 from __future__ import annotations
 
-import tempfile
+import logging
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -17,6 +16,9 @@ from hypothesis import strategies as st
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import SessionSummary
 from src.core.memory.sqlite_repository import MemoryRepository
+
+# Reduce logging verbosity for tests
+logging.getLogger("src.core.memory.sqlite_repository").setLevel(logging.WARNING)
 
 
 def create_summary(
@@ -64,12 +66,12 @@ async def test_property_12_retention_enforcement(
 
     Validates: Requirements 10.1, 10.2
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.sqlite3"
-        config = MemoryConfiguration(database_path=str(db_path))
-        repository = MemoryRepository(config)
-        await repository.initialize_schema()
+    # Use in-memory database for speed and avoid disk I/O
+    config = MemoryConfiguration(database_path=":memory:")
+    repository = MemoryRepository(config)
+    await repository.initialize_schema()
 
+    try:
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=retention_days)
 
@@ -101,6 +103,9 @@ async def test_property_12_retention_enforcement(
             # Recent session should always remain
             assert any(s.session_id == "recent-sess" for s in remaining)
 
+    finally:
+        await repository.close()
+
 
 @pytest.mark.asyncio
 @given(
@@ -124,12 +129,11 @@ async def test_property_12_bulk_retention(
 
     Validates: Requirements 10.1, 10.2
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.sqlite3"
-        config = MemoryConfiguration(database_path=str(db_path))
-        repository = MemoryRepository(config)
-        await repository.initialize_schema()
+    config = MemoryConfiguration(database_path=":memory:")
+    repository = MemoryRepository(config)
+    await repository.initialize_schema()
 
+    try:
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=retention_days)
 
@@ -157,6 +161,9 @@ async def test_property_12_bulk_retention(
         assert deleted == expected_deleted
         assert len(remaining) == expected_remaining
 
+    finally:
+        await repository.close()
+
 
 @pytest.mark.asyncio
 async def test_property_12_delete_returns_count() -> None:
@@ -168,12 +175,11 @@ async def test_property_12_delete_returns_count() -> None:
 
     Validates: Requirements 10.3
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.sqlite3"
-        config = MemoryConfiguration(database_path=str(db_path))
-        repository = MemoryRepository(config)
-        await repository.initialize_schema()
+    config = MemoryConfiguration(database_path=":memory:")
+    repository = MemoryRepository(config)
+    await repository.initialize_schema()
 
+    try:
         now = datetime.now(timezone.utc)
 
         # Create 5 old sessions
@@ -197,6 +203,9 @@ async def test_property_12_delete_returns_count() -> None:
         remaining = await repository.get_recent_sessions("user-1", limit=100)
         assert len(remaining) == 3
 
+    finally:
+        await repository.close()
+
 
 @pytest.mark.asyncio
 async def test_property_12_delete_no_matching_sessions() -> None:
@@ -207,12 +216,11 @@ async def test_property_12_delete_no_matching_sessions() -> None:
 
     Validates: Requirements 10.1
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.sqlite3"
-        config = MemoryConfiguration(database_path=str(db_path))
-        repository = MemoryRepository(config)
-        await repository.initialize_schema()
+    config = MemoryConfiguration(database_path=":memory:")
+    repository = MemoryRepository(config)
+    await repository.initialize_schema()
 
+    try:
         now = datetime.now(timezone.utc)
 
         # Create only recent sessions
@@ -229,3 +237,6 @@ async def test_property_12_delete_no_matching_sessions() -> None:
 
         remaining = await repository.get_recent_sessions("user-1", limit=100)
         assert len(remaining) == 3
+
+    finally:
+        await repository.close()

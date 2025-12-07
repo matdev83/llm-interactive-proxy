@@ -172,7 +172,7 @@ class TestOAuth2AuthorizationURL:
         sso_config.providers["saml"] = saml_config
         service = SSOService(sso_config)
 
-        with pytest.raises(NotImplementedError, match="SAML"):
+        with pytest.raises(AuthenticationError, match="Failed to fetch SAML metadata"):
             await service.create_authorization_url(
                 provider="saml", state="test", redirect_uri="http://localhost/callback"
             )

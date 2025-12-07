@@ -338,13 +338,18 @@ def create_sso_router(
                 status_code=500, detail=f"Failed to initiate authentication: {e!s}"
             )
 
-    @router.get("/callback", response_model=None)
+    @router.api_route(
+        "/callback",
+        methods=["GET", "POST"],
+        response_model=None,
+    )
     async def callback(
         request: Request,
         code: Annotated[str | None, Query()] = None,
         state: Annotated[str | None, Query()] = None,
         error: Annotated[str | None, Query()] = None,
         error_description: Annotated[str | None, Query()] = None,
+        saml_response: Annotated[str | None, Query(alias="SAMLResponse")] = None,
     ) -> Response:
         """
         Handle OAuth2/SAML callbacks.
@@ -357,6 +362,25 @@ def create_sso_router(
 
         Requirements: 11.4
         """
+        # Capture SAML POST body if present
+        if request.method == "POST":
+            try:
+
+                form = await request.form()
+                form_saml = form.get("SAMLResponse")
+                if isinstance(form_saml, str):
+                    saml_response = saml_response or form_saml
+
+                if not state:
+                    form_relay = form.get("RelayState")
+                    if isinstance(form_relay, str):
+                        state = form_relay
+            except Exception:
+                # Continue with query params if form parsing fails
+                pass
+
+        relay_state = request.query_params.get("RelayState") or state
+
         # Handle OAuth2 errors from provider
         if error:
             error_msg = error_description or error
@@ -370,7 +394,7 @@ def create_sso_router(
             )
 
         # Validate required parameters
-        if not code or not state:
+        if not relay_state and not state and not saml_response:
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Callback",
@@ -380,9 +404,21 @@ def create_sso_router(
             )
 
         # Validate state (CSRF protection)
-        state_data = _state_store.pop(state, None)
+        state_key = relay_state or state
+        if not state_key:
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Invalid Callback",
+                    "Missing state parameter.",
+                ),
+                status_code=400,
+            )
+
+        state_data = _state_store.pop(state_key, None)
         if not state_data:
-            logger.warning(f"Invalid or expired state parameter: {state[:8]}...")
+            logger.warning(
+                f"Invalid or expired state parameter: {(state_key or '')[:8]}..."
+            )
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Session",
@@ -401,7 +437,7 @@ def create_sso_router(
             agent_token_id = None
 
         if not provider:
-            logger.warning(f"Invalid state data: {state[:8]}...")
+            logger.warning(f"Invalid state data: {(state_key or '')[:8]}...")
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Session",
@@ -417,7 +453,11 @@ def create_sso_router(
             # Exchange code for user info
             redirect_uri = f"{base_url}/auth/callback"
             sso_result = await sso_service.handle_callback(
-                provider, code, state, redirect_uri
+                provider,
+                code,
+                state_key,
+                redirect_uri,
+                saml_response=saml_response,
             )
 
             if not sso_result.success:
@@ -447,7 +487,7 @@ def create_sso_router(
             if authorization_service.mode == AuthorizationMode.SINGLE_USER:
                 # Create pending authorization and log confirmation code
                 await authorization_service.create_pending_authorization(
-                    sso_state=state,
+                    sso_state=state_key,
                     user_email=user_email,
                     user_id=user_id,
                     provider=provider,
@@ -456,7 +496,7 @@ def create_sso_router(
 
                 # Redirect to confirmation page
                 return RedirectResponse(
-                    url=f"/auth/confirm?state={state}", status_code=302
+                    url=f"/auth/confirm?state={state_key}", status_code=302
                 )
 
             elif authorization_service.mode == AuthorizationMode.ENTERPRISE:

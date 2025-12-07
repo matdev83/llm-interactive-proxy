@@ -323,6 +323,34 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable SSO Captcha verification (overrides config)",
     )
     parser.add_argument(
+        "--enable-sso",
+        action="store_true",
+        default=None,
+        help="Enable SSO authentication mode (overrides config)",
+    )
+    parser.add_argument(
+        "--sso-config",
+        dest="sso_config_path",
+        metavar="PATH",
+        default=None,
+        help="Path to SSO configuration file (e.g., config/sso_auth.yaml)",
+    )
+    parser.add_argument(
+        "--sso-provider",
+        dest="sso_provider",
+        metavar="PROVIDER",
+        default=None,
+        help="Enable only a specific SSO provider (e.g., google, github, microsoft)",
+    )
+    parser.add_argument(
+        "--sso-auth-mode",
+        dest="sso_auth_mode",
+        metavar="MODE",
+        choices=["single_user", "enterprise"],
+        default=None,
+        help="SSO authorization mode: single_user (confirmation code) or enterprise (external API)",
+    )
+    parser.add_argument(
         "--disable-auth",
         action="store_true",
         default=None,
@@ -1390,6 +1418,71 @@ def apply_cli_args(
         record_cli(
             "sso.captcha.enabled", not args.disable_sso_captcha, "--disable-sso-captcha"
         )
+    if args.enable_sso is not None:
+        # Feature: sso-authentication - CLI flag to enable SSO
+        sso_overrides = cli_overrides.setdefault("sso", {})
+        sso_overrides["enabled"] = True
+        record_cli("sso.enabled", True, "--enable-sso")
+    if getattr(args, "sso_config_path", None) is not None:
+        # Feature: sso-authentication - CLI flag to load SSO config file
+        # Load the SSO config file and merge it
+        import yaml
+
+        sso_config_file = Path(args.sso_config_path)
+        if not sso_config_file.exists():
+            logger.error(f"SSO config file not found: {args.sso_config_path}")
+            sys.exit(1)
+        with open(sso_config_file) as f:
+            sso_file_config = yaml.safe_load(f)
+        if sso_file_config:
+            # Merge SSO config from file
+            sso_overrides = cli_overrides.setdefault("sso", {})
+
+            # Deep merge the config
+            def merge_dict(target, source):
+                for key, value in source.items():
+                    if (
+                        isinstance(value, dict)
+                        and key in target
+                        and isinstance(target[key], dict)
+                    ):
+                        merge_dict(target[key], value)
+                    else:
+                        target[key] = value
+
+            merge_dict(sso_overrides, sso_file_config.get("sso", sso_file_config))
+            record_cli("sso", f"loaded from {args.sso_config_path}", "--sso-config")
+    if getattr(args, "sso_provider", None) is not None:
+        # Feature: sso-authentication - CLI flag to select specific provider
+        # Requirement 1.1: Enable SSO via CLI
+        # Disable all providers except the specified one
+        sso_overrides = cli_overrides.setdefault("sso", {})
+        providers_overrides = sso_overrides.setdefault("providers", {})
+
+        # Mark the specified provider as the only enabled one
+        # This will be merged with config, effectively disabling others
+        specified_provider = args.sso_provider
+
+        # We need to disable all OTHER providers
+        # Since we don't know all providers at this stage, we'll use a special marker
+        providers_overrides["_cli_selected_provider"] = specified_provider
+        record_cli(
+            "sso.providers", f"only {specified_provider} enabled", "--sso-provider"
+        )
+
+        # Note: The actual provider disabling will happen in config merge logic
+        # For now, we'll enable the specified provider explicitly
+        if specified_provider not in providers_overrides:
+            providers_overrides[specified_provider] = {}
+        providers_overrides[specified_provider]["enabled"] = True
+
+    if getattr(args, "sso_auth_mode", None) is not None:
+        # Feature: sso-authentication - CLI flag to set authorization mode
+        # Requirement 1.1: Configure SSO via CLI
+        sso_overrides = cli_overrides.setdefault("sso", {})
+        auth_overrides = sso_overrides.setdefault("authorization", {})
+        auth_overrides["mode"] = args.sso_auth_mode
+        record_cli("sso.authorization.mode", args.sso_auth_mode, "--sso-auth-mode")
     if getattr(args, "trusted_ips", None) is not None:
         auth_overrides = cli_overrides.setdefault("auth", {})
         auth_overrides["trusted_trusted_ips"] = args.trusted_ips
@@ -2031,8 +2124,72 @@ def apply_cli_args(
         cli_overrides["backends"] = backend_overrides
 
     # ProxyMem (Cross-Session Memory) configuration
+    # Precedence: CLI > env > config file (Req 1.5)
     memory_overrides: dict[str, Any] = {}
 
+    # Load from environment variables first (env overrides config file)
+    def _parse_bool_env(val: str | None) -> bool | None:
+        if val is None:
+            return None
+        return val.lower() in ("true", "1", "yes", "on")
+
+    env_memory_available = os.environ.get("MEMORY_AVAILABLE")
+    if env_memory_available is not None:
+        memory_overrides["available"] = _parse_bool_env(env_memory_available)
+
+    env_memory_default_enabled = os.environ.get("MEMORY_DEFAULT_ENABLED")
+    if env_memory_default_enabled is not None:
+        memory_overrides["default_enabled"] = _parse_bool_env(
+            env_memory_default_enabled
+        )
+
+    env_memory_summary_model = os.environ.get("MEMORY_SUMMARY_MODEL")
+    if env_memory_summary_model:
+        memory_overrides["summary_model"] = env_memory_summary_model
+
+    env_memory_context_model = os.environ.get("MEMORY_CONTEXT_MODEL")
+    if env_memory_context_model:
+        memory_overrides["context_model"] = env_memory_context_model
+
+    env_memory_summary_prompt = os.environ.get("MEMORY_SUMMARY_PROMPT")
+    if env_memory_summary_prompt:
+        memory_overrides["summary_prompt"] = env_memory_summary_prompt
+
+    env_memory_context_prompt = os.environ.get("MEMORY_CONTEXT_PROMPT")
+    if env_memory_context_prompt:
+        memory_overrides["context_prompt"] = env_memory_context_prompt
+
+    env_memory_database_path = os.environ.get("MEMORY_DATABASE_PATH")
+    if env_memory_database_path:
+        memory_overrides["database_path"] = env_memory_database_path
+
+    env_memory_session_timeout = os.environ.get("MEMORY_SESSION_TIMEOUT_MINUTES")
+    if env_memory_session_timeout:
+        with contextlib.suppress(ValueError):
+            memory_overrides["session_timeout_minutes"] = int(
+                env_memory_session_timeout
+            )
+
+    env_memory_retention_days = os.environ.get("MEMORY_RETENTION_DAYS")
+    if env_memory_retention_days:
+        with contextlib.suppress(ValueError):
+            memory_overrides["retention_days"] = int(env_memory_retention_days)
+
+    env_memory_max_context_tokens = os.environ.get("MEMORY_MAX_CONTEXT_TOKENS")
+    if env_memory_max_context_tokens:
+        with contextlib.suppress(ValueError):
+            memory_overrides["max_context_tokens"] = int(env_memory_max_context_tokens)
+
+    env_memory_relevance_threshold = os.environ.get(
+        "MEMORY_CONTEXT_RELEVANCE_THRESHOLD"
+    )
+    if env_memory_relevance_threshold:
+        with contextlib.suppress(ValueError):
+            memory_overrides["context_relevance_threshold"] = float(
+                env_memory_relevance_threshold
+            )
+
+    # CLI overrides env (CLI takes highest precedence)
     if getattr(args, "memory_available", None) is not None:
         memory_overrides["available"] = args.memory_available
         record_cli("memory.available", args.memory_available, "--memory-available")
@@ -2200,7 +2357,7 @@ def _validate_and_apply_prefix(cfg: AppConfig) -> AppConfig:
     prefix = str(cfg.command_prefix)
     err = validate_command_prefix(prefix)
     if err:
-        raise ValueError(f"Invalid command prefix: {err}")
+        raise ValueError(f"Invalid command prefix {prefix!r}: {err}")
     return cfg
 
 

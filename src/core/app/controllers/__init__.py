@@ -1136,11 +1136,48 @@ def _register_sso_routes(app: FastAPI) -> None:
         from src.core.auth.sso.database import DatabaseManager
         from src.core.auth.sso.rate_limit_service import RateLimitService
         from src.core.auth.sso.sso_service import SSOService
+        from src.core.auth.sso.startup_validation import validate_startup_configuration
         from src.core.auth.sso.token_service import TokenService
         from src.core.auth.sso.web_interface import create_sso_router
 
         # Get SSO configuration
         sso_config = config.sso
+
+        # Feature: sso-authentication, Property 2: Startup validation enforced
+        # Requirement 1.2, 1.4, 13.4: Validate SSO configuration at startup
+        # This ensures:
+        # - Legacy API keys are disabled when SSO is enabled
+        # - At least one provider is enabled and configured
+        # - Non-loopback binding requires authentication
+        try:
+            # Extract legacy API keys from config for validation
+            legacy_api_keys = []
+            if hasattr(config, "auth") and config.auth:
+                raw_keys = getattr(config.auth, "api_keys", [])
+                legacy_api_keys = list(raw_keys or [])
+
+            # Run startup validation
+            auth_mode = validate_startup_configuration(
+                host=config.host,
+                sso_config=sso_config,
+                legacy_api_keys=legacy_api_keys,
+                disable_auth=(
+                    getattr(config.auth, "disable_auth", False)
+                    if hasattr(config, "auth")
+                    else False
+                ),
+            )
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"SSO startup validation passed: mode={auth_mode.mode}")
+
+        except Exception as validation_error:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"SSO startup validation failed: {validation_error}",
+                    exc_info=True,
+                )
+            raise
 
         # Initialize database
         database_manager = DatabaseManager(sso_config.database_path)

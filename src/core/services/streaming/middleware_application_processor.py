@@ -6,6 +6,7 @@ from src.core.domain.streaming_response_processor import (
 )
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
     IResponseMiddleware,
     ProcessedResponse,
 )
@@ -25,12 +26,12 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
 
     def __init__(
         self,
-        middleware: list[IResponseMiddleware],
+        middleware: list[IResponseFeature | IResponseMiddleware],
         default_loop_config: object | None = None,
         app_state: IApplicationState | None = None,
         registry: StreamingContextRegistry | None = None,
     ) -> None:
-        def _priority(mw: IResponseMiddleware) -> int:
+        def _priority(mw: IResponseFeature | IResponseMiddleware) -> int:
             try:
                 p = getattr(mw, "priority", 0)
                 return p if isinstance(p, int) else 0

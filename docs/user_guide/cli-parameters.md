@@ -322,6 +322,16 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
 | N/A | `DISABLE_HEALTH_CHECKS` | Disable health check endpoints. |
 | N/A | `API_KEYS` | Comma-separated list of allowed API keys. |
 
+### Single Sign-On (SSO)
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--enable-sso` | `SSO_ENABLED=true` | Enable SSO authentication. |
+| `--sso-config PATH` | `SSO_CONFIG_FILE` | Path to SSO configuration file. |
+| `--sso-provider NAME` | `SSO_PROVIDER` | Provider name (google, microsoft, github, linkedin, aws). |
+| `--sso-auth-mode MODE` | `SSO_AUTH_MODE` | Authorization mode (single_user, enterprise). |
+| `--disable-sso-captcha` | `SSO_CAPTCHA_ENABLED=false` | Disable SSO captcha protection. |
+
 ---
 
 ## Client Identity Override

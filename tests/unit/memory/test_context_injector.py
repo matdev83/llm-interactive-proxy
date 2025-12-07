@@ -60,12 +60,16 @@ class TestContextInjector:
             database_path=str(temp_db_path),
             require_project_discovery=False,
             max_sessions_to_consider=5,
+            # Set low threshold for tests since we don't have exact keyword matches
+            context_relevance_threshold=0.0,
         )
 
     @pytest.fixture
-    def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
         """Create repository instance."""
-        return MemoryRepository(config)
+        repo = MemoryRepository(config)
+        yield repo
+        await repo.close()
 
     @pytest.fixture
     def injector(
@@ -249,12 +253,21 @@ class TestContextInjector:
         assert "</prior_session_context>" in formatted
 
     def test_format_empty_context(self, injector: ContextInjector) -> None:
-        """Test formatting empty context."""
+        """Test formatting empty context returns no-context marker per Req 8.11."""
         formatted = injector.format_context_for_injection("")
 
-        assert formatted == ""
+        # Per Req 8.11: When no context, insert marker
+        assert formatted == "[NO_PRIOR_CONTEXT_PROVIDED]"
 
-    def test_format_with_custom_template(self, temp_db_path: Path) -> None:
+    def test_format_none_context(self, injector: ContextInjector) -> None:
+        """Test formatting None context returns no-context marker per Req 8.11."""
+        formatted = injector.format_context_for_injection(None)
+
+        # Per Req 8.11: When no context, insert marker
+        assert formatted == "[NO_PRIOR_CONTEXT_PROVIDED]"
+
+    @pytest.mark.asyncio
+    async def test_format_with_custom_template(self, temp_db_path: Path) -> None:
         """Test formatting with custom template."""
         config = MemoryConfiguration(
             available=True,
@@ -263,11 +276,14 @@ class TestContextInjector:
             require_project_discovery=False,
         )
         repo = MemoryRepository(config)
-        injector = ContextInjector(config, repo)
+        try:
+            injector = ContextInjector(config, repo)
 
-        formatted = injector.format_context_for_injection("My context")
+            formatted = injector.format_context_for_injection("My context")
 
-        assert formatted == "[CONTEXT]My context[/CONTEXT]"
+            assert formatted == "[CONTEXT]My context[/CONTEXT]"
+        finally:
+            await repo.close()
 
     def test_format_summaries(self, injector: ContextInjector) -> None:
         """Test summary formatting."""

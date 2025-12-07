@@ -85,9 +85,11 @@ class TestMemoryRepository:
         return MemoryConfiguration(database_path=str(temp_db_path))
 
     @pytest.fixture
-    def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
         """Create repository instance."""
-        return MemoryRepository(config)
+        repo = MemoryRepository(config)
+        yield repo
+        await repo.close()
 
     @pytest.mark.asyncio
     async def test_initialize_schema(self, repository: MemoryRepository) -> None:

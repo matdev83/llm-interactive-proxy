@@ -55,9 +55,11 @@ class TestDatabaseMaintenance:
         )
 
     @pytest.fixture
-    def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
         """Create repository instance."""
-        return MemoryRepository(config)
+        repo = MemoryRepository(config)
+        yield repo
+        await repo.close()
 
     @pytest.fixture
     def maintenance(
@@ -114,16 +116,19 @@ class TestDatabaseMaintenance:
             require_project_discovery=False,
         )
         repo = MemoryRepository(config)
-        maint = DatabaseMaintenance(config, repo)
+        try:
+            maint = DatabaseMaintenance(config, repo)
 
-        await repo.initialize_schema()
+            await repo.initialize_schema()
 
-        # Session at 40 days should be deleted with 30-day retention
-        summary = create_summary(days_ago=40)
-        await repo.save_session_summary(summary)
+            # Session at 40 days should be deleted with 30-day retention
+            summary = create_summary(days_ago=40)
+            await repo.save_session_summary(summary)
 
-        deleted = await maint.run_cleanup()
-        assert deleted == 1
+            deleted = await maint.run_cleanup()
+            assert deleted == 1
+        finally:
+            await repo.close()
 
     @pytest.mark.asyncio
     async def test_start_stop_periodic_cleanup(

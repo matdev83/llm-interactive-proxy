@@ -1,95 +1,64 @@
-# Session Summary Prompt
+You are analyzing a completed coding session to create a structured summary for future reference.
 
-You are a session summarization assistant. Your task is to analyze a completed coding session and produce a structured XML summary that captures all essential information for future context.
+Respond with ONLY well-formed XML (no prose, no markdown, no code fences) following this template. Escape special characters. Use `UNKNOWN` when evidence is missing. Do not invent files, commits, or tasks that were not mentioned.
 
-## Session Metadata
-- Session ID: {session_id}
-- User ID: {user_id}
-- Project: {project_root}
-- Model: {model}
-- Branch: {branch}
-- Commit: {head_sha}
-- Analysis Timestamp: {analysis_timestamp}
-- Schema Version: {summary_schema_version}
-- Prompt Version: {summary_prompt_version}
-
-## Session Transcript
-<transcript>
-{session_transcript}
-</transcript>
-
-## Instructions
-
-Analyze the session transcript and produce a summary in the following XML format. Be thorough but concise. Focus on actionable information that would help resume work in a future session.
-
-### Required Output Format
-
-```xml
 <session_summary version="{summary_schema_version}">
-  <title>Brief descriptive title of what was accomplished</title>
-  <scope>High-level description of the work scope</scope>
-  
-  <goals>
-    <goal>Goal 1 that was being worked on</goal>
-    <goal>Goal 2 if applicable</goal>
-  </goals>
-  
-  <key_decisions>
-    <decision>Important architectural or implementation decision made</decision>
-  </key_decisions>
-  
-  <operations_performed>
-    <operation>Specific action taken (e.g., "Created src/auth/login.py")</operation>
-  </operations_performed>
-  
-  <modified_files>
-    <file status="created|modified|deleted">path/to/file.py</file>
-  </modified_files>
-  
-  <git_operations>
-    <git_op type="commit|branch|merge|rebase|cherry-pick" ref="abc123">Description</git_op>
-  </git_operations>
-  
-  <tests_run>
-    <test name="test_example" status="passed|failed|timeout|skipped" command="pytest tests/"/>
-  </tests_run>
-  
-  <errors>
-    <error>Any significant errors encountered and how they were resolved</error>
-  </errors>
-  
+  <metadata>
+    <session_id>{session_id}</session_id>
+    <user_id>{user_id}</user_id>
+    <tenant_id>{tenant_id}</tenant_id>
+    <project_id>{project_id}</project_id>
+    <project_root>{project_root}</project_root>
+    <analysis_timestamp>{analysis_timestamp}</analysis_timestamp>
+    <model>{model}</model>
+    <prompt_version>{summary_prompt_version}</prompt_version>
+    <summary_version>{summary_schema_version}</summary_version>
+    <branch>{branch}</branch>
+    <head_sha>{head_sha}</head_sha>
+  </metadata>
+  <title>One-sentence description of the session</title>
+  <scope>Brief description of the area/component/feature</scope>
+  <main_goals>
+    <goal>Goal text</goal>
+  </main_goals>
+  <completion_status>completed|partial|abandoned</completion_status>
   <remaining_tasks>
     <task status="open|blocked">Task description</task>
   </remaining_tasks>
-  
+  <touched_files>
+    <file status="created|modified|deleted">relative/path</file>
+  </touched_files>
+  <git_operations>
+    <operation type="commit|branch|merge|rebase|cherry-pick" ref="hash-or-name">Details (or UNKNOWN)</operation>
+  </git_operations>
+  <operations_performed>
+    <operation>Notable commands, migrations, or scripts run</operation>
+  </operations_performed>
+  <tests_run>
+    <test status="passed|failed|timeout|skipped">Test name or command</test>
+  </tests_run>
+  <errors>
+    <error>Key exceptions or error messages observed</error>
+  </errors>
   <open_questions>
-    <question>Any unresolved questions or decisions deferred</question>
+    <item>Assumptions, uncertainties, or clarifications needed</item>
   </open_questions>
-  
+  <key_decisions>
+    <decision>Important technical/design decision with rationale</decision>
+  </key_decisions>
   <risks_or_warnings>
-    <warning>Any risks, technical debt, or warnings noted</warning>
+    <item>Risks, blockers, or caveats</item>
   </risks_or_warnings>
-  
   <evidence>
-    <item>Specific evidence supporting the summary (file paths, command outputs)</item>
+    <item>Specific evidence from the transcript (file paths, errors, outputs)</item>
   </evidence>
-  
-  <completion_status>completed|partial|abandoned</completion_status>
 </session_summary>
-```
 
-### Guidelines
+## Session Transcript
+{session_transcript}
 
-1. **Be specific**: Include actual file paths, command names, and error messages
-2. **Preserve context**: Future sessions should understand what was done and why
-3. **Track state**: Note any uncommitted changes or pending actions
-4. **Capture decisions**: Document why certain approaches were chosen
-5. **Note blockers**: Clearly mark any blocked or incomplete work
-6. **Evidence-based**: Reference specific transcript content to support your summary
-
-### Constraints
-
-- Maximum output: {max_tokens} tokens
-- Output ONLY the XML - no preamble or postamble text
-- Escape special XML characters properly
-- Use UNKNOWN for any required fields where information is not available
+Guidelines:
+- Use only information explicitly present in the transcript; if unsure, use UNKNOWN.
+- Keep the title to one sentence.
+- Prefer relative paths for files; include commit hashes when mentioned.
+- Do not include markdown, JSON, or commentary; return only XML matching the template.

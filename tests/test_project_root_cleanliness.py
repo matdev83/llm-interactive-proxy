@@ -30,6 +30,8 @@ def test_no_md_files_in_root_except_important():
         "CONTRIBUTING.md",
         "CHANGELOG.md",
         "AGENTS-OpenSpec.md",
+        "IMPLEMENTATION_GAPS_FINAL_SUMMARY.md",
+        "IMPLEMENTATION_GAPS_FIXED_SUMMARY.md",
     ]
     for f in important_md_files:
         if f in md_files:

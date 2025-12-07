@@ -63,6 +63,7 @@
 --enable-pytest-full-suite-steering
 --enable-qwen-oauth-backend-debugging-override
 --enable-sandboxing
+--enable-sso
 --fix-think-tags
 --force-context-window
 --force-set-project
@@ -114,6 +115,9 @@
 --project-dir-resolution-model
 --reasoning-injection-probability
 --reasoning_injection_probability
+--sso-auth-mode
+--sso-config
+--sso-provider
 --static-route
 --strict-command-detection
 --test-execution-reminder-enabled

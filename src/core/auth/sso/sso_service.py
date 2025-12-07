@@ -4,9 +4,15 @@ SSO Service for authentication.
 This module handles OAuth2 and SAML authentication flows using Authlib.
 """
 
+import base64
 import logging
 import time
+import uuid
+import xml.etree.ElementTree as ET  # noqa: N817
+import zlib
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client  # type: ignore
@@ -88,6 +94,25 @@ class SSOService:
     - OAuth2 callback processing and token exchange
     - User identity extraction from ID tokens and userinfo endpoints
     - ID token signature verification using JWKS
+
+    KNOWN LIMITATION - Configuration Hot Reload (Requirement 13.5):
+
+    This service does not support runtime configuration reloading. Provider
+    configurations are loaded once at initialization and cached. To apply
+    configuration changes (add/remove providers, change credentials, etc.),
+    the proxy server must be restarted.
+
+    Rationale:
+    - SSO services maintain stateful connections (JWKS cache, OAuth clients)
+    - Safe hot-reload requires complex state management and cleanup
+    - Configuration changes are infrequent in production environments
+    - Server restart is an acceptable operational pattern
+
+    Future Enhancement:
+    If hot-reload becomes a requirement, implement via:
+    - Admin endpoint: POST /admin/sso/reload
+    - Reload sequence: validate config -> clear caches -> reinitialize services
+    - Graceful handling of in-flight authentication requests
     """
 
     def __init__(self, config: SSOConfig, jwks_cache: JWKSCache | None = None):
@@ -101,6 +126,7 @@ class SSOService:
         self.config = config
         self._jwt = JsonWebToken(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"])
         self._jwks_cache = jwks_cache or JWKSCache()
+        self._saml_metadata_cache: dict[str, dict[str, str | None]] = {}
 
     def get_supported_providers(self) -> list[str]:
         """
@@ -253,24 +279,27 @@ class SSOService:
             AuthenticationError: If token verification fails
         """
         if not jwks_uri:
-            # No JWKS URI available (e.g., for non-OIDC providers)
-            # Fall back to unverified decoding with a warning
-            logger.warning(
-                "No JWKS URI available - decoding ID token without signature verification"
+            # Feature: sso-authentication, Property 3: Strict token verification
+            # Requirement 11.4: Validate all tokens according to protocol specifications
+            #
+            # SECURITY: No JWKS URI means we cannot verify the token signature.
+            # This violates Requirement 11.4 which mandates token validation.
+            #
+            # Options:
+            # 1. FAIL (recommended): Reject tokens without JWKS verification
+            # 2. ALLOW with explicit opt-in: Require allow_unverified_tokens=True in config
+            #
+            # We enforce FAIL by default for security.
+            logger.error(
+                "JWKS URI is required for ID token verification. "
+                "Cannot verify token signature without JWKS endpoint."
             )
-            try:
-                claims = self._jwt.decode(
-                    id_token,
-                    key=None,
-                    claims_options={"verify_signature": False},
-                )
-                return dict(claims)
-            except (DecodeError, JoseError) as e:
-                raise AuthenticationError(
-                    f"Failed to decode ID token: {e!s}",
-                    details={"error": str(e)},
-                    original_error=e,
-                ) from e
+            raise AuthenticationError(
+                "ID token verification requires JWKS URI. "
+                "Provider configuration must include a valid discovery_url or jwks_uri. "
+                "Unverified tokens are rejected for security compliance (Requirement 11.4).",
+                details={"jwks_uri": None, "provider": "unknown"},
+            )
 
         # Fetch JWKS and verify signature
         try:
@@ -315,22 +344,15 @@ class SSOService:
             return dict(claims)
 
         except (DecodeError, JoseError) as e:
-            logger.warning(f"ID token verification failed: {e}")
-            # Fall back to unverified decoding - some providers have quirks
-            logger.warning("Falling back to unverified ID token decoding")
-            try:
-                claims = self._jwt.decode(
-                    id_token,
-                    key=None,
-                    claims_options={"verify_signature": False},
-                )
-                return dict(claims)
-            except (DecodeError, JoseError) as fallback_error:
-                raise AuthenticationError(
-                    f"Failed to decode ID token: {fallback_error!s}",
-                    details={"error": str(fallback_error)},
-                    original_error=fallback_error,
-                ) from fallback_error
+            # Feature: sso-authentication, Property 3: Strict token verification
+            # Requirement 11.4: Validate tokens according to protocol specifications
+            # Do not fall back to unverified decoding - reject invalid tokens
+            logger.error(f"ID token verification failed: {e}")
+            raise AuthenticationError(
+                f"ID token signature verification failed: {e!s}",
+                details={"error": str(e), "jwks_uri": jwks_uri},
+                original_error=e,
+            ) from e
         except AuthenticationError:
             raise
         except Exception as e:
@@ -369,7 +391,9 @@ class SSOService:
                 provider_config, state, redirect_uri
             )
         elif provider_config.type == "saml":
-            raise NotImplementedError("SAML support not yet implemented")
+            return await self._create_saml_authorization_url(
+                provider_config, state, redirect_uri
+            )
         else:
             raise ConfigurationError(f"Unknown provider type: {provider_config.type}")
 
@@ -459,7 +483,12 @@ class SSOService:
             ) from e
 
     async def handle_callback(
-        self, provider: str, code: str, state: str, redirect_uri: str
+        self,
+        provider: str,
+        code: str | None,
+        state: str,
+        redirect_uri: str,
+        saml_response: str | None = None,
     ) -> SSOResult:
         """
         Process OAuth2/SAML callback and exchange code for user info.
@@ -484,11 +513,18 @@ class SSOService:
         provider_config = self._get_provider_config(provider)
 
         if provider_config.type == "oauth2":
+            if code is None:
+                raise AuthenticationError(
+                    "Missing authorization code for OAuth2 callback",
+                    details={"provider": provider},
+                )
             return await self._handle_oauth2_callback(
                 provider, provider_config, code, redirect_uri
             )
         elif provider_config.type == "saml":
-            raise NotImplementedError("SAML callback not implemented")
+            return await self._handle_saml_callback(
+                provider, provider_config, saml_response, state, redirect_uri
+            )
         else:
             raise ConfigurationError(f"Unknown provider type: {provider_config.type}")
 
@@ -657,6 +693,287 @@ class SSOService:
                 error=str(e),
                 provider=provider_name,
             )
+
+    # =========================================================================
+    # SAML support
+    # =========================================================================
+
+    async def _create_saml_authorization_url(
+        self, provider_config: ProviderConfig, state: str, redirect_uri: str
+    ) -> str:
+        """
+        Create SAML AuthnRequest redirect URL using IdP metadata.
+
+        The SAML flow uses HTTP-Redirect binding with a deflated, base64-encoded
+        AuthnRequest. RelayState carries the state token for CSRF protection.
+        """
+        if not provider_config.metadata_url:
+            raise ConfigurationError("SAML provider requires metadata_url")
+
+        metadata = await self._load_saml_metadata(provider_config.metadata_url)
+        sso_redirect_url = metadata.get("sso_redirect_url")
+        if not sso_redirect_url:
+            raise ConfigurationError(
+                "SAML metadata did not contain a SingleSignOnService redirect URL"
+            )
+
+        request_xml = self._build_saml_authn_request(
+            destination=sso_redirect_url,
+            issuer=provider_config.client_id,
+            acs_url=redirect_uri,
+            relay_state=state,
+        )
+
+        deflated = zlib.compressobj(wbits=-15)
+        compressed = deflated.compress(request_xml.encode("utf-8")) + deflated.flush()
+        saml_request = base64.b64encode(compressed).decode("ascii")
+
+        query = {"SAMLRequest": saml_request, "RelayState": state}
+        return f"{sso_redirect_url}?{urlencode(query)}"
+
+    def _build_saml_authn_request(
+        self, destination: str, issuer: str, acs_url: str, relay_state: str
+    ) -> str:
+        """
+        Build a minimal AuthnRequest XML document for HTTP-Redirect binding.
+        """
+        request_id = f"_{uuid.uuid4().hex}"
+        issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return (
+            "<samlp:AuthnRequest "
+            'xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" '
+            'xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" '
+            f'ID="{request_id}" Version="2.0" IssueInstant="{issue_instant}" '
+            f'Destination="{destination}" ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" '
+            f'AssertionConsumerServiceURL="{acs_url}" >'
+            f"<saml:Issuer>{issuer}</saml:Issuer>"
+            '<samlp:NameIDPolicy AllowCreate="true" '
+            'Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" />'
+            '<samlp:RequestedAuthnContext Comparison="minimum">'
+            "<saml:AuthnContextClassRef>"
+            "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
+            "</saml:AuthnContextClassRef>"
+            "</samlp:RequestedAuthnContext>"
+            "</samlp:AuthnRequest>"
+        )
+
+    async def _load_saml_metadata(self, metadata_url: str) -> dict[str, str | None]:
+        """
+        Fetch and parse SAML IdP metadata to extract endpoints and certificate.
+        """
+        # Use cache if available
+        if metadata_url in self._saml_metadata_cache:
+            return self._saml_metadata_cache[metadata_url]
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(metadata_url)
+                resp.raise_for_status()
+                xml = resp.text
+        except Exception as e:
+            raise AuthenticationError(
+                f"Failed to fetch SAML metadata: {e!s}",
+                details={"metadata_url": metadata_url},
+                original_error=e,
+            ) from e
+
+        try:
+            root = ET.fromstring(xml)
+            ns = {
+                "md": "urn:oasis:names:tc:SAML:2.0:metadata",
+                "ds": "http://www.w3.org/2000/09/xmldsig#",
+            }
+            # Prefer HTTP-Redirect binding
+            sso_services = root.findall(
+                ".//md:IDPSSODescriptor/md:SingleSignOnService", ns
+            )
+            redirect_url = None
+            post_url = None
+            for svc in sso_services:
+                binding = svc.attrib.get("Binding", "")
+                location = svc.attrib.get("Location")
+                if not location:
+                    continue
+                if "HTTP-Redirect" in binding and not redirect_url:
+                    redirect_url = location
+                if "HTTP-POST" in binding and not post_url:
+                    post_url = location
+            cert = None
+            cert_el = root.find(
+                ".//md:IDPSSODescriptor/md:KeyDescriptor[@use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate",
+                ns,
+            )
+            if cert_el is not None and cert_el.text:
+                cert = cert_el.text.strip()
+
+            parsed = {
+                "sso_redirect_url": redirect_url or post_url,
+                "signing_cert": cert,
+                "entity_id": root.attrib.get("entityID"),
+            }
+            self._saml_metadata_cache[metadata_url] = parsed
+            return parsed
+        except Exception as e:
+            raise AuthenticationError(
+                f"Failed to parse SAML metadata: {e!s}",
+                details={"metadata_url": metadata_url},
+                original_error=e,
+            ) from e
+
+    async def _handle_saml_callback(
+        self,
+        provider_name: str,
+        provider_config: ProviderConfig,
+        saml_response: str | None,
+        relay_state: str,
+        acs_url: str,
+    ) -> SSOResult:
+        """
+        Handle SAML Response sent to the Assertion Consumer Service (callback).
+        """
+        if not saml_response:
+            raise AuthenticationError(
+                "Missing SAMLResponse in callback",
+                details={"provider": provider_name},
+            )
+
+        try:
+            xml_bytes = base64.b64decode(saml_response)
+            root = ET.fromstring(xml_bytes)
+        except Exception as e:
+            raise AuthenticationError(
+                f"Failed to decode SAMLResponse: {e!s}",
+                details={"provider": provider_name},
+                original_error=e,
+            ) from e
+
+        ns = {
+            "samlp": "urn:oasis:names:tc:SAML:2.0:protocol",
+            "saml": "urn:oasis:names:tc:SAML:2.0:assertion",
+        }
+
+        status_code_el = root.find(".//samlp:StatusCode", ns)
+        status_value = (
+            status_code_el.attrib.get("Value") if status_code_el is not None else None
+        )
+        if status_value and "Success" not in status_value:
+            raise AuthenticationError(
+                f"SAML authentication failed with status {status_value}",
+                details={"provider": provider_name},
+            )
+
+        assertion = root.find(".//saml:Assertion", ns)
+        if assertion is None:
+            raise AuthenticationError(
+                "No Assertion found in SAMLResponse",
+                details={"provider": provider_name},
+            )
+
+        # Enforce signing certificate match (basic binding)
+        metadata = None
+        if provider_config.metadata_url:
+            metadata = self._saml_metadata_cache.get(provider_config.metadata_url) or (
+                await self._load_saml_metadata(provider_config.metadata_url)
+            )
+        signing_cert_expected = metadata.get("signing_cert") if metadata else None
+
+        sig_ns = {"ds": "http://www.w3.org/2000/09/xmldsig#"}
+        sig_cert_el = root.find(
+            ".//ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", sig_ns
+        )
+        sig_cert = (
+            sig_cert_el.text.strip()
+            if sig_cert_el is not None and sig_cert_el.text
+            else None
+        )
+
+        if signing_cert_expected:
+            if not sig_cert:
+                raise AuthenticationError(
+                    "SAML response missing signing certificate",
+                    details={"provider": provider_name},
+                )
+            # Normalize by stripping whitespace/newlines
+            normalized_expected = "".join(signing_cert_expected.split())
+            normalized_received = "".join(sig_cert.split())
+            if normalized_expected != normalized_received:
+                raise AuthenticationError(
+                    "SAML response signing certificate does not match IdP metadata",
+                    details={"provider": provider_name},
+                )
+
+        # Validate Conditions (audience + expiry)
+        conditions = assertion.find("saml:Conditions", ns)
+        if conditions is not None:
+            not_on_or_after = conditions.attrib.get("NotOnOrAfter")
+            if not_on_or_after:
+                try:
+                    expiry = datetime.fromisoformat(
+                        not_on_or_after.replace("Z", "+00:00")
+                    )
+                    if expiry <= datetime.now(timezone.utc):
+                        raise AuthenticationError(
+                            "SAML assertion is expired",
+                            details={"provider": provider_name},
+                        )
+                except ValueError:
+                    raise AuthenticationError(
+                        "Invalid NotOnOrAfter timestamp in SAML assertion",
+                        details={"provider": provider_name},
+                    )
+
+            audience_valid = False
+            audience_restrictions = conditions.findall("saml:AudienceRestriction", ns)
+            for restriction in audience_restrictions:
+                for aud in restriction.findall("saml:Audience", ns):
+                    if aud.text and aud.text == provider_config.client_id:
+                        audience_valid = True
+                        break
+            if audience_restrictions and not audience_valid:
+                raise AuthenticationError(
+                    "SAML assertion audience does not match client_id",
+                    details={"provider": provider_name},
+                )
+
+        # Extract subject
+        name_id = assertion.find("saml:Subject/saml:NameID", ns)
+        user_id = name_id.text if name_id is not None else None
+
+        # Extract attributes (email, etc.)
+        attributes = {}
+        for attr in assertion.findall(".//saml:Attribute", ns):
+            name = attr.attrib.get("Name") or ""
+            values = [
+                val.text for val in attr.findall("saml:AttributeValue", ns) if val.text
+            ]
+            if values:
+                attributes[name] = values
+
+        user_email = None
+        for key, values in attributes.items():
+            if "email" in key.lower() and values:
+                user_email = values[0]
+                break
+
+        if not user_id:
+            raise AuthenticationError(
+                "SAML assertion missing NameID",
+                details={"provider": provider_name},
+            )
+
+        if not user_email:
+            logger.warning(
+                "No email attribute found in SAML assertion for %s - using placeholder",
+                provider_name,
+            )
+            user_email = f"{user_id}@{provider_name}.placeholder"
+
+        return SSOResult(
+            success=True,
+            user_id=str(user_id),
+            user_email=user_email,
+            provider=provider_name,
+        )
 
     async def _extract_provider_specific_info(
         self,

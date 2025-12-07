@@ -41,6 +41,9 @@ class AppLifecycle:
         # Start health check services
         await self._start_health_checks()
 
+        # Start ProxyMem services (analysis worker, maintenance)
+        await self._start_memory_services()
+
         # Start background tasks
         self._start_background_tasks()
 
@@ -52,11 +55,100 @@ class AppLifecycle:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Shutting down application lifecycle...")
 
+        # Stop ProxyMem services
+        await self._stop_memory_services()
+
         # Stop background tasks
         await self._stop_background_tasks()
 
         # Close any remaining connections
         await self._close_connections()
+
+    async def _start_memory_services(self) -> None:
+        """Start ProxyMem services (analysis worker, maintenance).
+
+        Per Req 10.2: Start periodic cleanup on proxy startup.
+        Per Req 6.6: Start analysis queue processor.
+        """
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.memory.analysis_worker import AnalysisWorker
+            from src.core.memory.completion_detector import SessionCompletionDetector
+            from src.core.memory.config import MemoryConfiguration
+            from src.core.memory.maintenance import DatabaseMaintenance
+
+            # Check if memory feature is available
+            memory_config = provider.get_service(MemoryConfiguration)
+            if not memory_config or not memory_config.available:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("ProxyMem not available, skipping service startup")
+                return
+
+            # Start analysis worker (processes queue, generates summaries)
+            analysis_worker = provider.get_service(AnalysisWorker)
+            if analysis_worker:
+                await analysis_worker.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ProxyMem analysis worker started")
+
+            # Start session completion detector (timeout checker)
+            completion_detector = provider.get_service(SessionCompletionDetector)
+            if completion_detector:
+                await completion_detector.start_timeout_checker()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ProxyMem session timeout checker started")
+
+            # Start database maintenance (retention cleanup)
+            maintenance = provider.get_service(DatabaseMaintenance)
+            if maintenance:
+                await maintenance.start_periodic_cleanup(interval_hours=24)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ProxyMem database maintenance started")
+
+        except ImportError:
+            # Memory services not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error starting ProxyMem services: %s", e)
+
+    async def _stop_memory_services(self) -> None:
+        """Stop ProxyMem services."""
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.memory.analysis_worker import AnalysisWorker
+            from src.core.memory.completion_detector import SessionCompletionDetector
+            from src.core.memory.maintenance import DatabaseMaintenance
+
+            # Stop analysis worker
+            analysis_worker = provider.get_service(AnalysisWorker)
+            if analysis_worker:
+                await analysis_worker.stop()
+
+            # Stop session completion detector
+            completion_detector = provider.get_service(SessionCompletionDetector)
+            if completion_detector:
+                await completion_detector.stop_timeout_checker()
+
+            # Stop database maintenance
+            maintenance = provider.get_service(DatabaseMaintenance)
+            if maintenance:
+                await maintenance.stop_periodic_cleanup()
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("ProxyMem services stopped")
+
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error stopping ProxyMem services: %s", e)
 
     async def _start_health_checks(self) -> None:
         """Start health check services if enabled."""

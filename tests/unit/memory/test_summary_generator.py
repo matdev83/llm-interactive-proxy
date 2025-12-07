@@ -141,9 +141,11 @@ class TestSummaryGenerator:
         )
 
     @pytest.fixture
-    def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
         """Create repository instance."""
-        return MemoryRepository(config)
+        repo = MemoryRepository(config)
+        yield repo
+        await repo.close()
 
     @pytest.fixture
     def generator(
@@ -213,14 +215,17 @@ class TestSummaryGenerator:
             require_project_discovery=False,
         )
         repo = MemoryRepository(config)
-        generator = SummaryGenerator(config, repo)
+        try:
+            generator = SummaryGenerator(config, repo)
 
-        text = "Here is secret-abc123 and secret-xyz789"
-        result = generator._apply_redaction(text)
+            text = "Here is secret-abc123 and secret-xyz789"
+            result = generator._apply_redaction(text)
 
-        assert "secret-abc123" not in result
-        assert "secret-xyz789" not in result
-        assert "[REDACTED]" in result
+            assert "secret-abc123" not in result
+            assert "secret-xyz789" not in result
+            assert "[REDACTED]" in result
+        finally:
+            await repo.close()
 
     @pytest.mark.asyncio
     async def test_chunks_large_transcript(self, generator: SummaryGenerator) -> None:
@@ -229,8 +234,11 @@ class TestSummaryGenerator:
 
         result = generator._chunk_transcript(large_transcript)
 
-        assert len(result) <= generator._config.max_transcript_chars + 100
-        assert "TRUNCATED" in result
+        assert isinstance(result, list)
+        assert len(result) > 1
+        # Each chunk should be <= max_transcript_chars
+        for chunk in result:
+            assert len(chunk) <= generator._config.max_transcript_chars
 
     @pytest.mark.asyncio
     async def test_persists_summary(
@@ -262,30 +270,31 @@ class TestSummaryGenerator:
 
     @pytest.mark.asyncio
     async def test_parses_all_fields(self, generator: SummaryGenerator) -> None:
-        """Test XML parsing extracts all fields correctly."""
+        """Test XML parsing extracts all fields correctly per spec Req 12.2."""
+        # Use spec-compliant XML tags per design document
         xml = """<session_summary version="v1">
             <title>Test Summary</title>
             <scope>Testing scope</scope>
-            <goals><goal>Goal 1</goal><goal>Goal 2</goal></goals>
+            <main_goals><goal>Goal 1</goal><goal>Goal 2</goal></main_goals>
             <key_decisions><decision>Decision 1</decision></key_decisions>
             <operations_performed><operation>Op 1</operation></operations_performed>
-            <modified_files>
+            <touched_files>
                 <file status="created">src/new.py</file>
                 <file status="modified">src/old.py</file>
-            </modified_files>
+            </touched_files>
             <git_operations>
-                <git_op type="commit" ref="abc123">Initial commit</git_op>
+                <operation type="commit" ref="abc123">Initial commit</operation>
             </git_operations>
             <tests_run>
-                <test name="test_example" status="passed" command="pytest"/>
+                <test status="passed">test_example</test>
             </tests_run>
             <errors><error>Error 1</error></errors>
             <remaining_tasks>
                 <task status="open">Task 1</task>
                 <task status="blocked">Task 2</task>
             </remaining_tasks>
-            <open_questions><question>Question 1</question></open_questions>
-            <risks_or_warnings><warning>Warning 1</warning></risks_or_warnings>
+            <open_questions><item>Question 1</item></open_questions>
+            <risks_or_warnings><item>Warning 1</item></risks_or_warnings>
             <evidence><item>Evidence 1</item></evidence>
             <completion_status>completed</completion_status>
         </session_summary>"""
@@ -316,6 +325,7 @@ class TestSummaryGenerator:
         assert summary.git_operations[0].type == "commit"
         assert len(summary.tests_run) == 1
         assert summary.tests_run[0].status == "passed"
+        assert summary.tests_run[0].name == "test_example"
         assert len(summary.errors) == 1
         assert len(summary.remaining_tasks) == 2
         assert summary.remaining_tasks[1].status == "blocked"

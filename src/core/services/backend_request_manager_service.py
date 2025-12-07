@@ -26,6 +26,7 @@ from src.core.interfaces.response_processor_interface import (
 )
 from src.core.services.angel_service import AngelService
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+from src.core.services.history_compaction_service import HistoryCompactionService
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class BackendRequestManager(IBackendRequestManager):
         response_processor: IResponseProcessor,
         angel_service_factory: IAngelServiceFactory,
         wire_capture: Any | None = None,
+        history_compaction_service: HistoryCompactionService | None = None,
     ) -> None:
         """Initialize the backend request manager."""
         self._backend_processor = backend_processor
@@ -50,6 +52,7 @@ class BackendRequestManager(IBackendRequestManager):
             raise ValueError("angel_service_factory is required")
         self._response_processor = response_processor
         self._angel_service_factory = angel_service_factory
+        self._history_compaction_service = history_compaction_service
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
@@ -57,87 +60,141 @@ class BackendRequestManager(IBackendRequestManager):
         self, request_data: ChatRequest, command_result: ProcessedResult
     ) -> ChatRequest | None:
         """Prepare backend request based on command processing results."""
-        if not command_result.command_executed:
-            return request_data
+        final_request = request_data
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Command executed; modified_messages_count=%s, command_results_count=%s",
-                len(command_result.modified_messages or []),
-                len(command_result.command_results or []),
-            )
-
-        final_messages: list[ChatMessage] = list(request_data.messages)
-        messages_were_modified = False
-
-        # Process modified_messages: if they exist and have content, they replace original messages
-        if command_result.modified_messages:
-
-            def _message_has_content(message: Any) -> bool:
-                # (Implementation remains the same)
-                role = (
-                    message.get("role")
-                    if isinstance(message, dict)
-                    else getattr(message, "role", None)
+        # Process command results if commands were executed
+        if command_result.command_executed:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Command executed; modified_messages_count=%s, command_results_count=%s",
+                    len(command_result.modified_messages or []),
+                    len(command_result.command_results or []),
                 )
-                if role != "user":
-                    return False
-                content = (
-                    message.get("content")
-                    if isinstance(message, dict)
-                    else getattr(message, "content", None)
-                )
-                if content is None:
-                    return False
-                if isinstance(content, str):
-                    return True
-                if isinstance(content, list):
-                    return len(content) > 0
-                return bool(content)
 
-            if any(_message_has_content(m) for m in command_result.modified_messages):
-                normalized_messages: list[ChatMessage] = []
-                for m in command_result.modified_messages:
-                    if isinstance(m, ChatMessage):
-                        normalized_messages.append(m)
-                    elif isinstance(m, dict):
-                        normalized_messages.append(ChatMessage(**m))
-                    else:
-                        normalized_messages.append(
-                            ChatMessage(
-                                role=getattr(m, "role", "user"),
-                                content=getattr(m, "content", ""),
-                            )
-                        )
-                final_messages = normalized_messages
-                messages_were_modified = True
-            else:
-                # All modified messages are empty, skip backend call
-                return None
+            final_messages: list[ChatMessage] = list(request_data.messages)
+            messages_were_modified = False
 
-        # Process command_results: append tool outputs to the message list
-        if command_result.command_results:
-            extra_messages = []
-            for result in command_result.command_results:
-                extracted = self._extract_messages_from_command_result(result)
-                if extracted:
-                    extra_messages.extend(extracted)
+            # Process modified_messages: if they exist and have content, they replace original messages
+            if command_result.modified_messages:
 
-            if extra_messages:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Appending %s command result messages to backend request",
-                        len(extra_messages),
+                def _message_has_content(message: Any) -> bool:
+                    # (Implementation remains the same)
+                    role = (
+                        message.get("role")
+                        if isinstance(message, dict)
+                        else getattr(message, "role", None)
                     )
-                final_messages.extend(extra_messages)
-                messages_were_modified = True
+                    if role != "user":
+                        return False
+                    content = (
+                        message.get("content")
+                        if isinstance(message, dict)
+                        else getattr(message, "content", None)
+                    )
+                    if content is None:
+                        return False
+                    if isinstance(content, str):
+                        return True
+                    if isinstance(content, list):
+                        return len(content) > 0
+                    return bool(content)
 
-        # If messages were changed, create a new request object
-        if messages_were_modified:
-            return request_data.model_copy(update={"messages": final_messages})
+                if any(
+                    _message_has_content(m) for m in command_result.modified_messages
+                ):
+                    normalized_messages: list[ChatMessage] = []
+                    for m in command_result.modified_messages:
+                        if isinstance(m, ChatMessage):
+                            normalized_messages.append(m)
+                        elif isinstance(m, dict):
+                            normalized_messages.append(ChatMessage(**m))
+                        else:
+                            normalized_messages.append(
+                                ChatMessage(
+                                    role=getattr(m, "role", "user"),
+                                    content=getattr(m, "content", ""),
+                                )
+                            )
+                    final_messages = normalized_messages
+                    messages_were_modified = True
+                else:
+                    # All modified messages are empty, skip backend call
+                    return None
 
-        # If no changes, return the original request
-        return request_data
+            # Process command_results: append tool outputs to the message list
+            if command_result.command_results:
+                extra_messages = []
+                for result in command_result.command_results:
+                    extracted = self._extract_messages_from_command_result(result)
+                    if extracted:
+                        extra_messages.extend(extracted)
+
+                if extra_messages:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Appending %s command result messages to backend request",
+                            len(extra_messages),
+                        )
+                    final_messages.extend(extra_messages)
+                    messages_were_modified = True
+
+            # If messages were changed, create a new request object
+            if messages_were_modified:
+                final_request = request_data.model_copy(
+                    update={"messages": final_messages}
+                )
+
+        # Apply history compaction to reduce stale tool outputs (Task 4.2)
+        # This is done after command processing but before connector translation
+        # Note: Compaction runs regardless of whether commands were executed
+        if self._history_compaction_service is not None:
+            try:
+                from src.core.domain.configuration.compaction_config import (
+                    CompactionConfig,
+                )
+
+                # Use default compaction config - could be injected from app_config later
+                config = CompactionConfig.default()
+                if config.enabled:
+                    compaction_result = await self._history_compaction_service.compact_history(
+                        final_request.messages,
+                        config,
+                        current_token_estimate=None,  # Token estimation could be added later
+                    )
+                    if compaction_result.was_compacted:
+                        if logger.isEnabledFor(logging.INFO):
+                            # Use structured logging with observability context (Req 4.2)
+                            log_context = compaction_result.to_log_context()
+                            logger.info(
+                                "History compaction applied: compacted=%d, bytes_saved=%d, "
+                                "tokens_saved=%d, stale_resources=%d",
+                                compaction_result.compacted_count,
+                                compaction_result.bytes_saved,
+                                compaction_result.tokens_saved_estimate,
+                                len(compaction_result.stale_resources),
+                                extra={"compaction": log_context},
+                            )
+                        return final_request.model_copy(
+                            update={"messages": compaction_result.messages}
+                        )
+            except Exception as exc:
+                # Fail-open: log error and continue with original messages (Req 4.4)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "History compaction failed - continuing with original messages: %s",
+                        exc,
+                        exc_info=True,
+                        extra={
+                            "compaction": {
+                                "failed_open": True,
+                                "enabled": config.enabled,
+                                "error": str(exc),
+                            }
+                        },
+                    )
+
+        # Return the (possibly modified) request
+        return final_request
 
     async def process_backend_request(
         self,

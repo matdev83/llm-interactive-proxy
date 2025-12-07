@@ -565,6 +565,10 @@ def test_steering_handler_is_enabled_via_cli_flag():
         edit_precision_override_top_k=None,
         edit_precision_exclude_agents_regex=None,
         allow_admin=True,  # To prevent privilege errors in test environments
+        enable_sso=None,
+        sso_config_path=None,
+        sso_provider=None,
+        sso_auth_mode=None,
     )
 
     # Act: Build the application configuration and the service container

@@ -1,0 +1,678 @@
+"""
+Integration tests for history compaction feature.
+
+These tests verify that:
+1. History compaction is correctly invoked in the request pipeline
+2. Connectors receive compacted history when appropriate
+3. Observability (metrics/logs) hooks fire correctly
+4. Token threshold-triggered compaction scenarios work
+
+Requirements: 2.4, 3.1, 3.2, 4.1, 4.2
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
+from src.core.domain.configuration.compaction_config import (
+    CompactionConfig,
+    TokenBudgetConfig,
+)
+from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.history_compaction_interface import CompactionResult
+from src.core.services.backend_request_manager_service import BackendRequestManager
+from src.core.services.history_compaction_service import HistoryCompactionService
+
+from tests.helpers.angel_factory_stub import AngelFactoryStub
+
+
+def _make_context() -> RequestContext:
+    """Create a minimal RequestContext for testing."""
+    return RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        client_host=None,
+        session_id=None,
+        agent=None,
+        original_request=None,
+        processing_context=None,
+    )
+
+
+def _make_no_command_result() -> ProcessedResult:
+    """Create a ProcessedResult indicating no command was executed."""
+    return ProcessedResult(
+        modified_messages=[],
+        command_executed=False,
+        command_results=[],
+    )
+
+
+def _create_tool_call(tool_name: str, tool_call_id: str, args: dict) -> ToolCall:
+    """Create a ToolCall with the given parameters."""
+    return ToolCall(
+        id=tool_call_id,
+        type="function",
+        function=FunctionCall(
+            name=tool_name,
+            arguments=json.dumps(args),
+        ),
+    )
+
+
+def _create_tool_result_message(
+    tool_name: str, content: str, tool_call_id: str
+) -> ChatMessage:
+    """Create a tool result message."""
+    return ChatMessage(
+        role="tool",
+        content=content,
+        tool_call_id=tool_call_id,
+        name=tool_name,
+    )
+
+
+def _create_assistant_tool_call_message(tool_calls: list[ToolCall]) -> ChatMessage:
+    """Create an assistant message with tool calls."""
+    return ChatMessage(
+        role="assistant",
+        content="",
+        tool_calls=tool_calls,
+    )
+
+
+class TestHistoryCompactionPipelineIntegration:
+    """Test compaction integration in the request processing pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_compaction_invoked_before_backend_request(self) -> None:
+        """Verify compaction occurs before the request reaches the backend."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_response = AsyncMock(
+            return_value=MagicMock(content="response", metadata={})
+        )
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_service.compact_history = AsyncMock(
+            return_value=CompactionResult(
+                messages=[ChatMessage(role="user", content="compacted")],
+                compacted_count=1,
+                bytes_saved=100,
+                tokens_saved_estimate=25,
+                original_message_count=2,
+                stale_resources={"view_file:/path/file.py"},
+            )
+        )
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[
+                ChatMessage(role="user", content="view file"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "file content 1", "call-1"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "file content 2", "call-2"),
+            ],
+            stream=False,
+        )
+
+        backend_processor.process_backend_request.return_value = ResponseEnvelope(
+            content="backend response"
+        )
+
+        await manager.prepare_backend_request(
+            original_request, _make_no_command_result()
+        )
+
+        # Verify compaction was called
+        compaction_service.compact_history.assert_awaited_once()
+        call_args = compaction_service.compact_history.call_args
+        assert len(call_args.args[0]) == 5  # Original messages passed
+
+    @pytest.mark.asyncio
+    async def test_compacted_messages_returned_in_prepared_request(self) -> None:
+        """Verify the prepared request contains compacted messages."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compacted_messages = [
+            ChatMessage(role="user", content="view file"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            ChatMessage(
+                role="tool",
+                content="[Compacted: view_file:/path/file.py — newer result exists]",
+                tool_call_id="call-1",
+                name="view_file",
+            ),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message("view_file", "latest content", "call-2"),
+        ]
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_service.compact_history = AsyncMock(
+            return_value=CompactionResult(
+                messages=compacted_messages,
+                compacted_count=1,
+                bytes_saved=500,
+                tokens_saved_estimate=125,
+                original_message_count=5,
+                stale_resources={"view_file:/path/file.py"},
+            )
+        )
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[
+                ChatMessage(role="user", content="view file"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "old content", "call-1"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "latest content", "call-2"),
+            ],
+            stream=False,
+        )
+
+        result = await manager.prepare_backend_request(
+            original_request, _make_no_command_result()
+        )
+
+        # Verify the result uses compacted messages
+        assert result is not None
+        assert len(result.messages) == 5
+        assert "[Compacted:" in str(result.messages[2].content)
+
+    @pytest.mark.asyncio
+    async def test_fail_open_returns_original_on_compaction_error(self) -> None:
+        """Verify original messages are returned when compaction fails."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_service.compact_history = AsyncMock(
+            side_effect=RuntimeError("Compaction internal error")
+        )
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        original_messages = [ChatMessage(role="user", content="hello")]
+        original_request = ChatRequest(
+            model="gemini",
+            messages=original_messages,
+            stream=False,
+        )
+
+        result = await manager.prepare_backend_request(
+            original_request, _make_no_command_result()
+        )
+
+        # Should return original request unchanged (fail-open)
+        assert result is not None
+        assert result.messages == original_messages
+
+
+class TestHistoryCompactionObservability:
+    """Test observability hooks (metrics, structured logging)."""
+
+    @pytest.mark.asyncio
+    async def test_structured_log_context_emitted_on_compaction(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify structured log context is emitted when compaction occurs."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_result = CompactionResult(
+            messages=[ChatMessage(role="user", content="after")],
+            compacted_count=2,
+            bytes_saved=1000,
+            tokens_saved_estimate=250,
+            original_message_count=5,
+            stale_resources={"view_file:/a.py", "view_file:/b.py"},
+        )
+        compaction_service.compact_history = AsyncMock(return_value=compaction_result)
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="before")],
+            stream=False,
+        )
+
+        with caplog.at_level(logging.INFO):
+            await manager.prepare_backend_request(
+                original_request, _make_no_command_result()
+            )
+
+        # Check log message contains expected information
+        log_messages = [r.message for r in caplog.records]
+        assert any("History compaction applied" in msg for msg in log_messages)
+        assert any("compacted=2" in msg for msg in log_messages)
+        assert any("bytes_saved=1000" in msg for msg in log_messages)
+
+    @pytest.mark.asyncio
+    async def test_warning_log_emitted_on_compaction_failure(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify warning is logged when compaction fails."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_service.compact_history = AsyncMock(
+            side_effect=ValueError("Test compaction error")
+        )
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=False,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            await manager.prepare_backend_request(
+                original_request, _make_no_command_result()
+            )
+
+        log_messages = [r.message for r in caplog.records]
+        assert any("History compaction failed" in msg for msg in log_messages)
+        assert any("Test compaction error" in msg for msg in log_messages)
+
+    def test_compaction_result_to_metrics_format(self) -> None:
+        """Verify CompactionResult.to_metrics() provides expected format."""
+        result = CompactionResult(
+            messages=[],
+            compacted_count=5,
+            bytes_saved=2500,
+            tokens_saved_estimate=625,
+            original_message_count=10,
+            stale_resources={"a", "b", "c"},
+        )
+
+        metrics = result.to_metrics()
+
+        assert metrics["compaction_messages_compacted"] == 5
+        assert metrics["compaction_bytes_saved"] == 2500
+        assert metrics["compaction_tokens_saved_estimate"] == 625
+        assert metrics["compaction_original_count"] == 10
+        assert metrics["compaction_stale_resources_count"] == 3
+        assert metrics["compaction_failed_open"] == 0
+
+    def test_compaction_result_to_log_context_format(self) -> None:
+        """Verify CompactionResult.to_log_context() provides expected format."""
+        result = CompactionResult(
+            messages=[],
+            compacted_count=3,
+            bytes_saved=1500,
+            tokens_saved_estimate=375,
+            original_message_count=7,
+            stale_resources={"view_file:/x.py", "view_file:/y.py"},
+        )
+
+        context = result.to_log_context()
+
+        assert context["compacted_count"] == 3
+        assert context["bytes_saved"] == 1500
+        assert context["was_compacted"] is True
+        assert context["failed_open"] is False
+        assert "stale_resources" in context
+        assert "view_file:/x.py" in context["stale_resources"]
+
+
+class TestHistoryCompactionTokenThreshold:
+    """Test token budget threshold-triggered compaction scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_token_threshold_triggers_compaction(self) -> None:
+        """Verify compaction is triggered when token threshold is exceeded."""
+        config = CompactionConfig(
+            enabled=True,
+            token_threshold=1000,
+            max_tokens=2000,
+        )
+
+        service = HistoryCompactionService()
+
+        messages = [
+            ChatMessage(role="user", content="view file"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message("view_file", "content 1" * 100, "call-1"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message("view_file", "content 2" * 100, "call-2"),
+        ]
+
+        # Should trigger compaction because we have stale tool outputs
+        result = await service.compact_history(
+            messages, config, current_token_estimate=1500
+        )
+
+        assert result.was_compacted
+        assert result.bytes_saved > 0
+
+    @pytest.mark.asyncio
+    async def test_under_threshold_skips_compaction_when_no_stale(self) -> None:
+        """Verify no compaction when under threshold and no stale data."""
+        config = CompactionConfig(
+            enabled=True,
+            token_threshold=5000,
+            max_tokens=10000,
+        )
+
+        service = HistoryCompactionService()
+
+        messages = [
+            ChatMessage(role="user", content="hello"),
+            ChatMessage(role="assistant", content="hi"),
+        ]
+
+        # Token estimate well under threshold and no tool messages
+        result = await service.compact_history(
+            messages, config, current_token_estimate=100
+        )
+
+        # No compaction needed (no stale tool outputs)
+        assert not result.was_compacted
+        assert result.compacted_count == 0
+
+    def test_token_budget_config_from_compaction_config(self) -> None:
+        """Verify TokenBudgetConfig creation from CompactionConfig."""
+        config = CompactionConfig(
+            enabled=True,
+            token_threshold=50000,
+            max_tokens=100000,
+        )
+
+        budget = TokenBudgetConfig.from_config(config, current_estimate=60000)
+
+        assert budget.compaction_threshold == 50000
+        assert budget.max_tokens == 100000
+        assert budget.current_estimate == 60000
+        assert budget.needs_compaction is True
+        assert budget.exceeds_max is False
+
+
+class TestHistoryCompactionDIIntegration:
+    """Test DI container integration for history compaction."""
+
+    def test_history_compaction_service_can_be_instantiated(self) -> None:
+        """Verify HistoryCompactionService can be instantiated without DI."""
+        service = HistoryCompactionService()
+        assert service is not None
+
+    def test_backend_request_manager_accepts_none_compaction_service(self) -> None:
+        """Verify BackendRequestManager works without compaction service."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=None,
+        )
+
+        assert manager is not None
+        assert manager._history_compaction_service is None
+
+    @pytest.mark.asyncio
+    async def test_manager_skips_compaction_when_service_is_none(self) -> None:
+        """Verify request processing works when compaction service is None."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=None,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="hello")],
+            stream=False,
+        )
+
+        result = await manager.prepare_backend_request(
+            original_request, _make_no_command_result()
+        )
+
+        # Should return original unchanged
+        assert result is not None
+        assert result.messages == original_request.messages
+
+
+class TestHistoryCompactionRealService:
+    """Integration tests using the real HistoryCompactionService."""
+
+    @pytest.mark.asyncio
+    async def test_real_service_compacts_stale_tool_outputs(self) -> None:
+        """Verify real service correctly identifies and compacts stale outputs."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(enabled=True)
+
+        messages = [
+            ChatMessage(role="user", content="view file.py"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message(
+                "view_file", "def old_function(): pass\n" * 50, "call-1"
+            ),
+            ChatMessage(role="assistant", content="I see the old function."),
+            ChatMessage(role="user", content="view file.py again"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message(
+                "view_file", "def new_function(): return 42", "call-2"
+            ),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        assert result.compacted_count == 1
+        assert result.bytes_saved > 0
+
+        # The first tool result message (index 2) should be replaced with a stub
+        compacted_tool_msg = result.messages[2]
+        assert "[COMPACTED]" in str(compacted_tool_msg.content)
+        assert compacted_tool_msg.tool_call_id == "call-1"
+
+        # The second tool result message (index 6) should be preserved
+        preserved_tool_msg = result.messages[6]
+        assert "def new_function" in str(preserved_tool_msg.content)
+
+    @pytest.mark.asyncio
+    async def test_real_service_preserves_different_resources(self) -> None:
+        """Verify service preserves outputs from different resources."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(enabled=True)
+
+        messages = [
+            ChatMessage(role="user", content="view files"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/a.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message("view_file", "content of a.py", "call-1"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/b.py"}
+                    ),
+                ]
+            ),
+            _create_tool_result_message("view_file", "content of b.py", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        # Different files should not be compacted against each other
+        assert not result.was_compacted
+        assert result.compacted_count == 0
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_with_backend_request_manager(self) -> None:
+        """End-to-end test of compaction through BackendRequestManager."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_response = AsyncMock(
+            return_value=MagicMock(content="response", metadata={})
+        )
+
+        compaction_service = HistoryCompactionService()
+
+        manager = BackendRequestManager(
+            backend_processor,
+            response_processor,
+            AngelFactoryStub(),
+            history_compaction_service=compaction_service,
+        )
+
+        # Build a request with stale tool outputs (proper structure)
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[
+                ChatMessage(role="user", content="view the file"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-1", {"AbsolutePath": "/project/main.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "old version" * 50, "call-1"),
+                ChatMessage(role="assistant", content="I see the old version."),
+                ChatMessage(role="user", content="view it again"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-2", {"AbsolutePath": "/project/main.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "new version" * 50, "call-2"),
+            ],
+            stream=False,
+        )
+
+        prepared_request = await manager.prepare_backend_request(
+            original_request, _make_no_command_result()
+        )
+
+        assert prepared_request is not None
+
+        # Verify compaction occurred
+        assert len(prepared_request.messages) == 7
+
+        # First tool result (index 2) should be compacted
+        first_tool = prepared_request.messages[2]
+        assert "[COMPACTED]" in str(first_tool.content)
+        assert first_tool.tool_call_id == "call-1"
+
+        # Latest tool result (index 6) should be preserved
+        second_tool = prepared_request.messages[6]
+        assert "new version" in str(second_tool.content)
+        assert second_tool.tool_call_id == "call-2"

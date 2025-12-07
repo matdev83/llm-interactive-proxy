@@ -175,6 +175,10 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         gemini_api_base_url=None,
         zai_api_key=None,
         zenmux_api_base_url=None,
+        enable_sso=None,
+        sso_config_path=None,
+        sso_provider=None,
+        sso_auth_mode=None,
     )
     return args
 
@@ -196,6 +200,11 @@ def test_property_10_configuration_precedence_enabled(
     # Clean up environment before test
     if "TEST_EXECUTION_REMINDER_ENABLED" in os.environ:
         del os.environ["TEST_EXECUTION_REMINDER_ENABLED"]
+    # Ensure no dirty environment affects the test
+    if "COMMAND_PREFIX" in os.environ:
+        del os.environ["COMMAND_PREFIX"]
+    if "PROXY_TIMEOUT" in os.environ:
+        del os.environ["PROXY_TIMEOUT"]
 
     try:
         # Set up environment value
@@ -277,6 +286,11 @@ def test_property_10_configuration_precedence_message(
     # Clean up environment before test
     if "TEST_EXECUTION_REMINDER_MESSAGE" in os.environ:
         del os.environ["TEST_EXECUTION_REMINDER_MESSAGE"]
+    # Ensure no dirty environment affects the test
+    if "COMMAND_PREFIX" in os.environ:
+        del os.environ["COMMAND_PREFIX"]
+    if "PROXY_TIMEOUT" in os.environ:
+        del os.environ["PROXY_TIMEOUT"]
 
     try:
         # Set up environment value

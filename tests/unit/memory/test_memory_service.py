@@ -52,9 +52,11 @@ class TestMemoryService:
         )
 
     @pytest.fixture
-    def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
         """Create repository instance."""
-        return MemoryRepository(config)
+        repo = MemoryRepository(config)
+        yield repo
+        await repo.close()
 
     @pytest.fixture
     def service(
@@ -301,14 +303,17 @@ class TestMemoryService:
             require_project_discovery=True,
         )
         repo = MemoryRepository(config)
-        service = MemoryService(config, repo)
+        try:
+            service = MemoryService(config, repo)
 
-        # Should fail without project_root
-        result1 = await service.enable_for_session("sess-1", "user-1")
-        assert result1 is False
+            # Should fail without project_root
+            result1 = await service.enable_for_session("sess-1", "user-1")
+            assert result1 is False
 
-        # Should succeed with project_root
-        result2 = await service.enable_for_session(
-            "sess-2", "user-1", project_root="/home/user/project"
-        )
-        assert result2 is True
+            # Should succeed with project_root
+            result2 = await service.enable_for_session(
+                "sess-2", "user-1", project_root="/home/user/project"
+            )
+            assert result2 is True
+        finally:
+            await repo.close()

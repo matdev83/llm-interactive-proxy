@@ -26,11 +26,9 @@
 - **Production Integration**: `MiddlewareApplicationManager` updated to use `IResponseFeature`
   - DI factory (`_middleware_application_manager_factory`) now instantiates Feature classes
   - Legacy `*Middleware` constructors log ERROR to detect accidental usage
-
 - **CI Enforcement**: New test suite ensures architectural compliance
   - `test_feature_parity_ci.py`: Verifies all middleware have Feature versions
   - Automatic detection of parity violations at build time
-
 
 ### Added: Memory Feature (ProxyMem)
 
@@ -40,6 +38,27 @@
   - **CLI Parameters**: Added comprehensive CLI support (`--memory-available`, `--memory-default-enabled`, `--memory-summary-model`, etc.).
   - **Documentation**: Updated `cli-parameters.md` and integration test snapshots.
   - **Fixes**: Resolved strict typing issues and DI registration for Memory components.
+
+### Added: History Compaction Service
+
+- **Context Optimization**: Automated history compaction to manage context window usage
+  - **Core Logic**: New `HistoryCompactionService` for intelligent message history reduction
+  - **Strategies**: Support for message summarization and removal of redundant content
+  - **Integration**: Deep integration with `BackendRequestManager` to apply compaction before requests
+  - **Testing**: Comprehensive integration tests covering full compaction flow
+
+### Enhanced: Command Prefix and Configuration
+
+- **CLI Robustness**: Improved validation and error reporting
+  - **Prefix Validation**: Detailed error messages for invalid command prefixes (e.g. `'Invalid command prefix '!': ...'`)
+  - **Memory Configuration**: Added environment variable support for `MEMORY_MAX_CONTEXT_TOKENS` and `MEMORY_CONTEXT_RELEVANCE_THRESHOLD`
+
+### Enhanced: SSO Startup Validation
+
+- **Safe Configuration**: Enhanced startup checks prevents invalid security states
+  - **Legacy Auth Conflict**: Automatically rejects startup if legacy API keys are present when SSO is enabled
+  - **Provider Checks**: Ensures at least one identity provider is enabled when SSO is active
+  - **Binding Safety**: Prevents binding to non-loopback interfaces without authentication
 
 ## [2025-12-05]
 

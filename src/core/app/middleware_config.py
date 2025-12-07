@@ -32,6 +32,13 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         allow_headers=["*"],  # Allows all headers
     )
 
+    # Check if SSO is enabled (used later to disable legacy auth)
+    sso_enabled = (
+        config.sso.enabled
+        if hasattr(config, "sso") and config.sso is not None
+        else False
+    )
+
     # API key authentication middleware (if enabled)
     # New AppConfig object
     if hasattr(config, "auth"):
@@ -56,6 +63,16 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # Respect environment override for disabling auth (useful for tests)
     env_disable = os.getenv("DISABLE_AUTH", "").lower() == "true"
     disable_auth = disable_auth or env_disable
+
+    # Feature: sso-authentication, Property 1: Legacy auth disabled when SSO enabled
+    # Requirement 1.2: WHEN SSO mode is enabled THEN the Proxy SHALL disable the
+    # legacy static Bearer key authentication mechanism.
+    if sso_enabled and not disable_auth:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "SSO authentication is enabled - legacy API key/token authentication is disabled"
+            )
+        disable_auth = True  # Force disable legacy auth when SSO is active
 
     if not disable_auth:
         # SECURITY: Removed test detection - production code should never detect test environment
@@ -230,12 +247,7 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         )
 
     # SSO authentication middleware (if enabled)
-    sso_enabled = (
-        config.sso.enabled
-        if hasattr(config, "sso") and config.sso is not None
-        else False
-    )
-
+    # Note: sso_enabled already checked above for legacy auth disabling
     if sso_enabled:
         try:
             from src.core.auth.sso.database import TokenRepository

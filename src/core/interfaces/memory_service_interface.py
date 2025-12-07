@@ -6,7 +6,7 @@ interaction capture, and session completion handling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from src.core.memory.models import CapturedInteraction
@@ -130,5 +130,16 @@ class IMemoryService(Protocol):
 
         Returns:
             The project root if available, None otherwise.
+        """
+        ...
+
+    async def get_session_state(self, session_id: str) -> Any | None:
+        """Get the full session state.
+
+        Args:
+            session_id: The session identifier.
+
+        Returns:
+            The session state if available, None otherwise.
         """
         ...

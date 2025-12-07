@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
     IResponseMiddleware,  # Corrected import
 )
 
@@ -15,7 +16,7 @@ class IMiddlewareApplicationManager(ABC):
     async def apply_middleware(
         self,
         content: Any,
-        middleware_list: list[IResponseMiddleware] | None = None,
+        middleware_list: list[IResponseFeature | IResponseMiddleware] | None = None,
         is_streaming: bool = False,
         stop_event: Any | None = None,
         session_id: str = "",
@@ -26,7 +27,7 @@ class IMiddlewareApplicationManager(ABC):
 
         Args:
             content: The content to apply middleware to.
-            middleware_list: A list of IResponseMiddleware objects to apply.
+            middleware_list: A list of IResponseMiddleware or IResponseFeature objects to apply.
             is_streaming: A boolean indicating if the middleware is applied during streaming.
             session_id: The associated session identifier.
             context: Additional context for middleware execution.

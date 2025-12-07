@@ -95,19 +95,22 @@ class ContextInjectionMiddleware:
             )
             return request
 
+        # Get session state to retrieve tenant_id and project_id
+        state = await self._memory_service.get_session_state(session_id)
+        tenant_id = state.tenant_id if state else None
+        project_id = state.project_id if state else None
+
         try:
             context = await self._context_injector.get_context_for_session(
                 user_id=user_id,
                 current_prompt=user_prompt,
+                tenant_id=tenant_id,
+                project_id=project_id,
                 project_root=project_root,
             )
 
-            if not context:
-                logger.debug("No relevant context for session %s", session_id)
-                self._injected_sessions.add(session_id)
-                return request
-
-            # Format context for injection
+            # Format context for injection (includes NO_PRIOR_CONTEXT marker if None)
+            # Per Req 8.11: Always inject marker when no context available
             formatted_context = self._context_injector.format_context_for_injection(
                 context
             )
@@ -115,6 +118,13 @@ class ContextInjectionMiddleware:
             if not formatted_context:
                 self._injected_sessions.add(session_id)
                 return request
+
+            # Log what we're injecting
+            if not context:
+                logger.debug(
+                    "Injecting no-context marker for session %s (no relevant context)",
+                    session_id,
+                )
 
             # Inject context into messages
             modified_messages = self._inject_into_messages(

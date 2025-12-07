@@ -70,6 +70,7 @@ from src.core.interfaces.tool_call_repair_service_interface import (
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.memory.analysis_worker import AnalysisWorker
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.completion_detector import SessionCompletionDetector
 from src.core.memory.config import MemoryConfiguration
@@ -1269,6 +1270,21 @@ def register_core_services(
         DatabaseMaintenance, implementation_factory=_database_maintenance_factory
     )
 
+    # Register analysis worker
+    def _analysis_worker_factory(
+        provider: IServiceProvider,
+    ) -> AnalysisWorker:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        memory_service = provider.get_required_service(MemoryService)
+        summary_generator = provider.get_required_service(SummaryGenerator)
+        return AnalysisWorker(
+            memory_service=memory_service,
+            summary_generator=summary_generator,
+            config=cfg,
+        )
+
+    _add_singleton(AnalysisWorker, implementation_factory=_analysis_worker_factory)
+
     # Register session completion detector
     def _session_completion_detector_factory(
         provider: IServiceProvider,
@@ -1293,7 +1309,8 @@ def register_core_services(
         memory_service: IMemoryService = provider.get_required_service(
             cast(type, IMemoryService)
         )
-        return MemoryCaptureMiddleware(memory_service=memory_service)
+        cfg = provider.get_required_service(MemoryConfiguration)
+        return MemoryCaptureMiddleware(memory_service=memory_service, config=cfg)
 
     _add_singleton(
         MemoryCaptureMiddleware,
