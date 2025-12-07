@@ -55,7 +55,6 @@ from src.core.interfaces.response_handler_interface import (
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
-    IResponseMiddleware,
     IResponseProcessor,
 )
 from src.core.interfaces.session_manager_interface import ISessionManager
@@ -209,7 +208,88 @@ def get_or_build_service_provider() -> IServiceProvider:
                     len(get_service_collection()._descriptors),
                 )
         _service_provider = get_service_collection().build_service_provider()
+        # Register feature parity tracking after provider is built
+        _initialize_feature_parity_registry(_service_provider)
     return _service_provider
+
+
+def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
+    """Initialize feature parity registry with all registered middleware.
+
+    This registers all middleware and features with the parity registry
+    for tracking streaming/non-streaming support.
+    """
+    try:
+        from src.core.interfaces.feature_parity import get_global_registry
+        from src.core.interfaces.response_processor_interface import FeatureCapability
+
+        registry = get_global_registry()
+
+        # Register core features (IResponseFeature implementations)
+        try:
+            from src.core.services.response_middleware import (
+                ContentFilterFeature,
+                ResponseLoggingFeature,
+            )
+
+            registry.register_feature(ResponseLoggingFeature())
+            registry.register_feature(ContentFilterFeature())
+        except ImportError:
+            pass
+
+        try:
+            from src.core.services.empty_response_middleware import EmptyResponseFeature
+
+            registry.register_feature(EmptyResponseFeature())
+        except ImportError:
+            pass
+
+        # Register LoopDetectionFeature with the ILoopDetector from DI
+        try:
+            from typing import cast
+
+            from src.core.interfaces.loop_detector_interface import ILoopDetector
+            from src.core.services.response_middleware import LoopDetectionFeature
+
+            loop_detector = provider.get_service(cast(type, ILoopDetector))
+            if loop_detector is not None:
+                registry.register_feature(LoopDetectionFeature(loop_detector))
+        except Exception:
+            pass  # LoopDetector may not be available
+
+        # Register middleware instances from the middleware manager
+        try:
+            from src.core.interfaces.response_processor_interface import (
+                IResponseFeature,
+                IResponseMiddleware,
+            )
+
+            manager = provider.get_required_service(MiddlewareApplicationManager)
+            for mw in manager._middleware:
+                if isinstance(mw, IResponseFeature):
+                    registry.register_feature(mw)
+                elif isinstance(mw, IResponseMiddleware):
+                    mw_name = type(mw).__name__
+                    # All updated middleware now support both paths
+                    registry.register_middleware(
+                        mw,
+                        declared_capability=FeatureCapability.BOTH,
+                        name=mw_name,
+                    )
+        except Exception:
+            pass  # Middleware manager may not be available yet
+
+        parity_logger = logging.getLogger("llm.feature_parity")
+        if parity_logger.isEnabledFor(logging.DEBUG):
+            parity_logger.debug(
+                "Feature parity registry initialized with %d features",
+                len(registry.get_all_features()),
+            )
+    except Exception as e:
+        # Don't fail startup due to parity registration issues
+        logger = logging.getLogger(__name__)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Feature parity initialization skipped: %s", e)
 
 
 def set_service_provider(provider: IServiceProvider) -> None:
@@ -588,32 +668,32 @@ def register_core_services(
             logger.warning(f"Failed to register response handler interfaces: {e}")
         # Continue if concrete handlers are registered
 
-    # Register MiddlewareApplicationManager and IMiddlewareApplicationManager with configured middleware list
+    # Register MiddlewareApplicationManager with configured features (IResponseFeature)
     def _middleware_application_manager_factory(
         provider: IServiceProvider,
     ) -> MiddlewareApplicationManager:
-        from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
-        from src.core.app.middleware.tool_call_repair_middleware import (
-            ToolCallRepairMiddleware,
-        )
+        from src.core.app.middleware.json_repair_middleware import JsonRepairFeature
         from src.core.config.app_config import AppConfig
-        from src.core.services.empty_response_middleware import (
-            EmptyResponseMiddleware,
+        from src.core.interfaces.response_processor_interface import (
+            IResponseFeature,
+            IResponseMiddleware,
         )
+        from src.core.services.empty_response_middleware import EmptyResponseFeature
         from src.core.services.middleware_application_manager import (
             MiddlewareApplicationManager,
         )
         from src.core.services.tool_call_loop_middleware import (
-            ToolCallLoopDetectionMiddleware,
+            ToolCallLoopDetectionFeature,
         )
 
         cfg: AppConfig = provider.get_required_service(AppConfig)
-        middlewares: list[IResponseMiddleware] = []
+        # Use IResponseFeature for enforced streaming/non-streaming parity
+        features: list[IResponseFeature | IResponseMiddleware] = []
 
         try:
             if getattr(cfg.empty_response, "enabled", True):
-                middlewares.append(
-                    EmptyResponseMiddleware(
+                features.append(
+                    EmptyResponseFeature(
                         enabled=True,
                         max_retries=getattr(cfg.empty_response, "max_retries", 1),
                     )
@@ -622,46 +702,45 @@ def register_core_services(
             file_logger = logging.getLogger(__name__)
             if file_logger.isEnabledFor(logging.WARNING):
                 file_logger.warning(
-                    f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
+                    "Error configuring EmptyResponseFeature: %s", e, exc_info=True
                 )
 
         # Edit-precision response-side detection (optional)
         try:
             from src.core.services.edit_precision_response_middleware import (
-                EditPrecisionResponseMiddleware,
+                EditPrecisionFeature,
             )
 
             app_state = provider.get_required_service(ApplicationStateService)
-            middlewares.append(EditPrecisionResponseMiddleware(app_state))
+            features.append(EditPrecisionFeature(app_state))
         except Exception as e:
             file_logger = logging.getLogger(__name__)
             if file_logger.isEnabledFor(logging.WARNING):
                 file_logger.warning(
-                    f"Error configuring EditPrecisionResponseMiddleware: {e}",
+                    "Error configuring EditPrecisionFeature: %s",
+                    e,
                     exc_info=True,
                 )
 
-        # Think tags fix middleware (optional)
+        # Think tags fix feature (optional)
         try:
             if getattr(cfg.session, "fix_think_tags_enabled", False):
                 from src.core.services.think_tags_fix_middleware import (
-                    ThinkTagsFixMiddleware,
+                    ThinkTagsFixFeature,
                 )
 
-                # Configure streaming buffer size from config
                 buffer_size = getattr(
                     cfg.session, "fix_think_tags_streaming_buffer_size", 4096
                 )
-                middlewares.append(
-                    ThinkTagsFixMiddleware(
-                        enabled=True, streaming_buffer_size=buffer_size
-                    )
+                features.append(
+                    ThinkTagsFixFeature(enabled=True, streaming_buffer_size=buffer_size)
                 )
         except Exception as e:
             file_logger = logging.getLogger(__name__)
             if file_logger.isEnabledFor(logging.WARNING):
                 file_logger.warning(
-                    f"Error configuring ThinkTagsFixMiddleware: {e}",
+                    "Error configuring ThinkTagsFixFeature: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -669,31 +748,34 @@ def register_core_services(
             json_service: JsonRepairService = provider.get_required_service(
                 JsonRepairService
             )
-            middlewares.append(JsonRepairMiddleware(cfg, json_service))
+            features.append(JsonRepairFeature(cfg, json_service))
 
-        if getattr(cfg.session, "tool_call_repair_enabled", True):
-            tcr_service: ToolCallRepairService = provider.get_required_service(
-                ToolCallRepairService
-            )
-            middlewares.append(ToolCallRepairMiddleware(cfg, tcr_service))
+        # Note: ToolCallRepairMiddleware was a pass-through - now handled by
+        # ToolCallRepairProcessor in streaming pipeline
 
         lifecycle_registry = provider.get_required_service(ToolCallLifecycleRegistry)
-        middlewares.append(
-            ToolCallLoopDetectionMiddleware(
+        features.append(
+            ToolCallLoopDetectionFeature(
                 lifecycle_registry=lifecycle_registry,
             )
         )
 
-        # Add tool call reactor middleware (fail fast if unavailable)
-        tool_call_reactor_middleware = provider.get_required_service(
-            ToolCallReactorMiddleware
+        # Add tool call reactor feature (fail fast if unavailable)
+        from src.core.services.tool_call_reactor_middleware import (
+            ToolCallReactorFeature,
         )
-        middlewares.append(tool_call_reactor_middleware)
 
-        # Dangerous command prevention will be handled by Tool Call Reactor handler.
-        # Keeping old middleware disabled to avoid duplicate processing.
+        tool_call_reactor = provider.get_required_service(ToolCallReactorService)
+        features.append(
+            ToolCallReactorFeature(
+                tool_call_reactor=tool_call_reactor,
+                lifecycle_registry=lifecycle_registry,
+            )
+        )
 
-        return MiddlewareApplicationManager(middlewares)
+        # Dangerous command prevention handled by Tool Call Reactor handler
+
+        return MiddlewareApplicationManager(features)
 
     _add_singleton(
         MiddlewareApplicationManager,
@@ -956,6 +1038,27 @@ def register_core_services(
 
     _add_singleton(ConversationFingerprintService)
 
+    # Register history compaction service for context compaction feature
+    from src.core.interfaces.history_compaction_interface import (
+        IHistoryCompactionService,
+    )
+    from src.core.services.history_compaction_service import HistoryCompactionService
+
+    _add_singleton(HistoryCompactionService)
+
+    try:
+        services.add_singleton(
+            cast(type, IHistoryCompactionService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                HistoryCompactionService
+            ),
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IHistoryCompactionService interface: {e}"
+            )
+
     # Register session manager
     def _session_manager_factory(provider: IServiceProvider) -> SessionManager:
         session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
@@ -1062,11 +1165,14 @@ def register_core_services(
         response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
         angel_service_factory = provider.get_required_service(IAngelServiceFactory)  # type: ignore[type-abstract]
         wire_capture = provider.get_required_service(IWireCapture)  # type: ignore[type-abstract]
+        # Optional: history compaction service for context compaction feature
+        history_compaction_service = provider.get_service(HistoryCompactionService)
         return BackendRequestManager(
             backend_processor,
             response_processor,
             angel_service_factory,
             wire_capture,
+            history_compaction_service=history_compaction_service,
         )
 
     _add_singleton(

@@ -13,14 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 class ToolCallRepairMiddleware(IResponseMiddleware):
-    """
-    Middleware to detect and repair tool calls embedded as text in LLM responses,
-    converting them into a structured OpenAI-compatible tool_calls format.
+    """DEPRECATED: This middleware is now a pass-through and should not be used.
+
+    Tool call repair is now handled by ToolCallRepairProcessor in the streaming pipeline.
+    This class is kept for backward compatibility only.
     """
 
     def __init__(
         self, config: AppConfig, tool_call_repair_service: ToolCallRepairService
     ) -> None:
+        logger.error(
+            "DEPRECATED: ToolCallRepairMiddleware instantiated. "
+            "This middleware is a pass-through - tool call repair is handled by "
+            "ToolCallRepairProcessor in the streaming pipeline."
+        )
         self.config = config
         self.tool_call_repair_service = tool_call_repair_service
 

@@ -1,6 +1,36 @@
-﻿# Changelog
+# Changelog
 
 ## [2025-12-07]
+
+### Added: Feature Parity Architecture for Streaming/Non-Streaming Pipelines
+
+- **Core Architecture**: New `IResponseFeature` interface enforces dual-path implementation
+  - **Template Method Pattern**: Abstract `process_streaming()` and `process_non_streaming()` methods ensure explicit handling for both code paths
+  - **FeatureCapability Enum**: Declares feature support (STREAMING, NON_STREAMING, BOTH)
+  - **FeatureParityRegistry**: Tracks and verifies parity of all registered features at runtime
+
+- **Adapter Pattern**: Seamless migration between legacy and new architectures
+  - **MiddlewareToFeatureAdapter**: Wraps existing `IResponseMiddleware` for use with new pipeline
+  - **FeatureToMiddlewareAdapter**: Exposes `IResponseFeature` as legacy middleware interface
+
+- **Middleware Migration**: All response middleware migrated to `IResponseFeature`
+  - `EmptyResponseFeature`: Handles empty response detection for both streaming/non-streaming
+  - `StructuredOutputFeature`: JSON schema validation with streaming accumulation
+  - `JsonRepairFeature`: Malformed JSON repair with streaming support
+  - `ResponseLoggingFeature`, `ContentFilterFeature`, `LoopDetectionFeature`: Core utilities
+  - `EditPrecisionFeature`: Edit failure detection for both paths
+  - `ThinkTagsFixFeature`: Thinking tag normalization with streaming buffer
+  - `ToolCallReactorFeature`: Tool call reaction handling
+  - `ToolCallLoopDetectionFeature`: Loop detection with streaming support
+
+- **Production Integration**: `MiddlewareApplicationManager` updated to use `IResponseFeature`
+  - DI factory (`_middleware_application_manager_factory`) now instantiates Feature classes
+  - Legacy `*Middleware` constructors log ERROR to detect accidental usage
+
+- **CI Enforcement**: New test suite ensures architectural compliance
+  - `test_feature_parity_ci.py`: Verifies all middleware have Feature versions
+  - Automatic detection of parity violations at build time
+
 
 ### Added: Memory Feature (ProxyMem)
 

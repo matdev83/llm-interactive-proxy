@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
     IResponseMiddleware,
     ProcessedResponse,
 )
@@ -22,8 +23,348 @@ from src.core.interfaces.response_processor_interface import (
 logger = logging.getLogger(__name__)
 
 
+class ThinkTagsFixFeature(IResponseFeature):
+    """Feature to fix think tags with enforced streaming/non-streaming parity.
+
+    This feature detects and corrects improperly formatted <think> tags in model
+    responses. Both streaming and non-streaming paths use shared logic where possible.
+    """
+
+    _THINK_TAG_PATTERN = re.compile(
+        r"^(\s*)<think>(.*?)</think>(\s*)(.*?)$", re.DOTALL | re.IGNORECASE
+    )
+    _THINK_OPENING_PATTERN = re.compile(r"^(\s*)<think>", re.IGNORECASE)
+    _THINK_CLOSING_PATTERN = re.compile(r"</think>", re.IGNORECASE)
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        streaming_buffer_size: int = 4096,
+        per_model_config: dict[str, dict[str, Any]] | None = None,
+        reasoning_ttl_seconds: int = 300,
+        max_reasoning_entries: int = 1000,
+        priority: int = 5,
+    ) -> None:
+        """Initialize the think tags fix feature."""
+        super().__init__(priority)
+        self._enabled = enabled
+        self._streaming_buffer_size = streaming_buffer_size
+        self._per_model_config: dict[str, dict[str, Any]] = per_model_config or {}
+        self._logger = logging.getLogger(__name__)
+        self._reasoning_ttl_seconds = reasoning_ttl_seconds
+        self._max_reasoning_entries = max_reasoning_entries
+
+        # State management
+        self._streaming_buffers: dict[str, str] = {}
+        self._reasoning_extracted: dict[str, dict[str, Any]] = {}
+        self._stream_states: dict[str, str] = {}
+        self._session_aliases: dict[str, str] = {}
+
+    def _should_process_for_model(self, backend: str | None, model: str | None) -> bool:
+        """Determine if think tags fix should be enabled for a specific model."""
+        if not backend or not model:
+            return self._enabled
+
+        backend_model_key = f"{backend}:{model}"
+        if backend_model_key in self._per_model_config:
+            config = self._per_model_config[backend_model_key]
+            return bool(config.get("enabled", False))
+
+        if model in self._per_model_config:
+            config = self._per_model_config[model]
+            return bool(config.get("enabled", False))
+
+        return self._enabled
+
+    def _resolve_session_id(
+        self,
+        session_id: str,
+        context: dict[str, Any],
+        processed_response: ProcessedResponse,
+    ) -> str:
+        """Resolve stable session identifier."""
+        fallback_context = context or {}
+        resolved_session_id = session_id or fallback_context.get("stream_id")
+
+        if not resolved_session_id and hasattr(processed_response, "metadata"):
+            metadata = getattr(processed_response, "metadata", {})
+            if isinstance(metadata, dict):
+                resolved_session_id = metadata.get("stream_id") or metadata.get(
+                    "session_id"
+                )
+
+        if not resolved_session_id:
+            resolved_session_id = fallback_context.setdefault(
+                "_think_tags_session_id", uuid4().hex
+            )
+        else:
+            resolved_session_id = str(resolved_session_id)
+            fallback_context.setdefault("_think_tags_session_id", resolved_session_id)
+
+        if session_id and session_id != resolved_session_id:
+            self._session_aliases[session_id] = resolved_session_id
+        elif not session_id:
+            self._session_aliases.setdefault(session_id, resolved_session_id)
+
+        return str(resolved_session_id)
+
+    def _ensure_processed_response(self, response: Any) -> ProcessedResponse:
+        """Ensure response is a ProcessedResponse."""
+        if isinstance(response, ProcessedResponse):
+            return response
+
+        content = ""
+        if hasattr(response, "content"):
+            raw_content = response.content
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content)
+        elif isinstance(response, dict):
+            raw_content = response.get("content")
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content)
+        elif isinstance(response, str):
+            content = response
+        elif response is not None:
+            content = str(response)
+
+        metadata = None
+        if hasattr(response, "metadata"):
+            raw_metadata = response.metadata
+            if isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+        elif isinstance(response, dict):
+            raw_metadata = response.get("metadata")
+            if isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+
+        return ProcessedResponse(
+            content=content,
+            usage=getattr(response, "usage", None),
+            metadata=metadata,
+        )
+
+    def _fix_think_tags(self, content: str) -> tuple[str, str | None]:
+        """Fix think tags in content (non-streaming)."""
+        if not content or not isinstance(content, str):
+            return content, None
+
+        match = self._THINK_TAG_PATTERN.match(content)
+        if match:
+            leading_ws = match.group(1)
+            reasoning = match.group(2).strip()
+            middle_ws = match.group(3)
+            remaining = match.group(4).strip()
+            fixed_content = f"{leading_ws}{middle_ws}{remaining}".strip()
+            return fixed_content, reasoning
+
+        return content, None
+
+    def _process_streaming_chunk(
+        self,
+        content: str,
+        session_id: str,
+        is_streaming: bool = True,
+        context: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Process a streaming chunk for think tags."""
+        if not content or not isinstance(content, str):
+            return content, None
+
+        current_buffer = self._streaming_buffers.get(session_id, "")
+        current_buffer += content
+        self._streaming_buffers[session_id] = current_buffer
+
+        state = self._stream_states.get(session_id, "initial")
+
+        if state == "initial":
+            opening_match = self._THINK_OPENING_PATTERN.match(current_buffer)
+            if opening_match:
+                self._stream_states[session_id] = "in_think"
+                return "", None
+            elif "<think" in current_buffer.lower() and len(current_buffer) < 20:
+                return "", None
+
+        if state == "in_think":
+            closing_match = self._THINK_CLOSING_PATTERN.search(current_buffer)
+            if closing_match:
+                reasoning_end = closing_match.start()
+                reasoning = current_buffer[:reasoning_end]
+                after_close = current_buffer[closing_match.end() :]
+
+                opening_match = self._THINK_OPENING_PATTERN.match(current_buffer)
+                if opening_match:
+                    reasoning = reasoning[opening_match.end() :]
+
+                reasoning = reasoning.strip()
+                self._stream_states[session_id] = "after_think"
+                self._streaming_buffers[session_id] = after_close
+
+                reasoning_metadata = {
+                    "reasoning": reasoning,
+                    "reasoning_content": reasoning,
+                    "_created_at": time.time(),
+                }
+                self._reasoning_extracted[session_id] = reasoning_metadata
+
+                return after_close.strip(), reasoning_metadata
+
+            if len(current_buffer) > self._streaming_buffer_size:
+                self._stream_states[session_id] = "pass_through"
+                result = current_buffer
+                self._streaming_buffers[session_id] = ""
+                return result, None
+
+            return "", None
+
+        if state == "after_think" or state == "pass_through":
+            self._streaming_buffers[session_id] = ""
+            return content, None
+
+        return content, None
+
+    def _format_response_with_reasoning(
+        self,
+        content: str,
+        reasoning: str | dict[str, Any],
+        original_response: Any,
+    ) -> ProcessedResponse:
+        """Format response with extracted reasoning."""
+        if isinstance(reasoning, dict):
+            reasoning_content = reasoning.get("reasoning") or reasoning.get(
+                "reasoning_content", ""
+            )
+        else:
+            reasoning_content = reasoning
+
+        original_metadata = {}
+        if hasattr(original_response, "metadata"):
+            raw_metadata = original_response.metadata
+            if isinstance(raw_metadata, dict):
+                original_metadata = dict(raw_metadata)
+
+        metadata = {
+            **original_metadata,
+            "reasoning": reasoning_content,
+            "reasoning_content": reasoning_content,
+            "think_tags_extracted": True,
+        }
+
+        return ProcessedResponse(
+            content=content,
+            usage=getattr(original_response, "usage", None),
+            metadata=metadata,
+        )
+
+    def _process_response(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+        is_streaming: bool,
+    ) -> Any:
+        """Shared processing logic."""
+        backend = context.get("backend")
+        model = context.get("model")
+
+        if not self._should_process_for_model(backend, model):
+            return response
+
+        processed_response = self._ensure_processed_response(response)
+
+        if not processed_response.content:
+            return response
+
+        resolved_session_id = self._resolve_session_id(
+            session_id, context, processed_response
+        )
+
+        if is_streaming:
+            fixed_content, reasoning_metadata = self._process_streaming_chunk(
+                processed_response.content,
+                resolved_session_id,
+                is_streaming=True,
+                context=context,
+            )
+
+            if reasoning_metadata:
+                formatted_response = self._format_response_with_reasoning(
+                    fixed_content, reasoning_metadata, response
+                )
+                if (
+                    hasattr(formatted_response, "metadata")
+                    and formatted_response.metadata
+                ):
+                    formatted_response.metadata["streaming_extraction"] = True
+                return formatted_response
+            elif fixed_content != processed_response.content:
+                modified_response = self._ensure_processed_response(response)
+                modified_response.content = fixed_content
+                return modified_response
+            else:
+                return response
+        else:
+            fixed_content, reasoning_content = self._fix_think_tags(
+                processed_response.content
+            )
+
+            if reasoning_content is not None:
+                return self._format_response_with_reasoning(
+                    fixed_content, reasoning_content, response
+                )
+
+        return response
+
+    async def process_non_streaming(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+    ) -> Any:
+        """Process non-streaming response for think tags."""
+        return self._process_response(response, session_id, context, is_streaming=False)
+
+    async def process_streaming(
+        self,
+        chunk: Any,
+        session_id: str,
+        context: dict[str, Any],
+    ) -> Any:
+        """Process streaming chunk for think tags."""
+        return self._process_response(chunk, session_id, context, is_streaming=True)
+
+    def reset_session(self, session_id: str) -> None:
+        """Reset session-specific state."""
+        alias = self._session_aliases.pop(session_id, None)
+        if alias:
+            session_id = alias
+        self._streaming_buffers.pop(session_id, None)
+        self._stream_states.pop(session_id, None)
+        self._reasoning_extracted.pop(session_id, None)
+
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Reset think tags fix state for session %s", session_id)
+
+    def get_session_reasoning(self, session_id: str) -> dict[str, Any] | None:
+        """Get extracted reasoning for a session."""
+        data = self._reasoning_extracted.get(session_id)
+        if data is None:
+            return None
+        result = {k: v for k, v in data.items() if not k.startswith("_")}
+        return result if result else None
+
+
+# Legacy middleware kept for backward compatibility during transition
+# DEPRECATED: Use ThinkTagsFixFeature instead
 class ThinkTagsFixMiddleware(IResponseMiddleware):
-    """Middleware to fix improperly formatted <think> tags in model responses."""
+    """DEPRECATED: Use ThinkTagsFixFeature instead.
+
+    Legacy middleware to fix improperly formatted <think> tags in model responses.
+    This class is kept for backward compatibility only.
+    """
 
     # Pre-compiled regex patterns for performance
     _THINK_TAG_PATTERN = re.compile(
@@ -51,6 +392,10 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             reasoning_ttl_seconds: TTL for reasoning entries to prevent data leaks (default: 5 min)
             max_reasoning_entries: Maximum reasoning entries to prevent memory exhaustion
         """
+        logger.error(
+            "DEPRECATED: ThinkTagsFixMiddleware instantiated. "
+            "Use ThinkTagsFixFeature instead for proper streaming/non-streaming parity."
+        )
         super().__init__(priority=5)  # Run early in the pipeline
         self._enabled = enabled
         self._streaming_buffer_size = streaming_buffer_size

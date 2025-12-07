@@ -8,20 +8,27 @@ from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
 from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
     IResponseMiddleware,
     ProcessedResponse,
 )
 
 logger = logging.getLogger(__name__)
 
+# Type alias for middleware/features - both are supported
+ResponseProcessor = IResponseFeature | IResponseMiddleware
+
 
 class MiddlewareApplicationManager(IMiddlewareApplicationManager):
     """
-    Orchestrates the application of response middleware for non-streaming responses.
+    Orchestrates the application of response features/middleware.
+
+    This manager supports both IResponseFeature (preferred, with explicit
+    streaming/non-streaming methods) and legacy IResponseMiddleware.
     """
 
-    def __init__(self, middleware: list[IResponseMiddleware]) -> None:
-        def _priority(mw: IResponseMiddleware) -> int:
+    def __init__(self, middleware: list[ResponseProcessor]) -> None:
+        def _priority(mw: ResponseProcessor) -> int:
             try:
                 p = getattr(mw, "priority", 0)
                 return p if isinstance(p, int) else 0
@@ -33,25 +40,30 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
     async def apply_middleware(
         self,
         content: Any,
-        middleware_list: list[IResponseMiddleware] | None = None,
+        middleware_list: list[ResponseProcessor] | None = None,
         is_streaming: bool = False,
         stop_event: Any = None,
         session_id: str = "",
         context: dict[str, Any] | None = None,
     ) -> Any:
         """
-        Applies a list of response middleware to the given content.
-        If middleware_list is provided, it is used. Otherwise, the middleware
-        from the constructor is used.
-        Args:
-            content: The content to apply middleware to.
-            middleware_list: A list of IResponseMiddleware objects to apply.
-            is_streaming: A boolean indicating if the middleware is applied during streaming.
-            stop_event: An optional event to signal early termination during streaming.
-        Returns:
-            The content after applying all middleware. For streaming, this might be a generator.
-        """
+        Applies a list of response features/middleware to the given content.
 
+        Supports both IResponseFeature (with explicit streaming/non-streaming methods)
+        and legacy IResponseMiddleware. Features are preferred and will use the
+        explicit methods for better parity enforcement.
+
+        Args:
+            content: The content to apply features/middleware to.
+            middleware_list: A list of features/middleware to apply.
+            is_streaming: Whether this is a streaming response.
+            stop_event: Optional event to signal early termination.
+            session_id: The session identifier.
+            context: Additional context for processing.
+
+        Returns:
+            The content after applying all features/middleware.
+        """
         middleware_to_apply = (
             middleware_list if middleware_list is not None else self._middleware
         )
@@ -76,7 +88,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
     async def _apply_non_streaming_middleware(
         self,
         content: Any,
-        middleware_list: list[IResponseMiddleware],
+        middleware_list: list[ResponseProcessor],
         stop_event: Any = None,
         session_id: str = "",
         context: dict[str, Any] | None = None,
@@ -90,18 +102,29 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         for mw in middleware_list:
             try:
                 middleware_context = dict(base_context)
-                result = await mw.process(
-                    processed_response,
-                    session_id,
-                    middleware_context,
-                    is_streaming=False,
-                    stop_event=stop_event,
-                )
+                # Prefer explicit non-streaming method if available (IResponseFeature)
+                if isinstance(mw, IResponseFeature):
+                    result = await mw.process_non_streaming(
+                        processed_response,
+                        session_id,
+                        middleware_context,
+                    )
+                else:
+                    # Legacy IResponseMiddleware fallback
+                    result = await mw.process(
+                        processed_response,
+                        session_id,
+                        middleware_context,
+                        is_streaming=False,
+                        stop_event=stop_event,
+                    )
                 if result is not None:
                     processed_response = result
             except Exception as e:
                 logger.error(
-                    f"Error applying middleware {mw.__class__.__name__}: {e}",
+                    "Error applying middleware %s: %s",
+                    mw.__class__.__name__,
+                    e,
                     exc_info=True,
                 )
         content_value = processed_response.content
@@ -112,7 +135,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
     async def _apply_streaming_middleware(
         self,
         content_iterator: Any,
-        middleware_list: list[IResponseMiddleware],
+        middleware_list: list[ResponseProcessor],
         stop_event: Any,
         session_id: str = "",
         context: dict[str, Any] | None = None,
@@ -131,18 +154,29 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                 for mw in middleware_list:
                     try:
                         middleware_context = dict(base_context)
-                        result = await mw.process(
-                            processed_chunk,
-                            session_id,
-                            middleware_context,
-                            is_streaming=True,
-                            stop_event=stop_event,
-                        )
+                        # Prefer explicit streaming method if available (IResponseFeature)
+                        if isinstance(mw, IResponseFeature):
+                            result = await mw.process_streaming(
+                                processed_chunk,
+                                session_id,
+                                middleware_context,
+                            )
+                        else:
+                            # Legacy IResponseMiddleware fallback
+                            result = await mw.process(
+                                processed_chunk,
+                                session_id,
+                                middleware_context,
+                                is_streaming=True,
+                                stop_event=stop_event,
+                            )
                         if result is not None:
                             processed_chunk = result
                     except Exception as e:
                         logger.error(
-                            f"Error applying streaming middleware {mw.__class__.__name__}: {e}",
+                            "Error applying streaming middleware %s: %s",
+                            mw.__class__.__name__,
+                            e,
                             exc_info=True,
                         )
                 yield processed_chunk

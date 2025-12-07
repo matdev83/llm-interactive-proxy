@@ -13,6 +13,7 @@ from typing import Any
 
 from src.core.common.exceptions import BackendError
 from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
     IResponseMiddleware,
     ProcessedResponse,
 )
@@ -20,8 +21,387 @@ from src.core.interfaces.response_processor_interface import (
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# New IResponseFeature implementation with enforced parity
+# ============================================================================
+
+
+class EmptyResponseFeature(IResponseFeature):
+    """Feature to detect empty responses with enforced streaming/non-streaming parity.
+
+    This is the IResponseFeature version of EmptyResponseMiddleware that
+    explicitly implements both streaming and non-streaming paths with shared
+    detection logic.
+
+    For streaming responses, this feature accumulates content across chunks
+    and marks the response as empty at stream completion if no meaningful
+    content was received.
+    """
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        max_retries: int = 1,
+        priority: int = 0,
+    ) -> None:
+        """Initialize the empty response feature.
+
+        Args:
+            enabled: Whether the feature is enabled
+            max_retries: Maximum number of retry attempts
+            priority: Execution priority
+        """
+        super().__init__(priority)
+        self._enabled = enabled
+        self._max_retries = max_retries
+        self._retry_counts: dict[str, int] = {}
+        self._recovery_prompt: str | None = None
+        # Streaming state: track activity per stream
+        self._stream_activity: dict[str, dict[str, bool]] = {}
+
+    def _has_tool_calls(
+        self, response: ProcessedResponse, context: dict[str, Any] | None = None
+    ) -> bool:
+        """Determine whether tool calls are present in the response or context."""
+        has_tool_calls = False
+
+        if response.metadata:
+            has_tool_calls = bool(response.metadata.get("tool_calls"))
+
+        if not has_tool_calls and context:
+            has_tool_calls = bool(context.get("tool_calls"))
+
+        if not has_tool_calls and context and "original_response" in context:
+            original = context["original_response"]
+            if hasattr(original, "tool_calls"):
+                has_tool_calls = bool(original.tool_calls)
+            elif isinstance(original, dict):
+                choices = original.get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    message = choices[0].get("message", {})
+                    has_tool_calls = bool(message.get("tool_calls"))
+
+        return has_tool_calls
+
+    def _load_recovery_prompt(self) -> str:
+        """Load the recovery prompt from the config file."""
+        if self._recovery_prompt is not None:
+            return self._recovery_prompt
+
+        try:
+            prompt_relative = (
+                Path("config") / "prompts" / "empty_response_auto_retry_prompt.md"
+            )
+            current_dir = Path(__file__).resolve().parent
+            prompt_path: Path | None = None
+
+            for candidate_root in (current_dir, *tuple(current_dir.parents)):
+                candidate = candidate_root / prompt_relative
+                if candidate.exists():
+                    prompt_path = candidate
+                    break
+                if candidate_root.parent == candidate_root:
+                    break
+
+            if prompt_path and prompt_path.exists():
+                with open(prompt_path, encoding="utf-8") as f:
+                    self._recovery_prompt = f.read().strip()
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Loaded recovery prompt from %s", prompt_path)
+            else:
+                self._recovery_prompt = (
+                    "The previous response was empty. Please provide a valid response "
+                    "with either text content or tool calls. Never return an empty response."
+                )
+                logger.warning(
+                    "Recovery prompt file not found at %s, using fallback",
+                    prompt_path or prompt_relative,
+                )
+
+        except OSError as e:
+            logger.error("Error loading recovery prompt: %s", e)
+            self._recovery_prompt = (
+                "The previous response was empty. Please provide a valid response "
+                "with either text content or tool calls. Never return an empty response."
+            )
+
+        return self._recovery_prompt
+
+    def _is_empty_response(
+        self, response: ProcessedResponse, context: dict[str, Any] | None = None
+    ) -> bool:
+        """Check if a response is empty (no content and no tool calls)."""
+        metadata = response.metadata if isinstance(response.metadata, dict) else {}
+        finish_reason = (
+            metadata.get("finish_reason") if isinstance(metadata, dict) else None
+        )
+        if isinstance(finish_reason, str) and finish_reason.lower() == "tool_calls":
+            return False
+
+        def _content_is_empty(val: Any) -> bool:
+            if val is None:
+                return True
+            if isinstance(val, dict):
+                if val.get("error"):
+                    return False
+                if val.get("choices"):
+                    return False
+                return not bool(val)
+            if isinstance(val, list | tuple | set):
+                return len(val) == 0
+            if isinstance(val, bytes | bytearray):
+                try:
+                    val = val.decode("utf-8")
+                except Exception:
+                    val = val.decode("utf-8", errors="ignore")
+            if isinstance(val, str):
+                return not val.strip()
+            return not bool(val)
+
+        content_empty = _content_is_empty(response.content)
+        has_tool_calls = self._has_tool_calls(response, context)
+        return content_empty and not has_tool_calls
+
+    def _ensure_processed_response(
+        self, response: Any, context: dict[str, Any] | None
+    ) -> ProcessedResponse:
+        """Normalize arbitrary response objects into ProcessedResponse instances."""
+        if isinstance(response, ProcessedResponse):
+            return response
+
+        content: str = ""
+        metadata: dict[str, Any] | None = None
+
+        if hasattr(response, "content"):
+            raw_content = response.content
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content)
+        elif isinstance(response, dict):
+            raw_content = response.get("content")
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content)
+            elif "choices" in response:
+                try:
+                    first_choice = response.get("choices", [])[0]
+                except IndexError:
+                    first_choice = None
+                if isinstance(first_choice, dict):
+                    message = first_choice.get("message", {})
+                    if isinstance(message, dict):
+                        msg_content = message.get("content")
+                        if isinstance(msg_content, str):
+                            content = msg_content
+                        elif msg_content is not None:
+                            content = str(msg_content)
+                        tool_calls = message.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            metadata = {"tool_calls": tool_calls}
+        elif response is not None:
+            content = str(response)
+
+        if metadata is None:
+            raw_metadata = getattr(response, "metadata", None)
+            if isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+            elif isinstance(response, dict):
+                raw_metadata = response.get("metadata")
+                if isinstance(raw_metadata, dict):
+                    metadata = raw_metadata
+
+        if metadata is None and context and isinstance(context, dict):
+            tool_calls = context.get("tool_calls")
+            if isinstance(tool_calls, list):
+                metadata = {"tool_calls": tool_calls}
+
+        return ProcessedResponse(content=content, metadata=metadata)
+
+    def _get_stream_key(self, session_id: str, context: dict[str, Any]) -> str:
+        """Get unique key for tracking stream activity."""
+        stream_id = context.get("stream_id", "")
+        return f"{session_id}:{stream_id}" if stream_id else session_id
+
+    def _track_stream_activity(
+        self,
+        stream_key: str,
+        processed_response: ProcessedResponse,
+        context: dict[str, Any],
+    ) -> None:
+        """Track streaming activity for empty detection."""
+        if stream_key not in self._stream_activity:
+            self._stream_activity[stream_key] = {
+                "has_content": False,
+                "has_tool_calls": False,
+            }
+
+        activity = self._stream_activity[stream_key]
+
+        # Check for content
+        if processed_response.content:
+            content_str = (
+                processed_response.content
+                if isinstance(processed_response.content, str)
+                else str(processed_response.content)
+            )
+            if content_str.strip():
+                activity["has_content"] = True
+
+        # Check for tool calls
+        if self._has_tool_calls(processed_response, context):
+            activity["has_tool_calls"] = True
+
+    def _is_stream_end(self, context: dict[str, Any]) -> bool:
+        """Check if this is the end of a stream."""
+        if context.get("is_final_chunk"):
+            return True
+        if context.get("done"):
+            return True
+        return bool(context.get("finish_reason"))
+
+    async def process_non_streaming(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+    ) -> Any:
+        """Check non-streaming response for empty content and trigger retry if needed."""
+        if not self._enabled:
+            return response
+
+        context = context or {}
+        original_request = context.get("original_request")
+
+        processed_response = self._ensure_processed_response(response, context)
+
+        if original_request is None and isinstance(processed_response.metadata, dict):
+            original_request = processed_response.metadata.pop("original_request", None)
+        elif isinstance(processed_response.metadata, dict):
+            processed_response.metadata.pop("original_request", None)
+
+        if self._is_empty_response(processed_response, context):
+            retry_count = self._retry_counts.get(session_id, 0)
+
+            if retry_count < self._max_retries:
+                if original_request is None:
+                    logger.warning(
+                        "Empty response detected but no original_request in context; "
+                        "skipping retry"
+                    )
+                    return response
+
+                recovery_prompt = self._load_recovery_prompt()
+                next_retry_count = retry_count + 1
+                self._retry_counts[session_id] = next_retry_count
+
+                logger.info(
+                    "Empty response detected for session %s, attempt %s/%s",
+                    session_id,
+                    next_retry_count,
+                    self._max_retries,
+                )
+
+                raise EmptyResponseRetryError(
+                    recovery_prompt=recovery_prompt,
+                    session_id=session_id,
+                    retry_count=next_retry_count,
+                    original_request=original_request,
+                )
+            else:
+                self._retry_counts.pop(session_id, None)
+                logger.error(
+                    "Max retries exceeded for empty response in session %s", session_id
+                )
+
+                raise BackendError(
+                    message="The LLM failed to generate a valid response after retry "
+                    "attempts. The response was empty (no content or tool calls).",
+                    details={
+                        "session_id": session_id,
+                        "retry_count": retry_count,
+                        "error_type": "empty_response_max_retries_exceeded",
+                    },
+                )
+        else:
+            self._retry_counts.pop(session_id, None)
+
+        return response
+
+    async def process_streaming(
+        self,
+        chunk: Any,
+        session_id: str,
+        context: dict[str, Any],
+    ) -> Any:
+        """Check streaming chunk for content and track activity.
+
+        For streaming, we accumulate evidence of activity (content, tool calls)
+        across chunks. At stream end, we mark if the entire stream was empty.
+        """
+        if not self._enabled:
+            return chunk
+
+        context = context or {}
+        processed_response = self._ensure_processed_response(chunk, context)
+
+        # Remove original_request from metadata to prevent leaking
+        if isinstance(processed_response.metadata, dict):
+            processed_response.metadata.pop("original_request", None)
+
+        stream_key = self._get_stream_key(session_id, context)
+
+        # Track activity
+        self._track_stream_activity(stream_key, processed_response, context)
+
+        # Check if this is the end of the stream
+        if self._is_stream_end(context):
+            activity = self._stream_activity.pop(stream_key, None)
+            if activity:
+                is_empty = (
+                    not activity["has_content"] and not activity["has_tool_calls"]
+                )
+                if is_empty:
+                    logger.warning(
+                        "Empty streaming response detected for session %s", session_id
+                    )
+                    # Mark the response as empty for downstream handling
+                    if processed_response.metadata is None:
+                        processed_response.metadata = {}
+                    if isinstance(processed_response.metadata, dict):
+                        processed_response.metadata["empty_stream_detected"] = True
+
+                    # Note: For streaming, we can't easily retry since chunks have
+                    # already been sent. The downstream handler should check this
+                    # flag and potentially trigger a follow-up request.
+
+        return processed_response
+
+    def reset_session(self, session_id: str) -> None:
+        """Reset retry count and stream activity for a session."""
+        self._retry_counts.pop(session_id, None)
+        # Clean up any stream activity keys that start with this session
+        keys_to_remove = [
+            k for k in self._stream_activity if k.startswith(f"{session_id}:")
+        ]
+        for key in keys_to_remove:
+            self._stream_activity.pop(key, None)
+        self._stream_activity.pop(session_id, None)
+
+
+# ============================================================================
+# Legacy IResponseMiddleware implementation (kept for backward compatibility)
+# DEPRECATED: Use EmptyResponseFeature instead
+# ============================================================================
+
+
 class EmptyResponseMiddleware(IResponseMiddleware):
-    """Middleware to detect and handle empty responses from LLMs."""
+    """DEPRECATED: Use EmptyResponseFeature instead.
+
+    Legacy middleware to detect and handle empty responses from LLMs.
+    This class is kept for backward compatibility only.
+    """
 
     def __init__(self, enabled: bool = True, max_retries: int = 1) -> None:
         """Initialize the empty response middleware.
@@ -30,6 +410,10 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             enabled: Whether the middleware is enabled
             max_retries: Maximum number of retry attempts (default: 1)
         """
+        logger.error(
+            "DEPRECATED: EmptyResponseMiddleware instantiated. "
+            "Use EmptyResponseFeature instead for proper streaming/non-streaming parity."
+        )
         self._enabled = enabled
         self._max_retries = max_retries
         self._retry_counts: dict[str, int] = {}
