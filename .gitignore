@@ -107,3 +107,5 @@ var/wire_captures_json/*
 !var/wire_captures_json/.gitkeep
 var/wire_captures_cbor/*
 !var/wire_captures_cbor/.gitkeep
+var/state/*
+!var/state/.gitkeep

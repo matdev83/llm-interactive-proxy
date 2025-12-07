@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import ChatMessage
 from src.core.domain.compaction import (
     CompactionStub,
@@ -192,9 +193,12 @@ class HistoryCompactionService(IHistoryCompactionService):
 
             if identity is None:
                 # Cannot identify resource - skip compaction per Req 1.3
-                logger.debug(
-                    "Skipping message %d - cannot extract resource identity", idx
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Skipping message %d - cannot extract resource identity",
+                        idx,
+                    )
                 continue
 
             if identity not in resource_map:
@@ -217,7 +221,12 @@ class HistoryCompactionService(IHistoryCompactionService):
             category = categorize_tool(tool_name)
 
             if not policies.should_compact_tool(tool_name, category):
-                logger.debug("Skipping compaction for %s - denied by policy", tool_name)
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Skipping compaction for %s - denied by policy",
+                        tool_name,
+                    )
                 continue
 
             # Mark all but the last occurrence as stale

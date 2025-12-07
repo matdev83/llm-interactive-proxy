@@ -29,6 +29,9 @@ import structlog
 # Type variable for generic functions
 T = TypeVar("T")
 
+# Track logged security warnings to prevent spam
+_logged_security_warnings: set[str] = set()
+
 
 # Environment detection
 def _is_running_under_pytest() -> bool:
@@ -118,6 +121,9 @@ DEFAULT_REDACTED_FIELDS = {
     "authorization",
     "credentials",
 }
+
+# Keep track of security warnings already logged to avoid spamming logs
+_logged_security_warnings: set[str] = set()
 
 # Regular expressions for redacting sensitive information
 # Match common API key prefixes with more specific patterns to reduce false positives:
@@ -441,6 +447,7 @@ def configure_logging_with_environment_tagging(
     level: int = logging.INFO,
     log_format: str | None = None,
     log_file: str | None = None,
+    use_colors: bool = False,
 ) -> None:
     """Configure logging with environment tagging.
 
@@ -448,6 +455,7 @@ def configure_logging_with_environment_tagging(
         level: Logging level
         log_format: Optional log format string
         log_file: Optional log file path
+        use_colors: Whether to enable colored output
     """
     # Use default format with environment tag if none provided - match project format with env_tag after loglevel
     if log_format is None:
@@ -460,8 +468,35 @@ def configure_logging_with_environment_tagging(
     handlers: list[logging.Handler] = []
 
     # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
+    console_handler: logging.Handler
+    if use_colors:
+        try:
+            from rich.logging import RichHandler
+
+            # Use RichHandler for colored output
+            # Define a simplified format for Rich that excludes time/level (Rich handles them)
+            # but includes the environment tag and location info
+            rich_fmt = "[%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+            rich_formatter = EnvironmentTaggingFormatter(fmt=rich_fmt)
+
+            console_handler = RichHandler(
+                rich_tracebacks=True,
+                markup=True,
+                show_time=True,
+                show_level=True,
+                show_path=False,  # We include path in the message format
+                log_time_format="[%Y-%m-%d %H:%M:%S]",
+            )
+            console_handler.setFormatter(rich_formatter)
+        except ImportError:
+            # Fallback to standard stream handler if rich is not installed
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+    else:
+        # Standard stream handler for plain text
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+
     handlers.append(console_handler)
 
     # File handler if specified
@@ -469,6 +504,21 @@ def configure_logging_with_environment_tagging(
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
+
+    # Configure structlog
+    structlog_processors = [
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.dev.ConsoleRenderer(colors=use_colors),
+    ]
+
+    structlog.configure(
+        processors=structlog_processors,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
 
     # Configure root logger
     _configure_root_logger(level, handlers)
@@ -529,11 +579,15 @@ def _discover_api_keys_from_config_auth(
                     if k:
                         found.add(str(k))
                         # SECURITY WARNING: Log when API keys are found in config
-                        logger = get_logger(__name__)
-                        logger.warning(
-                            "SECURITY WARNING: API key found in config.auth.api_keys. "
-                            "API keys should only be set via environment variables, not config files."
-                        )
+                        # Only log once per session to avoid log spam
+                        warn_key = "auth.api_keys"
+                        if warn_key not in _logged_security_warnings:
+                            logger = get_logger(__name__)
+                            logger.warning(
+                                "SECURITY WARNING: API key found in config.auth.api_keys. "
+                                "API keys should only be set via environment variables, not config files."
+                            )
+                            _logged_security_warnings.add(warn_key)
     except Exception as e:
         # Suppress errors to ensure logging continues; add debug context
         get_logger(__name__).debug(
@@ -577,19 +631,25 @@ def _discover_api_keys_from_config_backends(
                                 if k:
                                     found.add(str(k))
                                     # SECURITY WARNING: Log when API keys are found in config
-                                    logger = get_logger(__name__)
-                                    logger.warning(
-                                        f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
-                                        "API keys should only be set via environment variables, not config files."
-                                    )
+                                    warn_key = f"backends.{b}.api_key"
+                                    if warn_key not in _logged_security_warnings:
+                                        logger = get_logger(__name__)
+                                        logger.warning(
+                                            f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                            "API keys should only be set via environment variables, not config files."
+                                        )
+                                        _logged_security_warnings.add(warn_key)
                         else:
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
-                            logger = get_logger(__name__)
-                            logger.warning(
-                                f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
-                                "API keys should only be set via environment variables, not config files."
-                            )
+                            warn_key = f"backends.{b}.api_key"
+                            if warn_key not in _logged_security_warnings:
+                                logger = get_logger(__name__)
+                                logger.warning(
+                                    f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                    "API keys should only be set via environment variables, not config files."
+                                )
+                                _logged_security_warnings.add(warn_key)
                 except Exception as e:
                     # If backend attribute is missing or malformed, skip
                     get_logger(__name__).debug(

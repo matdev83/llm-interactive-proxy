@@ -294,6 +294,7 @@ class LoggingConfig(DomainModel):
     model_config = ConfigDict(frozen=True)
 
     level: LogLevel = LogLevel.INFO
+    use_colors: bool = False
     request_logging: bool = False
     response_logging: bool = False
     log_file: str | None = None
@@ -1749,6 +1750,13 @@ class AppConfig(DomainModel, IConfig):
                 "LOG_LEVEL",
                 "INFO",
                 path="logging.level",
+                resolution=resolution,
+            ),
+            "use_colors": _env_to_bool(
+                "LOG_USE_COLORS",
+                False,
+                env,
+                path="logging.use_colors",
                 resolution=resolution,
             ),
             "request_logging": _env_to_bool(

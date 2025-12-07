@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.vtc_xml_parser import (
     detect_complete_tool_call,
@@ -164,10 +165,12 @@ class VTCResponseStreamWrapper:
 
         # Check if we might have a partial pattern (still buffering)
         if has_partial_xml_pattern(self._buffer):
-            logger.debug(
-                "VTC wrapper buffering partial XML pattern (%d bytes)",
-                len(self._buffer),
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "VTC wrapper buffering partial XML pattern (%d bytes)",
+                    len(self._buffer),
+                )
             return None  # Continue buffering
 
         # No XML patterns - flush buffer as regular content
@@ -214,10 +217,12 @@ class VTCResponseStreamWrapper:
 
         # Check if we might have a partial pattern (still buffering)
         if has_partial_xml_pattern(self._buffer):
-            logger.debug(
-                "VTC wrapper buffering partial XML pattern (%d bytes)",
-                len(self._buffer),
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "VTC wrapper buffering partial XML pattern (%d bytes)",
+                    len(self._buffer),
+                )
             return None  # Continue buffering
 
         # No XML patterns - flush buffer as regular content

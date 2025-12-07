@@ -27,7 +27,7 @@ from src.core.app.application_builder import (
     ApplicationBuilder,
     build_app_async,
 )
-from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
+from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG, get_uvicorn_logging_config
 from src.core.config.app_config import AppConfig, LogLevel, _merge_dicts, load_config
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
@@ -301,6 +301,20 @@ def build_cli_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default=None,
         help="Set the logging level (default: use config or INFO)",
+    )
+    parser.add_argument(
+        "--log-colors",
+        dest="log_use_colors",
+        action="store_true",
+        default=None,
+        help="Enable colored logging output (overrides config)",
+    )
+    parser.add_argument(
+        "--no-log-colors",
+        dest="log_use_colors",
+        action="store_false",
+        default=None,
+        help="Disable colored logging output (overrides config)",
     )
 
     # Feature flags
@@ -1511,6 +1525,15 @@ def apply_cli_args(
             "--project-dir-resolution-mode",
         )
 
+    if getattr(args, "log_use_colors", None) is not None:
+        logging_overrides = cli_overrides.setdefault("logging", {})
+        logging_overrides["use_colors"] = args.log_use_colors
+        record_cli(
+            "logging.use_colors",
+            args.log_use_colors,
+            "--log-colors" if args.log_use_colors else "--no-log-colors",
+        )
+
     # These still rely on environment variables for now
     if args.disable_redact_api_keys_in_prompts is not None:
         auth_overrides = cli_overrides.setdefault("auth", {})
@@ -2494,6 +2517,7 @@ def _configure_logging(cfg: AppConfig) -> None:
     configure_logging_with_environment_tagging(
         level=getattr(logging, cfg.logging.level.value),
         log_file=cfg.logging.log_file,
+        use_colors=cfg.logging.use_colors,
     )
 
 
@@ -2759,7 +2783,10 @@ async def main(
 
     # Main server
     main_config = uvicorn.Config(
-        app, host=cfg.host, port=cfg.port, log_config=UVICORN_LOGGING_CONFIG
+        app,
+        host=cfg.host,
+        port=cfg.port,
+        log_config=get_uvicorn_logging_config(use_colors=cfg.logging.use_colors),
     )
     main_server = uvicorn.Server(main_config)
     servers.append(main_server.serve())
@@ -2773,7 +2800,7 @@ async def main(
             anthropic_app,
             host=cfg.host,
             port=cfg.anthropic_port,
-            log_config=UVICORN_LOGGING_CONFIG,
+            log_config=get_uvicorn_logging_config(use_colors=cfg.logging.use_colors),
         )
         anthropic_server = uvicorn.Server(anthropic_config)
         servers.append(anthropic_server.serve())
