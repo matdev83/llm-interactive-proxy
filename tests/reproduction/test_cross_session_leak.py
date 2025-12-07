@@ -14,7 +14,7 @@ async def test_buffered_wire_capture_isolation():
     # 1. Setup
     config = MagicMock(spec=AppConfig)
     config.logging = MagicMock()
-    config.logging.capture_file = "test_capture.jsonl"
+    config.logging.capture_file = "var/state/test_capture.jsonl"
     config.logging.capture_buffer_size = 100
     config.logging.capture_flush_interval = 60
     config.logging.capture_max_entries_per_flush = 100

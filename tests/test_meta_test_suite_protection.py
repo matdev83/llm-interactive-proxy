@@ -20,7 +20,7 @@ import pytest
 class TestSuiteProtection:
     """Meta test to ensure test suite doesn't shrink."""
 
-    STATE_FILE_PATH = Path(__file__).parent.parent / "var" / "test_suite_state.json"
+    STATE_FILE_PATH = Path(__file__).parent.parent / "var" / "state" / "test_suite_state.json"
 
     EXPECTED_MIN_COUNT = 3706
 
