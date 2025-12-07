@@ -176,10 +176,19 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
 
         # Get first choice (OpenAI typically uses index 0)
         choice = choices[0]
-        delta = choice.get("delta", {})
+        delta = choice.get("delta", {}) or {}
+        if not isinstance(delta, dict):
+            delta = {}
 
         # Extract content from delta
-        content = delta.get("content", "")
+        raw_content = delta.get("content")
+        content: str | dict | bytes
+        if raw_content is None:
+            content = ""
+        elif isinstance(raw_content, (str, dict, bytes)):
+            content = raw_content
+        else:
+            content = str(raw_content)
 
         # Build metadata
         metadata: dict[str, Any] = {
@@ -224,6 +233,9 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         reasoning_content = delta.get("reasoning_content") or delta.get("reasoning")
         if reasoning_content:
             metadata["reasoning_content"] = reasoning_content
+            # Some models emit reasoning without content; surface it as content for compatibility
+            if not content:
+                content = reasoning_content
 
         # Add index if available
         if "index" in choice:
@@ -234,6 +246,10 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
 
         # Determine if this is an empty chunk
         is_empty = not content and not delta.get("tool_calls") and not reasoning_content
+
+        # Capture backend error payloads for error finish reasons
+        if "error" in event_data:
+            metadata["error"] = event_data["error"]
 
         # Create normalized chunk
         chunk = self.create_normalized_chunk(

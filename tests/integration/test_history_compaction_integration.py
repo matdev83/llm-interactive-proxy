@@ -632,6 +632,9 @@ class TestHistoryCompactionRealService:
         )
 
         # Build a request with stale tool outputs (proper structure)
+        # Content is sized to exceed the 100K token threshold (default)
+        # ~480K characters ≈ ~120K tokens at 4 chars/token average
+        large_content = "old version " * 40000  # ~480K chars
         original_request = ChatRequest(
             model="gemini",
             messages=[
@@ -643,7 +646,7 @@ class TestHistoryCompactionRealService:
                         ),
                     ]
                 ),
-                _create_tool_result_message("view_file", "old version" * 50, "call-1"),
+                _create_tool_result_message("view_file", large_content, "call-1"),
                 ChatMessage(role="assistant", content="I see the old version."),
                 ChatMessage(role="user", content="view it again"),
                 _create_assistant_tool_call_message(

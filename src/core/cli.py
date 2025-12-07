@@ -27,7 +27,9 @@ from src.core.app.application_builder import (
     ApplicationBuilder,
     build_app_async,
 )
-from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG, get_uvicorn_logging_config
+from src.core.common.uvicorn_logging import (
+    get_uvicorn_logging_config,
+)
 from src.core.config.app_config import AppConfig, LogLevel, _merge_dicts, load_config
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 

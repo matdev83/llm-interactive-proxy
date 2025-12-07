@@ -156,10 +156,19 @@ class BackendRequestManager(IBackendRequestManager):
                 # Use default compaction config - could be injected from app_config later
                 config = CompactionConfig.default()
                 if config.enabled:
-                    compaction_result = await self._history_compaction_service.compact_history(
-                        final_request.messages,
-                        config,
-                        current_token_estimate=None,  # Token estimation could be added later
+                    # Fast approximate token estimate using character count / 4
+                    # This is O(n) and avoids expensive tokenization for threshold checking
+                    # Actual tokenization happens later in the pipeline if needed
+                    total_chars = sum(
+                        len(str(msg.content or "")) for msg in final_request.messages
+                    )
+                    token_estimate = total_chars // 4  # ~4 chars per token average
+                    compaction_result = (
+                        await self._history_compaction_service.compact_history(
+                            final_request.messages,
+                            config,
+                            current_token_estimate=token_estimate,
+                        )
                     )
                     if compaction_result.was_compacted:
                         if logger.isEnabledFor(logging.INFO):

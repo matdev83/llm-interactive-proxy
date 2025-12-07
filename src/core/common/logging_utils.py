@@ -97,7 +97,10 @@ class EnvironmentTaggingFilter(logging.Filter):
 
 
 class EnvironmentTaggingFormatter(logging.Formatter):
-    """Logging formatter that includes environment tags."""
+    """Logging formatter that includes environment tags and PID.
+
+    Format: YYYY-MM-DD HH:MM:SS,mmm [LEVEL] [env] [pid=XXX] name:lineno message
+    """
 
     def __init__(
         self,
@@ -105,9 +108,9 @@ class EnvironmentTaggingFormatter(logging.Formatter):
         datefmt: str | None = None,
         style: Literal["%", "{", "$"] = "%",
     ) -> None:
-        # Set default format if none provided - match project format with env_tag after loglevel
+        # Set default format if none provided - compact level, env tag, and PID
         if fmt is None:
-            fmt = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+            fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
         super().__init__(fmt, datefmt, style=style)
 
 
@@ -457,9 +460,9 @@ def configure_logging_with_environment_tagging(
         log_file: Optional log file path
         use_colors: Whether to enable colored output
     """
-    # Use default format with environment tag if none provided - match project format with env_tag after loglevel
+    # Use default format with environment tag if none provided - compact level, env tag, and PID
     if log_format is None:
-        log_format = "%(asctime)s [%(levelname)-8s] [%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+        log_format = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
 
     # Create formatter with environment tag support
     formatter = EnvironmentTaggingFormatter(fmt=log_format)

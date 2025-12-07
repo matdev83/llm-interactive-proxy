@@ -82,6 +82,7 @@
 --llm-assessment-model
 --llm-assessment-turn-threshold
 --log
+--log-colors
 --log-level
 --memory-available
 --memory-context-model
@@ -100,6 +101,7 @@
 --memory-summary-model
 --memory-summary-prompt
 --model-alias
+--no-log-colors
 --no-test-execution-reminder-enabled
 --openrouter-api-base-url
 --openrouter-api-key

@@ -159,13 +159,26 @@ class HistoryCompactionService(IHistoryCompactionService):
     ) -> CompactionResult:
         """Execute the compaction algorithm.
 
-        Algorithm (single-pass forward + backward):
-        1. Forward pass: collect all resource identities and their message indices
+        Algorithm (optimized single-pass):
+        0. Build tool call index for O(1) argument lookup
+        1. Forward pass: collect resource identities (skip already compacted)
         2. Identify stale messages (older messages for same resource)
         3. Create stubs for stale messages that pass policy checks
         4. Build result with compacted messages
         """
         original_count = len(messages)
+
+        # Phase 0: Build tool call index for O(1) lookups
+        # This avoids O(n) backward scans for each tool result message
+        tool_call_index: dict[str, tuple[str, str | dict[str, Any]]] = {}
+        for msg in messages:
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.id:
+                        tool_call_index[tc.id] = (
+                            tc.function.name,
+                            tc.function.arguments,
+                        )
 
         # Phase 1: Build resource correlation map
         # Maps resource identity -> list of (message_index, tool_name, content)
@@ -175,9 +188,17 @@ class HistoryCompactionService(IHistoryCompactionService):
             if not is_tool_result_message(msg.role, msg.tool_call_id):
                 continue
 
-            # Extract tool name from the message
-            # Tool name is typically in metadata or we need to look up from previous assistant message
-            tool_name = self._extract_tool_name_from_message(msg, idx, messages)
+            # Skip messages already marked as compacted from a previous run
+            # This avoids redundant processing when the same history is analyzed repeatedly
+            if msg.metadata and msg.metadata.get("_compacted"):
+                continue
+
+            # Extract tool name - first try the indexed lookup, then fallback methods
+            tool_name: str | None = None
+            if msg.tool_call_id and msg.tool_call_id in tool_call_index:
+                tool_name = tool_call_index[msg.tool_call_id][0]
+            else:
+                tool_name = self._extract_tool_name_from_message(msg, idx, messages)
             if not tool_name:
                 continue
 
@@ -186,9 +207,12 @@ class HistoryCompactionService(IHistoryCompactionService):
             if not content:
                 continue
 
-            # Try to extract resource identity
-            # For tool results, arguments are in the tool_call that this responds to
-            arguments = self._find_tool_call_arguments(msg.tool_call_id, idx, messages)
+            # Try to extract resource identity using indexed lookup first
+            arguments: str | dict[str, Any] | None = None
+            if msg.tool_call_id and msg.tool_call_id in tool_call_index:
+                arguments = tool_call_index[msg.tool_call_id][1]
+            elif msg.metadata and "tool_args" in msg.metadata:
+                arguments = msg.metadata["tool_args"]
             identity = self._extractor.extract(tool_name, arguments, msg.tool_call_id)
 
             if identity is None:

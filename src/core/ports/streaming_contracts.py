@@ -1414,6 +1414,12 @@ class BaseStreamNormalizer(IStreamNormalizer):
         if stream_id:
             metadata["stream_id"] = stream_id
 
+        # Normalize content to a supported type to avoid validation failures
+        if content is None:
+            content = ""
+        elif not isinstance(content, (str, dict, bytes)):
+            content = str(content)
+
         # Create the chunk
         chunk = StreamingContent(
             content=content,

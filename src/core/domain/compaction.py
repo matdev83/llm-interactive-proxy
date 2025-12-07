@@ -14,6 +14,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from typing import Any
 
 
@@ -102,6 +103,14 @@ _TOOL_CATEGORY_PATTERNS: list[tuple[ToolCategory, list[str]]] = [
         ],
     ),
 ]
+
+# Pre-normalized pattern lookup for O(1) categorization
+# Built at module load time to avoid repeated string operations
+_NORMALIZED_TOOL_PATTERNS: dict[str, ToolCategory] = {
+    pattern.lower().replace("_", "").replace("-", ""): category
+    for category, patterns in _TOOL_CATEGORY_PATTERNS
+    for pattern in patterns
+}
 
 
 @dataclass(frozen=True)
@@ -374,9 +383,12 @@ class ResourceIdentityExtractor:
         return base.lower()
 
 
+@lru_cache(maxsize=256)
 def categorize_tool(tool_name: str) -> ToolCategory:
     """Determine the category of a tool by name.
 
+    Uses pre-normalized pattern lookup for O(1) performance.
+    Results are cached to avoid repeated lookups for the same tool.
     Used for allow/deny policy evaluation (Req 3.4).
 
     Args:
@@ -386,14 +398,7 @@ def categorize_tool(tool_name: str) -> ToolCategory:
         The ToolCategory for this tool
     """
     normalized = tool_name.lower().replace("_", "").replace("-", "")
-
-    for category, patterns in _TOOL_CATEGORY_PATTERNS:
-        for pattern in patterns:
-            normalized_pattern = pattern.lower().replace("_", "").replace("-", "")
-            if normalized == normalized_pattern:
-                return category
-
-    return ToolCategory.OTHER
+    return _NORMALIZED_TOOL_PATTERNS.get(normalized, ToolCategory.OTHER)
 
 
 def is_tool_result_message(role: str, tool_call_id: str | None) -> bool:

@@ -488,7 +488,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
         self._request_counter = DailyRequestCounter(
-            persistence_path=Path("var/state/gemini_oauth_request_count.json"), limit=1000
+            persistence_path=Path("var/state/gemini_oauth_request_count.json"),
+            limit=1000,
         )
 
         # Initialize graceful degradation

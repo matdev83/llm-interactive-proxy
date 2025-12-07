@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
@@ -42,8 +42,8 @@ def gemini_oauth_plan_connector(
     Provides an initialized instance of the GeminiOAuthPlanConnector
     for integration testing, with dependencies mocked.
     """
-    from src.core.config.app_config import AppConfig
     from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
+    from src.core.config.app_config import AppConfig
     from src.core.services.translation_service import TranslationService
 
     config = AppConfig()

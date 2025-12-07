@@ -239,6 +239,32 @@ class TestOpenAIStreamNormalizerContract:
         assert chunk.metadata["provider"] == "openai"
 
     @pytest.mark.asyncio
+    async def test_handles_reasoning_only_with_null_content(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Ensure chunks with null content but reasoning text are surfaced."""
+        # Arrange - Some models emit only reasoning_content and null content
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"Plan tools next"}}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        # Act
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        # Assert
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        assert chunk.content == "Plan tools next"
+        assert chunk.metadata["reasoning_content"] == "Plan tools next"
+        assert chunk.is_empty is False
+        assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
     async def test_handles_done_sentinel(
         self, normalizer: OpenAIStreamNormalizer
     ) -> None:
