@@ -16,11 +16,11 @@ sys.path.insert(0, str(project_root))
 
 from src.core.auth.sso.config import AuthorizationConfig, CaptchaConfig, SSOConfig
 from src.core.auth.sso.idp_configs import (
-    create_google_config,
-    create_microsoft_config,
-    create_github_config,
-    create_linkedin_config,
     create_aws_iam_identity_center_config,
+    create_github_config,
+    create_google_config,
+    create_linkedin_config,
+    create_microsoft_config,
     create_provider_config,
 )
 

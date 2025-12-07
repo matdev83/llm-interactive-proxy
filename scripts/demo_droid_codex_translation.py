@@ -15,8 +15,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.connectors._openai_codex_droid_tool_translator import DroidToolTranslator
 from src.connectors._openai_codex_droid_session_detector import DroidSessionDetector
+from src.connectors._openai_codex_droid_tool_translator import DroidToolTranslator
 
 
 def print_header(title: str) -> None:
@@ -103,7 +103,7 @@ def demo_result_formatting() -> None:
         droid_result = translator.format_result(codex_result, original_tool)
         print(f"  Tool: {original_tool}")
         print(f"  Codex result: {json.dumps(codex_result)}")
-        print(f"  Droid result: {repr(droid_result[:100])}{'...' if len(droid_result) > 100 else ''}")
+        print(f"  Droid result: {droid_result[:100]!r}{'...' if len(droid_result) > 100 else ''}")
         print()
 
 

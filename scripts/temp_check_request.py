@@ -1,9 +1,11 @@
 """Analyze the actual API format used by Antigravity vs Plan backends."""
 import sys
+
 sys.path.insert(0, '.')
 
 import json
 from pathlib import Path
+
 from src.core.simulation.capture_reader import CaptureReader
 
 reader = CaptureReader()
@@ -69,7 +71,7 @@ def analyze_request(label, client_idx):
             has_generation_config = 'generationConfig' in req
             has_request_wrapper = 'request' in req
             
-            print(f"  Format indicators:")
+            print("  Format indicators:")
             print(f"    - has 'messages' (OpenAI): {has_messages}")
             print(f"    - has 'contents' (Gemini): {has_contents}")
             print(f"    - has 'generationConfig': {has_generation_config}")
@@ -130,12 +132,12 @@ def analyze_response(label, client_idx):
                     has_candidates = 'candidates' in payload
                     has_response = 'response' in payload
                     
-                    print(f"  Format indicators:")
+                    print("  Format indicators:")
                     print(f"    - has 'choices' (OpenAI): {has_choices}")
                     print(f"    - has 'candidates' (Gemini native): {has_candidates}")
                     print(f"    - has 'response' wrapper: {has_response}")
                     
-                    print(f"\n  Response (truncated):")
+                    print("\n  Response (truncated):")
                     print(json.dumps(payload, indent=2)[:800])
                     
                 except:

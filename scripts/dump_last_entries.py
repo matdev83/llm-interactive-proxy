@@ -1,6 +1,7 @@
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, ".")
 from scripts.inspect_cbor_capture import load_capture_file, print_entries
 

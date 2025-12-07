@@ -110,6 +110,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
 
+    @property
+    def has_static_credentials(self) -> bool:
+        return False
+
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
     # -----------------------------

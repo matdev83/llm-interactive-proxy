@@ -28,7 +28,7 @@ T = TypeVar("T")
 class ConcurrencyMetrics:
     """Production-grade concurrency metrics collection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.lock_contention_count = 0
         self.deadlock_detection_count = 0
         self.race_condition_warnings = 0

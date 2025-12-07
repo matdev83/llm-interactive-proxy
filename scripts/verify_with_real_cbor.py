@@ -2,11 +2,12 @@
 """Extract the initial user prompt from CBOR capture and test the fix."""
 
 import asyncio
-import cbor2
 import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
+
+import cbor2
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -139,9 +140,9 @@ async def test_with_real_cbor_data():
     # 2. Should NOT be .venv\Scripts
     # 3. Should NOT contain venv in the path
     if detected:
-        print(f"✅ SUCCESS! Detected a valid project root")
-        print(f"✅ .venv\\Scripts was properly rejected!")
-        print(f"✅ No venv directories in the detected path")
+        print("✅ SUCCESS! Detected a valid project root")
+        print("✅ .venv\\Scripts was properly rejected!")
+        print("✅ No venv directories in the detected path")
         return True
     else:
         print("⚠️  No project directory detected from the prompt")

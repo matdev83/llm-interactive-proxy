@@ -257,6 +257,10 @@ class OpenAICodexConnector(OpenAIConnector):
         "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
     ).lower() not in {"0", "false", "no"}
 
+    @property
+    def has_static_credentials(self) -> bool:
+        return False
+
     # Supported Codex models - exhaustive list
     SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
         "gpt-5.1-codex-max",

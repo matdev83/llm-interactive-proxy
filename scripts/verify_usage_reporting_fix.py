@@ -28,12 +28,13 @@ from typing import Any
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry
+
 from scripts.verify_streaming_fix_base import (
     CborReplayUtilities,
     TransformationAnalyzer,
     VerificationResult,
 )
-from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry
 
 logger = logging.getLogger(__name__)
 

@@ -528,7 +528,7 @@ def track_request(entries: list[dict[str, Any]], request_num: int, backend_filte
     except:
         pass
     
-    print(f"\nFlow timeline:")
+    print("\nFlow timeline:")
     print(f"  [START] [{req_entry.get('seq')}] C->P  Request received (t=0.000s)")
     
     for e in related[1:]:
@@ -642,7 +642,7 @@ def analyze_streaming(entries: list[dict[str, Any]], backend_filter: str | None 
                     slow_chunks.append((chunks[k].get("seq"), gap))
             
             if slow_chunks:
-                print(f"  Slow Chunks Detected:")
+                print("  Slow Chunks Detected:")
                 for seq, gap in slow_chunks:
                     print(f"    Entry [{seq}]: {gap:.1f}s gap")
             

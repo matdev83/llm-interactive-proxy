@@ -12,7 +12,6 @@ from src.core.common.logging_utils import (
 )
 
 
-
 def get_staged_files_content():
     """Returns a dictionary of staged file paths and their content."""
     try:

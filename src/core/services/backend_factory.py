@@ -79,6 +79,27 @@ class BackendFactory(IBackendFactory):
             self._client, effective_config, self._translation_service
         )
 
+    def unregister_backend(self, backend_name: str) -> None:
+        """Unregister a backend from health checks.
+
+        Args:
+            backend_name: The unique backend instance name.
+        """
+        if self._endpoint_registry:
+            self._endpoint_registry.unregister_backend(backend_name)
+
+    def unregister_backend_notifications(self, backend: LLMBackend) -> None:
+        """Unregister a backend from health notifications if enabled."""
+        if self._backend_notifier is None:
+            return
+        try:
+            self._backend_notifier.unregister_backend(backend)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to unregister backend from notifications: %s", exc
+                )
+
     async def initialize_backend(
         self, backend: LLMBackend, init_config: dict[str, Any]
     ) -> None:

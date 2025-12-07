@@ -1,13 +1,16 @@
-import sys
-import os
 import logging
+import os
+import sys
 
 # Add src to path
 sys.path.append(os.getcwd())
 
 from unittest.mock import MagicMock
-from src.core.services.project_directory_resolution_service import ProjectDirectoryResolutionService
+
 from src.core.config.app_config import AppConfig
+from src.core.services.project_directory_resolution_service import (
+    ProjectDirectoryResolutionService,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

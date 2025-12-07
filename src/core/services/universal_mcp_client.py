@@ -35,7 +35,7 @@ class UniversalMCPClient:
     and execute tools without hardcoding tool definitions.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected_servers: dict[str, Any] = {}
         self._discovered_tools: dict[str, MCPToolDefinition] = {}
         self._tool_to_server_map: dict[str, str] = {}

@@ -141,6 +141,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         ("gemini-3", 1_000_000),
     )
 
+    @property
+    def has_static_credentials(self) -> bool:
+        return False
+
     # Mapping from public aliases (without vendor prefix) to internal model names
     _public_to_internal_model_map: dict[str, str] = {
         "gemini-3-pro": "gemini-3-pro-preview",

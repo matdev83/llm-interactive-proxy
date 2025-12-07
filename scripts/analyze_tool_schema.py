@@ -49,7 +49,7 @@ def analyze_tool_schemas(cbor_file: str):
                             if "$schema" in schema:
                                 print(f"  $schema: {schema['$schema']}")
                             else:
-                                print(f"  WARNING: No $schema field!")
+                                print("  WARNING: No $schema field!")
                             
                             # Check for problematic fields
                             if "additionalProperties" in schema:
@@ -57,7 +57,7 @@ def analyze_tool_schemas(cbor_file: str):
                             
                             # Print full schema for tool 9 (the problematic one)
                             if tool_idx == 9:
-                                print(f"\n  FULL SCHEMA FOR TOOL 9:")
+                                print("\n  FULL SCHEMA FOR TOOL 9:")
                                 print(json.dumps(schema, indent=2))
                         
                         # Check for function.parameters (OpenAI format)
@@ -68,10 +68,10 @@ def analyze_tool_schemas(cbor_file: str):
                             if "$schema" in schema:
                                 print(f"  $schema: {schema['$schema']}")
                             else:
-                                print(f"  WARNING: No $schema field in function.parameters!")
+                                print("  WARNING: No $schema field in function.parameters!")
                             
                             if tool_idx == 9:
-                                print(f"\n  FULL FUNCTION.PARAMETERS FOR TOOL 9:")
+                                print("\n  FULL FUNCTION.PARAMETERS FOR TOOL 9:")
                                 print(json.dumps(schema, indent=2))
                         
                         # Check for custom field (Anthropic format)
@@ -85,11 +85,11 @@ def analyze_tool_schemas(cbor_file: str):
                                 if "$schema" in schema:
                                     print(f"  $schema: {schema['$schema']}")
                                 else:
-                                    print(f"  WARNING: No $schema field in custom.input_schema!")
+                                    print("  WARNING: No $schema field in custom.input_schema!")
                                 
                                 # Print full schema for tool 9
                                 if tool_idx == 9:
-                                    print(f"\n  FULL CUSTOM.INPUT_SCHEMA FOR TOOL 9:")
+                                    print("\n  FULL CUSTOM.INPUT_SCHEMA FOR TOOL 9:")
                                     print(json.dumps(schema, indent=2))
                     
                     # Only analyze first request with tools

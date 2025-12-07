@@ -85,6 +85,7 @@ class LLMBackend(abc.ABC, IHealthAware):
         self._retry_after_until: float | None = None
         # Health-aware state
         self._endpoint_healthy: bool = True
+        self._auth_valid: bool = True
         self._api_url: str | None = None
         self._last_health_change_reason: str | None = None
         # Activity tracking (optional)
@@ -114,7 +115,27 @@ class LLMBackend(abc.ABC, IHealthAware):
         """
         # Use getattr for defensive programming - some test backends may not
         # call super().__init__() and thus won't have this attribute
-        return getattr(self, "_endpoint_healthy", True)
+        return getattr(self, "_endpoint_healthy", True) and getattr(
+            self, "_auth_valid", True
+        )
+
+    def mark_auth_invalid(self, reason: str = "Authentication failed") -> None:
+        """Permanently mark the backend as having invalid credentials.
+
+        This disables the backend for future routing/usage and prevents
+        health check recovery.
+
+        Args:
+            reason: The reason for invalidating credentials.
+        """
+        self._auth_valid = False
+        self._endpoint_healthy = False
+        self._last_health_change_reason = reason
+        logger.error(
+            "Backend %s: %s. Backend permanently disabled.",
+            getattr(self, "backend_type", "unknown"),
+            reason,
+        )
 
     async def on_endpoint_healthy(self, api_url: str) -> None:
         """Called when the API endpoint becomes healthy (recovery).
@@ -129,6 +150,10 @@ class LLMBackend(abc.ABC, IHealthAware):
             # Not our URL, ignore
             return
 
+        # If auth is invalid, we cannot recover via simple health check
+        if not getattr(self, "_auth_valid", True):
+            return
+
         previous_state = getattr(self, "_endpoint_healthy", True)
         self._endpoint_healthy = True
         self._last_health_change_reason = None
@@ -140,6 +165,15 @@ class LLMBackend(abc.ABC, IHealthAware):
                 getattr(self, "backend_type", "unknown"),
                 api_url,
             )
+
+    @property
+    def has_static_credentials(self) -> bool:
+        """
+        Whether this backend uses static credentials (e.g. env vars).
+        If True, authentication failures are considered permanent.
+        If False, authentication failures might be recoverable (e.g. token refresh).
+        """
+        return True
 
     async def on_endpoint_unhealthy(self, api_url: str, reason: str) -> None:
         """Called when the API endpoint becomes unhealthy (degradation).
@@ -153,6 +187,10 @@ class LLMBackend(abc.ABC, IHealthAware):
         my_url = getattr(self, "_api_url", None)
         if my_url and my_url != api_url:
             # Not our URL, ignore
+            return
+
+        # If auth is invalid, we stay in that state (don't overwrite reason)
+        if not getattr(self, "_auth_valid", True):
             return
 
         previous_state = getattr(self, "_endpoint_healthy", True)
@@ -275,6 +313,10 @@ class LLMBackend(abc.ABC, IHealthAware):
         Returns:
             True if the backend is functional and can accept requests.
         """
+        # Check auth validity first
+        if not getattr(self, "_auth_valid", True):
+            return False
+
         # Check endpoint health first (circuit breaker)
         # Use getattr for defensive programming - some test backends may not
         # call super().__init__() and thus won't have this attribute
@@ -315,6 +357,15 @@ class LLMBackend(abc.ABC, IHealthAware):
         errors: list[str] = []
 
         # Use getattr for defensive programming
+        if not getattr(self, "_auth_valid", True):
+            reason = (
+                getattr(self, "_last_health_change_reason", None)
+                or "Authentication failed"
+            )
+            errors.append(f"Credentials invalid: {reason}")
+            # If auth is invalid, we don't need to report endpoint health
+            return errors
+
         if not getattr(self, "_endpoint_healthy", True):
             reason = (
                 getattr(self, "_last_health_change_reason", None) or "unknown reason"

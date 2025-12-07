@@ -19,11 +19,11 @@ from datetime import datetime
 import httpx
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.live import Live
     from rich.panel import Panel
     from rich.table import Table
-    from rich import box
 
     HAS_RICH = True
 except ImportError:

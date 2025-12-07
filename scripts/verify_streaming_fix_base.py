@@ -399,7 +399,7 @@ class TransformationAnalyzer:
         
         # Simple pairing: match by sequence order
         # In a real scenario, you might want to match by request ID or timestamp
-        for i, (backend, client) in enumerate(zip(backend_entries, client_entries)):
+        for i, (backend, client) in enumerate(zip(backend_entries, client_entries, strict=False)):
             backend_data = self._utils.parse_sse_data(backend.data)
             client_data = self._utils.parse_sse_data(client.data)
             

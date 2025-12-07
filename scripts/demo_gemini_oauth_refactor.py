@@ -151,7 +151,7 @@ def test_chat_completions(model: str, stream: bool = False) -> TestResult:
                             choices = chunk.get("choices", [])
                             if choices:
                                 delta = choices[0].get("delta", {})
-                                if "content" in delta and delta["content"]:
+                                if delta.get("content"):
                                     content_parts.append(delta["content"])
                             # Extract usage from any chunk that has it
                             usage = chunk.get("usage")

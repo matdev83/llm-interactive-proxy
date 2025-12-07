@@ -1,6 +1,8 @@
 
-import httpx
 import asyncio
+
+import httpx
+
 
 async def check_redirects():
     url = "https://opencode.ai/zen/v1/models"

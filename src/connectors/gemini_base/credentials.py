@@ -40,7 +40,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
         super().__init__()
         self.connector = connector
 
-    def on_modified(self, event):
+    def on_modified(self, event) -> None:
         """Handle file modification events."""
         if not event.is_directory and isinstance(event.src_path, str):
             try:

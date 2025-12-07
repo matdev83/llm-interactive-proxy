@@ -29,10 +29,9 @@ And returns:
     }
 """
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, EmailStr
 import uvicorn
-
+from fastapi import FastAPI
+from pydantic import BaseModel, EmailStr
 
 app = FastAPI(title="SSO Authorization API Example")
 

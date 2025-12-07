@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
+    AuthenticationError,
     BackendError,
     InvalidRequestError,
     LLMProxyError,
@@ -94,6 +95,8 @@ class BackendService(IBackendService):
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
             config
         )
+        # Registry for permanently disabled backends {backend_type: {reason, timestamp}}
+        self._disabled_backends: dict[str, dict[str, Any]] = {}
         # Per-backend exponential backoff after rate limit errors
         self._rate_limit_backoff: dict[str, tuple[float, float]] = {}
         from src.core.config.app_config import AppConfig
@@ -1109,6 +1112,16 @@ class BackendService(IBackendService):
 
         filtered: list[tuple[str, str]] = []
         for backend_name, model_name in plan:
+            # Check permanently disabled registry first
+            if backend_name in self._disabled_backends:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Skipping backend %s (permanently disabled: %s) in failover plan",
+                        backend_name,
+                        self._disabled_backends[backend_name].get("reason", "unknown"),
+                    )
+                continue
+
             backend = self._backends.get(backend_name)
             if backend is None:
                 # Backend not yet created, include it (health unknown)
@@ -1492,7 +1505,69 @@ class BackendService(IBackendService):
                 except AttributeError:
                     # Result doesn't support metadata, skip
                     pass
+                except AuthenticationError as exc:
+                    if backend.has_static_credentials:
+                        # Permanent auth failure for static backends (env vars)
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                "Authentication failed for static backend %s: %s",
+                                backend_type,
+                                exc,
+                            )
+                        backend.mark_auth_invalid(str(exc))
+                        self._factory.unregister_backend(backend_type)
+                        self._discard_backend(
+                            backend_type, session_id_for_backend, reason=str(exc)
+                        )
+                    # For non-static (recoverable) backends, just raise.
+                    # This allows is_backend_functional() to fail on next call,
+                    # triggering _validate_runtime_credentials() logic.
+                    raise
+
+                except HTTPException as exc:
+                    # Handle raw HTTPException (e.g. from FastAPI/Starlette)
+                    if (
+                        getattr(exc, "status_code", None) == 401
+                        and backend.has_static_credentials
+                    ):
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                "Authentication failed for static backend %s: %s",
+                                backend_type,
+                                exc,
+                            )
+                        backend.mark_auth_invalid(
+                            str(getattr(exc, "detail", "Unauthorized"))
+                        )
+                        self._factory.unregister_backend(backend_type)
+                        self._discard_backend(
+                            backend_type,
+                            session_id_for_backend,
+                            reason=str(getattr(exc, "detail", "Unauthorized")),
+                        )
+                    # Re-raise for recoverable backends or non-401 errors
+                    raise
+
                 except BackendError as be:
+                    # Handle 401 wrapped in BackendError
+                    if getattr(be, "status_code", None) == 401:
+                        if backend.has_static_credentials:
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    "Authentication failed for static backend %s: %s",
+                                    backend_type,
+                                    be,
+                                )
+                            backend.mark_auth_invalid(getattr(be, "message", str(be)))
+                            self._factory.unregister_backend(backend_type)
+                            self._discard_backend(
+                                backend_type,
+                                session_id_for_backend,
+                                reason=getattr(be, "message", str(be)),
+                            )
+                        # Re-raise for recoverable backends
+                        raise
+
                     # Lightweight retry once on HTTP 429 from backend
                     if getattr(be, "status_code", None) == 429:
                         delay_seconds = parse_retry_delay(getattr(be, "details", None))
@@ -2589,3 +2664,61 @@ class BackendService(IBackendService):
             message=f"Backend call failed: {last_error!s}",
             backend_name=backend_type,
         )
+
+    def _discard_backend(
+        self, backend_type: str, session_id: str | None, reason: str = "Unknown"
+    ) -> None:
+        """
+        Discard a backend instance from internal caches.
+
+        This is used when a backend is permanently disabled (e.g. auth failure)
+        and should be removed from the active pools. It also records the disablement
+        to prevent future recreation.
+
+        Args:
+            backend_type: The type of backend to discard
+            session_id: The session ID if it was a per-session backend
+            reason: The reason for disabling the backend
+        """
+        # Record permanent disablement if not session-specific (or even if it is?)
+        # For now, apply to backend_type generally or instance?
+        # The user requirement says "registry keyed by backend instance".
+        # But backend_type is effectively the instance key for global backends.
+        if not session_id:
+            self._disabled_backends[backend_type] = {
+                "reason": reason,
+                "timestamp": time.time(),
+            }
+
+        # Remove from global backends
+        if backend_type in self._backends:
+            try:
+                backend = self._backends.pop(backend_type)
+                # Fire and forget shutdown (store reference to prevent GC)
+                task = asyncio.create_task(self._shutdown_backend(backend))
+                task.add_done_callback(lambda t: None)  # Prevent unhandled exception warnings
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Discarded global backend instance: %s", backend_type)
+            except Exception as e:
+                logger.warning("Error discarding backend %s: %s", backend_type, e)
+
+        # Remove from per-session backends if applicable
+        # Special case for gemini-cli-acp which uses session pooling
+        if (
+            backend_type == "gemini-cli-acp"
+            or session_id
+        ) and "gemini-cli-acp" in self._per_session_backends:
+             # Logic to remove from per-session pool is complex because it's a LRU cache or dict
+             # self._per_session_backends is dict[str, OrderedDict[str, LLMBackend]]
+             # keyed by backend_type -> session_id -> backend
+             
+             session_pool = self._per_session_backends.get(backend_type)
+             if session_pool and session_id and session_id in session_pool:
+                 try:
+                    backend = session_pool.pop(session_id)
+                    task = asyncio.create_task(self._shutdown_backend(backend))
+                    task.add_done_callback(lambda t: None)  # Prevent unhandled exception warnings
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Discarded per-session backend %s for session %s", backend_type, session_id)
+                 except Exception as e:
+                    logger.warning("Error discarding per-session backend %s: %s", backend_type, e)
