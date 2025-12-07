@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import importlib.util
@@ -10,13 +12,14 @@ import xml.etree.ElementTree
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from fastapi.testclient import TestClient
-from src.core.app.test_builder import build_test_app
-from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.interfaces.session_service_interface import ISessionService
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+    from src.core.interfaces.backend_service_interface import IBackendService
+    from src.core.interfaces.session_service_interface import ISessionService
 
 """Test fixtures and utilities."""
 
@@ -150,6 +153,9 @@ def temp_config_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def test_client() -> Generator[TestClient, None, None]:
     """A basic TestClient using the default test app with auth disabled."""
+    from fastapi.testclient import TestClient
+    from src.core.app.test_builder import build_test_app
+
     app = build_test_app()
     client = TestClient(app, headers={"Authorization": "Bearer test-proxy-key"})
     try:
@@ -235,6 +241,8 @@ def get_backend_instance(app: Any, backend_type: str) -> Any:  # type: ignore[no
     If the backend is not yet created, insert a simple placeholder object under
     BackendService._backends so tests can patch its methods before requests run.
     """
+    from src.core.interfaces.backend_service_interface import IBackendService
+
     # Resolve BackendService from DI
     service_provider = getattr(app.state, "service_provider", None)
     if service_provider is None:
@@ -261,6 +269,8 @@ def get_backend_instance(app: Any, backend_type: str) -> Any:  # type: ignore[no
 
 def get_session_service_from_app(app: Any) -> ISessionService:  # type: ignore[no-untyped-def]
     """Resolve the ISessionService from DI."""
+    from src.core.interfaces.session_service_interface import ISessionService
+
     service_provider = getattr(app.state, "service_provider", None)
     if service_provider is None:
         raise RuntimeError("service_provider not found on app.state")

@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Generator
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +43,7 @@ def gemini_oauth_plan_connector(
     for integration testing, with dependencies mocked.
     """
     from src.core.config.app_config import AppConfig
+    from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
     from src.core.services.translation_service import TranslationService
 
     config = AppConfig()

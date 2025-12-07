@@ -30,13 +30,17 @@ class BackendRoutingService:
         self._rr_lock = Lock()
 
     def resolve_backend_instance(
-        self, backend_type: str | None, model: str
+        self,
+        backend_type: str | None,
+        model: str,
+        excluded_backends: set[str] | None = None,
     ) -> str | None:
         """Resolve the specific backend instance to use.
 
         Args:
             backend_type: The requested backend type (e.g. "openai", "openai.1", or None)
             model: The requested model name
+            excluded_backends: Backend instance names that must be skipped (e.g., permanently disabled)
 
         Returns:
             The resolved backend instance name (e.g. "openai.1"), or None if resolution failed.
@@ -44,6 +48,8 @@ class BackendRoutingService:
         Raises:
             RoutingError: If the requested routing method is disabled by policy.
         """
+        excluded = excluded_backends or set()
+
         # Case 1: Specific instance requested (contains dot)
         if backend_type and "." in backend_type:
             if (
@@ -54,7 +60,7 @@ class BackendRoutingService:
                     message=f"Routing by explicit backend instance ID ('{backend_type}') is disabled by policy.",
                     details={"backend_type": backend_type, "model": model},
                 )
-            return backend_type
+            return None if backend_type in excluded else backend_type
 
         # Case 2: Generic backend requested (e.g. "openai")
         if backend_type:
@@ -63,7 +69,7 @@ class BackendRoutingService:
                     message=f"Routing by backend name ('{backend_type}') is disabled by policy.",
                     details={"backend_type": backend_type, "model": model},
                 )
-            return self._resolve_generic_backend(backend_type)
+            return self._resolve_generic_backend(backend_type, excluded)
 
         # Case 3: Only model provided, discover backend
         if self._routing_config.disable_model_names:
@@ -71,20 +77,26 @@ class BackendRoutingService:
                 message=f"Routing by model name only ('{model}') is disabled by policy.",
                 details={"model": model},
             )
-        return self._discover_backend_for_model(model)
+        return self._discover_backend_for_model(model, excluded)
 
-    def _resolve_generic_backend(self, backend_type: str) -> str:
+    def _resolve_generic_backend(
+        self, backend_type: str, excluded: set[str]
+    ) -> str | None:
         """Resolve a generic backend type to a specific instance using Round Robin."""
-        instances = self._find_instances_for_backend(backend_type)
+        instances = [
+            i
+            for i in self._find_instances_for_backend(backend_type)
+            if i not in excluded
+        ]
 
         if not instances:
             # If no specific instances found, fall back to the generic name
             # This handles cases where only "openai" is configured without "openai.1"
-            return backend_type
+            return None if backend_type in excluded else backend_type
 
-        return self._select_instance(backend_type, instances)
+        return self._select_instance(backend_type, instances, excluded)
 
-    def _discover_backend_for_model(self, model: str) -> str | None:
+    def _discover_backend_for_model(self, model: str, excluded: set[str]) -> str | None:
         """Find a backend that supports the given model."""
         candidates = []
 
@@ -93,7 +105,7 @@ class BackendRoutingService:
         if hasattr(self._config_provider, "iter_backend_names"):
             for backend_name in self._config_provider.iter_backend_names():
                 cfg = self._config_provider.get_backend_config(backend_name)
-                if cfg and model in cfg.models:
+                if cfg and model in cfg.models and backend_name not in excluded:
                     candidates.append(backend_name)
 
         if not candidates:
@@ -101,7 +113,7 @@ class BackendRoutingService:
 
         # If multiple candidates, use Round Robin selection
         # We use a special key for model-based routing counters
-        return self._select_instance(f"model:{model}", candidates)
+        return self._select_instance(f"model:{model}", candidates, excluded)
 
     def _find_instances_for_backend(self, backend_type: str) -> list[str]:
         """Find all configured instances for a given backend type."""
@@ -117,8 +129,12 @@ class BackendRoutingService:
         instances.sort()
         return instances
 
-    def _select_instance(self, key: str, instances: list[str]) -> str:
+    def _select_instance(
+        self, key: str, instances: list[str], excluded: set[str] | None = None
+    ) -> str:
         """Select an instance from the list using Round Robin."""
+        if excluded:
+            instances = [i for i in instances if i not in excluded]
         if not instances:
             raise ValueError("No instances provided for selection")
 

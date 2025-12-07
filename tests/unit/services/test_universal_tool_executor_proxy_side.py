@@ -227,6 +227,7 @@ class TestShellExecution:
         assert result["exit_code"] == 1
         assert "command is required" in result["output"]
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_execute_command_timeout(
         self, executor: UniversalToolExecutor

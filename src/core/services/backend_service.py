@@ -1174,6 +1174,7 @@ class BackendService(IBackendService):
             if request_failover_routes
             else self._failover_routes
         )
+        disabled_info = self._disabled_backends.get(backend_type)
 
         # Handle complex failover if configured for this model
         if allow_failover and effective_model in effective_failover_routes:
@@ -1184,6 +1185,22 @@ class BackendService(IBackendService):
                 effective_failover_routes,
                 stream,
                 context,
+            )
+
+        # If backend is permanently disabled and no failover plan applies, fail fast
+        if disabled_info and not (
+            allow_failover
+            and (
+                effective_model in effective_failover_routes
+                or backend_type in self._failover_routes
+            )
+        ):
+            raise BackendError(
+                message=(
+                    f"Backend {backend_type} is permanently disabled: "
+                    f"{disabled_info.get('reason', 'authentication failed')}"
+                ),
+                backend_name=backend_type,
             )
 
         # Honor any active rate-limit backoff before proceeding
@@ -1864,6 +1881,15 @@ class BackendService(IBackendService):
     ) -> LLMBackend:
         """Get an existing backend or create a new one."""
 
+        if backend_type in self._disabled_backends:
+            reason = self._disabled_backends[backend_type].get(
+                "reason", "permanently disabled"
+            )
+            raise BackendError(
+                message=f"Backend {backend_type} is permanently disabled: {reason}",
+                backend_name=backend_type,
+            )
+
         # Always use session-specific cache key if session_id is provided
         # This ensures all backends are isolated per session
         if session_id:
@@ -2253,6 +2279,7 @@ class BackendService(IBackendService):
         await self._apply_planning_phase_if_needed(session, default_backend)
 
         backend_type: str | None = None
+        excluded_backends = set(self._disabled_backends.keys())
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -2285,7 +2312,7 @@ class BackendService(IBackendService):
             if not parsed_backend and self._routing_service:
                 # Try discovery
                 discovered = self._routing_service.resolve_backend_instance(
-                    None, parsed_model
+                    None, parsed_model, excluded_backends
                 )
                 if discovered:
                     parsed_backend = discovered
@@ -2297,7 +2324,7 @@ class BackendService(IBackendService):
             # If we have a backend type (either parsed or default), try to route it (Variant 2)
             if self._routing_service:
                 resolved = self._routing_service.resolve_backend_instance(
-                    backend_type, effective_model
+                    backend_type, effective_model, excluded_backends
                 )
                 if resolved:
                     if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
@@ -2318,7 +2345,7 @@ class BackendService(IBackendService):
             # Try to route the explicitly set backend (Variant 2)
             if self._routing_service:
                 resolved = self._routing_service.resolve_backend_instance(
-                    backend_type, effective_model
+                    backend_type, effective_model, excluded_backends
                 )
                 if resolved:
                     if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
@@ -2680,45 +2707,47 @@ class BackendService(IBackendService):
             session_id: The session ID if it was a per-session backend
             reason: The reason for disabling the backend
         """
-        # Record permanent disablement if not session-specific (or even if it is?)
-        # For now, apply to backend_type generally or instance?
-        # The user requirement says "registry keyed by backend instance".
-        # But backend_type is effectively the instance key for global backends.
-        if not session_id:
-            self._disabled_backends[backend_type] = {
-                "reason": reason,
-                "timestamp": time.time(),
-            }
+        # Record permanent disablement for the backend instance name
+        self._disabled_backends[backend_type] = {
+            "reason": reason,
+            "timestamp": time.time(),
+        }
 
-        # Remove from global backends
-        if backend_type in self._backends:
-            try:
-                backend = self._backends.pop(backend_type)
-                # Fire and forget shutdown (store reference to prevent GC)
+        instance_key = (
+            backend_type if not session_id else f"{backend_type}:{session_id}"
+        )
+
+        # Remove from global cache first
+        backend = self._backends.pop(instance_key, None)
+        if backend:
+            # Ensure we stop notifying health listeners for this instance
+            with contextlib.suppress(Exception):
+                self._factory.unregister_backend_notifications(backend)
+                self._factory.unregister_backend(instance_key)
+            task = asyncio.create_task(self._shutdown_backend(backend))
+            task.add_done_callback(lambda t: None)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Discarded backend instance: %s", instance_key)
+
+        # Remove matching per-session instances
+        removed_keys: list[str] = []
+        if session_id:
+            removed_keys = [instance_key]
+        else:
+            # When disabling globally, clear any per-session variants
+            removed_keys = [
+                key
+                for key in list(self._per_session_backends)
+                if key.startswith(f"{backend_type}:")
+            ]
+
+        for key in removed_keys:
+            backend = self._per_session_backends.pop(key, None)
+            if backend:
+                with contextlib.suppress(Exception):
+                    self._factory.unregister_backend_notifications(backend)
+                    self._factory.unregister_backend(key)
                 task = asyncio.create_task(self._shutdown_backend(backend))
-                task.add_done_callback(lambda t: None)  # Prevent unhandled exception warnings
+                task.add_done_callback(lambda t: None)
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("Discarded global backend instance: %s", backend_type)
-            except Exception as e:
-                logger.warning("Error discarding backend %s: %s", backend_type, e)
-
-        # Remove from per-session backends if applicable
-        # Special case for gemini-cli-acp which uses session pooling
-        if (
-            backend_type == "gemini-cli-acp"
-            or session_id
-        ) and "gemini-cli-acp" in self._per_session_backends:
-             # Logic to remove from per-session pool is complex because it's a LRU cache or dict
-             # self._per_session_backends is dict[str, OrderedDict[str, LLMBackend]]
-             # keyed by backend_type -> session_id -> backend
-             
-             session_pool = self._per_session_backends.get(backend_type)
-             if session_pool and session_id and session_id in session_pool:
-                 try:
-                    backend = session_pool.pop(session_id)
-                    task = asyncio.create_task(self._shutdown_backend(backend))
-                    task.add_done_callback(lambda t: None)  # Prevent unhandled exception warnings
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info("Discarded per-session backend %s for session %s", backend_type, session_id)
-                 except Exception as e:
-                    logger.warning("Error discarding per-session backend %s: %s", backend_type, e)
+                    logger.info("Discarded per-session backend instance: %s", key)

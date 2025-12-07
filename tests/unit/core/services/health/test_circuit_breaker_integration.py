@@ -136,6 +136,7 @@ class TestCircuitBreakerIntegration:
             "healthy": healthy_backend,
             "unhealthy": unhealthy_backend,
         }
+        service._disabled_backends = {}
 
         # Test filtering
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
@@ -164,6 +165,7 @@ class TestCircuitBreakerIntegration:
             "healthy": healthy_backend,
             "unhealthy": unhealthy_backend,
         }
+        service._disabled_backends = {}
 
         # Test filtering - should return all since circuit breaker is disabled
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
@@ -193,6 +195,7 @@ class TestCircuitBreakerIntegration:
             "unhealthy1": unhealthy1,
             "unhealthy2": unhealthy2,
         }
+        service._disabled_backends = {}
 
         # Test filtering - should fall back to original plan
         plan = [("unhealthy1", "model-a"), ("unhealthy2", "model-b")]
@@ -214,6 +217,7 @@ class TestCircuitBreakerIntegration:
         service = BackendService.__new__(BackendService)
         service._config = config
         service._backends = {}
+        service._disabled_backends = {}
 
         # Test filtering - unknown backends should be included
         plan = [("unknown", "model-a")]

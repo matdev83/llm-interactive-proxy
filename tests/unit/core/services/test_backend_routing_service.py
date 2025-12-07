@@ -131,6 +131,23 @@ class TestBackendRoutingService:
         res = service.resolve_backend_instance("custom", "model")
         assert res == "custom"
 
+    def test_excluded_backends_are_skipped(self, mock_config_provider):
+        service = BackendRoutingService(mock_config_provider, RoutingConfig())
+
+        # Exclude openai.1 and ensure round-robin sticks to openai.2
+        excluded = {"openai.1"}
+        for _ in range(3):
+            res = service.resolve_backend_instance(
+                "openai", "gpt-4", excluded_backends=excluded
+            )
+            assert res == "openai.2"
+
+        # Exclude the only provider for claude-3 -> returns None
+        res = service.resolve_backend_instance(
+            None, "claude-3", excluded_backends={"anthropic.1"}
+        )
+        assert res is None
+
 
 class TestRoutingConfigValidation:
     """Tests for RoutingConfig validation rules."""
