@@ -43,7 +43,7 @@ def get_database_url() -> str:
     if url:
         return url
     return config.get_main_option(
-        "sqlalchemy.url", "sqlite+aiosqlite:///./var/proxy.db"
+        "sqlalchemy.url", "sqlite+aiosqlite:///./var/db/proxy.db"
     )
 
 

@@ -207,7 +207,9 @@ python -m src.core.cli --memory-available --memory-single-user-mode --memory-fix
 
 ## Database Schema
 
-ProxyMem uses SQLite for storage. The schema includes:
+ProxyMem uses the proxy's unified database layer for storage. By default, this is SQLite, but PostgreSQL is also supported for production deployments. See [Database Configuration](database-configuration.md) for details.
+
+The schema includes:
 
 **session_summaries**: Stores all session summary data
 - Indexed by `user_id`, `session_start`, `project_id`
@@ -215,7 +217,7 @@ ProxyMem uses SQLite for storage. The schema includes:
 
 **user_project_dirs**: Maps user+project_root pairs to stable project IDs
 
-The database is automatically created on first use.
+The database is automatically created on first use, and migrations are applied automatically on startup.
 
 ### Retention and Maintenance
 

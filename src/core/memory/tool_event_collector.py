@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from typing import Literal
 
 from src.core.memory.models import FileEditEvent, GitCommitEvent, ToolEvent
 
@@ -215,7 +216,9 @@ class DeterministicToolEventCollector:
         return normalized
 
     @staticmethod
-    def classify_action_from_tool(tool_name: str) -> str:
+    def classify_action_from_tool(
+        tool_name: str,
+    ) -> Literal["created", "modified", "deleted", "unknown"]:
         """Classify the file action based on tool name.
 
         Args:

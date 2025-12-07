@@ -324,6 +324,8 @@ class SummaryGenerator:
                 head_sha=head_sha,
                 is_partial=is_partial,
                 session_start=interactions[0].timestamp,
+                deterministic_file_edits=deterministic_file_edits or [],
+                deterministic_git_commits=deterministic_git_commits or [],
             )
         except Exception as e:
             logger.exception("Failed to parse summary XML for session %s", session_id)
@@ -417,6 +419,48 @@ class SummaryGenerator:
             )
 
         return "\n".join(lines)
+
+    def _merge_deterministic_file_edits(
+        self,
+        existing: list[FileChange],
+        deterministic: list[FileEditEvent],
+    ) -> list[FileChange]:
+        """Merge deterministic file edits into parsed file changes."""
+        merged: dict[str, FileChange] = {item.path: item for item in existing}
+        for event in deterministic:
+            status = (
+                event.action
+                if event.action in {"created", "modified", "deleted"}
+                else "modified"
+            )
+            merged[event.path] = FileChange(path=event.path, status=status)  # type: ignore[arg-type]
+        return list(merged.values())
+
+    def _merge_deterministic_git_commits(
+        self,
+        existing: list[GitOperation],
+        deterministic: list[GitCommitEvent],
+    ) -> list[GitOperation]:
+        """Merge deterministic git commits into parsed git operations."""
+        merged: list[GitOperation] = list(existing)
+        seen: set[tuple[str | None, str | None]] = {(op.ref, op.type) for op in merged}
+        for event in deterministic:
+            ref = event.commit_hash or "UNKNOWN"
+            key = (ref, "commit")
+            if key in seen:
+                continue
+            details = event.message or "UNKNOWN"
+            if event.branch:
+                details = f"{details} (branch {event.branch})"
+            merged.append(
+                GitOperation(
+                    type="commit",
+                    ref=ref,
+                    details=details,
+                )
+            )
+            seen.add(key)
+        return merged
 
     async def _process_large_transcript(self, transcript: str) -> str:
         """Process a large transcript by chunking and summarizing chunks.
@@ -594,6 +638,8 @@ Format as bullet points. Do not use XML.
         head_sha: str | None,
         is_partial: bool,
         session_start: datetime,
+        deterministic_file_edits: list[FileEditEvent],
+        deterministic_git_commits: list[GitCommitEvent],
     ) -> SessionSummary:
         """Parse XML response into SessionSummary model."""
         # Extract clean XML
@@ -727,6 +773,13 @@ Format as bullet points. Do not use XML.
 
         now = datetime.now(timezone.utc)
 
+        modified_files = self._merge_deterministic_file_edits(
+            get_files(), deterministic_file_edits
+        )
+        git_operations = self._merge_deterministic_git_commits(
+            get_git_ops(), deterministic_git_commits
+        )
+
         return SessionSummary(
             id=str(uuid4()),
             user_id=user_id,
@@ -742,8 +795,8 @@ Format as bullet points. Do not use XML.
             goals=get_list("main_goals", "goal") or get_list("goals", "goal"),
             open_questions=get_list("open_questions", "item"),
             remaining_tasks=get_tasks(),
-            modified_files=get_files(),
-            git_operations=get_git_ops(),
+            modified_files=modified_files,
+            git_operations=git_operations,
             completion_status=completion_status,
             key_decisions=get_list("key_decisions", "decision"),
             operations_performed=get_list("operations_performed", "operation"),

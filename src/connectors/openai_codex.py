@@ -552,6 +552,38 @@ class OpenAICodexConnector(OpenAIConnector):
         with contextlib.suppress(Exception):
             self.disable_health_check()
 
+    async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
+        """Return hardcoded list of supported models."""
+        data = [
+            {
+                "id": model,
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": "openai",
+                "permission": [],
+                "root": model,
+                "parent": None,
+            }
+            for model in self.SUPPORTED_CODEX_MODELS
+        ]
+        return {"object": "list", "data": data}
+
+    async def _prepare_payload(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+    ) -> dict[str, Any]:
+        """Prepare the payload and strip vendor prefix from the model name."""
+        payload = await super()._prepare_payload(
+            request_data, processed_messages, effective_model
+        )
+        if "model" in payload and isinstance(payload["model"], str):
+            payload["model"] = strip_vendor_prefix(
+                payload["model"], OPENAI_VENDOR_PREFIX
+            )
+        return payload
+
     def _load_connector_settings(self, app_config: AppConfig) -> dict[str, Any]:
         settings: dict[str, Any] = {
             "default_capabilities": CodexClientCapabilities(),

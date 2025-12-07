@@ -490,6 +490,41 @@ memory:
 
 > **See Also:** [ProxyMem: Cross-Session Memory](proxymem-memory.md) for detailed documentation including commands, privacy controls, and troubleshooting.
 
+### Database (`database`)
+
+The proxy uses a unified database layer for storing session data, SSO tokens, and memory summaries. SQLite is the default and requires no configuration.
+
+```yaml
+database:
+  # Database URL (SQLAlchemy format)
+  # SQLite (default): sqlite+aiosqlite:///./var/db/proxy.db
+  # PostgreSQL: postgresql+asyncpg://user:pass@host:5432/db
+  url: "sqlite+aiosqlite:///./var/db/proxy.db"
+  
+  # Connection pool settings (PostgreSQL only)
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+  
+  # Debug settings
+  echo: false
+  echo_pool: false
+  
+  # Auto-run migrations on startup
+  auto_migrate: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `url` | str | `sqlite+aiosqlite:///./var/db/proxy.db` | Database connection URL |
+| `pool_size` | int | `5` | Connection pool size (PostgreSQL only) |
+| `max_overflow` | int | `10` | Extra connections beyond pool_size |
+| `pool_timeout` | int | `30` | Seconds to wait for connection |
+| `echo` | bool | `false` | Log SQL statements (debug) |
+| `auto_migrate` | bool | `true` | Run migrations on startup |
+
+> **See Also:** [Database Configuration](database-configuration.md) for detailed setup including PostgreSQL examples, migrations, and production recommendations.
+
 ### Other Settings
 
 ```yaml

@@ -17,6 +17,15 @@ DEFAULT_SUMMARY_PROMPT = """Analyze the session transcript and produce a structu
 {session_transcript}
 </transcript>
 
+Deterministic file edits (from proxy tool calls):
+{deterministic_file_edits}
+
+Deterministic git commits (from proxy tool calls):
+{deterministic_git_commits}
+
+Use the deterministic lists as authoritative: copy file paths into <touched_files> with statuses,
+and commit hashes/messages into <git_operations> (type="commit"), using UNKNOWN only when lists are empty.
+
 Output a valid XML document with <session_summary> as the root element containing:
 - title, scope, goals, key_decisions, operations_performed
 - modified_files, git_operations, tests_run, errors

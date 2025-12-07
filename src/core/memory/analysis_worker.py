@@ -123,6 +123,11 @@ class AnalysisWorker:
                 await self._memory_service.get_captured_interactions(session_id)
             )
 
+            # Get deterministic tool events (file edits and git commits)
+            file_edits, git_commits = (
+                await self._memory_service.get_captured_tool_events(session_id)
+            )
+
             if not interactions:
                 logger.debug("No interactions for session %s, skipping", session_id)
                 await self._memory_service.complete_analysis(session_id)
@@ -141,6 +146,8 @@ class AnalysisWorker:
                         backend_model=state.backend_model,
                         client_agent=state.client_id,
                         is_partial=is_partial,
+                        deterministic_file_edits=file_edits,
+                        deterministic_git_commits=git_commits,
                     ),
                     timeout=self._config.analysis_timeout_seconds,
                 )

@@ -193,16 +193,17 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         if model_name.startswith(prefix):
             model_name = model_name[len(prefix) :]
 
-        # Strip vendor prefix (e.g., "anthropic/") for Antigravity backend
+        # Strip vendor prefixes for Antigravity backend
         # The remote backend requires model names without vendor prefixes
         model_name = strip_vendor_prefix(model_name, ANTHROPIC_VENDOR_PREFIX)
-
-        # Also strip "google/" vendor prefix for Gemini models
         model_name = strip_vendor_prefix(model_name, "google")
+        model_name = strip_vendor_prefix(model_name, "openai")
 
         # Map public model names to internal variants based on reasoning_effort
-        # - gemini-3-pro -> gemini-3-pro-high/low
-        # - claude-opus-4.5 -> claude-opus-4-5 or claude-opus-4-5-thinking
+        # - gemini-3-pro -> gemini-3-pro-high/low (based on reasoning_effort)
+        # - claude-opus-4.5 -> claude-opus-4-5-thinking (always, ignoring reasoning_effort)
+        # - claude-sonnet-4.5 -> claude-sonnet-4-5 or claude-sonnet-4-5-thinking
+        # - gpt-oss-120b -> gpt-oss-120b-medium (always, ignoring reasoning_effort)
         model_name = self._map_model_with_reasoning_effort(model_name, request_data)
 
         # Skip strict model validation - Antigravity sandbox supports both Gemini and Claude
@@ -479,8 +480,14 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
            - low -> gemini-3-pro-low
 
         2. claude-opus-4.5:
-           - high/medium -> claude-opus-4-5-thinking
-           - low (default) -> claude-opus-4-5
+           - Always maps to claude-opus-4-5-thinking (ignores reasoning_effort)
+
+        3. claude-sonnet-4.5:
+           - high/medium -> claude-sonnet-4-5-thinking
+           - low (default) -> claude-sonnet-4-5
+
+        4. gpt-oss-120b:
+           - Always maps to gpt-oss-120b-medium (ignores reasoning_effort)
 
         Args:
             model_name: The model name after vendor prefix stripping.
@@ -489,11 +496,15 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         Returns:
             The mapped internal model name.
         """
-        # Check if this model requires reasoning-based mapping
+        # Check if this model requires mapping
         if model_name == "gemini-3-pro":
             return self._map_gemini_3_pro_model(model_name, request_data)
         elif model_name == "claude-opus-4.5":
             return self._map_claude_opus_model(model_name, request_data)
+        elif model_name == "claude-sonnet-4.5":
+            return self._map_claude_sonnet_model(model_name, request_data)
+        elif model_name == "gpt-oss-120b":
+            return self._map_gpt_oss_model(model_name, request_data)
 
         return model_name
 
@@ -533,16 +544,38 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         return internal_model
 
     def _map_claude_opus_model(self, model_name: str, request_data: Any) -> str:
-        """Map claude-opus-4.5 to internal model names based on reasoning_effort.
+        """Map claude-opus-4.5 to internal model name.
 
-        Mapping:
-        - high, medium, or default -> claude-opus-4-5-thinking
-        - low -> claude-opus-4-5
+        Always maps to claude-opus-4-5-thinking regardless of reasoning_effort.
 
         Note: The public name uses dot (claude-opus-4.5) while internal names
         use hyphen (claude-opus-4-5).
         """
         if model_name != "claude-opus-4.5":
+            return model_name
+
+        # Always map to thinking variant, ignoring reasoning_effort
+        internal_model = "claude-opus-4-5-thinking"
+
+        logger.debug(
+            "Mapped model '%s' to internal model '%s' (always thinking variant)",
+            model_name,
+            internal_model,
+        )
+
+        return internal_model
+
+    def _map_claude_sonnet_model(self, model_name: str, request_data: Any) -> str:
+        """Map claude-sonnet-4.5 to internal model names based on reasoning_effort.
+
+        Mapping:
+        - high, medium -> claude-sonnet-4-5-thinking
+        - low or default -> claude-sonnet-4-5
+
+        Note: The public name uses dot (claude-sonnet-4.5) while internal names
+        use hyphen (claude-sonnet-4-5).
+        """
+        if model_name != "claude-sonnet-4.5":
             return model_name
 
         reasoning_effort = self._extract_reasoning_effort(request_data)
@@ -551,17 +584,36 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         effort_lower = (reasoning_effort or "").lower().strip()
 
         # Map to internal model names
-        # For Claude Opus: low -> base model, everything else (including default) -> thinking
-        if effort_lower == "low":
-            internal_model = "claude-opus-4-5"
+        # For Claude Sonnet: high/medium -> thinking, low/default -> base model
+        if effort_lower in ("high", "medium"):
+            internal_model = "claude-sonnet-4-5-thinking"
         else:
-            # high, medium, or default -> thinking variant
-            internal_model = "claude-opus-4-5-thinking"
+            # low, or default -> base model
+            internal_model = "claude-sonnet-4-5"
 
         logger.debug(
             "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
             model_name,
             reasoning_effort or "(default)",
+            internal_model,
+        )
+
+        return internal_model
+
+    def _map_gpt_oss_model(self, model_name: str, request_data: Any) -> str:
+        """Map gpt-oss-120b to internal model name.
+
+        Always maps to gpt-oss-120b-medium regardless of reasoning_effort.
+        """
+        if model_name != "gpt-oss-120b":
+            return model_name
+
+        # Always map to medium variant, ignoring reasoning_effort
+        internal_model = "gpt-oss-120b-medium"
+
+        logger.debug(
+            "Mapped model '%s' to internal model '%s' (always medium variant)",
+            model_name,
             internal_model,
         )
 
@@ -582,6 +634,12 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         if base_url == sandbox_url:
             logger.info(
                 "Skipping fetchAvailableModels for Antigravity sandbox; using fallback model list."
+            )
+            # Load models from the FallbackModelDiscovery strategy
+            self.available_models = self._model_discovery.get_fallback_models()
+            self._available_models_set = set(self.available_models)
+            logger.info(
+                f"Loaded {len(self.available_models)} Antigravity models (fallback list)"
             )
             return
 

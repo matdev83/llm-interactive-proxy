@@ -395,4 +395,3 @@ class TestMemoryService:
         file_edits, git_commits = await service.get_captured_tool_events("sess-1")
         assert len(file_edits) == 0
         assert len(git_commits) == 0
-

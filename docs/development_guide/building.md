@@ -236,6 +236,56 @@ export ANGEL_MODEL="openai:gpt-4o-mini"
 export ANGEL_FREQUENCY=1
 ```
 
+### Database Configuration
+
+```bash
+# Database URL (SQLite is default, no configuration needed)
+export DATABASE_URL="sqlite+aiosqlite:///./var/db/proxy.db"
+
+# For PostgreSQL (production)
+export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/llm_proxy"
+
+# Connection pool settings (PostgreSQL only)
+export DATABASE_POOL_SIZE=5
+export DATABASE_MAX_OVERFLOW=10
+```
+
+## Database Management
+
+### Migrations
+
+The proxy uses Alembic for database migrations. By default, migrations run automatically on startup.
+
+```bash
+# Check current migration revision
+./.venv/Scripts/python.exe -m alembic current
+
+# Run pending migrations manually
+./.venv/Scripts/python.exe -m alembic upgrade head
+
+# Create a new migration (after model changes)
+./.venv/Scripts/python.exe -m alembic revision --autogenerate -m "Add new_feature table"
+
+# Rollback one migration
+./.venv/Scripts/python.exe -m alembic downgrade -1
+
+# Show migration history
+./.venv/Scripts/python.exe -m alembic history
+```
+
+### Development Database Reset
+
+```bash
+# Delete SQLite database and let it recreate
+rm -f var/db/proxy.db
+
+# Or reset PostgreSQL (caution: destroys data)
+dropdb llm_proxy && createdb llm_proxy
+./.venv/Scripts/python.exe -m alembic upgrade head
+```
+
+For detailed database configuration, see the [Database Configuration Guide](../user_guide/database-configuration.md).
+
 ## Platform-Specific Notes
 
 ### Windows

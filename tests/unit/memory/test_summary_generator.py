@@ -312,6 +312,8 @@ class TestSummaryGenerator:
             head_sha="abc123",
             is_partial=False,
             session_start=datetime.now(timezone.utc),
+            deterministic_file_edits=[],
+            deterministic_git_commits=[],
         )
 
         assert summary.title == "Test Summary"

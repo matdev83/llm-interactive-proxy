@@ -89,6 +89,10 @@ class IMemoryService(Protocol):
         """
         ...
 
+    async def record_tool_event(self, session_id: str, event: Any) -> bool:
+        """Record a deterministic tool event (file edit or git commit) for a session."""
+        ...
+
     async def mark_session_complete(
         self,
         session_id: str,
@@ -109,6 +113,10 @@ class IMemoryService(Protocol):
             True if session was queued for summarization.
             False if session was not enabled or already queued.
         """
+        ...
+
+    async def get_captured_tool_events(self, session_id: str) -> Any:
+        """Get deterministic tool events (file edits and git commits) for a session."""
         ...
 
     async def get_session_user_id(self, session_id: str) -> str | None:

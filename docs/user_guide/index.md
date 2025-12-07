@@ -7,6 +7,7 @@ Welcome to the LLM Interactive Proxy User Guide. This guide provides comprehensi
 - **[Quick Start Guide](quick-start.md)** - Get up and running in minutes with installation, basic configuration, and first steps
 - **[Configuration Guide](configuration.md)** - Learn about configuration methods, precedence, and common scenarios
 - **[CLI Parameters Reference](cli-parameters.md)** - Complete reference for all CLI arguments and environment variables
+- **[Database Configuration](database-configuration.md)** - Database setup for SQLite (default) and PostgreSQL
 
 ## Features
 
@@ -140,7 +141,7 @@ If you encounter issues or have questions:
 ### By Use Case
 
 - **First-time setup**: Start with [Quick Start Guide](quick-start.md)
-- **Production deployment**: Review [Configuration Guide](configuration.md) and [Authentication](security/authentication.md)
+- **Production deployment**: Review [Configuration Guide](configuration.md), [Database Configuration](database-configuration.md), and [Authentication](security/authentication.md)
 - **Debugging issues**: See [Wire Capture](debugging/wire-capture.md) and [Troubleshooting](debugging/troubleshooting.md)
 - **Advanced features**: Browse the [Features](#features) section
 - **Backend setup**: Check [Backend Overview](backends/overview.md)

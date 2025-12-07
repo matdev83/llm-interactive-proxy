@@ -145,6 +145,24 @@ The domain layer defines core business entities and logic:
 - **Policies**: Access control and safety policies
 - **Configuration**: System and feature configuration
 
+### 6. Database Layer
+
+The database layer provides a unified, dialect-agnostic persistence mechanism:
+
+- **SQLModel Integration**: Combines SQLAlchemy ORM with Pydantic validation
+- **Async Engine**: Fully async database operations using `aiosqlite` (SQLite) or `asyncpg` (PostgreSQL)
+- **Repository Pattern**: Clean separation between domain models and database tables
+- **Alembic Migrations**: Version-controlled schema migrations with auto-migration support
+
+The database stores:
+
+- **Session Summaries**: ProxyMem cross-session memory data
+- **SSO Tokens**: Agent authentication tokens and pending authorizations
+- **Rate Limits**: Per-identifier rate limiting state
+- **Project Mappings**: User-to-project associations for memory isolation
+
+For configuration details, see the [Database Configuration Guide](../user_guide/database-configuration.md).
+
 ## Key Design Patterns
 
 ### 1. Adapter Pattern
@@ -273,6 +291,12 @@ src/
 │   ├── commands/           # Command definitions and handlers
 │   ├── common/             # Shared utilities and exceptions
 │   ├── config/             # Configuration management
+│   ├── database/           # Database abstraction layer (SQLModel/Alembic)
+│   │   ├── config.py      # Database configuration
+│   │   ├── engine.py      # Async engine and session management
+│   │   ├── models/        # SQLModel table definitions
+│   │   ├── repositories/  # Repository implementations
+│   │   └── migrations/    # Alembic migration scripts
 │   ├── domain/             # Domain entities and logic
 │   ├── interfaces/         # Abstract interfaces
 │   ├── models/             # Data models

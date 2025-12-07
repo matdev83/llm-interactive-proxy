@@ -11,7 +11,7 @@ class TestDatabaseConfig:
         """Test default configuration values."""
         config = DatabaseConfig()
 
-        assert config.url == "sqlite+aiosqlite:///./var/proxy.db"
+        assert config.url == "sqlite+aiosqlite:///./var/db/proxy.db"
         assert config.pool_size == 5
         assert config.max_overflow == 10
         assert config.pool_timeout == 30

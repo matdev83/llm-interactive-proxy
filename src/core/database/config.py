@@ -16,10 +16,10 @@ class DatabaseConfig(DomainModel):
     model_config = ConfigDict(frozen=True)
 
     # Database URL (SQLAlchemy format)
-    # SQLite: sqlite+aiosqlite:///./var/proxy.db
+    # SQLite: sqlite+aiosqlite:///./var/db/proxy.db
     # PostgreSQL: postgresql+asyncpg://user:pass@host/db
     url: str = Field(
-        default="sqlite+aiosqlite:///./var/proxy.db",
+        default="sqlite+aiosqlite:///./var/db/proxy.db",
         description="Database connection URL in SQLAlchemy format",
     )
 

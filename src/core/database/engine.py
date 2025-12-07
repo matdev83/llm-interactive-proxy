@@ -100,7 +100,7 @@ class DatabaseEngine:
 
     def _ensure_sqlite_directory(self) -> None:
         """Ensure the SQLite database directory exists."""
-        # Extract path from URL: sqlite+aiosqlite:///./var/proxy.db
+        # Extract path from URL: sqlite+aiosqlite:///./var/db/proxy.db
         url = self._config.url
         if ":///" in url:
             # Absolute or relative path

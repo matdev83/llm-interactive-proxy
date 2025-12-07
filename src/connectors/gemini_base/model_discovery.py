@@ -141,28 +141,31 @@ class FallbackModelDiscovery:
     doesn't expose fetchAvailableModels endpoint.
     """
 
-    # Extended model list for Antigravity (includes Claude models)
-    # Note: Some models are exposed with canonical names and mapped internally:
-    # - gemini-3-pro → gemini-3-pro-high/low based on reasoning_effort
-    # - claude-opus-4.5 → claude-opus-4-5 or claude-opus-4-5-thinking
+    # Extended model list for Antigravity (includes Claude and OpenAI models)
+    # Public names use "vendor/model" format (e.g., "google/gemini-3-pro")
+    # Internal mapping (handled by connector):
+    # - google/gemini-3-pro -> gemini-3-pro-high/low based on reasoning_effort
+    # - anthropic/claude-opus-4.5 -> claude-opus-4-5-thinking (always)
+    # - anthropic/claude-sonnet-4.5 -> claude-sonnet-4-5 or claude-sonnet-4-5-thinking
+    # - openai/gpt-oss-120b -> gpt-oss-120b-medium (always)
     ANTIGRAVITY_MODELS = [
-        # Gemini models
-        "gemini-3-pro",  # Maps to gemini-3-pro-high/low internally
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-pro-preview-05-06",
-        "gemini-2.5-pro-preview-06-05",
-        "gemini-2.5-flash-preview-05-20",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-thinking-exp-1219",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        # Claude models (Antigravity sandbox supports these)
-        "claude-opus-4.5",  # Maps to claude-opus-4-5 or claude-opus-4-5-thinking
-        "claude-sonnet-4-5",
-        "claude-3-5-sonnet",
-        "claude-3-5-sonnet-v2",
+        # Gemini models (google/ vendor prefix)
+        "google/gemini-3-pro",  # Maps to gemini-3-pro-high/low internally
+        "google/gemini-2.5-pro",
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+        "google/gemini-2.5-pro-preview-05-06",
+        "google/gemini-2.5-pro-preview-06-05",
+        "google/gemini-2.5-flash-preview-05-20",
+        "google/gemini-2.0-flash",
+        "google/gemini-2.0-flash-thinking-exp-1219",
+        "google/gemini-1.5-pro",
+        "google/gemini-1.5-flash",
+        # Anthropic models (anthropic/ vendor prefix)
+        "anthropic/claude-opus-4.5",  # Always maps to claude-opus-4-5-thinking
+        "anthropic/claude-sonnet-4.5",  # Maps based on reasoning_effort
+        # OpenAI models (openai/ vendor prefix)
+        "openai/gpt-oss-120b",  # Always maps to gpt-oss-120b-medium
     ]
 
     def __init__(

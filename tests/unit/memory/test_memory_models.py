@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from src.core.memory.models import (
     CapturedInteraction,
     FileChange,
+    FileEditEvent,
+    GitCommitEvent,
     GitOperation,
     SessionData,
     SessionSummary,
@@ -184,6 +186,8 @@ class TestSessionData:
         assert data.tenant_id is None
         assert data.project_id is None
         assert data.interactions == []
+        assert data.deterministic_file_edits == []
+        assert data.deterministic_git_commits == []
 
     def test_full_session_data(self) -> None:
         """Test session data with all fields."""
@@ -192,6 +196,18 @@ class TestSessionData:
             timestamp=now,
             role="user",
             content="Test",
+        )
+        file_edit = FileEditEvent(
+            path="src/file.py",
+            action="modified",
+            tool="apply_patch",
+            timestamp=now,
+        )
+        git_commit = GitCommitEvent(
+            commit_hash="abc123",
+            message="Fix bug",
+            branch="main",
+            timestamp=now,
         )
         data = SessionData(
             session_id="sess-123",
@@ -209,6 +225,8 @@ class TestSessionData:
             estimated_tokens=1200,
             redaction_applied=True,
             interactions=[interaction],
+            deterministic_file_edits=[file_edit],
+            deterministic_git_commits=[git_commit],
         )
         assert data.tenant_id == "tenant-789"
         assert data.project_id == "proj-abc"
@@ -217,6 +235,10 @@ class TestSessionData:
         assert data.head_sha == "abc123def"
         assert data.redaction_applied is True
         assert len(data.interactions) == 1
+        assert len(data.deterministic_file_edits) == 1
+        assert data.deterministic_file_edits[0].path == "src/file.py"
+        assert len(data.deterministic_git_commits) == 1
+        assert data.deterministic_git_commits[0].commit_hash == "abc123"
 
 
 class TestSessionSummary:
