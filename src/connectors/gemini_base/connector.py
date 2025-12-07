@@ -1616,6 +1616,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except InvalidRequestError:
             # Let context window overflows bubble up for clients to handle
             raise
+        except RateLimitExceededError:
+            # Re-raise rate limit errors so they can be handled by the specialized middleware/controller
+            # without triggering the generic exception handler that logs stack traces
+            raise
         except Exception as e:
             # Convert other exceptions to BackendError
             logger.error(
@@ -2018,7 +2022,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             async def stream_generator(
                 *,
-                allow_tool_retry: bool = True,
+                _allow_tool_retry: bool = True,
                 without_tools: bool = False,
             ) -> AsyncGenerator[ProcessedResponse, None]:
                 import json
@@ -2419,7 +2423,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 response.close()
                                 # Retry once without tools/toolConfig
                                 async for retry_chunk in stream_generator(
-                                    allow_tool_retry=False, without_tools=True
+                                    _allow_tool_retry=False, without_tools=True
                                 ):
                                     yield retry_chunk
                                 return

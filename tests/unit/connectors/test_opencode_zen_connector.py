@@ -102,6 +102,7 @@ def api_credentials() -> dict[str, Any]:
         }
     }
 
+
 # ============================================================================
 # TASK-2 & TASK-3: Cross-Platform Path Resolution Tests
 # ============================================================================
@@ -126,54 +127,67 @@ class TestCrossPlatformPathResolution:
             # Since we mock Path via side_effect in implementation, this test needs to simulate existence check
             # For simplicity in this mock setup, we assume first logic branch returns
             # if we can't easily mock `exists()` on PurePath.
-            
+
             # However, the current implementation uses `Path(localappdata)` which is patched.
             # If we don't mock existence, it might try to check disk or fail.
             # The previous test asserted exact path construction.
-            
+
             # Let's mock Path to return objects that have .exists() method
-            pass # Skipping this test refactor to focus on functional tests below
+            pass  # Skipping this test refactor to focus on functional tests below
 
     def test_windows_fallback_to_xdg_style(self, connector):
         """Windows should fallback to .local/share if LOCALAPPDATA version doesn't exist but XDG does."""
+
         class MockWindowsPath(PureWindowsPath):
             def exists(self):
                 # Simulate that LOCALAPPDATA path does NOT exist, but home/.local DOES
                 return ".local" in str(self)
-                
+
             @classmethod
             def home(cls):
                 return cls("C:/Users/testuser")
 
         with (
-            patch.dict(os.environ, {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"}, clear=False),
+            patch.dict(
+                os.environ,
+                {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"},
+                clear=False,
+            ),
             patch("sys.platform", "win32"),
             patch("os.name", "nt"),
             patch("src.connectors.opencode_zen.Path", MockWindowsPath),
         ):
             path = connector._get_default_credentials_path()
-            assert path == MockWindowsPath("C:/Users/testuser/.local/share/opencode/auth.json")
+            assert path == MockWindowsPath(
+                "C:/Users/testuser/.local/share/opencode/auth.json"
+            )
 
     def test_windows_path_fallback_default(self, connector):
         """Windows should fallback to LOCALAPPDATA path if nothing exists."""
-        
+
         class MockWindowsPath(PureWindowsPath):
             @classmethod
             def home(cls):
                 return cls("C:/Users/testuser")
-            
+
             def exists(self):
                 return False
 
         with (
-            patch.dict(os.environ, {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"}, clear=False),
+            patch.dict(
+                os.environ,
+                {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"},
+                clear=False,
+            ),
             patch("sys.platform", "win32"),
             patch("os.name", "nt"),
             patch("src.connectors.opencode_zen.Path", MockWindowsPath),
         ):
             path = connector._get_default_credentials_path()
             # If nothing exists, it defaults to LOCALAPPDATA path
-            assert path == MockWindowsPath("C:/Users/test/AppData/Local/opencode/auth.json")
+            assert path == MockWindowsPath(
+                "C:/Users/test/AppData/Local/opencode/auth.json"
+            )
 
     def test_linux_path_with_xdg_data_home(self, connector):
         """Linux should use XDG_DATA_HOME when set."""
@@ -232,7 +246,7 @@ class TestCrossPlatformPathResolution:
             "src.connectors.opencode_zen.Path", Path
         ):  # Use real Path for this check
             path = connector._get_default_credentials_path()
-            assert isinstance(path, (Path, pathlib.PurePath))
+            assert isinstance(path, Path | pathlib.PurePath)
 
 
 # ============================================================================
@@ -343,7 +357,7 @@ class TestCredentialsLoading:
         )
         connector._credentials_path = creds_file
         result = await connector._load_oauth_credentials()
-        
+
         assert result is True
         # Check mapping
         assert connector._oauth_credentials["access"] == "sk-test-api-key"
@@ -370,7 +384,7 @@ class TestCredentialsLoading:
         # First load
         result1 = await connector._load_oauth_credentials()
         assert result1 is True
-        original_creds = connector._oauth_credentials.copy()
+        # original_creds = connector._oauth_credentials.copy()
 
         # Modify in-memory credentials
         connector._oauth_credentials["access"] = "modified-in-memory"
@@ -500,7 +514,7 @@ class TestConnectorClassStructure:
 
     def test_default_endpoint_url(self, connector):
         """Should have correct default endpoint URL."""
-        assert connector._default_endpoint == "https://opencode.ai/zen/v1"
+        assert connector._default_endpoint == "https://api.gateway.opencode.ai/v1"
 
     def test_initial_state(self, connector):
         """Initial state should have is_functional = False."""
@@ -614,7 +628,6 @@ class TestChatCompletions:
         await connector.initialize(credentials_path=str(temp_credentials_file))
 
         # Force token to appear expired
-        original_creds = connector._oauth_credentials.copy()
         connector._oauth_credentials["expires"] = time.time() - 100
 
         # Ensure file mtime changes to trigger reload
@@ -641,10 +654,8 @@ class TestChatCompletions:
             )
 
     @pytest.mark.asyncio
-    async def test_strips_vendor_prefix_from_model(
-        self, connector, temp_credentials_file
-    ):
-        """Should strip 'opencode-zen:' prefix from model name."""
+    async def test_preserves_vendor_prefix(self, connector, temp_credentials_file):
+        """Should preserve vendor prefix (e.g. 'anthropic/') but strip 'opencode-zen:'."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
 
         chat_request = ChatRequest(
@@ -665,13 +676,13 @@ class TestChatCompletions:
                 chat_request.messages,
                 "opencode-zen:anthropic/claude-sonnet-4",
             )
-            # Verify the effective_model passed to parent is stripped
-            # Should be "claude-sonnet-4" because both "opencode-zen:" and "anthropic/" are stripped
+            # Verify the effective_model passed to parent
+            # Should be "anthropic/claude-sonnet-4" because only "opencode-zen:" is stripped
             call_args = mock_super.call_args
             effective_model = (
                 call_args.kwargs.get("effective_model") or call_args.args[2]
             )
-            assert effective_model == "claude-sonnet-4"
+            assert effective_model == "anthropic/claude-sonnet-4"
 
 
 # ============================================================================

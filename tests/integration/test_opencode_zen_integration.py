@@ -58,14 +58,21 @@ async def connector(tmp_path):
 async def test_full_flow_with_credentials(connector, mock_credentials_file):
     """Test full flow: init -> chat completion."""
 
-    # 1. Initialize
-    await connector.initialize(credentials_path=str(mock_credentials_file))
-    assert connector.is_functional
-
-    # 2. Mock API response
-    """Test fetching models from the API."""
-    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
+    # Mock API response
+    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
         respx_mock.get("/models").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "openai/gpt-4.1"},
+                        {"id": "anthropic/claude-sonnet-4"},
+                    ]
+                },
+            )
+        )
+
+        respx_mock.post("/chat/completions").mock(
             return_value=Response(
                 200,
                 json={
@@ -92,7 +99,11 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
             )
         )
 
-        # 3. Request chat completion
+        # 1. Initialize
+        await connector.initialize(credentials_path=str(mock_credentials_file))
+        assert connector.is_functional
+
+        # 2. Request chat completion
         request = ChatRequest(
             model="opencode-zen:openai/gpt-4.1",
             messages=[ChatMessage(role="user", content="Hello")],
@@ -103,14 +114,14 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
             request, request.messages, "opencode-zen:openai/gpt-4.1"
         )
 
-        # 4. Verify response
+        # 3. Verify response
         # OpenAIConnector returns the raw response dict in content for non-streaming
         assert (
             response.content["choices"][0]["message"]["content"]
             == "Hello from OpenCode Zen!"
         )
 
-        # 5. Verify Auth header was sent
+        # 4. Verify Auth header was sent
         last_request = respx_mock.calls.last.request
         assert last_request.headers["Authorization"] == "Bearer test-access-token-1"
         assert last_request.headers["Content-Type"] == "application/json"
@@ -120,35 +131,38 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
 async def test_token_refresh_flow(connector, mock_credentials_file):
     """Test flow where token expires and is reloaded from file."""
 
-    # 1. Initialize with valid credentials
-    await connector.initialize(credentials_path=str(mock_credentials_file))
-
-    # 2. Simulate token expiry in memory
-    connector._oauth_credentials["expires"] = time.time() - 100
-
-    # 3. Update file with NEW credentials (as if CLI refreshed it)
-    new_creds = {
-        "opencode": {
-            "type": "oauth",
-            "access": "test-access-token-2",  # NEW TOKEN
-            "refresh": "test-refresh-token-2",
-            "expires": int(time.time()) + 3600,
-        }
-    }
-    mock_credentials_file.write_text(json.dumps(new_creds), encoding="utf-8")
-    # Update mtime to force reload
-    os.utime(mock_credentials_file, None)
-
-    # 4. Mock API response
-    """Test fetching models from the API."""
-    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
+    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
         respx_mock.get("/models").mock(
+            return_value=Response(200, json={"data": [{"id": "openai/gpt-4.1"}]})
+        )
+
+        respx_mock.post("/chat/completions").mock(
             return_value=Response(
-                200, json={"choices": [{"message": {"content": "OK"}}]}
+                200,
+                json={"choices": [{"message": {"content": "OK"}}]},
             )
         )
 
-        # 5. Make request - should trigger reload and use NEW token
+        # 1. Initialize with valid credentials
+        await connector.initialize(credentials_path=str(mock_credentials_file))
+
+        # 2. Simulate token expiry in memory
+        connector._oauth_credentials["expires"] = time.time() - 100
+
+        # 3. Update file with NEW credentials (as if CLI refreshed it)
+        new_creds = {
+            "opencode": {
+                "type": "oauth",
+                "access": "test-access-token-2",  # NEW TOKEN
+                "refresh": "test-refresh-token-2",
+                "expires": int(time.time()) + 3600,
+            }
+        }
+        mock_credentials_file.write_text(json.dumps(new_creds), encoding="utf-8")
+        # Update mtime to force reload
+        os.utime(mock_credentials_file, None)
+
+        # 4. Make request - should trigger reload and use NEW token
         request = ChatRequest(
             model="opencode-zen:openai/gpt-4.1",
             messages=[ChatMessage(role="user", content="Hello")],
@@ -159,7 +173,7 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
             request, request.messages, "opencode-zen:openai/gpt-4.1"
         )
 
-        # 6. Verify NEW token was used
+        # 5. Verify NEW token was used
         last_request = respx_mock.calls.last.request
         assert last_request.headers["Authorization"] == "Bearer test-access-token-2"
 
@@ -167,8 +181,6 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
 @pytest.mark.asyncio
 async def test_streaming_response(connector, mock_credentials_file):
     """Test streaming response handling."""
-
-    await connector.initialize(credentials_path=str(mock_credentials_file))
 
     # Mock streaming response
     stream_content = [
@@ -181,15 +193,20 @@ async def test_streaming_response(connector, mock_credentials_file):
         for chunk in stream_content:
             yield chunk.encode()
 
-    """Test fetching models from the API."""
-    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
+    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
         respx_mock.get("/models").mock(
+            return_value=Response(200, json={"data": [{"id": "openai/gpt-4.1"}]})
+        )
+
+        respx_mock.post("/chat/completions").mock(
             return_value=Response(
                 200,
                 content=content_stream(),
                 headers={"Content-Type": "text/event-stream"},
             )
         )
+
+        await connector.initialize(credentials_path=str(mock_credentials_file))
 
         request = ChatRequest(
             model="opencode-zen:openai/gpt-4.1",
@@ -219,7 +236,7 @@ async def test_streaming_response(connector, mock_credentials_file):
                     delta = choices[0].get("delta", {})
                     if "content" in delta:
                         content_parts.append(delta["content"])
-            elif isinstance(chunk.content, (bytes, str)):
+            elif isinstance(chunk.content, bytes | str):
                 raw_content = chunk.content
                 if isinstance(raw_content, bytes):
                     raw_content = raw_content.decode("utf-8")
@@ -241,7 +258,7 @@ async def test_streaming_response(connector, mock_credentials_file):
 
         full_content = "".join(content_parts)
         if full_content != "Hello World":
-            assert (
-                False
-            ), f"Expected 'Hello World', got '{full_content}'. Chunks content: {debug_chunks}"
+            pytest.fail(
+                f"Expected 'Hello World', got '{full_content}'. Chunks content: {debug_chunks}"
+            )
         assert full_content == "Hello World"

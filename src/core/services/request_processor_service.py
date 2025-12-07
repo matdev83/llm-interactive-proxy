@@ -25,6 +25,8 @@ from src.core.interfaces.model_replacement_service_interface import (
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+from src.core.memory.injection_middleware import ContextInjectionMiddleware
 from src.core.services.project_directory_resolution_service import (
     ProjectDirectoryResolutionService,
 )
@@ -51,6 +53,8 @@ class RequestProcessor(IRequestProcessor):
         response_manager: IResponseManager,
         app_state: IApplicationState | None = None,
         replacement_service: IModelReplacementService | None = None,
+        memory_capture: MemoryCaptureMiddleware | None = None,
+        context_injector: ContextInjectionMiddleware | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
@@ -59,6 +63,8 @@ class RequestProcessor(IRequestProcessor):
         self._response_manager = response_manager
         self._app_state = app_state
         self._replacement_service = replacement_service
+        self._memory_capture = memory_capture
+        self._context_injector = context_injector
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -173,6 +179,31 @@ class RequestProcessor(IRequestProcessor):
                     logger.debug(
                         f"Project directory auto-detection failed: {e}", exc_info=True
                     )
+
+        # Inject memory context if enabled (after project detection)
+        if self._context_injector:
+            try:
+                request_data = await self._context_injector.maybe_inject_context(
+                    session_id, request_data
+                )
+            except Exception as e:
+                logger.warning(
+                    "Context injection failed for session %s: %s", session_id, e
+                )
+
+        # Capture user request interactions (before processing)
+        if self._memory_capture:
+            try:
+                # We capture without awaiting to avoid latency impact
+                # This depends on capture_request being safe to run as background task
+                # or just being fast. Since it's async, we should await it or spawn task.
+                # Given strict sequentiality requirements for memory (context depends on previous),
+                # awaiting is safer, but capture_request just buffers.
+                await self._memory_capture.capture_request(session_id, request_data)
+            except Exception as e:
+                logger.warning(
+                    "Memory capture failed for session %s: %s", session_id, e
+                )
 
         # Process commands in the request
         command_result = await self._handle_command_processing(

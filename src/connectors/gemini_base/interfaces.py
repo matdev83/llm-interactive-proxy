@@ -263,7 +263,7 @@ class IHealthCheckStrategy(Protocol):
         client: "httpx.AsyncClient",
         headers: dict[str, str],
         base_url: str,
-        refresh_token_callback: Any = None,
+        _refresh_token_callback: Any = None,
     ) -> bool:
         """Perform a health check on the backend.
 

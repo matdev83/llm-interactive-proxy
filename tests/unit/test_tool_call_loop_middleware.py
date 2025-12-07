@@ -384,7 +384,11 @@ async def test_tracker_cache_eviction(loop_config, tool_call_response) -> None:
 async def test_lifecycle_registry_allows_new_detections_after_processing(
     tool_call_response: ProcessedResponse,
 ) -> None:
-    """Lifecycle registry should only suppress duplicates while tool call is inflight."""
+    """Lifecycle registry should only suppress duplicates while tool call is inflight.
+
+    After a tool call is marked as processed, subsequent identical calls should
+    be tracked and can trigger loop detection if they exceed the threshold.
+    """
 
     registry = ToolCallLifecycleRegistry()
     middleware = ConcreteToolCallLoopDetectionMiddleware(
@@ -392,9 +396,10 @@ async def test_lifecycle_registry_allows_new_detections_after_processing(
         max_cached_sessions=4,
     )
 
+    # Use max_repeats=2 so first call succeeds, second call triggers detection
     config = LoopDetectionConfiguration(
         tool_loop_detection_enabled=True,
-        tool_loop_max_repeats=1,
+        tool_loop_max_repeats=2,
         tool_loop_ttl_seconds=60,
         tool_loop_mode=ToolLoopMode.BREAK,
     )
@@ -403,6 +408,7 @@ async def test_lifecycle_registry_allows_new_detections_after_processing(
     assert isinstance(tool_call_response.content, dict)
     response_payload = copy.deepcopy(tool_call_response.content)
 
+    # First call should succeed (count=1, below threshold of 2)
     await middleware.process(
         ProcessedResponse(content=response_payload),
         session_id,
@@ -413,6 +419,7 @@ async def test_lifecycle_registry_allows_new_detections_after_processing(
     signature = build_tool_call_signature(tool_call)
     registry.mark_processed(session_id, signature)
 
+    # Second identical call should trigger loop detection (count=2, at threshold)
     with pytest.raises(ToolCallLoopError):
         await middleware.process(
             ProcessedResponse(content=copy.deepcopy(tool_call_response.content)),

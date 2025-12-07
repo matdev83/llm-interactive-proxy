@@ -23,6 +23,8 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 from src.core.services.response_pipeline import UnifiedResponsePipeline
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
@@ -62,12 +64,14 @@ class ResponseProcessor(IResponseProcessor):
         content_accumulation_processor: IStreamProcessor | None = None,
         middleware_application_processor: IStreamProcessor | None = None,
         middleware_list: list[IResponseMiddleware] | None = None,
+        memory_capture: MemoryCaptureMiddleware | None = None,
     ) -> None:
         self._app_state = app_state
         self._background_tasks: list[asyncio.Task[Any]] = []
         self._loop_detector_factory = loop_detector_factory
         self._response_parser = response_parser
         self._middleware_list = middleware_list or []
+        self._memory_capture = memory_capture
 
         # Angel feature wiring
         self._angel_service: Any | None = None
@@ -98,6 +102,27 @@ class ResponseProcessor(IResponseProcessor):
                     )
 
                 self._stream_normalizer = StreamNormalizer(processors)
+
+        # Inject memory response capture middleware into stream normalizer if enabled
+        # We need to add it to the END of the chain to capture final processed content
+        if (
+            self._memory_capture
+            and self._stream_normalizer
+            and isinstance(self._stream_normalizer, StreamNormalizer)
+        ):
+            # We can't easily append to _processors as it's private and frozen in StreamNormalizer
+            # But we can rely on the fact that we're likely constructing it here or passing it in.
+            # However, since we need session_id for capture which is only available at request time,
+            # we need a factory or per-request injection mechanism.
+            #
+            # The current architecture makes this tricky: processors are instantiated once.
+            # But ResponseCaptureProcessor needs session_id.
+            #
+            # Solution: We'll modify process_streaming_response to wrap the iterator with a capture step
+            # or rely on UnifiedResponsePipeline modifications.
+            #
+            # Actually, let's inject it into process_streaming_response logic below instead of here.
+            pass
 
         if self._stream_normalizer is None:
             raise RuntimeError(
@@ -449,14 +474,48 @@ class ResponseProcessor(IResponseProcessor):
 
         # Process the stream using the unified pipeline
         try:
+            # Wrap response iterator with memory capture if enabled
+            effective_iterator = response_iterator
+            capture_processor: ResponseCaptureProcessor | None = None
+
+            if self._memory_capture:
+                # We need to hook into the stream *before* it gets consumed by the pipeline
+                # BUT wait, the pipeline consumes StreamingContent.
+                # If we hook here, we get raw chunks.
+                # ResponseCaptureProcessor expects StreamingContent.
+                # So we should ideally inject it into the pipeline or wrap the pipeline output.
+                #
+                # However, wrapping the pipeline output means we only capture what comes OUT.
+                # But ResponseCaptureProcessor is an IStreamProcessor designed for the pipeline.
+                #
+                # The issue is that IStreamProcessor logic is inside StreamNormalizer which is instantiated in __init__.
+                # We can't inject per-request processors easily into StreamNormalizer without modifying it.
+                #
+                # Alternative: Use a wrapper around the output stream of pipeline.
+                # The pipeline outputs StreamingContent (when format="objects").
+                # So we can just feed that into ResponseCaptureProcessor.process().
+                capture_processor = ResponseCaptureProcessor(
+                    self._memory_capture, session_id
+                )
+
             stream_processor = self._unified_pipeline.process_streaming(
-                response_iterator,
+                effective_iterator,
                 session_id,
                 output_format="objects",
                 cancel_callback=None,
             )
 
             async for processed_chunk in stream_processor:
+                # Feed to capture processor if enabled
+                if capture_processor and isinstance(processed_chunk, StreamingContent):
+                    try:
+                        # process() is async and returns content (pass-through)
+                        # We await it to ensure capture logic runs
+                        await capture_processor.process(processed_chunk)
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug("Memory capture error: %s", e)
+
                 if isinstance(processed_chunk, StreamingContent):
                     chunk_content: str | dict[str, Any] = self._normalize_chunk_text(
                         processed_chunk.content

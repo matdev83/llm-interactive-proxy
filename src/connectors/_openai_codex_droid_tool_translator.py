@@ -467,7 +467,7 @@ class DroidToolTranslator:
 
         return "apply_patch", codex_args
 
-    def format_result(self, codex_result: dict[str, Any], original_tool: str) -> str:
+    def format_result(self, codex_result: dict[str, Any], _original_tool: str) -> str:
         """Format a Codex result back to Droid format.
 
         Droid expects tool results as plain strings:
@@ -476,7 +476,7 @@ class DroidToolTranslator:
 
         Args:
             codex_result: The result from Codex tool execution
-            original_tool: The original Droid tool name (currently unused)
+            _original_tool: The original Droid tool name (currently unused)
 
         Returns:
             Formatted string result for Droid

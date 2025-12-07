@@ -8,6 +8,9 @@ Available commands:
 - low - Activates the low reasoning mode.
 - max - Activates the max reasoning mode.
 - medium - Activates the medium reasoning mode.
+- memory-off - Disable memory capture for this session.
+- memory-on - Enable memory capture for this session.
+- memory-status - Show current memory capture status for this session.
 - mode - Sets the reasoning mode for the current session.
 - model - Set or unset the active model (optionally with backend)
 - no-think - Activates the no-think reasoning mode.

@@ -13,8 +13,8 @@ import logging
 import os
 import sys
 import time
-from pathlib import Path
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -56,7 +56,7 @@ class OpencodeZenConnector(OpenAIConnector):
     ) -> None:
         super().__init__(client, config, translation_service=translation_service)
         self.name = "opencode-zen"
-        self._default_endpoint = "https://opencode.ai/zen/v1"
+        self._default_endpoint = "https://api.gateway.opencode.ai/v1"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
@@ -78,22 +78,28 @@ class OpencodeZenConnector(OpenAIConnector):
         """
         if sys.platform == "win32" or os.name == "nt":
             localappdata = os.environ.get("LOCALAPPDATA")
-            
+
             paths_to_check = []
             if localappdata:
                 paths_to_check.append(Path(localappdata) / "opencode" / "auth.json")
-            
+
             # Add unix-style XDG fallback for tools running in mixed environments on Windows
-            paths_to_check.append(Path.home() / ".local" / "share" / "opencode" / "auth.json")
-            
+            paths_to_check.append(
+                Path.home() / ".local" / "share" / "opencode" / "auth.json"
+            )
+
             # Return the first one that exists
             for path in paths_to_check:
                 if path.exists():
                     return path
-            
-            # If none exist, return the primary preferred path (LOCALAPPDATA) if available, 
+
+            # If none exist, return the primary preferred path (LOCALAPPDATA) if available,
             # otherwise fallback to home-based structure for consistency in error reporting.
-            return paths_to_check[0] if paths_to_check else Path.home() / "AppData" / "Local" / "opencode" / "auth.json"
+            return (
+                paths_to_check[0]
+                if paths_to_check
+                else Path.home() / "AppData" / "Local" / "opencode" / "auth.json"
+            )
 
         xdg_data_home = os.environ.get("XDG_DATA_HOME")
         if xdg_data_home:
@@ -154,11 +160,15 @@ class OpencodeZenConnector(OpenAIConnector):
                 # API keys don't expire
                 provider_creds["expires"] = None
             else:
-                logger.warning("OpenCode credentials type '%s' is not supported", auth_type)
+                logger.warning(
+                    "OpenCode credentials type '%s' is not supported", auth_type
+                )
                 return False
 
             self._oauth_credentials = provider_creds
-            logger.info("Successfully loaded OpenCode credentials (type: %s)", auth_type)
+            logger.info(
+                "Successfully loaded OpenCode credentials (type: %s)", auth_type
+            )
             return True
 
         except json.JSONDecodeError as e:
@@ -295,34 +305,46 @@ class OpencodeZenConnector(OpenAIConnector):
 
     async def _fetch_available_models(self) -> list[str]:
         """Fetch available models from the backend API.
-        
+
         Falls back to hardcoded list if API fetch fails.
         """
         try:
             headers = self.get_headers()
             url = f"{self.api_base_url}/models"
-            
+
             logger.debug("Fetching available models from %s", url)
             response = await self.client.get(url, headers=headers, timeout=10.0)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 models = []
                 # Handle standard OpenAI format: {"data": [{"id": "model-id", ...}]}
-                if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+                if (
+                    isinstance(data, dict)
+                    and "data" in data
+                    and isinstance(data["data"], list)
+                ):
                     for model in data["data"]:
                         if isinstance(model, dict) and "id" in model:
                             models.append(model["id"])
-                
+
                 if models:
-                    logger.info("Successfully fetched %d models from OpenCode API", len(models))
+                    logger.info(
+                        "Successfully fetched %d models from OpenCode API", len(models)
+                    )
                     return models
-            
-            logger.warning("Failed to fetch models from API (status: %s), using defaults. Response: %s", response.status_code, response.text[:200])
-            
+
+            logger.warning(
+                "Failed to fetch models from API (status: %s), using defaults. Response: %s",
+                response.status_code,
+                response.text[:200],
+            )
+
         except Exception as e:
-            logger.warning("Error fetching models from API: %s, using defaults", e, exc_info=True)
-            
+            logger.warning(
+                "Error fetching models from API: %s, using defaults", e, exc_info=True
+            )
+
         # Default fallback models
         return [
             "claude-opus-4-5",
@@ -335,10 +357,10 @@ class OpencodeZenConnector(OpenAIConnector):
     async def get_available_models_async(self) -> list[str]:
         """Async version of get_available_models to allow fetching from API if needed."""
         if not self.available_models:
-             self.available_models = await self._fetch_available_models()
-             
+            self.available_models = await self._fetch_available_models()
+
         return self.get_available_models()
-    
+
     def get_available_models(self) -> list[str]:
         """Return available models with vendor prefix for unified model routing.
 
@@ -373,14 +395,22 @@ class OpencodeZenConnector(OpenAIConnector):
                 yield chunk
         except (HTTPException, AuthenticationError) as e:
             is_401 = False
-            if isinstance(e, HTTPException) and e.status_code == 401:
-                is_401 = True
-            elif isinstance(e, AuthenticationError):
+            if (
+                isinstance(e, HTTPException)
+                and e.status_code == 401
+                or isinstance(e, AuthenticationError)
+            ):
                 is_401 = True
 
             if is_401:
-                token = self._oauth_credentials.get("access", "") if self._oauth_credentials else ""
-                masked_token = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "masked"
+                token = (
+                    self._oauth_credentials.get("access", "")
+                    if self._oauth_credentials
+                    else ""
+                )
+                masked_token = (
+                    f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "masked"
+                )
                 logger.warning(
                     f"Received 401 from OpenCode Zen backend during streaming. "
                     f"Token used: {masked_token}. "
@@ -452,25 +482,14 @@ class OpencodeZenConnector(OpenAIConnector):
             # Fallback for backward compatibility or accidental slash usage
             model_name = model_name[len("opencode-zen/") :]
 
-        # Strip optional vendor prefixes to support input like 'opencode-zen:anthropic/claude-sonnet-4'
-        # mapping to the raw ID 'claude-sonnet-4' that the API expects.
-        known_vendors = [
-            "anthropic/", "openai/", "google/", "zhipuai/", 
-            "qwen/", "moonshot/", "xai/", "deepmind/", "misc/"
-        ]
-        for vendor in known_vendors:
-            if model_name.startswith(vendor):
-                model_name = model_name[len(vendor):]
-                break
-
         # Update request_data with the stripped model name to ensure it propagates to streaming logic
         # which might extract the model from request_data directly
         if hasattr(request_data, "model_copy") and callable(request_data.model_copy):
-             # It's a Pydantic model, create a copy with updated field
-             request_data = request_data.model_copy(update={"model": model_name})
+            # It's a Pydantic model, create a copy with updated field
+            request_data = request_data.model_copy(update={"model": model_name})
         elif isinstance(request_data, dict):
-             # It's a dict, update in place (or copy if preferred, but in-place is standard for dicts here)
-             request_data["model"] = model_name
+            # It's a dict, update in place (or copy if preferred, but in-place is standard for dicts here)
+            request_data["model"] = model_name
 
         try:
             return await super().chat_completions(
@@ -482,13 +501,17 @@ class OpencodeZenConnector(OpenAIConnector):
             )
         except (HTTPException, AuthenticationError) as e:
             is_401 = False
-            if isinstance(e, HTTPException) and e.status_code == 401:
+            if (
+                isinstance(e, HTTPException)
+                and e.status_code == 401
+                or isinstance(e, AuthenticationError)
+            ):
                 is_401 = True
-            elif isinstance(e, AuthenticationError):
-                is_401 = True
-            
+
             if is_401:
-                logger.warning("Received 401 from OpenCode Zen backend. Reloading credentials and retrying...")
+                logger.warning(
+                    "Received 401 from OpenCode Zen backend. Reloading credentials and retrying..."
+                )
                 # Reload credentials (force check)
                 if await self._load_oauth_credentials():
                     # Retry once
@@ -500,8 +523,10 @@ class OpencodeZenConnector(OpenAIConnector):
                         **kwargs,
                     )
                 else:
-                    raise AuthenticationError("Failed to refresh credentials after 401") from e
-            
+                    raise AuthenticationError(
+                        "Failed to refresh credentials after 401"
+                    ) from e
+
             # Re-raise other errors
             raise e
 

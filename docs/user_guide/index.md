@@ -96,6 +96,7 @@ Backend provider configuration and usage:
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration
 - **[Minimax Backend](backends/minimax.md)** - Minimax API configuration
 - **[Zenmux Backend](backends/zenmux.md)** - Zenmux API configuration
+- **[OpenCode Zen Backend](backends/opencode-zen.md)** - OpenCode Zen API configuration
 - **[Custom Backends](backends/custom-backends.md)** - Creating and configuring custom backend connectors
 
 ## Debugging

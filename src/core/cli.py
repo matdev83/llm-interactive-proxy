@@ -840,6 +840,124 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="IP address to trust for bypassing authorization. Can be specified multiple times.",
     )
 
+    # ProxyMem (Cross-Session Memory) arguments
+    memory_group = parser.add_argument_group(
+        "ProxyMem (Cross-Session Memory)",
+        "Options for configuring the proxy-based memory layer for LLM agents",
+    )
+    memory_group.add_argument(
+        "--memory-available",
+        action="store_true",
+        dest="memory_available",
+        default=None,
+        help="Enable ProxyMem feature globally (allows activation via commands or default)",
+    )
+    memory_group.add_argument(
+        "--memory-default-enabled",
+        action="store_true",
+        dest="memory_default_enabled",
+        default=None,
+        help="Enable memory gathering by default for new sessions (requires --memory-available)",
+    )
+    memory_group.add_argument(
+        "--memory-summary-model",
+        type=str,
+        dest="memory_summary_model",
+        metavar="BACKEND:MODEL",
+        help="Model for generating session summaries (e.g., openai:gpt-4o)",
+    )
+    memory_group.add_argument(
+        "--memory-context-model",
+        type=str,
+        dest="memory_context_model",
+        metavar="BACKEND:MODEL",
+        help="Model for retrieving relevant context (e.g., openai:gpt-4o-mini)",
+    )
+    memory_group.add_argument(
+        "--memory-summary-prompt",
+        type=str,
+        dest="memory_summary_prompt",
+        metavar="PATH",
+        help="Path to custom summary prompt file (.txt or .md)",
+    )
+    memory_group.add_argument(
+        "--memory-context-prompt",
+        type=str,
+        dest="memory_context_prompt",
+        metavar="PATH",
+        help="Path to custom context retrieval prompt file (.txt or .md)",
+    )
+    memory_group.add_argument(
+        "--memory-database-path",
+        type=str,
+        dest="memory_database_path",
+        metavar="PATH",
+        help="Path to SQLite database for session summaries (default: ./var/memory.sqlite3)",
+    )
+    memory_group.add_argument(
+        "--memory-session-timeout",
+        type=int,
+        dest="memory_session_timeout",
+        metavar="MINUTES",
+        help="Session inactivity timeout before triggering analysis (default: 30)",
+    )
+    memory_group.add_argument(
+        "--memory-retention-days",
+        type=int,
+        dest="memory_retention_days",
+        metavar="DAYS",
+        help="Number of days to retain session summaries (default: 90)",
+    )
+    memory_group.add_argument(
+        "--memory-max-context-tokens",
+        type=int,
+        dest="memory_max_context_tokens",
+        metavar="TOKENS",
+        help="Maximum tokens for injected context (default: 2000)",
+    )
+    memory_group.add_argument(
+        "--memory-context-relevance-threshold",
+        type=float,
+        dest="memory_context_relevance_threshold",
+        metavar="THRESHOLD",
+        help="Minimum relevance score for context injection (0.0-1.0, default: 0.5)",
+    )
+    memory_group.add_argument(
+        "--memory-single-user-mode",
+        action="store_true",
+        dest="memory_single_user_mode",
+        default=None,
+        help="Enable single-user mode (bypass user identity requirements)",
+    )
+    memory_group.add_argument(
+        "--memory-fixed-user-id",
+        type=str,
+        dest="memory_fixed_user_id",
+        metavar="USER_ID",
+        help="Fixed user ID for single-user mode",
+    )
+    memory_group.add_argument(
+        "--memory-redaction-pattern",
+        action="append",
+        dest="memory_redaction_patterns",
+        metavar="REGEX",
+        help="Regex pattern for redacting sensitive data (can be specified multiple times)",
+    )
+    memory_group.add_argument(
+        "--memory-disable-user",
+        action="append",
+        dest="memory_disabled_users",
+        metavar="USER_ID",
+        help="User ID to exclude from memory features (can be specified multiple times)",
+    )
+    memory_group.add_argument(
+        "--memory-disable-client",
+        action="append",
+        dest="memory_disabled_clients",
+        metavar="CLIENT",
+        help="Client/agent name to exclude from memory features (can be specified multiple times)",
+    )
+
     return parser
 
 
@@ -1911,6 +2029,139 @@ def apply_cli_args(
         # Add backend overrides to main overrides if any
     if backend_overrides:
         cli_overrides["backends"] = backend_overrides
+
+    # ProxyMem (Cross-Session Memory) configuration
+    memory_overrides: dict[str, Any] = {}
+
+    if getattr(args, "memory_available", None) is not None:
+        memory_overrides["available"] = args.memory_available
+        record_cli("memory.available", args.memory_available, "--memory-available")
+
+    if getattr(args, "memory_default_enabled", None) is not None:
+        memory_overrides["default_enabled"] = args.memory_default_enabled
+        record_cli(
+            "memory.default_enabled",
+            args.memory_default_enabled,
+            "--memory-default-enabled",
+        )
+
+    if getattr(args, "memory_summary_model", None) is not None:
+        memory_overrides["summary_model"] = args.memory_summary_model
+        record_cli(
+            "memory.summary_model",
+            args.memory_summary_model,
+            "--memory-summary-model",
+        )
+
+    if getattr(args, "memory_context_model", None) is not None:
+        memory_overrides["context_model"] = args.memory_context_model
+        record_cli(
+            "memory.context_model",
+            args.memory_context_model,
+            "--memory-context-model",
+        )
+
+    if getattr(args, "memory_summary_prompt", None) is not None:
+        memory_overrides["summary_prompt"] = args.memory_summary_prompt
+        record_cli(
+            "memory.summary_prompt",
+            args.memory_summary_prompt,
+            "--memory-summary-prompt",
+        )
+
+    if getattr(args, "memory_context_prompt", None) is not None:
+        memory_overrides["context_prompt"] = args.memory_context_prompt
+        record_cli(
+            "memory.context_prompt",
+            args.memory_context_prompt,
+            "--memory-context-prompt",
+        )
+
+    if getattr(args, "memory_database_path", None) is not None:
+        memory_overrides["database_path"] = args.memory_database_path
+        record_cli(
+            "memory.database_path",
+            args.memory_database_path,
+            "--memory-database-path",
+        )
+
+    if getattr(args, "memory_session_timeout", None) is not None:
+        memory_overrides["session_timeout_minutes"] = args.memory_session_timeout
+        record_cli(
+            "memory.session_timeout_minutes",
+            args.memory_session_timeout,
+            "--memory-session-timeout",
+        )
+
+    if getattr(args, "memory_retention_days", None) is not None:
+        memory_overrides["retention_days"] = args.memory_retention_days
+        record_cli(
+            "memory.retention_days",
+            args.memory_retention_days,
+            "--memory-retention-days",
+        )
+
+    if getattr(args, "memory_max_context_tokens", None) is not None:
+        memory_overrides["max_context_tokens"] = args.memory_max_context_tokens
+        record_cli(
+            "memory.max_context_tokens",
+            args.memory_max_context_tokens,
+            "--memory-max-context-tokens",
+        )
+
+    if getattr(args, "memory_context_relevance_threshold", None) is not None:
+        memory_overrides["context_relevance_threshold"] = (
+            args.memory_context_relevance_threshold
+        )
+        record_cli(
+            "memory.context_relevance_threshold",
+            args.memory_context_relevance_threshold,
+            "--memory-context-relevance-threshold",
+        )
+
+    if getattr(args, "memory_single_user_mode", None) is not None:
+        memory_overrides["single_user_mode"] = args.memory_single_user_mode
+        record_cli(
+            "memory.single_user_mode",
+            args.memory_single_user_mode,
+            "--memory-single-user-mode",
+        )
+
+    if getattr(args, "memory_fixed_user_id", None) is not None:
+        memory_overrides["fixed_user_id"] = args.memory_fixed_user_id
+        record_cli(
+            "memory.fixed_user_id",
+            args.memory_fixed_user_id,
+            "--memory-fixed-user-id",
+        )
+
+    if getattr(args, "memory_redaction_patterns", None) is not None:
+        memory_overrides["redaction_patterns"] = args.memory_redaction_patterns
+        record_cli(
+            "memory.redaction_patterns",
+            args.memory_redaction_patterns,
+            "--memory-redaction-pattern",
+        )
+
+    if getattr(args, "memory_disabled_users", None) is not None:
+        memory_overrides["disabled_users"] = set(args.memory_disabled_users)
+        record_cli(
+            "memory.disabled_users",
+            list(args.memory_disabled_users),
+            "--memory-disable-user",
+        )
+
+    if getattr(args, "memory_disabled_clients", None) is not None:
+        memory_overrides["disabled_clients"] = set(args.memory_disabled_clients)
+        record_cli(
+            "memory.disabled_clients",
+            list(args.memory_disabled_clients),
+            "--memory-disable-client",
+        )
+
+    # Add memory overrides to main overrides if any
+    if memory_overrides:
+        cli_overrides["memory"] = memory_overrides
 
     # Create new config with CLI overrides if any
     if cli_overrides:

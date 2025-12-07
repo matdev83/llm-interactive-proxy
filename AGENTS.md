@@ -21,6 +21,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 - Steering (project memory): `.kiro/steering/` - load when generating specs
 - Templates: `.kiro/settings/templates/`
 - Rules: `.kiro/settings/rules/`
+
 <!-- KIRO-SPEC:END -->
 
 ## Project Identity

@@ -448,17 +448,24 @@ class TestToolCallTrackerFunctionality:
         assert count == config.max_repeats + 1
 
     def test_track_tool_call_reset_after_different(self, config) -> None:
-        """Test that consecutive count resets after a different call."""
+        """Test that consecutive count resets after a different call.
+
+        Note: While consecutive count resets, total count within TTL window
+        is still tracked and can trigger blocking if threshold is reached.
+        """
         tracker = ToolCallTracker(config)
 
-        # Make some repeated calls
-        for _ in range(config.max_repeats - 1):
+        # Make fewer repeated calls so total stays below threshold after reset
+        # Use max_repeats - 2 so we have room for the different call + return
+        initial_calls = max(1, config.max_repeats - 2)
+        for _ in range(initial_calls):
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Make a different call
         tracker.track_tool_call("different_tool", '{"arg": "value"}')
 
-        # Now make the original call again - should not block
+        # Now make the original call again
+        # Total count is now initial_calls + 1 = max_repeats - 1, should not block
         should_block, _reason, _count = tracker.track_tool_call(
             "test_tool", '{"arg": "value"}'
         )
@@ -467,9 +474,37 @@ class TestToolCallTrackerFunctionality:
         assert _reason is None
         assert _count is None
 
-        # Check that the consecutive count was reset
+        # Check that the consecutive count was reset to 1 (not accumulated)
         full_sig = f"test_tool:{json.dumps({'arg': 'value'}, sort_keys=True)}"
         assert tracker.consecutive_repeats[full_sig] == 1
+
+    def test_track_tool_call_interleaved_repeats_blocked(self, config) -> None:
+        """Interleaved identical calls within TTL should still trigger blocking."""
+        tracker = ToolCallTracker(config)
+
+        edit_args = '{"arg": "value"}'
+        read_args = '{"path": "file.txt"}'
+
+        # First occurrence of target tool call
+        tracker.track_tool_call("edit", edit_args)
+        # Different tool call interleaved
+        tracker.track_tool_call("read", read_args)
+        # Second occurrence - still below threshold
+        should_block, reason, count = tracker.track_tool_call("edit", edit_args)
+        assert should_block is False
+        assert reason is None
+        assert count is None
+
+        # Another different tool call interleaved
+        tracker.track_tool_call("read", read_args)
+
+        # Third occurrence within TTL should now block even though not consecutive
+        should_block, reason, count = tracker.track_tool_call("edit", edit_args)
+
+        assert should_block is True
+        assert reason is not None
+        assert "Tool call loop detected" in reason
+        assert count == config.max_repeats
 
     def test_track_tool_call_with_ttl_expiry(self, config) -> None:
         """Test that TTL expiry resets consecutive counting."""

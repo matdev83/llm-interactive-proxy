@@ -232,6 +232,17 @@ class ProcessorStage(InitializationStage):
                     cast(type, IApplicationState)
                 )
                 # project_dir_resolution_service removed from RequestProcessor constructor
+                from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+                from src.core.memory.injection_middleware import (
+                    ContextInjectionMiddleware,
+                )
+
+                memory_capture: MemoryCaptureMiddleware | None = provider.get_service(
+                    MemoryCaptureMiddleware
+                )
+                context_injector: ContextInjectionMiddleware | None = (
+                    provider.get_service(ContextInjectionMiddleware)
+                )
 
                 return RequestProcessor(  # noqa: DI-bypass
                     command_processor,
@@ -239,6 +250,8 @@ class ProcessorStage(InitializationStage):
                     backend_request_manager,
                     response_manager,
                     app_state=app_state,
+                    memory_capture=memory_capture,
+                    context_injector=context_injector,
                 )
 
             # Register concrete implementation

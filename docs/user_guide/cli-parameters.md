@@ -177,6 +177,27 @@ Configuration is resolved in the following order (highest to lowest priority):
 
 ## Features
 
+### Memory (ProxyMem)
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--memory-available` | `MEMORY_AVAILABLE=true` | Enable the Memory feature globally. |
+| `--memory-default-enabled` | `MEMORY_DEFAULT_ENABLED=true` | Enable Memory by default for new sessions. |
+| `--memory-summary-model BACKEND:MODEL` | `MEMORY_SUMMARY_MODEL` | Model to use for generating session summaries. |
+| `--memory-context-model BACKEND:MODEL` | `MEMORY_CONTEXT_MODEL` | Model to use for retrieving context. |
+| `--memory-summary-prompt FILE` | `MEMORY_SUMMARY_PROMPT` | Path to custom summary prompt file. |
+| `--memory-context-prompt FILE` | `MEMORY_CONTEXT_PROMPT` | Path to custom context prompt file. |
+| `--memory-database-path FILE` | `MEMORY_DATABASE_PATH` | Path to SQLite database for memory storage. |
+| `--memory-session-timeout MINUTES` | `MEMORY_SESSION_TIMEOUT` | Timeout in minutes for session inactivity. |
+| `--memory-retention-days DAYS` | `MEMORY_RETENTION_DAYS` | Days to retain memory data. |
+| `--memory-max-context-tokens N` | `MEMORY_MAX_CONTEXT_TOKENS` | Max tokens for injected context. |
+| `--memory-context-relevance-threshold FLOAT` | `MEMORY_CONTEXT_RELEVANCE_THRESHOLD` | Minimum relevance score for context retrieval. |
+| `--memory-single-user-mode` | `MEMORY_SINGLE_USER_MODE=true` | Enable single-user mode (ignores user IDs). |
+| `--memory-fixed-user-id ID` | `MEMORY_FIXED_USER_ID` | Fixed user ID to use in single-user mode. |
+| `--memory-redaction-pattern PATTERN` | `MEMORY_REDACTION_PATTERNS` | Add a regex pattern for redaction. Can be used multiple times. |
+| `--memory-disable-user ID` | `MEMORY_DISABLED_USERS` | Disable memory for specific user ID. Can be used multiple times. |
+| `--memory-disable-client ID` | `MEMORY_DISABLED_CLIENTS` | Disable memory for specific client ID. Can be used multiple times. |
+
 ### Planning Phase
 
 | CLI Argument | Environment Variable | Description |

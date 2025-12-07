@@ -52,6 +52,7 @@ from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
+from src.core.memory.config import MemoryConfiguration
 
 # Note: Avoid self-imports to prevent circular dependencies. Classes are defined below.
 
@@ -1198,6 +1199,9 @@ class AppConfig(DomainModel, IConfig):
     # Routing settings
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
 
+    # ProxyMem - cross-session memory layer settings
+    memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
+
     # Virtual Tool Calling (VTC) client detection patterns
     # Case-insensitive substring matching against User-Agent header
     vtc_client_patterns: list[str] = Field(
@@ -1253,6 +1257,7 @@ class AppConfig(DomainModel, IConfig):
             "replacement",
             "health_check",
             "routing",
+            "memory",
             "vtc_client_patterns",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}

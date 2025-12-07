@@ -300,3 +300,43 @@ properties:
       persistence_path: { type: string }
       flush_interval_seconds: { type: number, minimum: 0.1 }
       max_records_in_memory: { type: integer, minimum: 1000 }
+  memory:
+    type: object
+    additionalProperties: false
+    properties:
+      available: { type: boolean }
+      default_enabled: { type: boolean }
+      summary_model: { type: ["string", "null"] }
+      context_model: { type: ["string", "null"] }
+      summary_prompt: { type: ["string", "null"] }
+      context_prompt: { type: ["string", "null"] }
+      database_path: { type: string }
+      session_timeout_minutes: { type: integer, minimum: 1 }
+      max_sessions_to_consider: { type: integer, minimum: 1 }
+      max_context_tokens: { type: integer, minimum: 1 }
+      max_summary_tokens: { type: integer, minimum: 1 }
+      max_transcript_chars: { type: integer, minimum: 1 }
+      summary_completion_tokens: { type: integer, minimum: 1 }
+      context_relevance_threshold: { type: number, minimum: 0, maximum: 1 }
+      retention_days: { type: integer, minimum: 1 }
+      max_buffer_size_bytes: { type: integer, minimum: 1024 }
+      analysis_queue_maxsize: { type: integer, minimum: 1 }
+      analysis_timeout_seconds: { type: integer, minimum: 1 }
+      max_concurrent_analyses: { type: integer, minimum: 1 }
+      context_template: { type: ["string", "null"] }
+      redaction_patterns:
+        type: array
+        items: { type: string }
+      persist_transcript: { type: boolean }
+      disabled_users:
+        type: array
+        items: { type: string }
+      disabled_clients:
+        type: array
+        items: { type: string }
+      single_user_mode: { type: boolean }
+      fixed_user_id: { type: ["string", "null"] }
+      summary_prompt_version: { type: string }
+      summary_schema_version: { type: string }
+      require_project_discovery: { type: boolean }
+      project_discovery_mode: { type: string, enum: [deterministic, nondeterministic, any] }

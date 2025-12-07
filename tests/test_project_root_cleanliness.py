@@ -24,7 +24,13 @@ def test_no_md_files_in_root_except_important():
         for f in root_files
         if f.endswith(".md") and os.path.isfile(os.path.join(root_dir, f))
     ]
-    important_md_files = ["README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md"]
+    important_md_files = [
+        "README.md",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "AGENTS-OpenSpec.md",
+    ]
     for f in important_md_files:
         if f in md_files:
             md_files.remove(f)

@@ -197,6 +197,14 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         # The remote backend requires model names without vendor prefixes
         model_name = strip_vendor_prefix(model_name, ANTHROPIC_VENDOR_PREFIX)
 
+        # Also strip "google/" vendor prefix for Gemini models
+        model_name = strip_vendor_prefix(model_name, "google")
+
+        # Map public model names to internal variants based on reasoning_effort
+        # - gemini-3-pro -> gemini-3-pro-high/low
+        # - claude-opus-4.5 -> claude-opus-4-5 or claude-opus-4-5-thinking
+        model_name = self._map_model_with_reasoning_effort(model_name, request_data)
+
         # Skip strict model validation - Antigravity sandbox supports both Gemini and Claude
         # NOTE: Claude models have limited multi-turn tool calling support when using this backend.
         # The proxy converts domain format -> Gemini format (functionCall without IDs),
@@ -405,6 +413,159 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
             response.content = _intercept_stream()
 
         return response
+
+    def _extract_reasoning_effort(self, request_data: Any) -> str | None:
+        """Extract reasoning_effort from request data.
+
+        Reasoning effort can be specified via:
+        - Top-level `reasoning_effort` field (Chat Completions API style)
+        - Nested `reasoning.effort` field (Responses API style)
+        - URI query parameter (highest precedence, already resolved by BackendService)
+
+        Args:
+            request_data: The request data containing reasoning_effort parameter.
+
+        Returns:
+            The reasoning effort value, or None if not specified.
+        """
+        reasoning_effort: str | None = None
+
+        # 1. Check top-level reasoning_effort (Chat Completions style)
+        if hasattr(request_data, "reasoning_effort"):
+            reasoning_effort = request_data.reasoning_effort
+        elif isinstance(request_data, dict):
+            reasoning_effort = request_data.get("reasoning_effort")
+
+        # 2. If not found, check nested reasoning.effort (Responses API style)
+        if not reasoning_effort:
+            reasoning_obj = None
+            if hasattr(request_data, "reasoning"):
+                reasoning_obj = request_data.reasoning
+            elif isinstance(request_data, dict):
+                reasoning_obj = request_data.get("reasoning")
+
+            if isinstance(reasoning_obj, dict):
+                reasoning_effort = reasoning_obj.get("effort")
+
+        # 3. Check extra_body for both formats (URI params get stored there)
+        if not reasoning_effort:
+            extra_body = None
+            if hasattr(request_data, "extra_body"):
+                extra_body = request_data.extra_body
+            elif isinstance(request_data, dict):
+                extra_body = request_data.get("extra_body")
+
+            if isinstance(extra_body, dict):
+                # Check flat format first
+                reasoning_effort = extra_body.get("reasoning_effort")
+                # Then check nested format
+                if not reasoning_effort:
+                    reasoning_obj = extra_body.get("reasoning")
+                    if isinstance(reasoning_obj, dict):
+                        reasoning_effort = reasoning_obj.get("effort")
+
+        return reasoning_effort
+
+    def _map_model_with_reasoning_effort(
+        self, model_name: str, request_data: Any
+    ) -> str:
+        """Map public model names to internal variants based on reasoning_effort.
+
+        The Antigravity sandbox uses distinct internal model names for different
+        reasoning effort levels. This method handles:
+
+        1. gemini-3-pro:
+           - high/medium (default) -> gemini-3-pro-high
+           - low -> gemini-3-pro-low
+
+        2. claude-opus-4.5:
+           - high/medium -> claude-opus-4-5-thinking
+           - low (default) -> claude-opus-4-5
+
+        Args:
+            model_name: The model name after vendor prefix stripping.
+            request_data: The request data containing reasoning_effort parameter.
+
+        Returns:
+            The mapped internal model name.
+        """
+        # Check if this model requires reasoning-based mapping
+        if model_name == "gemini-3-pro":
+            return self._map_gemini_3_pro_model(model_name, request_data)
+        elif model_name == "claude-opus-4.5":
+            return self._map_claude_opus_model(model_name, request_data)
+
+        return model_name
+
+    def _map_gemini_3_pro_model(self, model_name: str, request_data: Any) -> str:
+        """Map gemini-3-pro to internal model names based on reasoning_effort.
+
+        Mapping:
+        - high, medium, or default -> gemini-3-pro-high
+        - low -> gemini-3-pro-low
+        """
+        if model_name != "gemini-3-pro":
+            return model_name
+
+        reasoning_effort = self._extract_reasoning_effort(request_data)
+
+        # Default to "high" if not specified
+        if not reasoning_effort:
+            reasoning_effort = "high"
+
+        # Normalize to lowercase for comparison
+        effort_lower = reasoning_effort.lower().strip()
+
+        # Map to internal model names
+        if effort_lower == "low":
+            internal_model = "gemini-3-pro-low"
+        else:
+            # high, medium, or any other value defaults to high
+            internal_model = "gemini-3-pro-high"
+
+        logger.debug(
+            "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
+            model_name,
+            reasoning_effort,
+            internal_model,
+        )
+
+        return internal_model
+
+    def _map_claude_opus_model(self, model_name: str, request_data: Any) -> str:
+        """Map claude-opus-4.5 to internal model names based on reasoning_effort.
+
+        Mapping:
+        - high, medium, or default -> claude-opus-4-5-thinking
+        - low -> claude-opus-4-5
+
+        Note: The public name uses dot (claude-opus-4.5) while internal names
+        use hyphen (claude-opus-4-5).
+        """
+        if model_name != "claude-opus-4.5":
+            return model_name
+
+        reasoning_effort = self._extract_reasoning_effort(request_data)
+
+        # Normalize to lowercase for comparison
+        effort_lower = (reasoning_effort or "").lower().strip()
+
+        # Map to internal model names
+        # For Claude Opus: low -> base model, everything else (including default) -> thinking
+        if effort_lower == "low":
+            internal_model = "claude-opus-4-5"
+        else:
+            # high, medium, or default -> thinking variant
+            internal_model = "claude-opus-4-5-thinking"
+
+        logger.debug(
+            "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
+            model_name,
+            reasoning_effort or "(default)",
+            internal_model,
+        )
+
+        return internal_model
 
     async def _load_models_from_api(self) -> None:
         """

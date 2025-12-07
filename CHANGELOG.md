@@ -1,4 +1,15 @@
-# Changelog
+﻿# Changelog
+
+## [2025-12-07]
+
+### Added: Memory Feature (ProxyMem)
+
+- **Core Functionality**: Intelligent memory retention for long-term sessions.
+  - **Summary Generation**: Automatically generates session summaries after inactivity or completion.
+  - **Context Injection**: Injects relevant historical context into new sessions based on semantic relevance.
+  - **CLI Parameters**: Added comprehensive CLI support (`--memory-available`, `--memory-default-enabled`, `--memory-summary-model`, etc.).
+  - **Documentation**: Updated `cli-parameters.md` and integration test snapshots.
+  - **Fixes**: Resolved strict typing issues and DI registration for Memory components.
 
 ## [2025-12-05]
 
@@ -585,7 +596,7 @@
   - **Fuzzy Matching**: Identifies conversation continuations even when exact fingerprints don't match (e.g., extended conversations)
   - **Client Identification**: Generates stable client keys from IP + User-Agent for session association
   - **Zero Client Changes Required**: Fully autonomous - works without any modifications to LLM clients or agents
-  - **Wire Capture Enhancement**: Added `inbound_request` direction to capture client→proxy requests for debugging
+  - **Wire Capture Enhancement**: Added `inbound_request` direction to capture clientâ†’proxy requests for debugging
   - **Configuration Options**:
     - `session.session_continuity.enabled` (default: true)
     - `session.session_continuity.fuzzy_matching` (default: true)
@@ -691,7 +702,7 @@
   dependencies now point to the new entry point. Keeping the unused module in
   the tree caused confusion during maintenance and risked duplicated updates.
 
-## 2025-10-05 – Planning-Phase Strong Model Overrides
+## 2025-10-05 â€“ Planning-Phase Strong Model Overrides
 
 - **Feature**: Optional planning-phase model switch with parameter overrides for the strong model
   - Route early session turns to a configured strong model to improve initial planning quality
@@ -755,9 +766,9 @@
   - `tests/unit/connectors/test_gemini_cli_acp.py` (399 lines) - Comprehensive unit tests
 
 - **Code Quality**: All quality checks passing
-  - ✅ ruff: All checks passed
-  - ✅ black: Code formatted
-  - ✅ mypy: Type checking passed
+  - âś… ruff: All checks passed
+  - âś… black: Code formatted
+  - âś… mypy: Type checking passed
   - Leverages existing command infrastructure (ProjectDirCommandHandler) instead of creating duplicate functionality
 
 - **Documentation**: Complete user-facing documentation
@@ -826,7 +837,7 @@
 - **Feature**: Added support for the OpenAI `/v1/responses` endpoint, which enables structured output generation with JSON schema validation.
 - **Dependencies**: Added `pytz`, `freezegun`, and `types-pytz` to support the new features and improve testing capabilities.
 
-## 2025-09-30 – Major Enhancement: Hybrid Loop Detection Algorithm
+## 2025-09-30 â€“ Major Enhancement: Hybrid Loop Detection Algorithm
 
 - **Enhancement**: Implemented hybrid loop detection algorithm combining Google's gemini-cli approach with efficient long pattern detection
   - **Background**: The original bug pattern (200+ chars with no internal repetition) could not be detected by any single hash-chunk algorithm, including gemini-cli's approach
@@ -852,7 +863,7 @@
     - Hash collision verification through actual content comparison
   - **Testing**: Successfully detects the original bug pattern that triggered this investigation
 
-## 2025-09-30 – Critical Fix: Loop Detection Was Disabled Due to DI Configuration Errors
+## 2025-09-30 â€“ Critical Fix: Loop Detection Was Disabled Due to DI Configuration Errors
 
 - **Bug Fix**: Fixed critical dependency injection configuration errors that completely disabled loop detection in production
   - **Root Cause #1**: Incorrect import path in `src/core/app/stages/infrastructure.py` - imported from `src.core.interfaces.loop_detector` instead of `src.core.interfaces.loop_detector_interface`, causing silent registration failure
@@ -872,7 +883,7 @@
   - **Documentation**: Detailed analysis in `LOOP_DETECTION_BUG_ANALYSIS.md`
   - **Testing**: 5 passing tests specifically verify that ILoopDetector and LoopDetectionProcessor are properly registered and wired
 
-## 2025-09-30 – Fix: 502 Timeout Error in Gemini OAuth Streaming
+## 2025-09-30 â€“ Fix: 502 Timeout Error in Gemini OAuth Streaming
 
 - **Bug Fix**: Resolved 502 Bad Gateway errors during long streaming responses
   - **Root Cause**: Hardcoded 60-second timeout was insufficient for large file reads and complex responses
@@ -882,13 +893,13 @@
   - **Files Modified**: `src/connectors/gemini_oauth_personal.py`, `src/connectors/gemini_cloud_project.py`
   - **Documentation**: Added detailed analysis in `docs/dev/502_timeout_fix.md`
 
-## 2025-10-02 – Gemini Personal OAuth Auto-Refresh
+## 2025-10-02 â€“ Gemini Personal OAuth Auto-Refresh
 
 - **Startup Validation**: The `gemini-oauth-plan` and `gemini-oauth-free` backends now confirm the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
 - **Live Credential Watching**: Introduced a filesystem watcher for the Gemini CLI `oauth_creds.json` file so refreshed tokens are loaded into memory immediately without restarting the proxy.
 - **Proactive Refresh Flow**: Every request now checks remaining token lifetime; when the token is expired or inside a two-minute window the proxy launches the Gemini CLI refresh command in the background and polls for the updated token, eliminating manual intervention after Google's expiry change.
 
-## 2025-10-01 – CLI v2 Migration
+## 2025-10-01 â€“ CLI v2 Migration
 
 - **Default CLI Updated**: Promoted the staged `cli_v2` implementation to the primary entrypoint (`src/core/cli.py`) for running the proxy.
   - Feature parity verified by the existing CLI-focused unit suite and the full project test run.
@@ -896,7 +907,7 @@
 - **Legacy CLI Preservation**: Archived the previous implementation as `src/core/cli_old.py` for quick rollback and historical reference.
   - The codebase no longer imports the legacy module; it can be deleted safely once the fallback is no longer required.
 
-## 2025-09-30 – Auto-Discovery Architecture for Backends and Commands
+## 2025-09-30 â€“ Auto-Discovery Architecture for Backends and Commands
 
 - **Architecture Improvement**: Implemented true SOLID/DIP-compliant auto-discovery mechanisms
   - **Backend Auto-Discovery**:
@@ -925,7 +936,7 @@
   - Made health checks non-blocking to prevent startup failures
   - Added automatic managed project ID discovery for free-tier users
 
-## 2025-09-13 – Automated Pytest Output Compression
+## 2025-09-13 â€“ Automated Pytest Output Compression
 
 - **New Feature**: Added automated pytest tool call output compression to preserve context window space
   - **Automatic Detection**: Recognizes pytest commands using regex patterns (`pytest`, `python -m pytest`, `py.test`, etc.)
@@ -943,7 +954,7 @@
   - **Schema Support**: Full Pydantic validation and YAML schema definition
   - **Backward Compatibility**: Feature is enabled by default but can be disabled without affecting existing functionality
 
-## 2025-09-12 – Reasoning Aliases Feature
+## 2025-09-12 â€“ Reasoning Aliases Feature
 
 - **New Feature**: Added reasoning aliases system for dynamic model parameter control during sessions
   - **Interactive Commands**: New chat commands to switch between reasoning modes
@@ -963,7 +974,7 @@
   - **Testing**: Comprehensive unit and integration test coverage (reasoning alias end-to-end tests, integration tests)
   - **Version 1.0**: Initial implementation complete with all core functionality
 
-## 2025-09-11 – Enhanced Authentication Reliability with Stale Token Handling
+## 2025-09-11 â€“ Enhanced Authentication Reliability with Stale Token Handling
 
 - **Major Enhancement**: Implemented comprehensive stale authentication token handling pattern across all file-backed OAuth backends
   - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-oauth-plan`, `gemini-oauth-free`, `anthropic-oauth`, and `openai-codex`
@@ -993,7 +1004,7 @@
 - **Code Quality**: All implementations pass `ruff`, `black`, and `mypy` quality checks
 - **Backward Compatibility**: No breaking changes to existing functionality or configuration
 
-## 2025-09-10 – Wire Capture Format Unification and Stability
+## 2025-09-10 â€“ Wire Capture Format Unification and Stability
 
 - Unified wire capture handling to consistently use the Buffered JSON Lines format
   - Removed legacy `StructuredWireCapture` service registration from `src/core/di/services.py` to avoid conflicting registrations.
@@ -1005,7 +1016,7 @@
   - Integration tests adjusted to assert the active buffered format semantics.
   - README updated with service registration notes and initialization behavior.
 
-## 2025-09-09 – Dangerous Git Command Prevention (Reactor-based)
+## 2025-09-09 â€“ Dangerous Git Command Prevention (Reactor-based)
 
 - New Feature: Configurable prevention layer that intercepts dangerous git commands issued via local execution tool calls in LLM responses.
   - Implemented as a Tool Call Reactor handler (`dangerous_command_handler`) that runs after JSON and tool-call repair and loop detection, just before forwarding.
@@ -1077,7 +1088,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Sanity Checks**: Ensures that search patterns are at least 8 characters long and that each rule has a unique mode file.
   - **Documentation**: Added a new section to the `README.md` file with detailed usage examples and configuration options.
 
-## 2025-08-31 – Trusted IP Authorization Bypass
+## 2025-08-31 â€“ Trusted IP Authorization Bypass
 
 - **New Feature**: Added `--trusted-ip` command-line parameter for bypassing API key authentication from specified IP addresses
   - **Multiple IPs Support**: `--trusted-ip` can be specified multiple times to define multiple trusted IP addresses
@@ -1098,7 +1109,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - **Documentation**: Updated README.md with detailed usage examples, configuration options, and security considerations
 - **Backward Compatibility**: No impact on existing functionality; feature is opt-in and secure by default
 
-## 2025-08-31 – Anthropic OAuth Backend
+## 2025-08-31 â€“ Anthropic OAuth Backend
 
 - New backend: `anthropic-oauth` for using Anthropic without configuring API keys in the proxy.
   - Reads a local OAuth-style credential file `oauth_creds.json` (e.g., from Claude Code) and uses its `access_token`/`api_key` as `x-api-key`.
@@ -1106,9 +1117,9 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Optional `anthropic_oauth_path` to point at a specific directory containing `oauth_creds.json`.
   - Optional `anthropic_api_base_url` to override the default `https://api.anthropic.com/v1`.
   - Can be set as the default backend via `LLM_BACKEND=anthropic-oauth` or `backends.default_backend`.
-  - Documentation added under README “Anthropic OAuth Backend”.
+  - Documentation added under README â€śAnthropic OAuth Backendâ€ť.
 
-## 2025-08-31 – OpenAI Codex Backend
+## 2025-08-31 â€“ OpenAI Codex Backend
 
 - New backend: `openai-codex` for using OpenAI without storing API keys in proxy config.
   - Reads Codex CLI `auth.json` (ChatGPT login) and uses `tokens.access_token` as bearer; falls back to `OPENAI_API_KEY` if present.
@@ -1116,9 +1127,9 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Optional `openai_codex_path` to point at a specific directory containing `auth.json`.
   - Optional `openai_api_base_url` to override the default `https://api.openai.com/v1` (env `OPENAI_BASE_URL` can also be used in some environments).
   - Can be selected via `LLM_BACKEND=openai-codex` or per-request model prefix `openai-codex:<model>`.
-  - Documentation added under README “OpenAI Codex Backend”.
+  - Documentation added under README â€śOpenAI Codex Backendâ€ť.
 
-## 2025-08-29 – Automated Edit-Precision Tuning
+## 2025-08-29 â€“ Automated Edit-Precision Tuning
 
 - New feature: Automatically tune model sampling parameters after failed file-edit attempts from popular coding agents.
   - Request-side detection: scans incoming user/agent prompts for known failure phrases (SEARCH/REPLACE no match, multiple matches, unified-diff hunk failures, fuzzy patch warnings).
@@ -1129,7 +1140,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Documentation: README section "Automated Edit-Precision Tuning (new)" and `dev/agents-edit-error-prompts.md` with curated failure prompts from Cline, Roo/Kilo, Gemini-CLI, Aider, Crush, OpenCode.
   - Tests: request-side overrides, exclusion regex, response/streaming detection pending flag, and pending-flag application on the next request.
 
-## 2025-08-28 – Tool Call Reactor - Event-Driven Agent Steering
+## 2025-08-28 â€“ Tool Call Reactor - Event-Driven Agent Steering
 
 - **New Feature**: Added Tool Call Reactor system for event-driven agent steering functionality
   - **Event-Driven Architecture**: Pluggable code to react to tool calls from remote LLMs with custom handlers
@@ -1143,7 +1154,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Testing**: Comprehensive test suite with 52 tests covering all functionality including unit tests, integration tests, and edge cases
   - **Documentation**: Complete feature documentation in README with configuration examples and usage patterns
 
-## 2025-08-28 – JSON Repair Centralization, Strict Gating, and Loop/Tool-Call Ordering
+## 2025-08-28 â€“ JSON Repair Centralization, Strict Gating, and Loop/Tool-Call Ordering
 
 - Centralized JSON repair across the codebase:
   - Streaming: `JsonRepairProcessor` in the pipeline; buffers and repairs complete JSON blocks; uses `json_repair` library with optional schema validation.
@@ -1167,7 +1178,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Streaming order and cancellation vs tool-call conversion
   - Tool-call loop detection break/chance flows
 
-## 2025-08-28 – API Key Redaction Restored and Documented
+## 2025-08-28 â€“ API Key Redaction Restored and Documented
 
 - Restored API key redaction in outbound requests across all backends via a centralized request redaction middleware. Secrets found in user message content (including multimodal text parts) are replaced with `(API_KEY_HAS_BEEN_REDACTED)` and proxy commands are stripped before forwarding to providers.
 - Confirmed and documented global logging redaction filter that masks API keys and bearer tokens in all logs.
@@ -1177,7 +1188,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 - Updated README and CONTRIBUTING with redaction details and contributor guidance.
 - Configuration: redaction can be disabled via `auth.redact_api_keys_in_prompts = false` or CLI `--disable-redact-api-keys-in-prompts`.
 
-## 2025-08-26 – Gemini CLI Cloud Project Backend
+## 2025-08-26 â€“ Gemini CLI Cloud Project Backend
 
 - **New Feature**: Added `gemini-cli-cloud-project` backend for enterprise-grade integration with Google Cloud Platform
   - **GCP Project Integration**: Uses user-specified Google Cloud Project ID for billing and quota management
@@ -1193,7 +1204,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Testing**: Comprehensive test suite covering project validation, onboarding, and billing context
   - **Documentation**: Complete setup guide with GCP project requirements and troubleshooting
 
-## 2025-08-26 – Gemini CLI OAuth Personal Backend
+## 2025-08-26 â€“ Gemini CLI OAuth Personal Backend
 
 - **New Feature**: Added `gemini-oauth-plan` and `gemini-oauth-free` backends for seamless integration with Google's Gemini API using OAuth 2.0 credentials
   - **OAuth Integration**: Reads OAuth credentials from `~/.gemini/oauth_creds.json` (created by Gemini CLI tool)
@@ -1205,7 +1216,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Configuration**: Simple backend configuration requiring only `gemini_api_base_url` parameter
   - **Usage**: Supports all standard proxy features including interactive commands (`!/backend(gemini-oauth-plan)`, `!/oneoff(gemini-oauth-plan:gemini-pro)`, `!/backend(gemini-oauth-free)`, `!/oneoff(gemini-oauth-free:gemini-pro)`)
 
-## 2025-08-24 – Tool Call Repair and Streaming Safeguards
+## 2025-08-24 â€“ Tool Call Repair and Streaming Safeguards
 
 - Added automated Tool Call Repair mechanism to detect and convert plain-text tool/function call instructions into OpenAI-compatible `tool_calls` in responses.
   - Supports common patterns: inline JSON objects (e.g., `{"function_call":{...}}`), JSON in code fences, and textual forms like `TOOL CALL: name {...}`.

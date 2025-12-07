@@ -641,7 +641,7 @@ class StreamingContent:
             else:
                 delta["content"] = str(working_content)
         else:
-            delta["content"] = str(working_content) if working_content else ""
+            delta["content"] = ""
 
         # Build response data
         response_data: dict[str, Any] = {"choices": [{"delta": delta}]}

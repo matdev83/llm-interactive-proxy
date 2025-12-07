@@ -254,6 +254,9 @@ class ToolCallTracker:
         signature = ToolCallSignature.from_tool_call(tool_name, arguments)
         full_sig = signature.get_full_signature()
 
+        # Count repeats within the TTL window (even if interleaved with other tools)
+        total_count = self._count_recent(full_sig) + 1  # include the pending call
+
         # Check if this is a repeat of the most recent signature
         if self.signatures and self.signatures[-1].get_full_signature() == full_sig:
             self.consecutive_repeats[full_sig] = (
@@ -290,6 +293,21 @@ class ToolCallTracker:
             # Also reset chance status
             self.chance_given.pop(full_sig, None)
 
+        # Guard against repeated calls within the TTL window even if interleaved
+        if total_count >= self.config.max_repeats:
+            if self.config.mode == ToolLoopMode.BREAK:
+                reason = self._format_block_reason(tool_name, total_count)
+                return True, reason, total_count
+            elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
+                if self.chance_given.get(full_sig, False):
+                    reason = self._format_block_reason(
+                        tool_name, total_count, second_chance=True
+                    )
+                    return True, reason, total_count
+                self.chance_given[full_sig] = True
+                reason = self._format_chance_reason(tool_name, total_count)
+                return True, reason, total_count
+
         # Add to history (with size limit to prevent unbounded growth)
         self.signatures.append(signature)
 
@@ -316,6 +334,12 @@ class ToolCallTracker:
 
         # Not blocked
         return False, None, None
+
+    def _count_recent(self, full_signature: str) -> int:
+        """Count occurrences of a signature within the current (pruned) TTL window."""
+        return sum(
+            1 for sig in self.signatures if sig.get_full_signature() == full_signature
+        )
 
     def _format_block_reason(
         self, tool_name: str, repeat_count: int, second_chance: bool = False

@@ -142,8 +142,12 @@ class FallbackModelDiscovery:
     """
 
     # Extended model list for Antigravity (includes Claude models)
+    # Note: Some models are exposed with canonical names and mapped internally:
+    # - gemini-3-pro → gemini-3-pro-high/low based on reasoning_effort
+    # - claude-opus-4.5 → claude-opus-4-5 or claude-opus-4-5-thinking
     ANTIGRAVITY_MODELS = [
         # Gemini models
+        "gemini-3-pro",  # Maps to gemini-3-pro-high/low internally
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
@@ -155,10 +159,10 @@ class FallbackModelDiscovery:
         "gemini-1.5-pro",
         "gemini-1.5-flash",
         # Claude models (Antigravity sandbox supports these)
+        "claude-opus-4.5",  # Maps to claude-opus-4-5 or claude-opus-4-5-thinking
         "claude-sonnet-4-5",
         "claude-3-5-sonnet",
         "claude-3-5-sonnet-v2",
-        "anthropic/claude-opus-4-5",
     ]
 
     def __init__(

@@ -40,6 +40,7 @@ from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.memory_service_interface import IMemoryService
 
 # Note: IMiddlewareApplicationManager interface is no longer used after unified pipeline refactoring
 # MiddlewareApplicationManager is still used to configure the middleware list for streaming processors
@@ -70,6 +71,17 @@ from src.core.interfaces.tool_call_repair_service_interface import (
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+from src.core.memory.completion_detector import SessionCompletionDetector
+from src.core.memory.config import MemoryConfiguration
+from src.core.memory.context_injector import ContextInjector
+from src.core.memory.injection_middleware import ContextInjectionMiddleware
+from src.core.memory.maintenance import DatabaseMaintenance
+from src.core.memory.prompt_loader import PromptLoader
+from src.core.memory.repository import IMemoryRepository
+from src.core.memory.service import MemoryService
+from src.core.memory.sqlite_repository import MemoryRepository
+from src.core.memory.summary_generator import SummaryGenerator
 from src.core.ports.streaming_processors import (
     ThinkTagsProcessor,
 )
@@ -733,29 +745,56 @@ def register_core_services(
     )
 
     # Register response processor (unified pipeline for both streaming and non-streaming)
-    def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
+    def _response_processor_factory(provider: IServiceProvider) -> RequestProcessor:
         from typing import cast
 
+        from src.core.interfaces.application_state_interface import IApplicationState
+        from src.core.interfaces.backend_request_manager_interface import (
+            IBackendRequestManager,
+        )
+        from src.core.interfaces.command_processor_interface import ICommandProcessor
+        from src.core.interfaces.model_replacement_service_interface import (
+            IModelReplacementService,
+        )
+        from src.core.interfaces.response_manager_interface import IResponseManager
+        from src.core.interfaces.session_manager_interface import ISessionManager
+        from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+        from src.core.memory.injection_middleware import ContextInjectionMiddleware
+
+        command_processor: ICommandProcessor = provider.get_required_service(
+            cast(type, ICommandProcessor)
+        )
+        session_manager: ISessionManager = provider.get_required_service(
+            cast(type, ISessionManager)
+        )
+        backend_request_manager: IBackendRequestManager = provider.get_required_service(
+            cast(type, IBackendRequestManager)
+        )
+        response_manager: IResponseManager = provider.get_required_service(
+            cast(type, IResponseManager)
+        )
         app_state: IApplicationState = provider.get_required_service(
             cast(type, IApplicationState)
         )
-        stream_normalizer: IStreamNormalizer = provider.get_required_service(
-            cast(type, IStreamNormalizer)
+        replacement_service: IModelReplacementService | None = provider.get_service(
+            cast(type, IModelReplacementService)
         )
-        response_parser: IResponseParser = provider.get_required_service(
-            cast(type, IResponseParser)
+        memory_capture: MemoryCaptureMiddleware | None = provider.get_service(
+            MemoryCaptureMiddleware
+        )
+        context_injector: ContextInjectionMiddleware | None = provider.get_service(
+            ContextInjectionMiddleware
         )
 
-        # Get loop detector factory
-        def loop_detector_factory() -> ILoopDetector:
-            return _loop_detector_factory(provider)
-
-        # ResponseProcessor now uses unified pipeline - no separate middleware manager needed
-        return ResponseProcessor(
-            response_parser=response_parser,
+        return RequestProcessor(
+            command_processor=command_processor,
+            session_manager=session_manager,
+            backend_request_manager=backend_request_manager,
+            response_manager=response_manager,
             app_state=app_state,
-            loop_detector_factory=loop_detector_factory,
-            stream_normalizer=stream_normalizer,
+            replacement_service=replacement_service,
+            memory_capture=memory_capture,
+            context_injector=context_injector,
         )
 
     # Register loop detector and bind to interface
@@ -818,19 +857,17 @@ def register_core_services(
         # Continue if concrete LoopDetector is registered
 
     # Register response processor and bind to interface
-    _add_singleton(
-        ResponseProcessor, implementation_factory=_response_processor_factory
-    )
+    _add_singleton(RequestProcessor, implementation_factory=_response_processor_factory)
 
     try:
         services.add_singleton(
-            cast(type, IResponseProcessor),
+            cast(type, IRequestProcessor),
             implementation_factory=_response_processor_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IResponseProcessor interface: {e}")
-        # Continue if concrete ResponseProcessor is registered
+            logger.warning(f"Failed to register IRequestProcessor interface: {e}")
+        # Continue if concrete RequestProcessor is registered
 
     def _application_state_factory(
         provider: IServiceProvider,
@@ -985,6 +1022,38 @@ def register_core_services(
             logger.warning(f"Failed to register IResponseManager interface: {e}")
         # Continue if concrete ResponseManager is registered
 
+    # Register ResponseProcessor
+    def _real_response_processor_factory(
+        provider: IServiceProvider,
+    ) -> ResponseProcessor:
+        from src.core.interfaces.response_parser_interface import IResponseParser
+        from src.core.interfaces.streaming_response_processor_interface import (
+            IStreamNormalizer,
+        )
+        from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+
+        response_parser: IResponseParser = provider.get_required_service(
+            cast(type, IResponseParser)
+        )
+        app_state = provider.get_service(cast(type, IApplicationState))
+        stream_normalizer = provider.get_service(cast(type, IStreamNormalizer))
+        memory_capture = provider.get_service(MemoryCaptureMiddleware)
+
+        return ResponseProcessor(
+            response_parser=response_parser,
+            app_state=app_state,
+            stream_normalizer=stream_normalizer,
+            memory_capture=memory_capture,
+        )
+
+    _add_singleton(
+        ResponseProcessor, implementation_factory=_real_response_processor_factory
+    )
+    services.add_singleton(
+        cast(type, IResponseProcessor),
+        implementation_factory=_real_response_processor_factory,
+    )
+
     # Register backend request manager
     def _backend_request_manager_factory(
         provider: IServiceProvider,
@@ -1013,6 +1082,140 @@ def register_core_services(
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
         # Continue if concrete BackendRequestManager is registered
+
+    # Register memory configuration
+    def _memory_configuration_factory(
+        provider: IServiceProvider,
+    ) -> MemoryConfiguration:
+        cfg = provider.get_required_service(AppConfig)
+        return cfg.memory
+
+    _add_singleton(
+        MemoryConfiguration, implementation_factory=_memory_configuration_factory
+    )
+
+    # Register memory repository
+    def _memory_repository_factory(provider: IServiceProvider) -> MemoryRepository:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        return MemoryRepository(cfg)
+
+    _add_singleton(MemoryRepository, implementation_factory=_memory_repository_factory)
+    _add_singleton(
+        cast(type, IMemoryRepository), implementation_factory=_memory_repository_factory
+    )
+
+    # Register prompt loader
+    def _prompt_loader_factory(provider: IServiceProvider) -> PromptLoader:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        return PromptLoader(
+            summary_prompt_path=cfg.summary_prompt,
+            context_prompt_path=cfg.context_prompt,
+        )
+
+    _add_singleton(PromptLoader, implementation_factory=_prompt_loader_factory)
+
+    # Register summary generator
+    def _summary_generator_factory(provider: IServiceProvider) -> SummaryGenerator:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        loader = provider.get_required_service(PromptLoader)
+        return SummaryGenerator(
+            config=cfg,
+            repository=repo,
+            prompt_loader=loader,
+        )
+
+    _add_singleton(SummaryGenerator, implementation_factory=_summary_generator_factory)
+
+    # Register context injector
+    def _context_injector_factory(provider: IServiceProvider) -> ContextInjector:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        loader = provider.get_required_service(PromptLoader)
+        return ContextInjector(
+            config=cfg,
+            repository=repo,
+            prompt_loader=loader,
+        )
+
+    _add_singleton(ContextInjector, implementation_factory=_context_injector_factory)
+
+    # Register memory service
+    def _memory_service_factory(provider: IServiceProvider) -> MemoryService:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        return MemoryService(config=cfg, repository=repo)
+
+    _add_singleton(MemoryService, implementation_factory=_memory_service_factory)
+    _add_singleton(
+        cast(type, IMemoryService), implementation_factory=_memory_service_factory
+    )
+
+    # Register database maintenance
+    def _database_maintenance_factory(
+        provider: IServiceProvider,
+    ) -> DatabaseMaintenance:
+        cfg = provider.get_required_service(MemoryConfiguration)
+        repo = provider.get_required_service(MemoryRepository)  # Use concrete type
+        return DatabaseMaintenance(config=cfg, repository=repo)
+
+    _add_singleton(
+        DatabaseMaintenance, implementation_factory=_database_maintenance_factory
+    )
+
+    # Register session completion detector
+    def _session_completion_detector_factory(
+        provider: IServiceProvider,
+    ) -> SessionCompletionDetector:
+        memory_service = provider.get_required_service(
+            MemoryService
+        )  # Use concrete type
+        cfg = provider.get_required_service(MemoryConfiguration)
+        return SessionCompletionDetector(memory_service=memory_service, config=cfg)
+
+    _add_singleton(
+        SessionCompletionDetector,
+        implementation_factory=_session_completion_detector_factory,
+    )
+
+    # Register memory capture middleware
+    def _memory_capture_middleware_factory(
+        provider: IServiceProvider,
+    ) -> MemoryCaptureMiddleware:
+        from src.core.interfaces.memory_service_interface import IMemoryService
+
+        memory_service: IMemoryService = provider.get_required_service(
+            cast(type, IMemoryService)
+        )
+        return MemoryCaptureMiddleware(memory_service=memory_service)
+
+    _add_singleton(
+        MemoryCaptureMiddleware,
+        implementation_factory=_memory_capture_middleware_factory,
+    )
+
+    # Register context injection middleware
+    def _context_injection_middleware_factory(
+        provider: IServiceProvider,
+    ) -> Any:  # Use Any to bypass F821
+        from src.core.interfaces.memory_service_interface import IMemoryService
+        from src.core.memory.config import MemoryConfiguration
+        from src.core.memory.context_injector import ContextInjector
+        from src.core.memory.injection_middleware import ContextInjectionMiddleware
+
+        memory_service: IMemoryService = provider.get_required_service(
+            cast(type, IMemoryService)
+        )  # Use interface type
+        context_injector = provider.get_required_service(ContextInjector)
+        cfg = provider.get_required_service(MemoryConfiguration)
+        return ContextInjectionMiddleware(
+            memory_service=memory_service, context_injector=context_injector, config=cfg
+        )
+
+    _add_singleton(
+        ContextInjectionMiddleware,
+        implementation_factory=_context_injection_middleware_factory,
+    )
 
     # Register stream normalizer
     def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
@@ -1366,6 +1569,21 @@ def register_core_services(
         cast(type, ITranslationService),
         implementation_factory=_translation_service_interface_factory,
     )
+
+    # Register memory command handlers
+    try:
+        from src.core.commands.handlers.memory_command_handlers import (
+            MemoryOffCommandHandler,
+            MemoryOnCommandHandler,
+            MemoryStatusCommandHandler,
+        )
+
+        _add_singleton(MemoryOnCommandHandler)
+        _add_singleton(MemoryOffCommandHandler)
+        _add_singleton(MemoryStatusCommandHandler)
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register memory command handlers: {e}")
 
     # Register assessment services if enabled
     if app_config and app_config.assessment.enabled:

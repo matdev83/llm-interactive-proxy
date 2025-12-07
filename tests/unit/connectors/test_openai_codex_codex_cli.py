@@ -60,8 +60,12 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     assert connector._is_codex_model("openai/gpt-5.1") is True
 
     # Invalid models
-    assert connector._is_codex_model("gpt-5-codex") is False  # Old naming (no .1), not supported
-    assert connector._is_codex_model("codex-mini-latest") is False  # Not a supported model
+    assert (
+        connector._is_codex_model("gpt-5-codex") is False
+    )  # Old naming (no .1), not supported
+    assert (
+        connector._is_codex_model("codex-mini-latest") is False
+    )  # Not a supported model
     assert connector._is_codex_model("gpt-4.1") is False
     assert connector._is_codex_model("gpt-4") is False
     assert connector._is_codex_model("claude-3") is False

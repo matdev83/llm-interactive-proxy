@@ -2491,6 +2491,8 @@ class OpenAICodexConnector(OpenAIConnector):
     # Class-level cache for tracking tool_call_id -> Codex tool name mapping
     # This is needed because streaming sends name once, then only arguments
     _droid_tool_name_cache: dict[str, str] = {}
+    # Buffer for accumulating argument fragments per tool_call_id
+    _droid_tool_args_buffer: dict[str, str] = {}
 
     def _translate_chunk_tool_calls_for_droid(
         self, chunk: Any, droid_translator: Any
@@ -2501,7 +2503,10 @@ class OpenAICodexConnector(OpenAIConnector):
         - First chunk for a tool call has {"function": {"name": "shell", "arguments": ""}}
         - Subsequent chunks only have {"function": {"arguments": "..."}}
 
-        We cache the tool_call_id -> Codex name, then translate when we see name.
+        Strategy:
+        1. When we see a name, cache it and translate to Droid name
+        2. Buffer all argument fragments per tool_call_id
+        3. When finish_reason=tool_calls, parse complete args and translate them
 
         Args:
             chunk: The streaming chunk (CanonicalStreamChunk or similar)
@@ -2511,7 +2516,7 @@ class OpenAICodexConnector(OpenAIConnector):
             The modified chunk with translated tool calls
         """
 
-        def _translate_tool_call(tc: dict[str, Any]) -> None:
+        def _translate_tool_call(tc: dict[str, Any], finish_reason: str | None) -> None:
             """Translate a single tool call dict in-place."""
             if not isinstance(tc, dict) or "function" not in tc:
                 return
@@ -2522,6 +2527,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
             tc_id = tc.get("id", "")
             original_name = func.get("name")
+            args_fragment = func.get("arguments", "")
 
             # If we have a name, cache it and translate
             if original_name:
@@ -2536,7 +2542,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     )
                     func["name"] = droid_name
                     logger.debug(
-                        "Translated tool call: %s -> %s (id=%s)",
+                        "Translated tool name: %s -> %s (id=%s)",
                         original_name,
                         droid_name,
                         tc_id,
@@ -2544,25 +2550,91 @@ class OpenAICodexConnector(OpenAIConnector):
                 except Exception as e:
                     logger.debug("Failed to translate tool %s: %s", original_name, e)
 
-        try:
-            # Handle CanonicalStreamChunk (Pydantic model)
-            if hasattr(chunk, "choices") and chunk.choices:
-                for choice in chunk.choices:
+            # Buffer argument fragments
+            if tc_id and args_fragment:
+                if tc_id not in self._droid_tool_args_buffer:
+                    self._droid_tool_args_buffer[tc_id] = ""
+                self._droid_tool_args_buffer[tc_id] += args_fragment
+
+            # When tool call is complete, translate arguments
+            if finish_reason == "tool_calls" and tc_id:
+                codex_name = self._droid_tool_name_cache.get(tc_id, "")
+                full_args_str = self._droid_tool_args_buffer.get(tc_id, "{}")
+
+                if codex_name and full_args_str:
+                    try:
+                        import json
+
+                        codex_args = json.loads(full_args_str)
+                        _, droid_args = droid_translator.translate_codex_to_droid(
+                            codex_name, codex_args
+                        )
+                        # Replace arguments with translated version
+                        func["arguments"] = json.dumps(droid_args)
+                        logger.debug(
+                            "Translated tool args for %s (id=%s): %s -> %s",
+                            codex_name,
+                            tc_id,
+                            full_args_str[:100],
+                            func["arguments"][:100],
+                        )
+                    except json.JSONDecodeError as e:
+                        logger.debug("Failed to parse tool args for %s: %s", tc_id, e)
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to translate tool args for %s: %s", tc_id, e
+                        )
+
+                # Clean up buffers for this tool call
+                self._droid_tool_name_cache.pop(tc_id, None)
+                self._droid_tool_args_buffer.pop(tc_id, None)
+
+        def _process_content(content: Any, finish_reason: str | None) -> None:
+            """Process content that may contain tool calls."""
+            # Handle CanonicalStreamChunk (Pydantic model with choices)
+            if hasattr(content, "choices") and content.choices:
+                for choice in content.choices:
+                    fr = getattr(choice, "finish_reason", None) or finish_reason
                     if hasattr(choice, "delta") and choice.delta:
                         delta = choice.delta
                         tool_calls = getattr(delta, "tool_calls", None)
                         if tool_calls:
                             for tc in tool_calls:
                                 if isinstance(tc, dict):
-                                    _translate_tool_call(tc)
+                                    _translate_tool_call(tc, fr)
 
-            # Handle dict-based chunks
-            elif isinstance(chunk, dict) and "choices" in chunk:
-                for choice in chunk.get("choices", []):
+            # Handle dict-based content with choices
+            elif isinstance(content, dict) and "choices" in content:
+                for choice in content.get("choices", []):
+                    fr = choice.get("finish_reason") or finish_reason
                     delta = choice.get("delta", {})
                     if delta and "tool_calls" in delta:
                         for tc in delta["tool_calls"]:
-                            _translate_tool_call(tc)
+                            _translate_tool_call(tc, fr)
+
+        try:
+            # Detect finish_reason from chunk
+            finish_reason = None
+            inner = chunk.content if hasattr(chunk, "content") else chunk
+
+            if hasattr(inner, "choices") and inner.choices:
+                for choice in inner.choices:
+                    fr = getattr(choice, "finish_reason", None)
+                    if fr:
+                        finish_reason = fr
+                        break
+            elif isinstance(inner, dict) and "choices" in inner:
+                for choice in inner.get("choices", []):
+                    fr = choice.get("finish_reason")
+                    if fr:
+                        finish_reason = fr
+                        break
+
+            # Handle ProcessedResponse wrapper - unwrap to get actual content
+            if hasattr(chunk, "content"):
+                _process_content(chunk.content, finish_reason)
+            else:
+                _process_content(chunk, finish_reason)
 
         except Exception as e:
             logger.debug("Error translating chunk tool calls: %s", e)

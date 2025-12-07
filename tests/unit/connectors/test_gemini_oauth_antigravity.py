@@ -762,3 +762,477 @@ class TestModelValidation:
         assert connector._chat_completions_code_assist.called
         call_args = connector._chat_completions_code_assist.call_args
         assert call_args.kwargs.get("effective_model") == "invalid-model-xyz"
+
+
+class TestGemini3ProModelMapping:
+    """Test cases for gemini-3-pro model name mapping based on reasoning_effort."""
+
+    @pytest.fixture
+    def connector(self, mock_client):
+        """Create a connector for testing model mapping."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        return GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+    def test_map_gemini_3_pro_default_to_high(self, connector):
+        """Default reasoning_effort should map gemini-3-pro to gemini-3-pro-high."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-high"
+
+    def test_map_gemini_3_pro_high_effort(self, connector):
+        """reasoning_effort=high should map gemini-3-pro to gemini-3-pro-high."""
+        request_data = Mock()
+        request_data.reasoning_effort = "high"
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-high"
+
+    def test_map_gemini_3_pro_medium_effort(self, connector):
+        """reasoning_effort=medium should map gemini-3-pro to gemini-3-pro-high."""
+        request_data = Mock()
+        request_data.reasoning_effort = "medium"
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-high"
+
+    def test_map_gemini_3_pro_low_effort(self, connector):
+        """reasoning_effort=low should map gemini-3-pro to gemini-3-pro-low."""
+        request_data = Mock()
+        request_data.reasoning_effort = "low"
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_from_extra_body(self, connector):
+        """reasoning_effort in extra_body should be used for mapping."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.extra_body = {"reasoning_effort": "low"}
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_dict_request(self, connector):
+        """Should work with dict-style request_data."""
+        request_data = {"reasoning_effort": "low", "extra_body": None}
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_dict_extra_body(self, connector):
+        """Should extract reasoning_effort from extra_body in dict request."""
+        request_data = {
+            "reasoning_effort": None,
+            "extra_body": {"reasoning_effort": "low"},
+        }
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_nested_reasoning_effort(self, connector):
+        """Should extract reasoning.effort from nested reasoning object (Responses API)."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.reasoning = {"effort": "low"}
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_nested_reasoning_in_extra_body(self, connector):
+        """Should extract reasoning.effort from extra_body.reasoning object."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.reasoning = None
+        request_data.extra_body = {"reasoning": {"effort": "low"}}
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-low"
+
+    def test_map_gemini_3_pro_flat_takes_precedence_over_nested(self, connector):
+        """Flat reasoning_effort should take precedence over nested reasoning.effort."""
+        request_data = Mock()
+        request_data.reasoning_effort = "high"
+        request_data.reasoning = {"effort": "low"}  # Should be ignored
+        request_data.extra_body = None
+
+        result = connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+
+        assert result == "gemini-3-pro-high"
+
+    def test_map_other_models_unchanged(self, connector):
+        """Other model names should pass through unchanged."""
+        request_data = Mock()
+        request_data.reasoning_effort = "low"
+        request_data.extra_body = None
+
+        # These should all pass through unchanged
+        assert (
+            connector._map_gemini_3_pro_model("gemini-2.5-pro", request_data)
+            == "gemini-2.5-pro"
+        )
+        assert (
+            connector._map_gemini_3_pro_model("gemini-3-pro-high", request_data)
+            == "gemini-3-pro-high"
+        )
+        assert (
+            connector._map_gemini_3_pro_model("gemini-3-pro-low", request_data)
+            == "gemini-3-pro-low"
+        )
+        assert (
+            connector._map_gemini_3_pro_model("claude-sonnet-4-5", request_data)
+            == "claude-sonnet-4-5"
+        )
+
+    def test_map_gemini_3_pro_case_insensitive(self, connector):
+        """reasoning_effort values should be case-insensitive."""
+        request_data = Mock()
+        request_data.extra_body = None
+
+        request_data.reasoning_effort = "LOW"
+        assert (
+            connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+            == "gemini-3-pro-low"
+        )
+
+        request_data.reasoning_effort = "High"
+        assert (
+            connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+            == "gemini-3-pro-high"
+        )
+
+        request_data.reasoning_effort = "MEDIUM"
+        assert (
+            connector._map_gemini_3_pro_model("gemini-3-pro", request_data)
+            == "gemini-3-pro-high"
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_maps_gemini_3_pro_with_vendor_prefix(
+        self, mock_client, monkeypatch
+    ):
+        """chat_completions should strip google/ prefix and map gemini-3-pro."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        # Pre-load models
+        connector.available_models = ["gemini-3-pro", "gemini-2.5-flash"]
+        connector._available_models_set = set(connector.available_models)
+
+        # Mock to prevent actual API calls
+        connector._validate_runtime_credentials = AsyncMock(return_value=True)
+        connector._ensure_healthy = AsyncMock()
+        connector._chat_completions_code_assist = AsyncMock(
+            return_value=Mock(status_code=200)
+        )
+
+        request_data = Mock()
+        request_data.stream = False
+        request_data.messages = [{"role": "user", "content": "Hello"}]
+        request_data.reasoning_effort = None  # Default to high
+        request_data.extra_body = None
+
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[{"role": "user", "content": "Hello"}],
+            effective_model="google/gemini-3-pro",  # With vendor prefix
+        )
+
+        # Verify the model was mapped to gemini-3-pro-high
+        assert connector._chat_completions_code_assist.called
+        call_args = connector._chat_completions_code_assist.call_args
+        assert call_args.kwargs.get("effective_model") == "gemini-3-pro-high"
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_maps_gemini_3_pro_low_effort(
+        self, mock_client, monkeypatch
+    ):
+        """chat_completions should map gemini-3-pro to low variant with low effort."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        # Pre-load models
+        connector.available_models = ["gemini-3-pro", "gemini-2.5-flash"]
+        connector._available_models_set = set(connector.available_models)
+
+        # Mock to prevent actual API calls
+        connector._validate_runtime_credentials = AsyncMock(return_value=True)
+        connector._ensure_healthy = AsyncMock()
+        connector._chat_completions_code_assist = AsyncMock(
+            return_value=Mock(status_code=200)
+        )
+
+        request_data = Mock()
+        request_data.stream = False
+        request_data.messages = [{"role": "user", "content": "Hello"}]
+        request_data.reasoning_effort = "low"
+        request_data.extra_body = None
+
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[{"role": "user", "content": "Hello"}],
+            effective_model="gemini-3-pro",
+        )
+
+        # Verify the model was mapped to gemini-3-pro-low
+        assert connector._chat_completions_code_assist.called
+        call_args = connector._chat_completions_code_assist.call_args
+        assert call_args.kwargs.get("effective_model") == "gemini-3-pro-low"
+
+
+class TestClaudeOpusModelMapping:
+    """Test cases for claude-opus-4.5 model name mapping based on reasoning_effort."""
+
+    @pytest.fixture
+    def connector(self, mock_client):
+        """Create a connector for testing model mapping."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        return GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+    def test_map_claude_opus_default_to_thinking(self, connector):
+        """Default (no reasoning_effort) should map claude-opus-4.5 to claude-opus-4-5-thinking."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5-thinking"
+
+    def test_map_claude_opus_low_effort(self, connector):
+        """reasoning_effort=low should map claude-opus-4.5 to claude-opus-4-5 (base)."""
+        request_data = Mock()
+        request_data.reasoning_effort = "low"
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5"
+
+    def test_map_claude_opus_high_effort(self, connector):
+        """reasoning_effort=high should map claude-opus-4.5 to claude-opus-4-5-thinking."""
+        request_data = Mock()
+        request_data.reasoning_effort = "high"
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5-thinking"
+
+    def test_map_claude_opus_medium_effort(self, connector):
+        """reasoning_effort=medium should map claude-opus-4.5 to claude-opus-4-5-thinking."""
+        request_data = Mock()
+        request_data.reasoning_effort = "medium"
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5-thinking"
+
+    def test_map_claude_opus_from_extra_body(self, connector):
+        """reasoning_effort in extra_body should be used for mapping."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.reasoning = None
+        request_data.extra_body = {"reasoning_effort": "high"}
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5-thinking"
+
+    def test_map_claude_opus_nested_reasoning_effort(self, connector):
+        """Should extract reasoning.effort from nested reasoning object."""
+        request_data = Mock()
+        request_data.reasoning_effort = None
+        request_data.reasoning = {"effort": "high"}
+        request_data.extra_body = None
+
+        result = connector._map_claude_opus_model("claude-opus-4.5", request_data)
+
+        assert result == "claude-opus-4-5-thinking"
+
+    def test_map_claude_opus_case_insensitive(self, connector):
+        """reasoning_effort values should be case-insensitive."""
+        request_data = Mock()
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        request_data.reasoning_effort = "HIGH"
+        assert (
+            connector._map_claude_opus_model("claude-opus-4.5", request_data)
+            == "claude-opus-4-5-thinking"
+        )
+
+        request_data.reasoning_effort = "Medium"
+        assert (
+            connector._map_claude_opus_model("claude-opus-4.5", request_data)
+            == "claude-opus-4-5-thinking"
+        )
+
+        request_data.reasoning_effort = "LOW"
+        assert (
+            connector._map_claude_opus_model("claude-opus-4.5", request_data)
+            == "claude-opus-4-5"
+        )
+
+    def test_map_other_models_unchanged(self, connector):
+        """Other model names should pass through unchanged."""
+        request_data = Mock()
+        request_data.reasoning_effort = "high"
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        # These should all pass through unchanged
+        assert (
+            connector._map_claude_opus_model("claude-sonnet-4-5", request_data)
+            == "claude-sonnet-4-5"
+        )
+        assert (
+            connector._map_claude_opus_model("claude-opus-4-5", request_data)
+            == "claude-opus-4-5"
+        )
+        assert (
+            connector._map_claude_opus_model("gemini-2.5-pro", request_data)
+            == "gemini-2.5-pro"
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_maps_claude_opus_with_vendor_prefix(
+        self, mock_client, monkeypatch
+    ):
+        """chat_completions should strip anthropic/ prefix and map claude-opus-4.5."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        # Pre-load models
+        connector.available_models = ["claude-opus-4.5", "gemini-2.5-flash"]
+        connector._available_models_set = set(connector.available_models)
+
+        # Mock to prevent actual API calls
+        connector._validate_runtime_credentials = AsyncMock(return_value=True)
+        connector._ensure_healthy = AsyncMock()
+        connector._chat_completions_code_assist = AsyncMock(
+            return_value=Mock(status_code=200)
+        )
+
+        request_data = Mock()
+        request_data.stream = False
+        request_data.messages = [{"role": "user", "content": "Hello"}]
+        request_data.reasoning_effort = None  # Default to thinking variant
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[{"role": "user", "content": "Hello"}],
+            effective_model="anthropic/claude-opus-4.5",  # With vendor prefix
+        )
+
+        # Verify the model was mapped to claude-opus-4-5-thinking (default)
+        assert connector._chat_completions_code_assist.called
+        call_args = connector._chat_completions_code_assist.call_args
+        assert call_args.kwargs.get("effective_model") == "claude-opus-4-5-thinking"
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_maps_claude_opus_low_effort(
+        self, mock_client, monkeypatch
+    ):
+        """chat_completions should map claude-opus-4.5 to base variant with low effort."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        # Pre-load models
+        connector.available_models = ["claude-opus-4.5", "gemini-2.5-flash"]
+        connector._available_models_set = set(connector.available_models)
+
+        # Mock to prevent actual API calls
+        connector._validate_runtime_credentials = AsyncMock(return_value=True)
+        connector._ensure_healthy = AsyncMock()
+        connector._chat_completions_code_assist = AsyncMock(
+            return_value=Mock(status_code=200)
+        )
+
+        request_data = Mock()
+        request_data.stream = False
+        request_data.messages = [{"role": "user", "content": "Hello"}]
+        request_data.reasoning_effort = "low"
+        request_data.reasoning = None
+        request_data.extra_body = None
+
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[{"role": "user", "content": "Hello"}],
+            effective_model="anthropic/claude-opus-4.5",
+        )
+
+        # Verify the model was mapped to claude-opus-4-5 (base, no thinking)
+        assert connector._chat_completions_code_assist.called
+        call_args = connector._chat_completions_code_assist.call_args
+        assert call_args.kwargs.get("effective_model") == "claude-opus-4-5"
