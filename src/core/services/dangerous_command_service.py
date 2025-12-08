@@ -89,6 +89,9 @@ class DangerousCommandService:
 
     def _normalize_for_detection(self, command: str) -> str:
         collapsed = re.sub(r"\s+", " ", command).strip()
+        # Treat escaped newlines/backslash spacers as regular whitespace so
+        # commands like "git \ checkout -- ." normalize correctly.
+        collapsed = re.sub(r"\\\s*", " ", collapsed)
         without_subshell = _SUBSHELL_GIT_PATTERN.sub("git", collapsed)
         without_env = _ENV_PREFIX_PATTERN.sub("", without_subshell)
         return re.sub(r"\s+", " ", without_env).strip()
@@ -125,6 +128,17 @@ class DangerousCommandService:
                         cleaned = re.split(r"[\\/]", token)[-1]
                     normalized_tokens.append(cleaned)
                 candidates.add(" ".join(normalized_tokens).strip())
+
+                # Handle git invocations with leading options before the subcommand
+                # (e.g., "git --work-tree=. checkout -- .") by stripping those
+                # options to surface the risky subcommand.
+                if tokens[0].lower() == "git":
+                    idx = 1
+                    while idx < len(tokens) and tokens[idx].startswith("-"):
+                        idx += 1
+                    if idx < len(tokens):
+                        stripped = ["git"] + tokens[idx:]
+                        candidates.add(" ".join(stripped).strip())
 
         return [candidate for candidate in candidates if candidate]
 

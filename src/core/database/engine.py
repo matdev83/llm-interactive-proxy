@@ -117,7 +117,7 @@ class DatabaseEngine:
 
         async with self.engine.begin() as conn:
             # Import all models to register them with SQLModel
-            from src.core.database.models import memory, sso  # noqa: F401
+            from src.core.database.models import memory, sso, usage  # noqa: F401
 
             await conn.run_sync(SQLModel.metadata.create_all)
 

@@ -44,6 +44,9 @@ class AppLifecycle:
         # Start ProxyMem services (analysis worker, maintenance)
         await self._start_memory_services()
 
+        # Start usage tracking services (async write queue)
+        await self._start_usage_tracking_services()
+
         # Start background tasks
         self._start_background_tasks()
 
@@ -57,6 +60,9 @@ class AppLifecycle:
 
         # Stop ProxyMem services
         await self._stop_memory_services()
+
+        # Stop usage tracking services (drain pending records)
+        await self._stop_usage_tracking_services()
 
         # Stop background tasks
         await self._stop_background_tasks()
@@ -149,6 +155,58 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Error stopping ProxyMem services: %s", e)
+
+    async def _start_usage_tracking_services(self) -> None:
+        """Start usage tracking services (async write queue).
+
+        Starts the AsyncUsageWriteQueue background task for batched
+        database writes when database persistence is enabled.
+        """
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.services.async_usage_write_queue import (
+                AsyncUsageWriteQueue,
+            )
+
+            write_queue = provider.get_service(AsyncUsageWriteQueue)
+            if write_queue:
+                await write_queue.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Usage write queue started")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error starting usage write queue: %s", e)
+
+    async def _stop_usage_tracking_services(self) -> None:
+        """Stop usage tracking services and drain pending records.
+
+        Gracefully stops the AsyncUsageWriteQueue, ensuring all pending
+        usage records are flushed to the database before shutdown.
+        """
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.services.async_usage_write_queue import (
+                AsyncUsageWriteQueue,
+            )
+
+            write_queue = provider.get_service(AsyncUsageWriteQueue)
+            if write_queue:
+                await write_queue.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Usage write queue stopped and drained")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error stopping usage write queue: %s", e)
 
     async def _start_health_checks(self) -> None:
         """Start health check services if enabled."""

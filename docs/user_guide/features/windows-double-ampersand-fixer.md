@@ -70,7 +70,7 @@ session:
   double_ampersand_fixes_for_windows_enabled: false
 ```
 
-## Examples
+## Usage Examples
 
 ### Before and After
 

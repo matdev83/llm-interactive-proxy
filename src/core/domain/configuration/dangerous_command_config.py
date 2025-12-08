@@ -232,9 +232,12 @@ DEFAULT_DANGEROUS_COMMAND_RULES = get_default_dangerous_command_rules()
 DEFAULT_DANGEROUS_COMMAND_CONFIG = DangerousCommandConfig(
     tool_names=[
         "bash",
+        "Execute",
+        "ShellTool",
         "exec_command",
         "execute_command",
         "run_shell_command",
+        "run_terminal_command",
         "shell",
         "local_shell",
         "container.exec",
