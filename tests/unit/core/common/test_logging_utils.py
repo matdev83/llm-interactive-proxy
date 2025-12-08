@@ -190,22 +190,27 @@ class TestDiscoverApiKeysFromConfigAndEnv:
             mock_config.backends = mock_backends
 
             # Discover API keys
-            with patch("src.core.common.logging_utils.get_logger") as mock_get_logger:
-                mock_logger = MagicMock()
-                mock_get_logger.return_value = mock_logger
+            # Patch _logged_security_warnings to ensure we start with a clean state
+            # This prevents interference from other tests that might have already logged warnings
+            with patch("src.core.common.logging_utils._logged_security_warnings", set()):
+                with patch(
+                    "src.core.common.logging_utils.get_logger"
+                ) as mock_get_logger:
+                    mock_logger = MagicMock()
+                    mock_get_logger.return_value = mock_logger
 
-                keys = discover_api_keys_from_config_and_env(mock_config)
+                    keys = discover_api_keys_from_config_and_env(mock_config)
 
-                # API keys from config should be discovered for redaction purposes
-                assert any("sk-config-1234567890abcdefg" in k for k in keys)
-                assert any("sk-backend-1234567890abcdefg" in k for k in keys)
+                    # API keys from config should be discovered for redaction purposes
+                    assert any("sk-config-1234567890abcdefg" in k for k in keys)
+                    assert any("sk-backend-1234567890abcdefg" in k for k in keys)
 
-                # Security warnings should be logged
-                mock_logger.warning.assert_called()
-                warning_calls = [
-                    call.args[0] for call in mock_logger.warning.call_args_list
-                ]
-                assert any("SECURITY WARNING" in call for call in warning_calls)
+                    # Security warnings should be logged
+                    mock_logger.warning.assert_called()
+                    warning_calls = [
+                        call.args[0] for call in mock_logger.warning.call_args_list
+                    ]
+                    assert any("SECURITY WARNING" in call for call in warning_calls)
 
 
 class TestInstallApiKeyRedactionFilter:

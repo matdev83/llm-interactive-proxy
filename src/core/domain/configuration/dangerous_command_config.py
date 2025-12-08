@@ -22,7 +22,8 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"git\s+submodule\s+foreach\s+.*git\s+clean\s+.*-f.*|"
     r"^(?=.*\bgit\s+clean\b)(?=.*\s-[^\s]*f[^\s]*)(?!.*(?:\s-n|--dry-run)).*|"
     r"git\s+restore\s+(?:--worktree(?:\s+--staged)?\s+(?:--source=\S+\s+)?(?:\.\.|:/$|--pathspec-from-file|\.)|\.|/?:$)|"
-    r"git\s+checkout\s+--\s*(?:\.|:/$)|"
+    r"git\s+checkout(?:\s+--)?\s*(?:\.|:/$)|"
+    r"git\s+checkout\s+--\s+\S+|"
     r"git\s+(?:switch|checkout)\s+-f(?:\s|$)|"
     r"git\s+checkout\s+--orphan\s+\S+|"
     r"git\s+rm\b(?!.*--cached).*--force(?:\s|$)|"
@@ -36,8 +37,6 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"git\s+push\s+\S+\s+:\S+|"
     r"git\s+push\s+--mirror(?:\s|$)|"
     r"git\s+branch\s+-D\s+\S+|"
-    r"git\s+branch\s+-d\s+\S+|"
-    r"git\s+tag\s+-d\s+\S+|"
     r"git\s+update-ref\s+-d\s+\S+|"
     r"git\s+reflog\s+expire\s+--expire=now\s+--all|"
     r"git\s+gc\s+--prune=now(?:\s|$)|"
@@ -47,7 +46,14 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"git\s+worktree\s+remove\s+--force\s+\S+|"
     r"git\s+worktree\s+prune(?:\s|$)|"
     r"git\s+submodule\s+deinit\s+-f(?:\s|$)|"
-    r"git\s+rebase\s+(?:-i|--interactive)(?:\s|$)"
+    r"git\s+rebase\s+(?:-i|--interactive)(?:\s|$)|"
+    r"rm\s+-[^\s]*r[^\s]*f[^\s]*\s+[^\n;]+|"
+    r"find\s+[^\n;]*-delete|"
+    r"find\s+[^\n;]*-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+\S+\s+(?:\\;|;)|"
+    r"(?:rmdir|rd)\s+/s\s+/q\s+\S+|"
+    r"del\s+/s\s+/q\s+\S+|"
+    r"Remove-Item\s+[^\n;]+-Recurse",
+    re.IGNORECASE,
 )
 
 
@@ -89,9 +95,14 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             "Discards unstaged changes by restoring from HEAD; dangerous when no staged changes exist.",
         ),
         (
-            r"git\s+checkout\s+--\s*(?:\.|:/$)",
+            r"git\s+checkout(?:\s+--)?\s*(?:\.|:/$)",
             "git-checkout-destructive",
             "Overwrites the working tree with the index; a legacy, dangerous form of restore.",
+        ),
+        (
+            r"git\s+checkout\s+--\s+\S+",
+            "git-checkout-path",
+            "Restores specific paths from HEAD/index, discarding local changes.",
         ),
         (
             r"git\s+(?:switch|checkout)\s+-f(?:\s|$)",
@@ -163,8 +174,6 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             "git-branch-force-delete",
             "Force deletes a branch even if not merged.",
         ),
-        (r"git\s+branch\s+-d\s+\S+", "git-branch-delete", "Deletes a branch."),
-        (r"git\s+tag\s+-d\s+\S+", "git-tag-delete", "Deletes a tag."),
         (
             r"git\s+update-ref\s+-d\s+\S+",
             "git-update-ref-delete",
@@ -208,11 +217,43 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             "git-rebase",
             "Interactive rebase that can rewrite history.",
         ),
+        (
+            r"rm\s+-[^\s]*r[^\s]*f[^\s]*\s+[^\n;]+",
+            "rm-rf-recursive",
+            "Recursive force delete of files/directories.",
+        ),
+        (
+            r"find\s+[^\n;]*-delete",
+            "find-delete",
+            "find ... -delete removes matched paths.",
+        ),
+        (
+            r"find\s+[^\n;]*-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+\S+\s+(?:\\;|;)",
+            "find-exec-rm-rf",
+            "find -exec rm -rf pattern removes matched paths.",
+        ),
+        (
+            r"(?:rmdir|rd)\s+/s\s+/q\s+\S+",
+            "rmdir-recursive",
+            "Windows recursive quiet directory removal.",
+        ),
+        (
+            r"del\s+/s\s+/q\s+\S+",
+            "del-recursive",
+            "Windows recursive quiet file deletion.",
+        ),
+        (
+            r"Remove-Item\s+[^\n;]+-Recurse",
+            "powershell-remove-item-recurse",
+            "PowerShell recursive removal of items.",
+        ),
     ]
 
     return [
         DangerousCommandRule(
-            pattern=re.compile(pattern), name=name, description=description
+            pattern=re.compile(pattern, re.IGNORECASE),
+            name=name,
+            description=description,
         )
         for pattern, name, description in patterns_and_metadata
     ]

@@ -132,15 +132,27 @@ class DangerousCommandService:
                 # Handle git invocations with leading options before the subcommand
                 # (e.g., "git --work-tree=. checkout -- .") by stripping those
                 # options to surface the risky subcommand.
-                if tokens[0].lower() == "git":
-                    idx = 1
-                    while idx < len(tokens) and tokens[idx].startswith("-"):
-                        idx += 1
-                    if idx < len(tokens):
-                        stripped = ["git"] + tokens[idx:]
-                        candidates.add(" ".join(stripped).strip())
+                stripped = self._strip_git_leading_options(env_stripped)
+                if stripped != env_stripped:
+                    candidates.add(stripped)
 
         return [candidate for candidate in candidates if candidate]
+
+    @staticmethod
+    def _strip_git_leading_options(command: str) -> str:
+        """Remove leading git options to expose the subcommand for detection."""
+        tokens = command.split()
+        if not tokens or tokens[0].lower() != "git":
+            return command
+
+        idx = 1
+        while idx < len(tokens) and tokens[idx].startswith("-"):
+            idx += 1
+
+        if idx == 1 or idx >= len(tokens):
+            return command
+
+        return " ".join(["git"] + tokens[idx:]).strip()
 
     def scan(
         self, tool_name: str, arguments: Any
@@ -165,8 +177,15 @@ class DangerousCommandService:
         # Fast pre-check on the (potentially truncated) command
         normalized_for_detection = self._normalize_for_detection(command_to_check)
 
-        if not _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection):
-            return None
+        combined_match = _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection)
+        if not combined_match:
+            # Try again after stripping leading git options to catch forms like
+            # "git --work-tree=. checkout -- ."
+            stripped = self._strip_git_leading_options(normalized_for_detection)
+            if stripped == normalized_for_detection:
+                return None
+            if not _COMBINED_DANGEROUS_PATTERN.search(stripped):
+                return None
 
         # If there's a potential match, generate candidates to find the specific rule
         candidates = self._generate_command_candidates(normalized_for_detection)
