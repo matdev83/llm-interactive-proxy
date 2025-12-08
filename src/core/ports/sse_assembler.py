@@ -120,8 +120,10 @@ class SSEAssembler(IStreamAssembler):
                     if last_stream_id is None:
                         last_stream_id = generated_stream_id
 
-                # Skip empty chunks unless they're done markers or have errors
-                if chunk.is_empty and not chunk.is_done:
+                # Skip empty chunks unless they're done markers or have errors.
+                # Preserve whitespace-only chunks because models often stream
+                # spaces as separate deltas and dropping them merges words.
+                if chunk.is_empty and not chunk.is_done and not chunk.content:
                     continue
 
                 # Check if this is a done marker with error or cancellation information

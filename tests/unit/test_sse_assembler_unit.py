@@ -113,6 +113,53 @@ async def test_sse_assembly_skips_empty_chunks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sse_preserves_whitespace_only_chunks() -> None:
+    """Whitespace-only deltas should not be dropped, even if marked empty."""
+    assembler = SSEAssembler()
+    chunks = [
+        StreamingContent(content="publishing", metadata={"provider": "openai"}),
+        StreamingContent(
+            content=" ", metadata={"provider": "openai"}, is_empty=True
+        ),
+        StreamingContent(content="5", metadata={"provider": "openai"}),
+        SentinelManager.create_done_chunk(),
+    ]
+    stream = async_iter(chunks)
+
+    result: list[bytes] = []
+    async for chunk_bytes in assembler.assemble_stream(stream):
+        result.append(chunk_bytes)
+
+    combined = b"".join(result).decode("utf-8")
+    assert '"content": " "' in combined
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_strip_extra_content() -> None:
+    """extra_content should be removed before emitting to clients."""
+    assembler = SSEAssembler()
+    tc = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "Read", "arguments": "{}"},
+        "extra_content": {"google": {"thought_signature": "secret"}},
+    }
+    chunks = [
+        StreamingContent(
+            content="",
+            metadata={"provider": "openai", "tool_calls": [tc]},
+        ),
+        SentinelManager.create_done_chunk(),
+    ]
+    stream = async_iter(chunks)
+
+    rendered = b"".join([chunk async for chunk in assembler.assemble_stream(stream)])
+    rendered_text = rendered.decode("utf-8")
+    assert "extra_content" not in rendered_text
+    assert '"tool_calls":' in rendered_text
+
+
+@pytest.mark.asyncio
 async def test_sse_assembly_with_tool_calls() -> None:
     """Test SSE assembly with tool calls in metadata."""
     # Arrange

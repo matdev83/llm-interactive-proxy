@@ -482,6 +482,27 @@ class StreamingContent:
                     # Make a copy of content to potentially modify
                     content_copy = dict(self.content)
 
+                    # Sanitize any existing tool_calls in delta/message (remove extra_content)
+                    # This is critical for Gemini responses where extra_content contains
+                    # a thought_signature that CLI agents like Factory Droid cannot parse
+                    for choice_item in content_copy.get("choices", []):
+                        if not isinstance(choice_item, dict):
+                            continue
+                        for container_key in ("delta", "message"):
+                            container = choice_item.get(container_key)
+                            if isinstance(container, dict):
+                                tc_list = container.get("tool_calls")
+                                if isinstance(tc_list, list) and tc_list:
+                                    container["tool_calls"] = [
+                                        {
+                                            k: v
+                                            for k, v in tc.items()
+                                            if not k.startswith("_") and k != "extra_content"
+                                        }
+                                        for tc in tc_list
+                                        if isinstance(tc, dict)
+                                    ]
+
                     # If virtual, STRIP tool_calls from the delta (they're already there)
                     if is_virtual:
                         choices = content_copy.get("choices", [])
@@ -503,7 +524,7 @@ class StreamingContent:
                     if isinstance(tool_calls, list) and tool_calls:
                         # Sanitize internal markers before sending to client
                         sanitized_calls = [
-                            {k: v for k, v in tc.items() if not k.startswith("_")}
+                            {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
                             for tc in tool_calls
                             if isinstance(tc, dict)
                         ]
@@ -546,7 +567,7 @@ class StreamingContent:
         if isinstance(tool_calls, list) and tool_calls and not is_virtual:
             # Remove internal markers like _already_processed before sending to client
             sanitized_calls = [
-                {k: v for k, v in tc.items() if not k.startswith("_")}
+                {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
                 for tc in tool_calls
                 if isinstance(tc, dict)
             ]
@@ -586,6 +607,27 @@ class StreamingContent:
                     # Make a copy of content to potentially modify
                     content_copy = dict(working_content)
 
+                    # Sanitize any existing tool_calls in delta/message (remove extra_content)
+                    # This is critical for Gemini responses where extra_content contains
+                    # a thought_signature that CLI agents like Factory Droid cannot parse
+                    for choice_item in content_copy.get("choices", []):
+                        if not isinstance(choice_item, dict):
+                            continue
+                        for container_key in ("delta", "message"):
+                            container = choice_item.get(container_key)
+                            if isinstance(container, dict):
+                                tc_list = container.get("tool_calls")
+                                if isinstance(tc_list, list) and tc_list:
+                                    container["tool_calls"] = [
+                                        {
+                                            k: v
+                                            for k, v in tc.items()
+                                            if not k.startswith("_") and k != "extra_content"
+                                        }
+                                        for tc in tc_list
+                                        if isinstance(tc, dict)
+                                    ]
+
                     # If virtual, STRIP tool_calls from the delta (they're already there)
                     if is_virtual_tc:
                         choices = content_copy.get("choices", [])
@@ -610,7 +652,7 @@ class StreamingContent:
                         ):
                             # Sanitize internal markers before sending to client
                             sanitized_calls = [
-                                {k: v for k, v in tc.items() if not k.startswith("_")}
+                                {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
                                 for tc in tool_calls_to_inject
                                 if isinstance(tc, dict)
                             ]

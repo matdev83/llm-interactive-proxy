@@ -11,6 +11,7 @@ components into a cohesive pipeline.
 from __future__ import annotations
 
 import logging
+import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -85,21 +86,34 @@ class StreamingPipeline:
         if stream_id:
             self._metrics.start_stream(stream_id)
 
+        # Ensure upstream async generators are properly closed even if downstream
+        # breaks early (prevents "async generator ignored GeneratorExit" noise).
+        closing_context = (
+            contextlib.aclosing(raw_stream)
+            if hasattr(raw_stream, "aclose")
+            else contextlib.nullcontext(raw_stream)
+        )
+
         try:
-            # Step 1: Normalize backend chunks to StreamingContent
-            normalized_stream = self.normalizer.normalize_stream(raw_stream, provider)
+            async with closing_context as managed_stream:
+                # Step 1: Normalize backend chunks to StreamingContent
+                normalized_stream = self.normalizer.normalize_stream(
+                    managed_stream, provider
+                )
 
-            # Step 2: Apply processor chain
-            processed_stream = self._apply_processor_chain(normalized_stream, stream_id)
+                # Step 2: Apply processor chain
+                processed_stream = self._apply_processor_chain(
+                    normalized_stream, stream_id
+                )
 
-            # Step 3: Assemble to client format
-            assembled_stream = self.assembler.assemble_stream(
-                processed_stream, output_format
-            )
+                # Step 3: Assemble to client format
+                assembled_stream = self.assembler.assemble_stream(
+                    processed_stream, output_format
+                )
 
-            # Step 4: Yield formatted bytes
-            async for chunk_bytes in assembled_stream:
-                yield chunk_bytes
+                # Step 4: Yield formatted bytes
+                async for chunk_bytes in assembled_stream:
+                    yield chunk_bytes
 
         except Exception as e:
             # Log error and increment error terminations
