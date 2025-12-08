@@ -109,3 +109,9 @@ var/wire_captures_cbor/*
 !var/wire_captures_cbor/.gitkeep
 var/state/*
 !var/state/.gitkeep
+var/*.txt
+var/*.log
+var/*.md
+var/*.json
+var/*.jsonl
+var/*.py
