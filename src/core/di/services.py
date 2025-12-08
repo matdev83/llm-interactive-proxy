@@ -331,22 +331,26 @@ def _ensure_tool_call_reactor_services(
         provider: The current service provider instance.
 
     Returns:
-        A provider that can resolve the ToolCallReactor service and middleware.
+        A provider that can resolve the ToolCallReactor service and feature.
 
     Raises:
         ServiceResolutionError: If re-registration fails to provide the required services.
     """
 
-    from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
+    from src.core.services.tool_call_reactor_middleware import ToolCallReactorFeature
     from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
     missing_components: list[str] = []
 
     if provider.get_service(ToolCallReactorService) is None:
         missing_components.append("ToolCallReactorService")
-    if provider.get_service(ToolCallReactorMiddleware) is None:
-        missing_components.append("ToolCallReactorMiddleware")
-
+    if provider.get_service(ToolCallReactorFeature) is None:
+        # Check if MiddlewareApplicationManager, which contains ToolCallReactorFeature, is available
+        from src.core.services.middleware_application_manager import MiddlewareApplicationManager
+        manager = provider.get_service(MiddlewareApplicationManager)
+        if manager is None or not any(isinstance(f, ToolCallReactorFeature) for f in manager._middleware):
+            missing_components.append("ToolCallReactorFeature (not found in MiddlewareApplicationManager)")
+    
     if not missing_components:
         return provider
 
@@ -376,8 +380,12 @@ def _ensure_tool_call_reactor_services(
     still_missing: list[str] = []
     if new_provider.get_service(ToolCallReactorService) is None:
         still_missing.append("ToolCallReactorService")
-    if new_provider.get_service(ToolCallReactorMiddleware) is None:
-        still_missing.append("ToolCallReactorMiddleware")
+    if new_provider.get_service(ToolCallReactorFeature) is None:
+        # Final check if the feature is available through the manager after re-registration
+        from src.core.services.middleware_application_manager import MiddlewareApplicationManager
+        manager = new_provider.get_service(MiddlewareApplicationManager)
+        if manager is None or not any(isinstance(f, ToolCallReactorFeature) for f in manager._middleware):
+            still_missing.append("ToolCallReactorFeature (not found in MiddlewareApplicationManager)")
 
     if still_missing:
         raise ServiceResolutionError(

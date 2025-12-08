@@ -13,7 +13,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 
 **Workflow order**: `spec-init` → `spec-requirements` → `spec-design` → `spec-tasks` → `spec-impl`
 
-**Spec-driven rule**: When a spec exists at `.kiro/specs/{feature}/`, no code edits until `requirements.md` and `design.md` are approved (check `spec.json` for approval status). Every task in `tasks.md` must reference at least one acceptance criterion from requirements.
+**Spec-driven rule**: When a spec exists at `.kiro/specs/{feature}/` and you are sure current session is about this spec: no code edits until `requirements.md` and `design.md` are approved (check `spec.json` for approval status). Every task in `tasks.md` must reference at least one acceptance criterion from requirements.
 
 **Key locations**:
 

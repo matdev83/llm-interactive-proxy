@@ -363,13 +363,17 @@ class ResponseProcessor(IResponseProcessor):
             ) from e
 
     async def process_streaming_response(
-        self, response_iterator: AsyncIterator[Any], session_id: str
+        self,
+        response_iterator: AsyncIterator[Any],
+        session_id: str,
+        context: dict[str, Any] | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming response through the unified pipeline.
 
         Args:
             response_iterator: An async iterator yielding raw response chunks.
             session_id: The ID of the current session.
+            context: Optional context dictionary with additional metadata.
 
         Returns:
             An async iterator yielding ProcessedResponse objects.
@@ -399,10 +403,25 @@ class ResponseProcessor(IResponseProcessor):
         if loop_detector is not None:
             loop_detector.reset()
 
+        # Inject context into iterator if provided
+        # This ensures downstream processors (like middleware) have access to
+        # request context via metadata, even for raw chunks.
+        effective_iterator = response_iterator
+        if context:
+
+            async def _context_injector(it: AsyncIterator[Any]) -> AsyncIterator[Any]:
+                async for chunk in it:
+                    # Wrap chunk in ProcessedResponse with metadata to carry context
+                    # The StreamingContent.from_raw method handles ProcessedResponse
+                    # by merging its metadata.
+                    yield ProcessedResponse(content=chunk, metadata=context)
+
+            effective_iterator = _context_injector(response_iterator)
+
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly
         if self._stream_normalizer is None:
-            async for chunk in response_iterator:
+            async for chunk in effective_iterator:
                 # Convert chunk to ProcessedResponse
                 if isinstance(chunk, StreamingChatResponse):
                     metadata: dict[str, Any] = {"model": chunk.model}
