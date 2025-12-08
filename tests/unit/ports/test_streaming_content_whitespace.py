@@ -664,3 +664,155 @@ class TestEdgeCasesWhitespace:
 
         # But the StreamNormalizer should still yield it because is_done=True
         # (The skip condition is: if content.is_empty and not content.is_done)
+
+
+class TestBuildStreamingPayloadWhitespace:
+    """Test that _build_streaming_payload preserves whitespace content.
+
+    SECOND BUG (Fixed 2025-12-08):
+    ==============================
+    In response_adapters.py _build_streaming_payload(), the condition:
+        elif isinstance(content, str) and content.strip():
+
+    Would skip whitespace-only strings because " ".strip() is "" (falsy).
+    The fallback also stripped content: rendered = str(content).strip()
+
+    This caused whitespace between words/numbers to be dropped:
+    - "All 10" became "All10"
+    - "all 40" became "all40"
+    """
+
+    def test_build_streaming_payload_preserves_space(self) -> None:
+        """Test that _build_streaming_payload preserves space content."""
+        from src.core.transport.fastapi.response_adapters import (
+            _build_streaming_payload,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _build_streaming_payload(" ", metadata, None, streaming=True)
+
+        # The content should be preserved
+        assert "choices" in result
+        delta = result["choices"][0].get("delta", {})
+        assert delta.get("content") == " ", (
+            f"Expected content=' ' but got {delta.get('content')!r}. "
+            f"REGRESSION: Space content is being stripped in _build_streaming_payload!"
+        )
+
+    def test_build_streaming_payload_preserves_newline(self) -> None:
+        """Test that _build_streaming_payload preserves newline content."""
+        from src.core.transport.fastapi.response_adapters import (
+            _build_streaming_payload,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _build_streaming_payload("\n", metadata, None, streaming=True)
+
+        delta = result["choices"][0].get("delta", {})
+        assert delta.get("content") == "\n", (
+            f"Expected content='\\n' but got {delta.get('content')!r}. "
+            f"REGRESSION: Newline content is being stripped in _build_streaming_payload!"
+        )
+
+    def test_build_streaming_payload_preserves_tab(self) -> None:
+        """Test that _build_streaming_payload preserves tab content."""
+        from src.core.transport.fastapi.response_adapters import (
+            _build_streaming_payload,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _build_streaming_payload("\t", metadata, None, streaming=True)
+
+        delta = result["choices"][0].get("delta", {})
+        assert delta.get("content") == "\t", (
+            f"Expected content='\\t' but got {delta.get('content')!r}. "
+            f"REGRESSION: Tab content is being stripped in _build_streaming_payload!"
+        )
+
+    @pytest.mark.parametrize(
+        "whitespace",
+        [" ", "\n", "\t", "  ", "\n\n", "\r\n", " \n ", "\t\n"],
+    )
+    def test_build_streaming_payload_preserves_various_whitespace(
+        self, whitespace: str
+    ) -> None:
+        """Test that _build_streaming_payload preserves various whitespace types."""
+        from src.core.transport.fastapi.response_adapters import (
+            _build_streaming_payload,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _build_streaming_payload(whitespace, metadata, None, streaming=True)
+
+        delta = result["choices"][0].get("delta", {})
+        assert delta.get("content") == whitespace, (
+            f"Expected content={whitespace!r} but got {delta.get('content')!r}. "
+            f"REGRESSION: Whitespace content is being stripped!"
+        )
+
+
+class TestInjectReasoningMetadataWhitespace:
+    """Test that _inject_reasoning_metadata preserves whitespace content."""
+
+    def test_inject_reasoning_preserves_space_in_string_content(self) -> None:
+        """Test that _inject_reasoning_metadata preserves space when building payload."""
+        from src.core.transport.fastapi.response_adapters import (
+            _inject_reasoning_metadata,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _inject_reasoning_metadata(" ", metadata, streaming=True)
+
+        # Should return a dict with preserved content
+        assert isinstance(result, dict)
+        delta = result.get("choices", [{}])[0].get("delta", {})
+        assert delta.get("content") == " ", (
+            f"Expected content=' ' but got {delta.get('content')!r}. "
+            f"REGRESSION: Space content is being stripped in _inject_reasoning_metadata!"
+        )
+
+    def test_inject_reasoning_preserves_newline_in_string_content(self) -> None:
+        """Test that _inject_reasoning_metadata preserves newline when building payload."""
+        from src.core.transport.fastapi.response_adapters import (
+            _inject_reasoning_metadata,
+        )
+
+        metadata = {
+            "id": "test-123",
+            "created": 12345,
+            "model": "test-model",
+        }
+
+        result = _inject_reasoning_metadata("\n", metadata, streaming=True)
+
+        assert isinstance(result, dict)
+        delta = result.get("choices", [{}])[0].get("delta", {})
+        assert delta.get("content") == "\n", (
+            f"Expected content='\\n' but got {delta.get('content')!r}. "
+            f"REGRESSION: Newline content is being stripped!"
+        )

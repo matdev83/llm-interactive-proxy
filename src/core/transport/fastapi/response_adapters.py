@@ -272,13 +272,15 @@ def _build_streaming_payload(
 
     if isinstance(content, dict):
         target_payload.update(content)
-    elif isinstance(content, str) and content.strip():
+    elif isinstance(content, str) and content:
+        # Preserve whitespace-only content (spaces, newlines) - don't use .strip()
         if streaming:
             target_payload["content"] = content
         else:
             target_payload.setdefault("content", content)
     elif content not in (None, ""):
-        rendered = str(content).strip()
+        # For non-string content, convert and preserve as-is
+        rendered = str(content)
         if rendered:
             target_payload.setdefault("content", rendered)
 
@@ -1590,6 +1592,11 @@ def to_fastapi_streaming_response(
                         chunk_count,
                     )
 
+            except GeneratorExit:
+                # Client disconnected - this is expected, don't log as error
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("[STREAMING] Client disconnected during stream")
+                raise
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(

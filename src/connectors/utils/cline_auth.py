@@ -12,6 +12,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -543,10 +544,16 @@ class ClineAuthMixin:
 
         if isinstance(value, str):
             try:
-                dt = parsedate_to_datetime(value)
+                # Try parsing with ISO format including 'Z' for UTC
+                dt = datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
                 return dt.timestamp()
-            except (TypeError, ValueError):
-                logger.debug("Unable to parse expiresAt value '%s'", value)
+            except ValueError:
+                # Fallback to email.utils.parsedate_to_datetime
+                try:
+                    dt = parsedate_to_datetime(value)
+                    return dt.timestamp()
+                except (TypeError, ValueError):
+                    logger.debug("Unable to parse expiresAt value '%s'", value)
 
         if fallback is not None:
             try:
