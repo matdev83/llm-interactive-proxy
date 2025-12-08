@@ -514,7 +514,7 @@ class TestConnectorClassStructure:
 
     def test_default_endpoint_url(self, connector):
         """Should have correct default endpoint URL."""
-        assert connector._default_endpoint == "https://api.gateway.opencode.ai/v1"
+        assert connector._default_endpoint == "https://opencode.ai/zen/v1"
 
     def test_initial_state(self, connector):
         """Initial state should have is_functional = False."""
@@ -654,8 +654,8 @@ class TestChatCompletions:
             )
 
     @pytest.mark.asyncio
-    async def test_preserves_vendor_prefix(self, connector, temp_credentials_file):
-        """Should preserve vendor prefix (e.g. 'anthropic/') but strip 'opencode-zen/'."""
+    async def test_strips_backend_and_vendor_prefixes(self, connector, temp_credentials_file):
+        """Should strip both backend ('opencode-zen/') and vendor ('anthropic/') prefixes."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
 
         chat_request = ChatRequest(
@@ -676,13 +676,54 @@ class TestChatCompletions:
                 chat_request.messages,
                 "opencode-zen/anthropic/claude-sonnet-4",
             )
-            # Verify the effective_model passed to parent
-            # Should be "anthropic/claude-sonnet-4" because only "opencode-zen/" is stripped
+            # Verify the effective_model passed to parent is the raw model name
             call_args = mock_super.call_args
             effective_model = (
                 call_args.kwargs.get("effective_model") or call_args.args[2]
             )
-            assert effective_model == "anthropic/claude-sonnet-4"
+            assert effective_model == "claude-sonnet-4"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "request_model, expected_api_model",
+        [
+            ("opencode-zen:x-ai/grok-code-fast-1", "grok-code"),
+            ("opencode-zen:google/gemini-3-pro", "gemini-3-pro"),
+            ("opencode-zen:qwen/qwen3-coder", "qwen3-coder"),
+            ("opencode-zen/stealth/alpha-gd4", "alpha-gd4"), # Test with slash separator
+            ("opencode-zen:anthropic/claude-opus-4-5", "claude-opus-4-5"),
+        ],
+    )
+    async def test_denormalizes_model_name(
+        self, connector, temp_credentials_file, request_model, expected_api_model
+    ):
+        """Should denormalize model name before calling parent chat_completions."""
+        await connector.initialize(credentials_path=str(temp_credentials_file))
+
+        chat_request = ChatRequest(
+            model=request_model,
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+        )
+
+        from src.connectors.openai import OpenAIConnector
+
+        with patch.object(
+            OpenAIConnector,
+            "chat_completions",
+            new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+        ) as mock_super:
+            await connector.chat_completions(
+                chat_request,
+                chat_request.messages,
+                request_model,
+            )
+            # Verify the effective_model passed to parent is the raw, denormalized name
+            call_args = mock_super.call_args
+            effective_model = (
+                call_args.kwargs.get("effective_model") or call_args.args[2]
+            )
+            assert effective_model == expected_api_model
 
 
 # ============================================================================

@@ -521,6 +521,13 @@ class TestDIContainerUsage:
                 and "core\\services\\usage_calculation_service.py" in v.get("file", "")
             )
             and not (
+                # CommandExtractionService is a utility helper for string parsing
+                # instantiated by security handlers with proper configuration
+                v.get("class_name") == "CommandExtractionService"
+                and "core\\services\\unified_tool_security_handler.py"
+                in v.get("file", "")
+            )
+            and not (
                 # SSO components are bootstrapped in middleware_config during app startup
                 # This is a special initialization case before DI container is fully available
                 v.get("class_name")

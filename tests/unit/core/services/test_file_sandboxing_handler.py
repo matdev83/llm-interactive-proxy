@@ -367,7 +367,6 @@ class TestToolPatternMatching:
             "list_files",
             "search_files",
             "get_file_info",
-            "execute_command",
             "ask_followup_question",
             "attempt_completion",
         ]

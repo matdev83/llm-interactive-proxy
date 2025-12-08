@@ -69,6 +69,7 @@ sandboxing:
 ### 1. Project Root Detection
 
 The proxy automatically detects the project root by looking for common markers:
+
 - `.git` directory
 - `pyproject.toml`
 - `package.json`
@@ -77,6 +78,7 @@ The proxy automatically detects the project root by looking for common markers:
 ### 2. Tool Call Interception
 
 When enabled, the sandboxing handler intercepts tool calls that match file-changing patterns:
+
 - `write_to_file`, `write_file`, `fsWrite`
 - `edit_file`, `patch_file`, `apply_diff`
 - `delete_file`, `remove_file`
@@ -87,6 +89,7 @@ When enabled, the sandboxing handler intercepts tool calls that match file-chang
 ### 3. Path Validation
 
 For each intercepted tool call:
+
 1. Extract file paths from tool arguments (checks `path`, `file_path`, `target`, etc.)
 2. Resolve paths to absolute paths
 3. Check if the path is within the project root boundary
@@ -95,6 +98,7 @@ For each intercepted tool call:
 ### 4. Blocking Behavior
 
 When a violation is detected:
+
 ```json
 {
   "should_swallow": true,
@@ -111,7 +115,7 @@ The model receives an error message and can adjust its behavior.
 
 ---
 
-## Configuration Examples
+## Use Cases
 
 ### Basic Protection (Recommended)
 
@@ -181,6 +185,7 @@ sandboxing:
 ### Default Tool Patterns
 
 The following tool name patterns are checked by default:
+
 ```python
 [
     "write_to_file", "write_file", "fsWrite",
@@ -196,6 +201,7 @@ The following tool name patterns are checked by default:
 ### Default Path Parameter Names
 
 The following parameter names are checked for file paths:
+
 ```python
 [
     "path", "file_path", "filepath", "file",
@@ -231,7 +237,8 @@ To verify sandboxing is working:
 ```
 
 Check logs for:
-```
+
+```text
 [INFO] File sandboxing handler initialized with project root: /path/to/project
 [INFO] File sandboxing violation detected for tool 'write_file'
 ```
@@ -243,12 +250,14 @@ Check logs for:
 ### Sandboxing Not Working?
 
 1. **Check if enabled**:
+
    ```bash
    # Look for this in startup logs
    [INFO] File sandboxing handler initialized
    ```
 
 2. **Verify project root detection**:
+
    ```bash
    # Check startup logs for detected project root
    [INFO] Project root detected: /path/to/project
@@ -263,6 +272,7 @@ Check logs for:
 If legitimate operations are being blocked:
 
 1. **Use `excluded_tools`** to exempt specific tools:
+
    ```yaml
    sandboxing:
      enabled: true
@@ -271,6 +281,7 @@ If legitimate operations are being blocked:
    ```
 
 2. **Enable `allow_parent_access`** if you need parent directory access:
+
    ```yaml
    sandboxing:
      enabled: true
@@ -282,6 +293,7 @@ If legitimate operations are being blocked:
 If some file operations are not being caught:
 
 1. **Add custom patterns** for your tools:
+
    ```yaml
    sandboxing:
      enabled: true
@@ -290,6 +302,7 @@ If some file operations are not being caught:
    ```
 
 2. **Add custom path parameter names**:
+
    ```yaml
    sandboxing:
      enabled: true
@@ -328,6 +341,7 @@ If some file operations are not being caught:
 ## Performance Impact
 
 File sandboxing has minimal performance impact:
+
 - **Latency**: <1ms per tool call
 - **Memory**: Negligible (path validation is lightweight)
 - **CPU**: Minimal (regex matching only)
@@ -377,11 +391,13 @@ sandboxing:
 ```
 
 Start with:
+
 ```bash
 ./.venv/Scripts/python.exe -m src.core.cli
 ```
 
 The CLI flag can override the config:
+
 ```bash
 # Disable even if config says enabled
 ./.venv/Scripts/python.exe -m src.core.cli --enable-sandboxing=false

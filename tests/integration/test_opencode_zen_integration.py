@@ -59,7 +59,7 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
     """Test full flow: init -> chat completion."""
 
     # Mock API response
-    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
+    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
         respx_mock.get("/models").mock(
             return_value=Response(
                 200,
@@ -131,7 +131,7 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
 async def test_token_refresh_flow(connector, mock_credentials_file):
     """Test flow where token expires and is reloaded from file."""
 
-    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
+    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
         respx_mock.get("/models").mock(
             return_value=Response(200, json={"data": [{"id": "openai/gpt-4.1"}]})
         )
@@ -193,7 +193,7 @@ async def test_streaming_response(connector, mock_credentials_file):
         for chunk in stream_content:
             yield chunk.encode()
 
-    with respx.mock(base_url="https://api.gateway.opencode.ai/v1") as respx_mock:
+    with respx.mock(base_url="https://opencode.ai/zen/v1") as respx_mock:
         respx_mock.get("/models").mock(
             return_value=Response(200, json={"data": [{"id": "openai/gpt-4.1"}]})
         )

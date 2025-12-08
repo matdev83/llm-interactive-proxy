@@ -309,10 +309,24 @@ class OpencodeZenConnector(OpenAIConnector):
         """Map raw model names to vendor/model-name format.
 
         Examples:
-            "claude-3-opus" -> "anthropic/claude-3-opus"
-            "gpt-4" -> "openai/gpt-4"
-            "gemini-1.5-pro" -> "google/gemini-1.5-pro"
+            "claude-opus-4.5" -> "anthropic/claude-opus-4.5"
+            "qwen3-coder" -> "qwen/qwen3-coder"
+            "glm-4.6" -> "z-ai/glm-4.6"
         """
+        # Mapping for specific models that don't follow a simple prefix rule
+        exact_mappings = {
+            "glm-4.6": "z-ai/glm-4.6",
+            "qwen3-coder": "qwen/qwen3-coder",
+            "kimi-k2": "moonshotai/kimi-k2-0905",
+            "kimi-k2-thinking": "moonshotai/kimi-k2-thinking",
+            "grok-code": "x-ai/grok-code-fast-1",
+            "big-pickle": "stealth/big-pickle",
+            "alpha-gd4": "stealth/alpha-gd4",
+        }
+
+        if model_name in exact_mappings:
+            return exact_mappings[model_name]
+
         # If already formatted (contains slash), trust it
         if "/" in model_name:
             return model_name
@@ -397,6 +411,29 @@ class OpencodeZenConnector(OpenAIConnector):
         if not self.is_functional:
             return []
         return self.available_models or []
+
+    def _denormalize_model_name(self, model_name: str) -> str:
+        """Map 'vendor/model-name' back to raw model name for the API."""
+        reverse_exact_mappings = {
+            "z-ai/glm-4.6": "glm-4.6",
+            "qwen/qwen3-coder": "qwen3-coder",
+            "moonshotai/kimi-k2-0905": "kimi-k2",
+            "moonshotai/kimi-k2-thinking": "kimi-k2-thinking",
+            "x-ai/grok-code-fast-1": "grok-code",
+            "stealth/big-pickle": "big-pickle",
+            "stealth/alpha-gd4": "alpha-gd4",
+        }
+        
+        if model_name in reverse_exact_mappings:
+            return reverse_exact_mappings[model_name]
+
+        # Heuristic stripping of vendor prefixes
+        known_prefixes = ["anthropic/", "openai/", "google/"]
+        for prefix in known_prefixes:
+            if model_name.startswith(prefix):
+                return model_name[len(prefix):]
+
+        return model_name
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
@@ -507,6 +544,9 @@ class OpencodeZenConnector(OpenAIConnector):
         elif model_name.startswith("opencode-zen:"):
             # Legacy support for ':' separator
             model_name = model_name[len("opencode-zen:") :]
+        
+        # Denormalize vendor/model-name to raw name for the API
+        model_name = self._denormalize_model_name(model_name)
 
         # Update request_data with the stripped model name to ensure it propagates to streaming logic
         # which might extract the model from request_data directly

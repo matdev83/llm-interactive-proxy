@@ -360,4 +360,4 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
 | `--enable-gemini-oauth-free-backend-debugging-override` | Enable Gemini OAuth Free debugging. |
 | `--enable-gemini-oauth-plan-backend-debugging-override` | Enable Gemini OAuth Plan debugging. |
 | `--enable-qwen-oauth-backend-debugging-override` | Enable Qwen OAuth debugging. |
-| `--enable-droid-antigravity-path-fix` | Enable automatic path fixing for Droid agent with Gemini Antigravity backend. |
+| `--enable-droid-path-fix` | Enable automatic path fixing for Droid agent with Gemini Antigravity backend. |
