@@ -597,11 +597,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable the Anthropic OAuth backend connector for debugging. Reserved for internal development.",
     )
     debugging_overrides_group.add_argument(
-        "--enable-droid-antigravity-path-fix",
+        "--enable-droid-path-fix",
         action="store_true",
-        dest="droid_antigravity_path_fix_enabled",
+        dest="droid_path_fix_enabled",
         default=False,
-        help="Enable automatic path fixing for Droid agent with Gemini Antigravity backend. Reserved for internal development.",
+        help="Enable automatic path fixing for Droid agent sessions. Converts relative paths to absolute paths.",
     )
 
     brute_force_toggle_group = parser.add_mutually_exclusive_group()
@@ -1708,10 +1708,10 @@ def apply_cli_args(
             "--test-execution-reminder-enabled/--no-test-execution-reminder-enabled",
         )
 
-    # Droid Antigravity path fix flag (internal debugging feature)
-    if getattr(args, "droid_antigravity_path_fix_enabled", None) is True:
+    # Droid path fix flag (for Droid agent sessions)
+    if getattr(args, "droid_path_fix_enabled", None) is True:
         session = cli_overrides.setdefault("session", {})
-        session["droid_antigravity_path_fix_enabled"] = True
+        session["droid_path_fix_enabled"] = True
 
     # Pytest context saving flag
     if getattr(args, "pytest_context_saving_enabled", None) is not None:

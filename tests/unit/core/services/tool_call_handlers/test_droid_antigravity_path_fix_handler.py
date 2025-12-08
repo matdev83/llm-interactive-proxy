@@ -148,6 +148,18 @@ class TestDroidAntigravityPathFixHandler:
         assert context.tool_arguments["file_path"] == r"\src\connectors\base.py"
 
     @pytest.mark.asyncio
+    async def test_handle_fixes_root_file_path(
+        self, enabled_handler: DroidAntigravityPathFixHandler
+    ) -> None:
+        """Handler should fix paths without separators (files in root)."""
+        context = self._create_context(
+            tool_arguments={"file_path": "README.md"},
+        )
+        await enabled_handler.handle(context)
+
+        assert context.tool_arguments["file_path"] == r"\README.md"
+
+    @pytest.mark.asyncio
     async def test_handle_real_scenario_from_cbor(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
@@ -178,6 +190,8 @@ class TestDroidAntigravityPathFixHandler:
         """Relative paths need fixing."""
         assert enabled_handler._needs_path_fix("src/file.py") is True
         assert enabled_handler._needs_path_fix("scripts/test.py") is True
+        assert enabled_handler._needs_path_fix("README.md") is True
+        assert enabled_handler._needs_path_fix("pyproject.toml") is True
 
     def test_needs_path_fix_absolute_path(
         self, enabled_handler: DroidAntigravityPathFixHandler
@@ -193,6 +207,8 @@ class TestDroidAntigravityPathFixHandler:
         """Path fix should prepend backslash and convert slashes."""
         assert enabled_handler._fix_path("src/file.py") == r"\src\file.py"
         assert enabled_handler._fix_path("src/core/config.py") == r"\src\core\config.py"
+        assert enabled_handler._fix_path("README.md") == r"\README.md"
+        assert enabled_handler._fix_path("pyproject.toml") == r"\pyproject.toml"
 
     def test_extract_path_from_dict(
         self, enabled_handler: DroidAntigravityPathFixHandler

@@ -537,7 +537,7 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_message: str | None = None
     test_execution_reminder_enabled: bool | None = None
     test_execution_reminder_message: str | None = None
-    droid_antigravity_path_fix_enabled: bool = False
+    droid_path_fix_enabled: bool = False
     fix_think_tags_enabled: bool = False
     fix_think_tags_streaming_buffer_size: int = 4096
     double_ampersand_fixes_for_windows_enabled: bool = True

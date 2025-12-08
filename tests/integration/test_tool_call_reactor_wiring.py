@@ -28,7 +28,7 @@ async def test_tool_call_reactor_handlers_are_wired_up():
 
     # Assert
     assert "config_steering_handler" in registered_handlers
-    assert "dangerous_command_handler" in registered_handlers
+    assert "unified_tool_security_handler" in registered_handlers
     assert "pytest_compression_handler" in registered_handlers
 
     # Also test the service directly
@@ -37,7 +37,7 @@ async def test_tool_call_reactor_handlers_are_wired_up():
     reactor_service = service_provider.get_required_service(ToolCallReactorService)
     service_handlers = reactor_service.get_registered_handlers()
     assert "config_steering_handler" in service_handlers
-    assert "dangerous_command_handler" in service_handlers
+    assert "unified_tool_security_handler" in service_handlers
     assert "pytest_compression_handler" in service_handlers
 
 
@@ -226,16 +226,16 @@ async def test_all_reactor_handlers_work_with_filtering():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_droid_antigravity_path_fix_handler_wires_when_enabled():
+async def test_droid_path_fix_handler_wires_when_enabled():
     """
-    The DroidAntigravityPathFixHandler should be registered when the feature flag
+    The DroidPathFixHandler should be registered when the feature flag
     is enabled in configuration.
     """
     # Arrange
     config = AppConfig.model_validate(
         {
             "session": {
-                "droid_antigravity_path_fix_enabled": True,
+                "droid_path_fix_enabled": True,
             }
         }
     )
@@ -257,9 +257,9 @@ async def test_droid_antigravity_path_fix_handler_wires_when_enabled():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_droid_antigravity_path_fix_handler_not_wired_when_disabled():
+async def test_droid_path_fix_handler_not_wired_when_disabled():
     """
-    The DroidAntigravityPathFixHandler should NOT be registered when the feature flag
+    The DroidPathFixHandler should NOT be registered when the feature flag
     is disabled (default).
     """
     # Arrange

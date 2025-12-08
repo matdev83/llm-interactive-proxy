@@ -151,6 +151,7 @@ from src.core.services.tool_call_reactor_service import (
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 from src.core.services.translation_service import TranslationService
+from src.core.services.unified_tool_security_handler import UnifiedToolSecurityHandler
 from src.tool_call_loop.lifecycle_registry import ToolCallLifecycleRegistry
 
 T = TypeVar("T")
@@ -2003,9 +2004,6 @@ def register_core_services(
             from src.core.services.tool_call_handlers.config_steering_handler import (
                 ConfigSteeringHandler,
             )
-            from src.core.services.tool_call_handlers.dangerous_command_handler import (
-                DangerousCommandHandler,
-            )
             from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
                 PytestFullSuiteHandler,
             )
@@ -2072,36 +2070,36 @@ def register_core_services(
                     logger.warning(
                         "Failed to register steering handlers: %s", e, exc_info=True
                     )
-
-            # Register DangerousCommandHandler if enabled in session config
+            # Register UnifiedToolSecurityHandler (replaces separate DangerousCommandHandler
+            # and FileSandboxingHandler with a single, more efficient handler)
             try:
-                if getattr(
-                    app_config.session, "dangerous_command_prevention_enabled", True
-                ):
-                    dangerous_service = provider.get_required_service(
-                        DangerousCommandService
-                    )
-                    dangerous_handler = DangerousCommandHandler(
-                        dangerous_service,
-                        steering_message=getattr(
-                            app_config.session,
-                            "dangerous_command_steering_message",
-                            None,
-                        ),
-                        enabled=True,
-                    )
+                unified_security_handler = provider.get_required_service(
+                    UnifiedToolSecurityHandler
+                )
+                # Only register if at least one feature is enabled
+                if unified_security_handler._config.is_any_feature_enabled():
                     try:
-                        reactor.register_handler_sync(dangerous_handler)
+                        reactor.register_handler_sync(unified_security_handler)
+                        if logger.isEnabledFor(logging.INFO):
+                            features = []
+                            if unified_security_handler._config.dangerous_commands.enabled:
+                                features.append("dangerous_commands")
+                            if unified_security_handler._config.file_sandboxing.enabled:
+                                features.append("file_sandboxing")
+                            logger.info(
+                                f"Registered UnifiedToolSecurityHandler with features: "
+                                f"{', '.join(features)}"
+                            )
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Failed to register dangerous command handler: {e}",
+                                f"Failed to register unified security handler: {e}",
                                 exc_info=True,
                             )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failed to register DangerousCommandHandler: {e}",
+                        f"Failed to register UnifiedToolSecurityHandler: {e}",
                         exc_info=True,
                     )
 
@@ -2257,12 +2255,12 @@ def register_core_services(
                         exc_info=True,
                     )
 
-            # Register DroidAntigravityPathFixHandler if enabled
+            # Register DroidPathFixHandler if enabled
             try:
                 # Check both session and root config for the flag
                 flag_enabled = getattr(
-                    app_config.session, "droid_antigravity_path_fix_enabled", False
-                ) or getattr(app_config, "droid_antigravity_path_fix_enabled", False)
+                    app_config.session, "droid_path_fix_enabled", False
+                ) or getattr(app_config, "droid_path_fix_enabled", False)
                 if flag_enabled:
                     from src.core.services.tool_call_handlers.droid_antigravity_path_fix_handler import (
                         DroidAntigravityPathFixHandler,
@@ -2273,18 +2271,18 @@ def register_core_services(
                         reactor.register_handler_sync(path_fix_handler)
                         if logger.isEnabledFor(logging.INFO):
                             logger.info(
-                                "Registered DroidAntigravityPathFixHandler with priority 50"
+                                "Registered DroidPathFixHandler with priority 50"
                             )
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Failed to register droid antigravity path fix handler: {e}",
+                                f"Failed to register droid path fix handler: {e}",
                                 exc_info=True,
                             )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failed to register DroidAntigravityPathFixHandler: {e}",
+                        f"Failed to register DroidPathFixHandler: {e}",
                         exc_info=True,
                     )
 
@@ -2360,6 +2358,56 @@ def register_core_services(
 
     _add_singleton(
         FileSandboxingHandler, implementation_factory=_file_sandboxing_handler_factory
+    )
+
+    # Register UnifiedToolSecurityHandler (combines dangerous commands + file sandboxing)
+    def _unified_tool_security_handler_factory(
+        provider: IServiceProvider,
+    ) -> UnifiedToolSecurityHandler:
+        from src.core.domain.configuration.unified_security_config import (
+            UnifiedSecurityConfig,
+        )
+
+        app_config = provider.get_required_service(AppConfig)
+        path_validator = provider.get_required_service(IPathValidator)  # type: ignore[type-abstract]
+        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+
+        # Build unified config from existing settings
+        unified_config = UnifiedSecurityConfig(
+            enabled=True,
+            priority=100,
+        )
+
+        # Configure dangerous commands from session config
+        unified_config.dangerous_commands.enabled = getattr(
+            app_config.session, "dangerous_command_prevention_enabled", True
+        )
+
+        # Configure file sandboxing from sandboxing config
+        unified_config.file_sandboxing.enabled = app_config.sandboxing.enabled
+        unified_config.file_sandboxing.strict_mode = app_config.sandboxing.strict_mode
+        unified_config.file_sandboxing.allow_parent_access = (
+            app_config.sandboxing.allow_parent_access
+        )
+        unified_config.file_sandboxing.custom_tool_patterns = list(
+            app_config.sandboxing.custom_tool_patterns
+        )
+        unified_config.file_sandboxing.excluded_tools = list(
+            app_config.sandboxing.excluded_tools
+        )
+        unified_config.file_sandboxing.path_parameter_names = list(
+            app_config.sandboxing.path_parameter_names
+        )
+
+        return UnifiedToolSecurityHandler(
+            config=unified_config,
+            path_validator=path_validator,
+            session_service=session_service,
+        )
+
+    _add_singleton(
+        UnifiedToolSecurityHandler,
+        implementation_factory=_unified_tool_security_handler_factory,
     )
 
     # Register BackendRoutingService
