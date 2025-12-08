@@ -3,6 +3,7 @@ Tests for logging utilities.
 """
 
 import logging
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -256,3 +257,62 @@ class TestLogging:
 
             # Verify bind was called with the correct context
             mock_logger.bind.assert_called_once_with(request_id="123", user_id="456")
+
+    def test_api_key_discovery_suppresses_env_vars(self) -> None:
+        """Test that API key discovery suppresses warnings for keys found in env vars."""
+        from src.core.common.logging_utils import (
+            _logged_security_warnings,
+            discover_api_keys_from_config_and_env,
+        )
+        from src.core.config.app_config import AppConfig
+
+        # Clear previous warnings
+        _logged_security_warnings.clear()
+
+        # Setup mocks
+        config = MagicMock(spec=AppConfig)
+        backends = MagicMock()
+        config.backends = backends
+
+        # Mock Minimax backend config
+        minimax_config = MagicMock()
+        minimax_config.api_key = "test-minimax-key"
+        backends.minimax = minimax_config
+
+        # Mock backend registry
+        with patch.dict(
+            "sys.modules", {"src.core.services.backend_registry": MagicMock()}
+        ):
+            sys.modules[
+                "src.core.services.backend_registry"
+            ].backend_registry.get_registered_backends.return_value = ["minimax"]
+
+            # Case 1: Key matches env var -> No warning
+            with patch.dict("os.environ", {"MINIMAX_API_KEY": "test-minimax-key"}):
+                with patch(
+                    "src.core.common.logging_utils.get_logger"
+                ) as mock_get_logger:
+                    mock_logger = MagicMock()
+                    mock_get_logger.return_value = mock_logger
+
+                    discover_api_keys_from_config_and_env(config)
+
+                    # Verify no warning logged
+                    mock_logger.warning.assert_not_called()
+
+            # Reset warnings for next case
+            _logged_security_warnings.clear()
+
+            # Case 2: Key does NOT match env var -> Warning logged
+            with patch.dict("os.environ", {"MINIMAX_API_KEY": "different-key"}):
+                with patch(
+                    "src.core.common.logging_utils.get_logger"
+                ) as mock_get_logger:
+                    mock_logger = MagicMock()
+                    mock_get_logger.return_value = mock_logger
+
+                    discover_api_keys_from_config_and_env(config)
+
+                    # Verify warning logged
+                    mock_logger.warning.assert_called_once()
+                    assert "SECURITY WARNING" in mock_logger.warning.call_args[0][0]

@@ -125,8 +125,6 @@ DEFAULT_REDACTED_FIELDS = {
     "credentials",
 }
 
-# Keep track of security warnings already logged to avoid spamming logs
-_logged_security_warnings: set[str] = set()
 
 # Regular expressions for redacting sensitive information
 # Match common API key prefixes with more specific patterns to reduce false positives:
@@ -509,7 +507,7 @@ def configure_logging_with_environment_tagging(
         handlers.append(file_handler)
 
     # Configure structlog
-    structlog_processors = [
+    structlog_processors: list[Any] = [
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -634,6 +632,11 @@ def _discover_api_keys_from_config_backends(
                                 if k:
                                     found.add(str(k))
                                     # SECURITY WARNING: Log when API keys are found in config
+                                    # Check if the key matches the environment variable (false positive check)
+                                    env_var = f"{b.upper()}_API_KEY"
+                                    if str(k) == os.getenv(env_var):
+                                        continue
+
                                     warn_key = f"backends.{b}.api_key"
                                     if warn_key not in _logged_security_warnings:
                                         logger = get_logger(__name__)
@@ -645,6 +648,11 @@ def _discover_api_keys_from_config_backends(
                         else:
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
+                            # Check if the key matches the environment variable (false positive check)
+                            env_var = f"{b.upper()}_API_KEY"
+                            if str(ak) == os.getenv(env_var):
+                                continue
+
                             warn_key = f"backends.{b}.api_key"
                             if warn_key not in _logged_security_warnings:
                                 logger = get_logger(__name__)
