@@ -75,7 +75,11 @@ class TestSandboxingHandlerRegistration:
         service_provider.get_required_service.assert_not_called()
 
     def test_successful_registration(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Test successful registration of sandboxing handler."""
+        """Test successful registration status logging when sandboxing is enabled.
+
+        Note: Sandboxing handler registration is now done via UnifiedToolSecurityHandler
+        in the reactor factory. This function only logs the sandboxing status.
+        """
         from src.core.config.app_config import SessionConfig
 
         config = AppConfig(
@@ -83,50 +87,27 @@ class TestSandboxingHandlerRegistration:
             session=SessionConfig(project_dir_resolution_mode="auto"),
         )
 
-        # Mock service provider
+        # Mock service provider - not used since we no longer register the handler here
         service_provider = Mock(spec=IServiceProvider)
-        mock_session_service = Mock()
-        mock_reactor = Mock()
-        mock_reactor.register_handler_sync = Mock()
-
-        def get_service_side_effect(service_type):
-            """Mock get_service to return None for PathValidationService."""
-            return None
-
-        def get_required_service_side_effect(service_type):
-            """Mock get_required_service to return appropriate mocks."""
-            from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.file_sandboxing_handler import FileSandboxingHandler
-            from src.core.services.tool_call_reactor_service import (
-                ToolCallReactorService,
-            )
-
-            if service_type == ISessionService:
-                return mock_session_service
-            elif service_type == ToolCallReactorService:
-                return mock_reactor
-            elif service_type == FileSandboxingHandler:
-                return Mock(spec=FileSandboxingHandler)
-            raise ValueError(f"Unexpected service type: {service_type}")
-
-        service_provider.get_service.side_effect = get_service_side_effect
-        service_provider.get_required_service.side_effect = (
-            get_required_service_side_effect
-        )
 
         with caplog.at_level(logging.INFO):
             _register_sandboxing_handler(config, service_provider)
 
-        assert "File access sandboxing: ENABLED" in caplog.text
-        assert "registered successfully" in caplog.text
-        assert "File access sandboxing status: ACTIVE" in caplog.text
-        # Verify reactor.register_handler_sync was called
-        mock_reactor.register_handler_sync.assert_called_once()
+        # Verify the new log message about unified handler
+        assert "File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)" in caplog.text
+        # Service provider should not be called since registration is done elsewhere
+        service_provider.get_required_service.assert_not_called()
 
-    def test_registration_handles_exceptions_gracefully(
+    def test_unified_handler_message_logged(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Test that registration handles exceptions gracefully without crashing."""
+        """Test that the unified handler message is logged when sandboxing is enabled.
+
+        Note: Since sandboxing handler registration is now done via UnifiedToolSecurityHandler
+        in the reactor factory, this function no longer calls service provider methods and
+        cannot raise exceptions from service resolution. This test verifies that the
+        unified handler message is logged correctly.
+        """
         from src.core.config.app_config import SessionConfig
 
         config = AppConfig(
@@ -134,17 +115,15 @@ class TestSandboxingHandlerRegistration:
             session=SessionConfig(project_dir_resolution_mode="auto"),
         )
 
-        # Mock service provider that raises an exception
+        # Mock service provider - not used since function only logs now
         service_provider = Mock(spec=IServiceProvider)
-        service_provider.get_required_service.side_effect = RuntimeError(
-            "Service not available"
-        )
 
-        with caplog.at_level(logging.ERROR):
-            # Should not raise an exception
+        with caplog.at_level(logging.INFO):
+            # Should not raise an exception and should log unified handler message
             _register_sandboxing_handler(config, service_provider)
 
-        assert "Failed to register file sandboxing handler" in caplog.text
+        # Function now logs the unified handler message instead of registering
+        assert "UnifiedToolSecurityHandler" in caplog.text
 
 
 class TestConfigurationValidationAtStartup:

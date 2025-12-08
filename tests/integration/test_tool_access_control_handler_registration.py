@@ -201,14 +201,14 @@ class TestToolAccessControlHandlerRegistration:
         tool_access_handler = reactor._handlers.get("tool_access_control_handler")
         assert tool_access_handler is not None
 
-        # Find dangerous command handler (if registered)
-        dangerous_handler = reactor._handlers.get("dangerous_command_handler")
+        # Find unified security handler (if registered)
+        dangerous_handler = reactor._handlers.get("unified_tool_security_handler")
 
         # If dangerous command handler exists, verify priority ordering
         if dangerous_handler:
             assert (
                 tool_access_handler.priority < dangerous_handler.priority
-            ), "ToolAccessControlHandler (90) should run after DangerousCommandHandler (100)"
+            ), "ToolAccessControlHandler (90) should run after UnifiedToolSecurityHandler (100)"
 
     @pytest.mark.asyncio
     async def test_handler_receives_policy_service_dependency(

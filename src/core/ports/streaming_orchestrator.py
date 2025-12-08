@@ -86,48 +86,66 @@ class StreamingPipeline:
         if stream_id:
             self._metrics.start_stream(stream_id)
 
+        # Keep references to intermediate generators for proper cleanup
+        normalized_stream: AsyncIterator[StreamingContent] | None = None
+        processed_stream: AsyncIterator[StreamingContent] | None = None
+        assembled_stream: AsyncIterator[bytes] | None = None
+
+        async def _safe_aclose(stream: Any) -> None:
+            """Close stream, tolerating errors during GeneratorExit cleanup."""
+            if stream is None:
+                return
+            try:
+                if hasattr(stream, "aclose"):
+                    await stream.aclose()
+            except RuntimeError as err:
+                # Happens when aclose() is invoked while the generator is mid-execution.
+                err_str = str(err)
+                if (
+                    "aclose(): asynchronous generator is already running" in err_str
+                    or "async generator ignored GeneratorExit" in err_str
+                ):
+                    if stream_id and logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Skipping stream aclose; generator already closing or ignored exit",
+                            extra={
+                                "provider": provider,
+                                "stream_id": stream_id,
+                                "error": err_str,
+                            },
+                        )
+                    return
+                raise
+            except GeneratorExit:
+                # Generator is being closed, this is expected
+                pass
+
         try:
             async with AsyncExitStack() as stack:
-                managed_stream = raw_stream
-
-                async def _safe_aclose(stream: Any) -> None:
-                    """Close raw stream, but tolerate double-close during GeneratorExit."""
-                    try:
-                        await stream.aclose()
-                    except RuntimeError as err:
-                        # Happens when aclose() is invoked while the generator is mid-execution.
-                        if (
-                            "aclose(): asynchronous generator is already running"
-                            in str(err)
-                        ):
-                            if stream_id and logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Skipping stream aclose; generator already closing",
-                                    extra={
-                                        "provider": provider,
-                                        "stream_id": stream_id,
-                                    },
-                                )
-                            return
-                        raise
-
+                # Register raw stream cleanup first (will be cleaned up last)
                 if hasattr(raw_stream, "aclose"):
                     stack.push_async_callback(_safe_aclose, raw_stream)
 
                 # Step 1: Normalize backend chunks to StreamingContent
                 normalized_stream = self.normalizer.normalize_stream(
-                    managed_stream, provider
+                    raw_stream, provider
                 )
+                # Register cleanup for normalized stream
+                stack.push_async_callback(_safe_aclose, normalized_stream)
 
                 # Step 2: Apply processor chain
                 processed_stream = self._apply_processor_chain(
                     normalized_stream, stream_id
                 )
+                # Register cleanup for processed stream
+                stack.push_async_callback(_safe_aclose, processed_stream)
 
                 # Step 3: Assemble to client format
                 assembled_stream = self.assembler.assemble_stream(
                     processed_stream, output_format
                 )
+                # Register cleanup for assembled stream
+                stack.push_async_callback(_safe_aclose, assembled_stream)
 
                 # Step 4: Yield formatted bytes
                 try:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -227,6 +227,14 @@ class UnifiedSecurityConfig(DomainModel):
             r"\bbash\b",
             r"local_shell",
             r"container\.exec",
+        ]
+    )
+    """Shared patterns for identifying shell/command execution tools."""
+
+    def is_any_feature_enabled(self) -> bool:
+        """Check if any security feature is active."""
+        return self.enabled and (
+            self.dangerous_commands.enabled or self.file_sandboxing.enabled
         )
 
     @classmethod

@@ -29,6 +29,10 @@ def _register_sandboxing_handler(
 ) -> None:
     """Register file sandboxing handler if enabled.
 
+    Note: File sandboxing is now handled by the UnifiedToolSecurityHandler
+    which is automatically registered during reactor initialization.
+    This function now only logs the status for visibility.
+
     Args:
         config: Application configuration
         service_provider: Service provider for resolving dependencies
@@ -59,28 +63,12 @@ def _register_sandboxing_handler(
             logger.info("File access sandboxing status: DISABLED (dependency not met)")
         return
 
+    # File sandboxing is now handled by UnifiedToolSecurityHandler
+    # which is registered in the tool call reactor factory
     if logger.isEnabledFor(logging.INFO):
-        logger.info("File access sandboxing: ENABLED")
-
-    try:
-        from src.core.services.file_sandboxing_handler import FileSandboxingHandler
-        from src.core.services.tool_call_reactor_service import ToolCallReactorService
-
-        # Get required services
-        reactor_service = service_provider.get_required_service(ToolCallReactorService)
-
-        # Get the FileSandboxingHandler from DI container
-        handler = service_provider.get_required_service(FileSandboxingHandler)
-
-        # Register the handler with the reactor service
-        reactor_service.register_handler_sync(handler)
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("File sandboxing handler registered successfully")
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("File access sandboxing status: ACTIVE")
-
-    except Exception as e:
-        logger.error(f"Failed to register file sandboxing handler: {e}", exc_info=True)
+        logger.info(
+            "File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)"
+        )
 
 
 class ApplicationBuilder:
