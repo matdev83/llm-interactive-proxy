@@ -901,10 +901,22 @@ class BackendRequestManager(IBackendRequestManager):
                 async for chunk in original_stream:
                     yield chunk
 
+        # Prepare context for streaming pipeline to ensure calling_agent is available
+        # to middleware (like ToolCallReactor) even during streaming.
+        middleware_context = {
+            "original_request": original_request,
+        }
+        if hasattr(context, "processing_context") and context.processing_context:
+            # Add processing context values (like client_os)
+            if hasattr(context.processing_context, "values"):
+                middleware_context.update(context.processing_context.values)
+            elif isinstance(context.processing_context, dict):
+                middleware_context.update(context.processing_context)
+
         # Wrap the stream with response processor to ensure middleware (like ToolCallReactor) is applied
         middleware_processed_stream = (
             self._response_processor.process_streaming_response(
-                combined_stream(), session_id
+                combined_stream(), session_id, context=middleware_context
             )
         )
 

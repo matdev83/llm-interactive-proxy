@@ -57,13 +57,17 @@ class IResponseProcessor(ABC):
 
     @abstractmethod
     def process_streaming_response(
-        self, response_iterator: AsyncIterator[Any], session_id: str
+        self,
+        response_iterator: AsyncIterator[Any],
+        session_id: str,
+        context: dict[str, Any] | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming LLM response.
 
         Args:
             response_iterator: An async iterator of response chunks
             session_id: The session ID associated with this request
+            context: Optional contextual information for downstream middleware
 
         Returns:
             An async iterator of processed response chunks
