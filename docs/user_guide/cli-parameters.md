@@ -118,6 +118,8 @@ Configuration is resolved in the following order (highest to lowest priority):
 | :--- | :--- | :--- |
 | `--log-level LEVEL` | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). |
 | `--log FILE` | `LOG_FILE` | Path to log file. |
+| `--log-colors` | `LOG_COLORS=true` | Enable colored log output. |
+| `--no-log-colors` | `LOG_COLORS=false` | Disable colored log output. |
 | `--capture-file FILE` | `CAPTURE_FILE` | Write raw LLM requests/replies to this file (JSON). |
 | `--capture-max-bytes N` | `CAPTURE_MAX_BYTES` | Max size of capture file before rotation. |
 | `--capture-truncate-bytes N` | `CAPTURE_TRUNCATE_BYTES` | Truncate captures to N bytes per entry. |

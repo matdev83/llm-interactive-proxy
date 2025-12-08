@@ -59,9 +59,9 @@ class TestExtraContentSanitization:
 
         # Parse the SSE data
         lines = result_str.strip().split("\n")
-        data_line = [
+        data_line = next(
             line for line in lines if line.startswith("data: ") and "[DONE]" not in line
-        ][0]
+        )
         json_data = json.loads(data_line[6:])  # Remove "data: " prefix
 
         # Verify extra_content is NOT in the output
@@ -100,9 +100,9 @@ class TestExtraContentSanitization:
         result_str = result.decode("utf-8")
 
         # Parse the SSE data
-        data_line = [
+        data_line = next(
             line for line in result_str.strip().split("\n") if line.startswith("data: ")
-        ][0]
+        )
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]
@@ -148,11 +148,11 @@ class TestExtraContentSanitization:
         result = chunk.to_bytes()
         result_str = result.decode("utf-8")
 
-        data_line = [
+        data_line = next(
             line
             for line in result_str.strip().split("\n")
             if line.startswith("data: ") and "[DONE]" not in line
-        ][0]
+        )
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]
@@ -204,11 +204,11 @@ class TestExtraContentSanitization:
         result = chunk.to_bytes()
         result_str = result.decode("utf-8")
 
-        data_line = [
+        data_line = next(
             line
             for line in result_str.strip().split("\n")
             if line.startswith("data: ") and "[DONE]" not in line
-        ][0]
+        )
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]

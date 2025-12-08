@@ -61,7 +61,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | **Test (Full)** | `./.venv/Scripts/python.exe -m pytest -m "integration or unit"` |
 | **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff --fix check .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
-| **Inspect** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
+| **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
 
 ## Quality & Testing Standards
 
@@ -82,7 +82,11 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 - **Paths**: Use `pathlib` or `/` forward slashes (Windows accepts them).
 - **Errors**: Don't use bare `except Exception`. Log with `exc_info=True`.
 
+## Debugging
+
+- **Create repro scripts**: If you cannot reproduce based on user-provided context create repro script first.
+
 ## Reporting Back To The User
 
-- **NEVER** claim you successfully fixed a bug or implemented a feature if you're not 100% sure. The only way to be sure is to run tests.
-- **ALWAYS** prove correctness by running tests.
+- **NEVER** claim you successfully fixed a bug or implemented a feature if you're not 100% sure. The only way to be sure is to run tests and/or demo script(s).
+- **ALWAYS** prove correctness by running tests before reporting back to the user.
