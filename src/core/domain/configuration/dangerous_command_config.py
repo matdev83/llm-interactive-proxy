@@ -37,6 +37,7 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"git\s+push\s+\S+\s+:\S+|"
     r"git\s+push\s+--mirror(?:\s|$)|"
     r"git\s+branch\s+-D\s+\S+|"
+    r"git\s+tag\s+(?:-d|--delete)\s+\S+|"
     r"git\s+update-ref\s+-d\s+\S+|"
     r"git\s+reflog\s+expire\s+--expire=now\s+--all|"
     r"git\s+gc\s+--prune=now(?:\s|$)|"
@@ -178,6 +179,11 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             r"git\s+branch\s+-d\s+\S+",
             "git-branch-delete",
             "Deletes a branch.",
+        ),
+        (
+            r"git\s+tag\s+(?:-d|--delete)\s+\S+",
+            "git-tag-delete",
+            "Deletes a tag.",
         ),
         (
             r"git\s+update-ref\s+-d\s+\S+",

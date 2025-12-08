@@ -86,7 +86,7 @@ class TestDangerousCommandLoopPrevention:
             return_value=ProcessedResponse(content="safe response", metadata={})
         )
 
-        result = await manager._retry_after_tool_swallow(
+        await manager._retry_after_tool_swallow(
             original_request, backend_response, "session-1", _make_context()
         )
 
@@ -128,7 +128,7 @@ class TestDangerousCommandLoopPrevention:
             return_value=ProcessedResponse(content="safe response", metadata={})
         )
 
-        result = await manager._retry_after_tool_swallow(
+        await manager._retry_after_tool_swallow(
             original_request, backend_response, "session-2", _make_context()
         )
 
@@ -165,7 +165,7 @@ class TestDangerousCommandLoopPrevention:
             return_value=ProcessedResponse(content="safe response", metadata={})
         )
 
-        result = await manager._retry_after_tool_swallow(
+        await manager._retry_after_tool_swallow(
             original_request, backend_response, "session-3", _make_context()
         )
 
@@ -286,7 +286,7 @@ class TestDangerousCommandLoopPrevention:
         )
 
         # This should detect the repeated swallow and recursively retry until limit
-        result = await manager._retry_after_tool_swallow(
+        await manager._retry_after_tool_swallow(
             original_request, backend_response, "session-recursive", _make_context()
         )
 

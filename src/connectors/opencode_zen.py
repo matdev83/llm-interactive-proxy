@@ -56,7 +56,7 @@ class OpencodeZenConnector(OpenAIConnector):
     ) -> None:
         super().__init__(client, config, translation_service=translation_service)
         self.name = "opencode-zen"
-        self._default_endpoint = "https://api.opencode.ai/v1"
+        self._default_endpoint = "https://opencode.ai/zen/v1"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
@@ -224,6 +224,8 @@ class OpencodeZenConnector(OpenAIConnector):
             "Authorization": f"Bearer {self._oauth_credentials['access'].strip()}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "HTTP-Referer": "https://opencode.ai/",
+            "X-Title": "opencode",
         }
 
         return ensure_loop_guard_header(headers)
