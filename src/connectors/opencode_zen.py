@@ -46,7 +46,6 @@ class OpencodeZenConnector(OpenAIConnector):
     """
 
     backend_type: str = "opencode-zen"
-    VENDOR_PREFIX: str = "opencode-zen"
 
     def __init__(
         self,
@@ -64,6 +63,7 @@ class OpencodeZenConnector(OpenAIConnector):
         self._token_lock = asyncio.Lock()
         self._credential_validation_errors: list[str] = []
         self._provider_key = "opencode"
+        self._enable_opencode_zen_backend_debugging_override = False
 
     def _get_default_credentials_path(self) -> Path:
         """Determine the credentials file path in an OS-agnostic way.
@@ -274,6 +274,13 @@ class OpencodeZenConnector(OpenAIConnector):
         """
         logger.info("Initializing OpenCode Zen backend...")
 
+        backend_config = getattr(self.config.backends, "opencode_zen", None)
+        extras = backend_config.extra if backend_config else {}
+
+        self._enable_opencode_zen_backend_debugging_override = kwargs.get(
+            "enable_opencode_zen_backend_debugging_override"
+        ) or extras.get("enable_opencode_zen_backend_debugging_override", False)
+
         self._credential_validation_errors = []
         self.is_functional = False
 
@@ -423,7 +430,7 @@ class OpencodeZenConnector(OpenAIConnector):
             "stealth/big-pickle": "big-pickle",
             "stealth/alpha-gd4": "alpha-gd4",
         }
-        
+
         if model_name in reverse_exact_mappings:
             return reverse_exact_mappings[model_name]
 
@@ -431,7 +438,7 @@ class OpencodeZenConnector(OpenAIConnector):
         known_prefixes = ["anthropic/", "openai/", "google/"]
         for prefix in known_prefixes:
             if model_name.startswith(prefix):
-                return model_name[len(prefix):]
+                return model_name[len(prefix) :]
 
         return model_name
 
@@ -513,7 +520,19 @@ class OpencodeZenConnector(OpenAIConnector):
         Raises:
             BackendError: If backend is not functional.
             AuthenticationError: If credentials are invalid or expired.
+            HTTPException: If the required debugging override flag is not enabled.
         """
+        if not self._enable_opencode_zen_backend_debugging_override:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: The 'opencode-zen' backend is intended for development and "
+                    "research purposes only and is disabled by default. To enable it, "
+                    "you must start the application with the "
+                    "--enable-opencode-zen-backend-debugging-override flag."
+                ),
+            )
+
         if not self.is_functional:
             errors = (
                 "; ".join(self._credential_validation_errors)
@@ -544,7 +563,7 @@ class OpencodeZenConnector(OpenAIConnector):
         elif model_name.startswith("opencode-zen:"):
             # Legacy support for ':' separator
             model_name = model_name[len("opencode-zen:") :]
-        
+
         # Denormalize vendor/model-name to raw name for the API
         model_name = self._denormalize_model_name(model_name)
 

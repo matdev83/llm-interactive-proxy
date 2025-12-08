@@ -63,6 +63,20 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         original_request = content.metadata.get("original_request")
         if original_request is not None:
             context["original_request"] = original_request
+            # Extract calling_agent from original_request if available
+            agent = getattr(original_request, "agent", None)
+            if agent:
+                context["calling_agent"] = agent
+
+        # Extract backend_name and model_name from metadata if available
+        if "backend_name" in content.metadata:
+            context["backend_name"] = content.metadata["backend_name"]
+        if "model_name" in content.metadata:
+            context["model_name"] = content.metadata["model_name"]
+        # Also check for calling_agent directly in metadata
+        if "calling_agent" in content.metadata and "calling_agent" not in context:
+            context["calling_agent"] = content.metadata["calling_agent"]
+
         # Per-route flags
         if "expected_json" in content.metadata:
             context["expected_json"] = bool(content.metadata.get("expected_json"))

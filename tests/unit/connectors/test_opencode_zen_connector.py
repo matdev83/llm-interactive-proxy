@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -502,10 +503,6 @@ class TestConnectorClassStructure:
         """Backend type should be 'opencode-zen'."""
         assert connector.backend_type == "opencode-zen"
 
-    def test_vendor_prefix(self, connector):
-        """VENDOR_PREFIX should be 'opencode-zen'."""
-        assert connector.VENDOR_PREFIX == "opencode-zen"
-
     def test_extends_openai_connector(self, connector):
         """Should extend OpenAIConnector."""
         from src.connectors.openai import OpenAIConnector
@@ -608,6 +605,9 @@ class TestChatCompletions:
     async def test_raises_error_when_not_functional(self, connector):
         """Should raise BackendError when not functional."""
         connector.is_functional = False
+        # Enable the override to bypass the first guard and test the is_functional guard
+        connector._enable_opencode_zen_backend_debugging_override = True
+        
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",
             messages=[ChatMessage(role="user", content="Hello")],
@@ -624,8 +624,10 @@ class TestChatCompletions:
     async def test_reloads_credentials_when_expired(
         self, connector, temp_credentials_file
     ):
-        """Should attempt to reload credentials when token expired."""
-        await connector.initialize(credentials_path=str(temp_credentials_file))
+        await connector.initialize(
+            credentials_path=str(temp_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
 
         # Force token to appear expired
         connector._oauth_credentials["expires"] = time.time() - 100
@@ -654,9 +656,14 @@ class TestChatCompletions:
             )
 
     @pytest.mark.asyncio
-    async def test_strips_backend_and_vendor_prefixes(self, connector, temp_credentials_file):
+    async def test_strips_backend_and_vendor_prefixes(
+        self, connector, temp_credentials_file
+    ):
         """Should strip both backend ('opencode-zen/') and vendor ('anthropic/') prefixes."""
-        await connector.initialize(credentials_path=str(temp_credentials_file))
+        await connector.initialize(
+            credentials_path=str(temp_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
 
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",
@@ -690,7 +697,10 @@ class TestChatCompletions:
             ("opencode-zen:x-ai/grok-code-fast-1", "grok-code"),
             ("opencode-zen:google/gemini-3-pro", "gemini-3-pro"),
             ("opencode-zen:qwen/qwen3-coder", "qwen3-coder"),
-            ("opencode-zen/stealth/alpha-gd4", "alpha-gd4"), # Test with slash separator
+            (
+                "opencode-zen/stealth/alpha-gd4",
+                "alpha-gd4",
+            ),  # Test with slash separator
             ("opencode-zen:anthropic/claude-opus-4-5", "claude-opus-4-5"),
         ],
     )
@@ -698,7 +708,10 @@ class TestChatCompletions:
         self, connector, temp_credentials_file, request_model, expected_api_model
     ):
         """Should denormalize model name before calling parent chat_completions."""
-        await connector.initialize(credentials_path=str(temp_credentials_file))
+        await connector.initialize(
+            credentials_path=str(temp_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
 
         chat_request = ChatRequest(
             model=request_model,
@@ -725,6 +738,47 @@ class TestChatCompletions:
             )
             assert effective_model == expected_api_model
 
+
+    @pytest.mark.asyncio
+    async def test_raises_403_if_debugging_flag_is_not_set(self, connector, temp_credentials_file):
+        """Should raise HTTPException 403 if the backend is called without the debug flag."""
+        await connector.initialize(credentials_path=str(temp_credentials_file))
+        
+        chat_request = ChatRequest(model="opencode-zen:google/gemini-3-pro", messages=[ChatMessage(role="user", content="test")])
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await connector.chat_completions(chat_request, [], "opencode-zen:google/gemini-3-pro")
+        
+        assert exc_info.value.status_code == 403
+        assert "Forbidden" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_works_correctly_if_debugging_flag_is_set(self, connector, temp_credentials_file):
+        """Should not raise 403 and should proceed normally if the debug flag is set."""
+        # Initialize with the debugging flag enabled
+        await connector.initialize(
+            credentials_path=str(temp_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
+        
+        # Ensure the flag was set correctly
+        assert connector._enable_opencode_zen_backend_debugging_override is True
+
+        chat_request = ChatRequest(model="opencode-zen:google/gemini-3-pro", messages=[ChatMessage(role="user", content="test")])
+        
+        from src.connectors.openai import OpenAIConnector
+
+        # Patch the super call to prevent actual network request and just verify the flow
+        with patch.object(
+            OpenAIConnector,
+            "chat_completions",
+            new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+        ) as mock_super:
+            # This call should now succeed without a 403 error
+            await connector.chat_completions(chat_request, [], "opencode-zen:google/gemini-3-pro")
+            
+            # Assert that the super method was called, proving the guard was bypassed
+            mock_super.assert_called_once()
 
 # ============================================================================
 # TASK-17 to TASK-19: Supporting Features Tests
@@ -847,3 +901,56 @@ class TestBackendRegistry:
         from src.core.services.backend_registry import backend_registry
 
         assert "opencode-zen" in backend_registry.get_registered_backends()
+
+
+class TestModelNameNormalization:
+    """Tests for model name normalization and denormalization logic."""
+
+    @pytest.mark.parametrize(
+        "raw_name, expected_normalized_name",
+        [
+            # Exact Mappings
+            ("grok-code", "x-ai/grok-code-fast-1"),
+            ("qwen3-coder", "qwen/qwen3-coder"),
+            ("glm-4.6", "z-ai/glm-4.6"),
+            ("kimi-k2", "moonshotai/kimi-k2-0905"),
+            ("big-pickle", "stealth/big-pickle"),
+            ("alpha-gd4", "stealth/alpha-gd4"),
+            # Heuristic Prefix Mappings
+            ("claude-3-opus", "anthropic/claude-3-opus"),
+            ("gpt-4o", "openai/gpt-4o"),
+            ("gemini-1.5-pro", "google/gemini-1.5-pro"),
+            # Already Prefixed (should be unchanged)
+            ("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4"),
+            ("custom/some-model", "custom/some-model"),
+            # Unknown (should be unchanged)
+            ("some-random-model", "some-random-model"),
+        ],
+    )
+    def test_normalize_model_name(self, connector, raw_name, expected_normalized_name):
+        """Should correctly normalize raw model names to vendor/model format."""
+        assert connector._normalize_model_name(raw_name) == expected_normalized_name
+
+    @pytest.mark.parametrize(
+        "normalized_name, expected_raw_name",
+        [
+            # Exact Mappings (Reverse)
+            ("x-ai/grok-code-fast-1", "grok-code"),
+            ("qwen/qwen3-coder", "qwen3-coder"),
+            ("z-ai/glm-4.6", "glm-4.6"),
+            ("moonshotai/kimi-k2-0905", "kimi-k2"),
+            ("stealth/big-pickle", "big-pickle"),
+            ("stealth/alpha-gd4", "alpha-gd4"),
+            # Heuristic Prefix Mappings (Reverse)
+            ("anthropic/claude-3-opus", "claude-3-opus"),
+            ("openai/gpt-4o", "gpt-4o"),
+            ("google/gemini-1.5-pro", "gemini-1.5-pro"),
+            # Unknown vendor prefix (should be unchanged)
+            ("custom/some-model", "custom/some-model"),
+            # No prefix (should be unchanged)
+            ("some-random-model", "some-random-model"),
+        ],
+    )
+    def test_denormalize_model_name(self, connector, normalized_name, expected_raw_name):
+        """Should correctly denormalize vendor/model names back to raw format."""
+        assert connector._denormalize_model_name(normalized_name) == expected_raw_name

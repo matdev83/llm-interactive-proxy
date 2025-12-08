@@ -722,12 +722,17 @@ class ToolCallReactorFeature(IResponseFeature):
     def _maybe_fix_droid_antigravity_path(
         tool_arguments: Any, backend_name: str | None, calling_agent: str | None
     ) -> Any:
-        """Best-effort fix for relative paths from Gemini Antigravity Droid sessions."""
-        if not backend_name or "antigravity" not in backend_name:
-            return tool_arguments
+        """Best-effort fix for relative paths from Droid agent sessions.
 
+        The dedicated DroidAntigravityPathFixHandler is gated behind a flag; when it
+        isn't registered, we still want to avoid the "absolute path required" errors
+        by normalizing obvious relative paths emitted by the backend.
+
+        This fix applies to any backend when the calling agent is "droid".
+        """
+        # Check agent name - must contain "droid" to activate
         agent = (calling_agent or "").lower()
-        if agent and "droid" not in agent:
+        if "droid" not in agent:
             return tool_arguments
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
@@ -1459,17 +1464,17 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
     def _maybe_fix_droid_antigravity_path(
         tool_arguments: Any, backend_name: str | None, calling_agent: str | None
     ) -> Any:
-        """Best-effort fix for relative paths from Gemini Antigravity Droid sessions.
+        """Best-effort fix for relative paths from Droid agent sessions.
 
         The dedicated DroidAntigravityPathFixHandler is gated behind a flag; when it
         isn't registered, we still want to avoid the "absolute path required" errors
         by normalizing obvious relative paths emitted by the backend.
-        """
-        if not backend_name or "antigravity" not in backend_name:
-            return tool_arguments
 
+        This fix applies to any backend when the calling agent is "droid".
+        """
+        # Check agent name - must contain "droid" to activate
         agent = (calling_agent or "").lower()
-        if agent and "droid" not in agent:
+        if "droid" not in agent:
             return tool_arguments
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:

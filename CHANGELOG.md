@@ -1,5 +1,25 @@
 # Changelog
 
+## [2025-12-08]
+
+### Enhanced: OpenCode Zen Connector and Droid Support
+
+- **OpenCode Zen Debugging Safeguards**: Added mandatory debugging flag `enable_opencode_zen_backend_debugging_override`
+  - Prevents accidental usage of the development-only backend in production
+  - Raises 403 Forbidden if flag is not set
+
+- **Model Name Handling**: Improved normalization and denormalization for OpenCode Zen models
+  - Robust handling of vendor prefixes (e.g., `anthropic/claude-3-opus`)
+  - Fixes for specific model mappings and separator handling
+
+- **Droid Agent Support**: Generalized relative path fixing for all Droid agents
+  - Updated `ToolCallReactorFeature` to apply path fixes based on "droid" substring in agent name
+  - Ensures compatibility with various Droid clients beyond specific backends
+
+- **Middleware Metadata**: Enhanced `MiddlewareApplicationProcessor` context extraction
+  - Extracts `calling_agent`, `backend_name`, and `model_name` from request metadata
+  - Improves observability and context availability for downstream middleware
+
 ## [2025-12-07]
 
 ### Added: Feature Parity Architecture for Streaming/Non-Streaming Pipelines
