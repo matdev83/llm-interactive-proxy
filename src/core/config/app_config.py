@@ -1263,9 +1263,27 @@ class AppConfig(DomainModel, IConfig):
             "health_check",
             "routing",
             "memory",
+            "database",
+            "assessment",
             "vtc_client_patterns",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
+
+        # Recursively strip internal fields (keys starting with underscore) from nested dicts
+        # These are internal tracking fields like _env_set_fields that should not be serialized
+        def _strip_internal_keys(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                return {
+                    k: _strip_internal_keys(v)
+                    for k, v in obj.items()
+                    if not k.startswith("_")
+                }
+            elif isinstance(obj, list):
+                return [_strip_internal_keys(item) for item in obj]
+            return obj
+
+        data = _strip_internal_keys(data)
+
         # Ensure nested sections only include serializable primitives
         # (model_dump already handles pydantic models)
         if p.suffix.lower() in {".yaml", ".yml"}:

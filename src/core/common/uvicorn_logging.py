@@ -49,9 +49,7 @@ def get_uvicorn_logging_config(use_colors: bool = False) -> dict[str, Any]:
     """
     # Use project-standard log format matching EnvironmentTaggingFormatter in logging_utils.py
     # Compact level (no padding), env tag, and PID
-    standard_fmt = (
-        "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
-    )
+    standard_fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
     # For access logs, include client address and request info
     access_fmt = (
         "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d "

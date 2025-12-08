@@ -38,6 +38,8 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 3. **Start**: `./.venv/Scripts/python.exe -m src.core.cli`
 4. **Onboarding**: Open `@README.md` for fundamenal project description.
 5. **Docs**: Check `docs/` for architecture deep-dives.
+6. **Logs**: Check `var/logs/` for runtime logs.
+7. **Captures**: Check `var/wire_captures_cbor/` for binary captures of all traffic. Use `scripts/inspect_cbor_capture.py` to inspect them.
 
 ## Key Architecture Paths
 
@@ -79,3 +81,8 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 - **Async**: Use `await` for all I/O. Don't block the event loop.
 - **Paths**: Use `pathlib` or `/` forward slashes (Windows accepts them).
 - **Errors**: Don't use bare `except Exception`. Log with `exc_info=True`.
+
+## Reporting Back To The User
+
+- **NEVER** claim you successfully fixed a bug or implemented a feature if you're not 100% sure. The only way to be sure is to run tests.
+- **ALWAYS** prove correctness by running tests.

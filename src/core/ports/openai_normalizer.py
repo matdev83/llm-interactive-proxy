@@ -185,7 +185,7 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         content: str | dict | bytes
         if raw_content is None:
             content = ""
-        elif isinstance(raw_content, (str, dict, bytes)):
+        elif isinstance(raw_content, str | dict | bytes):
             content = raw_content
         else:
             content = str(raw_content)
@@ -233,9 +233,6 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         reasoning_content = delta.get("reasoning_content") or delta.get("reasoning")
         if reasoning_content:
             metadata["reasoning_content"] = reasoning_content
-            # Some models emit reasoning without content; surface it as content for compatibility
-            if not content:
-                content = reasoning_content
 
         # Add index if available
         if "index" in choice:

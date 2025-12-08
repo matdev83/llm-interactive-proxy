@@ -11,8 +11,8 @@ components into a cohesive pipeline.
 from __future__ import annotations
 
 import logging
-import contextlib
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from typing import Any
 
 from src.core.ports.sse_assembler import SSEAssembler
@@ -86,16 +86,34 @@ class StreamingPipeline:
         if stream_id:
             self._metrics.start_stream(stream_id)
 
-        # Ensure upstream async generators are properly closed even if downstream
-        # breaks early (prevents "async generator ignored GeneratorExit" noise).
-        closing_context = (
-            contextlib.aclosing(raw_stream)
-            if hasattr(raw_stream, "aclose")
-            else contextlib.nullcontext(raw_stream)
-        )
-
         try:
-            async with closing_context as managed_stream:
+            async with AsyncExitStack() as stack:
+                managed_stream = raw_stream
+
+                async def _safe_aclose(stream: Any) -> None:
+                    """Close raw stream, but tolerate double-close during GeneratorExit."""
+                    try:
+                        await stream.aclose()
+                    except RuntimeError as err:
+                        # Happens when aclose() is invoked while the generator is mid-execution.
+                        if (
+                            "aclose(): asynchronous generator is already running"
+                            in str(err)
+                        ):
+                            if stream_id and logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Skipping stream aclose; generator already closing",
+                                    extra={
+                                        "provider": provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
+                            return
+                        raise
+
+                if hasattr(raw_stream, "aclose"):
+                    stack.push_async_callback(_safe_aclose, raw_stream)
+
                 # Step 1: Normalize backend chunks to StreamingContent
                 normalized_stream = self.normalizer.normalize_stream(
                     managed_stream, provider
@@ -112,9 +130,23 @@ class StreamingPipeline:
                 )
 
                 # Step 4: Yield formatted bytes
-                async for chunk_bytes in assembled_stream:
-                    yield chunk_bytes
+                try:
+                    async for chunk_bytes in assembled_stream:
+                        yield chunk_bytes
+                except GeneratorExit:
+                    # Client disconnected - this is expected behavior
+                    # Don't try to process this in the outer exception handler
+                    # as it will interfere with the context manager cleanup
+                    if stream_id:
+                        logger.debug(
+                            "Client disconnected during streaming",
+                            extra={"provider": provider, "stream_id": stream_id},
+                        )
+                    raise
 
+        except GeneratorExit:
+            # Re-raise GeneratorExit to allow proper cleanup without logging errors
+            raise
         except Exception as e:
             # Log error and increment error terminations
             logger.error(

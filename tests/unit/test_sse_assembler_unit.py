@@ -118,9 +118,7 @@ async def test_sse_preserves_whitespace_only_chunks() -> None:
     assembler = SSEAssembler()
     chunks = [
         StreamingContent(content="publishing", metadata={"provider": "openai"}),
-        StreamingContent(
-            content=" ", metadata={"provider": "openai"}, is_empty=True
-        ),
+        StreamingContent(content=" ", metadata={"provider": "openai"}, is_empty=True),
         StreamingContent(content="5", metadata={"provider": "openai"}),
         SentinelManager.create_done_chunk(),
     ]

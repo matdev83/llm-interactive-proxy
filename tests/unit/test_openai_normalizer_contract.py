@@ -259,7 +259,8 @@ class TestOpenAIStreamNormalizerContract:
         assert len(chunks) == 1
         chunk = chunks[0]
 
-        assert chunk.content == "Plan tools next"
+        # Reasoning should be preserved in metadata without leaking into main content
+        assert chunk.content == ""
         assert chunk.metadata["reasoning_content"] == "Plan tools next"
         assert chunk.is_empty is False
         assert chunk.metadata["provider"] == "openai"

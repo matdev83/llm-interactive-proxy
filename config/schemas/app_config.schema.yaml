@@ -38,6 +38,7 @@ properties:
       capture_buffer_size: { type: ["integer", "null"], minimum: 1024 }
       capture_flush_interval: { type: ["number", "null"], minimum: 0.1 }
       capture_max_entries_per_flush: { type: ["integer", "null"], minimum: 1 }
+      use_colors: { type: boolean }
   auth:
     type: object
     additionalProperties: false
@@ -340,3 +341,30 @@ properties:
       summary_schema_version: { type: string }
       require_project_discovery: { type: boolean }
       project_discovery_mode: { type: string, enum: [deterministic, nondeterministic, any] }
+  database:
+    type: object
+    additionalProperties: false
+    properties:
+      url: { type: string }
+      auto_migrate: { type: boolean }
+      echo: { type: boolean }
+      echo_pool: { type: boolean }
+      pool_size: { type: integer, minimum: 1 }
+      max_overflow: { type: integer, minimum: 0 }
+      pool_timeout: { type: integer, minimum: 1 }
+  assessment:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      turn_threshold: { type: integer, minimum: 1 }
+      confidence_threshold: { type: number, minimum: 0, maximum: 1 }
+      history_window: { type: integer, minimum: 1 }
+      min_interval: { type: integer, minimum: 1 }
+      max_interval: { type: integer, minimum: 1 }
+      default_interval: { type: integer, minimum: 1 }
+      backend: { type: string }
+      model: { type: string }
+      disable_for_sessions:
+        type: array
+        items: { type: string }

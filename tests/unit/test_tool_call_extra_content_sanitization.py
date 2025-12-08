@@ -6,7 +6,7 @@ with a thought_signature field.
 """
 
 import json
-import pytest
+
 from src.core.ports.streaming_contracts import StreamingContent
 
 
@@ -59,7 +59,9 @@ class TestExtraContentSanitization:
 
         # Parse the SSE data
         lines = result_str.strip().split("\n")
-        data_line = [line for line in lines if line.startswith("data: ") and "[DONE]" not in line][0]
+        data_line = [
+            line for line in lines if line.startswith("data: ") and "[DONE]" not in line
+        ][0]
         json_data = json.loads(data_line[6:])  # Remove "data: " prefix
 
         # Verify extra_content is NOT in the output
@@ -80,8 +82,13 @@ class TestExtraContentSanitization:
                     {
                         "id": "call_abc123",
                         "type": "function",
-                        "function": {"name": "Execute", "arguments": '{"command": "ls"}'},
-                        "extra_content": {"google": {"thought_signature": "base64data"}},
+                        "function": {
+                            "name": "Execute",
+                            "arguments": '{"command": "ls"}',
+                        },
+                        "extra_content": {
+                            "google": {"thought_signature": "base64data"}
+                        },
                         "_internal_marker": True,  # Should also be removed
                     }
                 ],
@@ -93,7 +100,9 @@ class TestExtraContentSanitization:
         result_str = result.decode("utf-8")
 
         # Parse the SSE data
-        data_line = [line for line in result_str.strip().split("\n") if line.startswith("data: ")][0]
+        data_line = [
+            line for line in result_str.strip().split("\n") if line.startswith("data: ")
+        ][0]
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]
@@ -139,7 +148,11 @@ class TestExtraContentSanitization:
         result = chunk.to_bytes()
         result_str = result.decode("utf-8")
 
-        data_line = [line for line in result_str.strip().split("\n") if line.startswith("data: ") and "[DONE]" not in line][0]
+        data_line = [
+            line
+            for line in result_str.strip().split("\n")
+            if line.startswith("data: ") and "[DONE]" not in line
+        ][0]
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]
@@ -191,12 +204,16 @@ class TestExtraContentSanitization:
         result = chunk.to_bytes()
         result_str = result.decode("utf-8")
 
-        data_line = [line for line in result_str.strip().split("\n") if line.startswith("data: ") and "[DONE]" not in line][0]
+        data_line = [
+            line
+            for line in result_str.strip().split("\n")
+            if line.startswith("data: ") and "[DONE]" not in line
+        ][0]
         json_data = json.loads(data_line[6:])
 
         tool_calls = json_data["choices"][0]["delta"]["tool_calls"]
         assert len(tool_calls) == 2
-        
+
         for tc in tool_calls:
             assert "extra_content" not in tc
             assert "_processed" not in tc

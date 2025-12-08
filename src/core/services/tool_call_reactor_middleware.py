@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import re
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -269,6 +270,13 @@ class ToolCallReactorFeature(IResponseFeature):
                 tool_arguments = tool_arguments_raw
             else:
                 tool_arguments = tool_arguments_raw
+
+            # Safety net: auto-fix Droid + Antigravity relative paths when handler isn't active
+            tool_arguments = self._maybe_fix_droid_antigravity_path(
+                tool_arguments=tool_arguments,
+                backend_name=backend_name,
+                calling_agent=calling_agent,
+            )
 
             full_response = getattr(response, "content", None)
 
@@ -626,20 +634,20 @@ class ToolCallReactorFeature(IResponseFeature):
         self, session_id: str, context: dict[str, Any], response: Any
     ) -> str:
         """Resolve stream key for lifecycle tracking."""
-        stream_id: str | None = None
+        # Prefer per-stream identifiers from response metadata so each backend stream
+        # is isolated. Fall back to context/session identifiers only when metadata is
+        # missing to avoid reusing the same key across separate requests.
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict):
+            candidate = metadata.get("stream_id") or metadata.get("id")
+            if isinstance(candidate, str) and candidate:
+                return candidate
+
         if isinstance(context, dict):
             candidate = context.get("stream_id") or context.get("response_stream_id")
             if isinstance(candidate, str) and candidate:
-                stream_id = candidate
+                return candidate
 
-        metadata = getattr(response, "metadata", None)
-        if not stream_id and isinstance(metadata, dict):
-            candidate = metadata.get("stream_id") or metadata.get("id")
-            if isinstance(candidate, str) and candidate:
-                stream_id = candidate
-
-        if stream_id:
-            return stream_id
         if session_id:
             return session_id
         return "anonymous-stream"
@@ -686,6 +694,47 @@ class ToolCallReactorFeature(IResponseFeature):
         self._lifecycle.mark_processed(stream_key, signature)
         if buffer_state is not None:
             buffer_state.processed_signatures.add(signature)
+
+    @staticmethod
+    def _maybe_fix_droid_antigravity_path(
+        tool_arguments: Any, backend_name: str | None, calling_agent: str | None
+    ) -> Any:
+        """Best-effort fix for relative paths from Gemini Antigravity Droid sessions."""
+        if not backend_name or "antigravity" not in backend_name:
+            return tool_arguments
+
+        agent = (calling_agent or "").lower()
+        if agent and "droid" not in agent:
+            return tool_arguments
+
+        def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
+            if isinstance(args, str):
+                return args, args.strip() or None, None
+            if isinstance(args, dict):
+                for key in ["file_path", "path", "AbsolutePath", "filepath", "File"]:
+                    val = args.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return args, val.strip(), key
+            return args, None, None
+
+        args, path, key = _extract_path(tool_arguments)
+        if not path:
+            return tool_arguments
+
+        if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
+            return tool_arguments
+
+        fixed = path.replace("/", "\\")
+        if not fixed.startswith("\\"):
+            fixed = "\\" + fixed
+
+        if isinstance(args, str):
+            return fixed
+        if isinstance(args, dict) and key:
+            new_args = dict(args)
+            new_args[key] = fixed
+            return new_args
+        return tool_arguments
 
 
 # Legacy middleware kept for backward compatibility during transition
@@ -1354,6 +1403,52 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if session_id:
             return session_id
         return "anonymous-stream"
+
+    @staticmethod
+    def _maybe_fix_droid_antigravity_path(
+        tool_arguments: Any, backend_name: str | None, calling_agent: str | None
+    ) -> Any:
+        """Best-effort fix for relative paths from Gemini Antigravity Droid sessions.
+
+        The dedicated DroidAntigravityPathFixHandler is gated behind a flag; when it
+        isn't registered, we still want to avoid the "absolute path required" errors
+        by normalizing obvious relative paths emitted by the backend.
+        """
+        if not backend_name or "antigravity" not in backend_name:
+            return tool_arguments
+
+        agent = (calling_agent or "").lower()
+        if agent and "droid" not in agent:
+            return tool_arguments
+
+        def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
+            if isinstance(args, str):
+                return args, args.strip() or None, None
+            if isinstance(args, dict):
+                for key in ["file_path", "path", "AbsolutePath", "filepath", "File"]:
+                    val = args.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return args, val.strip(), key
+            return args, None, None
+
+        args, path, key = _extract_path(tool_arguments)
+        if not path:
+            return tool_arguments
+
+        if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
+            return tool_arguments
+
+        fixed = path.replace("/", "\\")
+        if not fixed.startswith("\\"):
+            fixed = "\\" + fixed
+
+        if isinstance(args, str):
+            return fixed
+        if isinstance(args, dict) and key:
+            args[key] = fixed
+        elif isinstance(args, dict):
+            args["file_path"] = fixed
+        return tool_arguments
 
     def _reset_stream_state_if_needed(
         self, stream_key: str, response: Any, is_streaming: bool

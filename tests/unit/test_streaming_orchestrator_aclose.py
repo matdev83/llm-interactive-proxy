@@ -1,5 +1,4 @@
 import pytest
-
 from src.core.ports.streaming_contracts import IStreamNormalizer, StreamingContent
 from src.core.ports.streaming_orchestrator import StreamingPipeline
 
@@ -10,7 +9,9 @@ class DummyNormalizer(IStreamNormalizer):
     def normalize_stream(self, stream, provider: str):
         async def _gen():
             async for item in stream:
-                yield StreamingContent(content=str(item), metadata={"provider": provider})
+                yield StreamingContent(
+                    content=str(item), metadata={"provider": provider}
+                )
 
         return _gen()
 

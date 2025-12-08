@@ -497,7 +497,8 @@ class StreamingContent:
                                         {
                                             k: v
                                             for k, v in tc.items()
-                                            if not k.startswith("_") and k != "extra_content"
+                                            if not k.startswith("_")
+                                            and k != "extra_content"
                                         }
                                         for tc in tc_list
                                         if isinstance(tc, dict)
@@ -524,7 +525,11 @@ class StreamingContent:
                     if isinstance(tool_calls, list) and tool_calls:
                         # Sanitize internal markers before sending to client
                         sanitized_calls = [
-                            {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
+                            {
+                                k: v
+                                for k, v in tc.items()
+                                if not k.startswith("_") and k != "extra_content"
+                            }
                             for tc in tool_calls
                             if isinstance(tc, dict)
                         ]
@@ -567,7 +572,11 @@ class StreamingContent:
         if isinstance(tool_calls, list) and tool_calls and not is_virtual:
             # Remove internal markers like _already_processed before sending to client
             sanitized_calls = [
-                {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
+                {
+                    k: v
+                    for k, v in tc.items()
+                    if not k.startswith("_") and k != "extra_content"
+                }
                 for tc in tool_calls
                 if isinstance(tc, dict)
             ]
@@ -622,7 +631,8 @@ class StreamingContent:
                                         {
                                             k: v
                                             for k, v in tc.items()
-                                            if not k.startswith("_") and k != "extra_content"
+                                            if not k.startswith("_")
+                                            and k != "extra_content"
                                         }
                                         for tc in tc_list
                                         if isinstance(tc, dict)
@@ -652,7 +662,11 @@ class StreamingContent:
                         ):
                             # Sanitize internal markers before sending to client
                             sanitized_calls = [
-                                {k: v for k, v in tc.items() if not k.startswith("_") and k != "extra_content"}
+                                {
+                                    k: v
+                                    for k, v in tc.items()
+                                    if not k.startswith("_") and k != "extra_content"
+                                }
                                 for tc in tool_calls_to_inject
                                 if isinstance(tc, dict)
                             ]
@@ -1459,7 +1473,7 @@ class BaseStreamNormalizer(IStreamNormalizer):
         # Normalize content to a supported type to avoid validation failures
         if content is None:
             content = ""
-        elif not isinstance(content, (str, dict, bytes)):
+        elif not isinstance(content, str | dict | bytes):
             content = str(content)
 
         # Create the chunk
