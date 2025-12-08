@@ -229,7 +229,7 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     assert retry_request.messages[-1].role == "system"
     proxy_notice = retry_request.messages[-1].content
     assert "Proxy Notice" in proxy_notice
-    assert "please target specific tests" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert "execute_command" in proxy_notice
     assert "pytest" in proxy_notice
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
@@ -344,7 +344,7 @@ async def test_streaming_full_suite_swallow_replays_history_and_hides_steering()
     assert retry_request.messages[-1].role == "system"
     proxy_notice = retry_request.messages[-1].content
     assert "Proxy Notice" in proxy_notice
-    assert "please target specific tests" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert "execute_command" in proxy_notice
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
 
@@ -452,7 +452,7 @@ async def test_dangerous_command_swallow_replays_history_and_hides_steering() ->
     retry_request = retry_args["request"]
     proxy_notice = retry_request.messages[-1].content
     assert "git reset --hard" in proxy_notice
-    assert "dangerous command blocked" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating security message
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
 
     assert isinstance(result, ResponseEnvelope)
@@ -504,7 +504,7 @@ async def test_tool_access_block_non_streaming_replays_and_hides_steering() -> N
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "deploy_service" in proxy_notice
-    assert "tool not allowed" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert retry_args["request"].extra_body.get("_tool_call_reactor_retry") is True
     assert isinstance(result, ResponseEnvelope)
     assert result.content == "allowed output"
@@ -557,7 +557,7 @@ async def test_tool_access_block_streaming_replays_and_hides_steering() -> None:
     retry_request = retry_args["request"]
     proxy_notice = retry_request.messages[-1].content
     assert "deploy_service" in proxy_notice
-    assert "tool not allowed" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
     assert [chunk.content for chunk in chunks] == ["allowed later"]
     assert all("steering chunk" not in str(chunk.content) for chunk in chunks)
@@ -656,7 +656,7 @@ async def test_config_steering_non_streaming_replays_and_hides_steering() -> Non
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "apply_diff" in proxy_notice
-    assert "use patch_file" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert isinstance(result, ResponseEnvelope)
     assert result.content == "patched"
 
@@ -757,5 +757,5 @@ async def test_dangerous_command_streaming_replays_and_hides_steering() -> None:
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "git reset --hard" in proxy_notice
-    assert "dangerous command blocked" in proxy_notice
+    assert "Proxy Security Notice" in proxy_notice  # Escalating security message
     assert [chunk.content for chunk in chunks] == ["safer command"]

@@ -6,6 +6,7 @@ tool calls and validates that they operate within the project directory boundary
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -57,6 +58,20 @@ class FileSandboxingHandler(IToolCallHandler):
         )
         self._tool_patterns = [
             re.compile(pattern, re.IGNORECASE) for pattern in all_patterns
+        ]
+        self._shell_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"\bexecute\b",
+                r"execute_command",
+                r"run_shell_command",
+                r"run_terminal_command",
+                r"exec_command",
+                r"\bshell\b",
+                r"\bbash\b",
+                r"local_shell",
+                r"container\.exec",
+            ]
         ]
 
         # Compile exclusion patterns
@@ -119,6 +134,97 @@ class FileSandboxingHandler(IToolCallHandler):
 
         # Check if tool matches file-changing patterns
         return any(pattern.search(tool_name) for pattern in self._tool_patterns)
+
+    def _is_shell_tool(self, tool_name: str) -> bool:
+        return any(pattern.search(tool_name) for pattern in self._shell_patterns)
+
+    def _extract_command_strings(self, arguments: dict[str, object]) -> list[str]:
+        """Pull raw command strings out of common command tool args."""
+        if not isinstance(arguments, dict):
+            return []
+
+        cmd = arguments.get("command") or arguments.get("cmd")
+        strings: list[str] = []
+
+        if isinstance(cmd, str) and cmd.strip():
+            strings.append(cmd)
+        elif isinstance(cmd, list):
+            with contextlib.suppress(Exception):
+                strings.append(" ".join(str(part) for part in cmd))
+
+        # Also inspect args list for stringified commands
+        args_val = arguments.get("args")
+        if isinstance(args_val, list):
+            with contextlib.suppress(Exception):
+                joined = " ".join(str(part) for part in args_val)
+                if joined.strip():
+                    strings.append(joined)
+
+        return strings
+
+    def _extract_paths_from_command_strings(
+        self, commands: list[str], project_root: Path
+    ) -> list[str]:
+        """Extract candidate paths referenced in shell commands."""
+        if not commands:
+            return []
+
+        path_candidates: set[str] = set()
+
+        # Patterns keyed to destructive verbs (reduce false positives)
+        patterns = [
+            re.compile(r"\bcd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+            re.compile(r"\bpushd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+            re.compile(
+                r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)", re.IGNORECASE
+            ),
+            re.compile(r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-delete", re.IGNORECASE),
+            re.compile(
+                r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)",
+                re.IGNORECASE,
+            ),
+            re.compile(r"\b(?:rmdir|rd)\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+            re.compile(r"\bdel\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+            re.compile(
+                r"\bRemove-Item\s+(?P<path>[^\s;&]+)[^\n;&]*-Recurse", re.IGNORECASE
+            ),
+        ]
+
+        absolute_path_fallback = re.compile(
+            r"(?P<path>(?:[A-Za-z]:\\\\|/|\\\\)[^\s'\";]+)"
+        )
+
+        for command in commands:
+            for pattern in patterns:
+                for match in pattern.finditer(command):
+                    for group_name in ("path", "start"):
+                        candidate = match.groupdict().get(group_name)
+                        if candidate:
+                            path_candidates.add(candidate)
+
+            for match in absolute_path_fallback.finditer(command):
+                candidate = match.group("path")
+                if candidate:
+                    path_candidates.add(candidate)
+
+        # Filter out candidates that normalize inside project_root to avoid blocking benign relative paths.
+        results: list[str] = []
+        for candidate in path_candidates:
+            try:
+                normalized = self._validator.normalize_path(
+                    candidate, str(project_root)
+                )
+                if not self._validator.is_within_boundary(
+                    normalized,
+                    project_root,
+                    allow_parent=self._config.allow_parent_access,
+                ):
+                    results.append(candidate)
+            except ValueError:
+                # If it fails to normalize, leave to main handler to decide strictness
+                results.append(candidate)
+
+        return results
 
     async def can_handle(self, context: ToolCallContext) -> bool:
         """Check if this handler can process the given tool call.
@@ -185,25 +291,33 @@ class FileSandboxingHandler(IToolCallHandler):
                 )
 
             if not paths:
-                logger.warning(
-                    f"No file paths found in tool call '{context.tool_name}' with arguments: {list(context.tool_arguments.keys())}"
-                )
-                if self._config.strict_mode:
-                    self._blocked_count += 1
-                    return ToolCallReactionResult(
-                        should_swallow=True,
-                        replacement_response=f"File operation blocked: No file paths found in tool call. Allowed folder: {project_root}",
-                        metadata={
-                            "decision": "blocked",
-                            "reason": "no_paths_found",
-                            "tool_name": context.tool_name,
-                            "project_root": str(project_root),
-                            "handler": self.name,
-                        },
+                # For shell-like tools, fall back to parsing command strings for destructive paths
+                if self._is_shell_tool(context.tool_name):
+                    commands = self._extract_command_strings(context.tool_arguments)
+                    paths = self._extract_paths_from_command_strings(
+                        commands, project_root
                     )
-                return ToolCallReactionResult(
-                    should_swallow=False, metadata={"decision": "no_paths_found"}
-                )
+
+                if not paths:
+                    logger.warning(
+                        f"No file paths found in tool call '{context.tool_name}' with arguments: {list(context.tool_arguments.keys())}"
+                    )
+                    if self._config.strict_mode:
+                        self._blocked_count += 1
+                        return ToolCallReactionResult(
+                            should_swallow=True,
+                            replacement_response=f"File operation blocked: No file paths found in tool call. Allowed folder: {project_root}",
+                            metadata={
+                                "decision": "blocked",
+                                "reason": "no_paths_found",
+                                "tool_name": context.tool_name,
+                                "project_root": str(project_root),
+                                "handler": self.name,
+                            },
+                        )
+                    return ToolCallReactionResult(
+                        should_swallow=False, metadata={"decision": "no_paths_found"}
+                    )
 
             violating_paths = []
             invalid_path_errors = []

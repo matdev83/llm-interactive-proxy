@@ -38,6 +38,62 @@ class BackendRequestManager(IBackendRequestManager):
     _STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
     _MAX_EMPTY_STREAM_RETRIES = 1
 
+    # Dangerous command retry loop prevention (Option 2: Escalating + Hard Limit)
+    _MAX_DANGEROUS_COMMAND_RETRIES = 3
+    _DANGEROUS_RETRY_KEY = "_dangerous_command_retry_count"
+
+    # Escalating steering messages for each retry attempt
+    _DANGEROUS_STEERING_MESSAGES: tuple[str, ...] = (
+        # Retry 1: Standard steering
+        (
+            "[Proxy Security Notice - First Warning]\n"
+            "Your tool call was intercepted because it contained a potentially destructive "
+            "command. This is a permanent security policy enforced by the proxy.\n\n"
+            "IMPORTANT: The proxy will NEVER execute destructive commands. You cannot "
+            "retry or rephrase to bypass this - all such attempts will be blocked.\n\n"
+            "Your ONLY option: Inform the user that they must manually execute this "
+            "command themselves if they believe it is necessary. Clearly explain the "
+            "potential consequences of the command before the user runs it."
+        ),
+        # Retry 2: Stronger warning
+        (
+            "[Proxy Security Notice - SECOND WARNING]\n"
+            "STOP: You have now attempted a destructive command TWICE. Both attempts "
+            "were blocked and will continue to be blocked.\n\n"
+            "This is your FINAL opportunity to proceed correctly. The proxy security "
+            "system is designed to protect users from unintended data loss.\n\n"
+            "DO NOT attempt destructive commands again. Instead:\n"
+            "1. Tell the user exactly what command needs to be run manually\n"
+            "2. Explain the risks involved\n"
+            "3. Wait for the user to confirm they have executed it\n"
+            "4. Continue with your task\n\n"
+            "Any further attempts will result in this session being terminated."
+        ),
+        # Retry 3: Final warning before termination
+        (
+            "[Proxy Security Notice - FINAL WARNING]\n"
+            "CRITICAL: This is your THIRD attempt to execute a destructive command. "
+            "This is the FINAL warning.\n\n"
+            "If you attempt another destructive command, this interaction will be "
+            "immediately terminated with an error to the user.\n\n"
+            "YOU MUST NOW:\n"
+            "1. Acknowledge that you cannot execute destructive commands\n"
+            "2. Provide the user with clear instructions for manual execution\n"
+            "3. Proceed with alternative approaches that do not require destructive commands"
+        ),
+    )
+
+    _DANGEROUS_TERMINAL_ERROR = (
+        "[Proxy Security - Session Terminated]\n\n"
+        "This session has been terminated due to repeated attempts to execute "
+        "destructive commands despite multiple warnings.\n\n"
+        "The AI assistant attempted destructive operations {count} times. Each attempt "
+        "was blocked by the proxy security system to protect your data.\n\n"
+        "If you need to execute destructive git commands or file operations, you must "
+        "run them manually in your terminal.\n\n"
+        "Please start a new session to continue with your task."
+    )
+
     def __init__(
         self,
         backend_processor: IBackendProcessor,
@@ -448,19 +504,77 @@ class BackendRequestManager(IBackendRequestManager):
         *,
         is_streaming: bool = False,
     ) -> ResponseEnvelope | StreamingResponseEnvelope | None:
-        """Attempt to re-run the request after a swallowed tool call."""
+        """Attempt to re-run the request after a swallowed tool call.
 
+        Implements escalating retry logic with hard limits to prevent infinite loops
+        when LLMs repeatedly attempt dangerous commands:
+
+        1. First attempt: Standard steering message explaining the blocked command
+        2. Second attempt: Stronger warning about repeated attempts
+        3. Third attempt: Final warning before termination
+        4. Fourth+ attempt: Terminal error returned to client, no more retries
+
+        Both streaming and non-streaming paths use the same logic for parity.
+        """
         metadata = backend_response.metadata or {}
         steering_message = metadata.get("steering_message")
         if not steering_message:
             return None
 
+        # === LOOP PREVENTION: Track and limit dangerous command retries ===
+        extra_body = dict(original_request.extra_body or {})
+        current_retry_count: int = extra_body.get(self._DANGEROUS_RETRY_KEY, 0)
+        new_retry_count = current_retry_count + 1
+
+        # Check if we've exceeded the maximum retry limit
+        if new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES:
+            logger.warning(
+                "Dangerous command retry limit exceeded for session %s: "
+                "%d attempts blocked. Terminating with error.",
+                session_id,
+                new_retry_count,
+            )
+            # Return terminal error to client instead of retrying
+            terminal_content = self._DANGEROUS_TERMINAL_ERROR.format(
+                count=new_retry_count
+            )
+            terminal_metadata = {
+                "dangerous_command_limit_exceeded": True,
+                "dangerous_command_retry_count": new_retry_count,
+                "session_terminated": True,
+                "is_done": True,
+                "finish_reason": "security_limit",
+            }
+            return self._create_terminal_response(
+                terminal_content, terminal_metadata, is_streaming
+            )
+
+        # Update retry count for the next request
+        extra_body[self._DANGEROUS_RETRY_KEY] = new_retry_count
+        extra_body["_tool_call_reactor_retry"] = True
+
+        # === SELECT ESCALATING STEERING MESSAGE ===
+        # Use progressively stronger messages based on retry attempt
+        escalating_index = min(
+            new_retry_count - 1, len(self._DANGEROUS_STEERING_MESSAGES) - 1
+        )
+        escalating_steering = self._DANGEROUS_STEERING_MESSAGES[escalating_index]
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Dangerous command blocked for session %s (attempt %d/%d), "
+                "applying escalating steering",
+                session_id,
+                new_retry_count,
+                self._MAX_DANGEROUS_COMMAND_RETRIES,
+            )
+
+        # === BUILD COMPLETE CONTEXT FOR RETRY REQUEST ===
+        # Explicitly preserve all original context: system prompt, full history
         swallowed_calls = metadata.get("swallowed_tool_calls")
         original_content = metadata.get("swallowed_original_content")
 
-        extra_body = dict(original_request.extra_body or {})
-        extra_body["_tool_call_reactor_retry"] = True
-
+        # Build detailed summary of what was blocked
         summary_parts: list[str] = []
         if isinstance(original_content, str) and original_content.strip():
             summary_parts.append(original_content.strip())
@@ -496,10 +610,15 @@ class BackendRequestManager(IBackendRequestManager):
                 "A previous assistant response attempted a tool call that was blocked by the proxy."
             )
 
-        proxy_prompt = "[Proxy Notice]\n" + "\n\n".join(summary_parts)
-        if steering_message:
-            proxy_prompt += "\n\n" + str(steering_message)
+        # Construct the complete proxy prompt with escalating message
+        proxy_prompt = (
+            f"[Proxy Notice - Attempt {new_retry_count}/{self._MAX_DANGEROUS_COMMAND_RETRIES}]\n"
+            + "\n\n".join(summary_parts)
+            + "\n\n"
+            + escalating_steering
+        )
 
+        # Create system message to append (preserves all original messages)
         system_message = ChatMessage(role="system", content=proxy_prompt)
         new_messages = [*list(original_request.messages), system_message]
 
@@ -507,6 +626,7 @@ class BackendRequestManager(IBackendRequestManager):
             update={"messages": new_messages, "extra_body": extra_body}
         )
 
+        # === EXECUTE RETRY REQUEST ===
         try:
             retry_response = await self._backend_processor.process_backend_request(
                 request=retry_request, session_id=session_id, context=context
@@ -521,13 +641,63 @@ class BackendRequestManager(IBackendRequestManager):
                 )
             fallback_metadata = dict(metadata)
             fallback_metadata["tool_call_reactor_retry_failed"] = True
+            fallback_metadata["dangerous_command_retry_count"] = new_retry_count
             return ResponseEnvelope(content="", metadata=fallback_metadata)
 
-        if (
-            not is_streaming
-            and isinstance(retry_response, ResponseEnvelope)
-            and not retry_request.stream
-        ):
+        # === PROCESS RESPONSE AND CHECK FOR REPEATED DANGEROUS CALLS ===
+        # Both streaming and non-streaming use the same processing logic for parity
+        return await self._process_retry_response(
+            retry_response=retry_response,
+            retry_request=retry_request,
+            original_response=backend_response,
+            session_id=session_id,
+            context=context,
+            is_streaming=is_streaming,
+            retry_count=new_retry_count,
+        )
+
+    def _create_terminal_response(
+        self,
+        content: str,
+        metadata: dict[str, Any],
+        is_streaming: bool,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Create a terminal error response for both streaming and non-streaming.
+
+        Used when the dangerous command retry limit is exceeded.
+        """
+        if is_streaming:
+            async def _terminal_stream() -> AsyncIterator[ProcessedResponse]:
+                yield ProcessedResponse(content=content, metadata=metadata)
+
+            return StreamingResponseEnvelope(
+                content=_terminal_stream(), metadata=metadata
+            )
+        return ResponseEnvelope(content=content, metadata=metadata)
+
+    async def _process_retry_response(
+        self,
+        retry_response: ResponseEnvelope | StreamingResponseEnvelope,
+        retry_request: ChatRequest,
+        original_response: ResponseEnvelope,
+        session_id: str,
+        context: Any,
+        is_streaming: bool,
+        retry_count: int,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Process the retry response, handling both streaming and non-streaming.
+
+        This unified method ensures parity between streaming and non-streaming paths.
+        It applies middleware to detect if the LLM repeats dangerous calls.
+        """
+        # Add retry metadata for downstream tracking
+        retry_metadata_update = {
+            "steering_retry_occurred": True,
+            "dangerous_command_retry_count": retry_count,
+        }
+
+        # === NON-STREAMING PATH ===
+        if not is_streaming and isinstance(retry_response, ResponseEnvelope):
             try:
                 middleware_context = {
                     "original_request": retry_request,
@@ -538,21 +708,38 @@ class BackendRequestManager(IBackendRequestManager):
                     session_id,
                     middleware_context,
                 )
+
                 if hasattr(processed_retry, "content"):
                     retry_response.content = processed_retry.content
-                    if (
-                        hasattr(processed_retry, "metadata")
-                        and processed_retry.metadata
-                    ):
-                        if retry_response.metadata is None:
-                            retry_response.metadata = {}
-                        retry_response.metadata.update(processed_retry.metadata)
 
                 if retry_response.metadata is None:
                     retry_response.metadata = {}
-                retry_response.metadata["steering_retry_occurred"] = True
+
+                if hasattr(processed_retry, "metadata") and processed_retry.metadata:
+                    retry_response.metadata.update(processed_retry.metadata)
+
+                retry_response.metadata.update(retry_metadata_update)
+
+                # Check if LLM repeated a dangerous call - this will be flagged
+                # in metadata by the tool call reactor middleware
+                if retry_response.metadata.get("tool_call_swallowed"):
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "LLM repeated dangerous command on retry %d for session %s",
+                            retry_count,
+                            session_id,
+                        )
+                    # Recursively retry with incremented count (will hit limit eventually)
+                    return await self._retry_after_tool_swallow(
+                        retry_request,
+                        retry_response,
+                        session_id,
+                        context,
+                        is_streaming=False,
+                    ) or retry_response
 
                 return retry_response
+
             except Exception as exc:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -561,8 +748,9 @@ class BackendRequestManager(IBackendRequestManager):
                         exc,
                         exc_info=True,
                     )
-                return backend_response
+                return original_response
 
+        # === STREAMING PATH ===
         if is_streaming:
             if isinstance(retry_response, StreamingResponseEnvelope):
                 try:
@@ -581,11 +769,13 @@ class BackendRequestManager(IBackendRequestManager):
                             exc_info=True,
                         )
 
+            # Fallback: wrap non-streaming response in a single-chunk stream
             async def _single_chunk_stream() -> AsyncIterator[ProcessedResponse]:
                 if isinstance(retry_response, StreamingResponseEnvelope):
                     source_stream = retry_response.content
                 else:
                     source_stream = None
+
                 if source_stream is not None:
                     async for item in source_stream:
                         if isinstance(item, ProcessedResponse):
@@ -593,26 +783,37 @@ class BackendRequestManager(IBackendRequestManager):
                         else:
                             yield ProcessedResponse(
                                 content=getattr(item, "content", item),
-                                metadata=getattr(item, "metadata", {}),
+                                metadata={
+                                    **getattr(item, "metadata", {}),
+                                    **retry_metadata_update,
+                                },
                             )
                         return
+
                 yield ProcessedResponse(
                     content=getattr(retry_response, "content", ""),
-                    metadata=getattr(retry_response, "metadata", {}),
+                    metadata={
+                        **getattr(retry_response, "metadata", {}),
+                        **retry_metadata_update,
+                    },
                 )
 
-            # Preserve metadata from retry response if available
-            retry_metadata = (
+            stream_metadata = (
                 retry_response.metadata
                 if isinstance(retry_response, StreamingResponseEnvelope)
                 else None
             )
+            if stream_metadata:
+                stream_metadata = {**stream_metadata, **retry_metadata_update}
+            else:
+                stream_metadata = retry_metadata_update
+
             return StreamingResponseEnvelope(
-                content=_single_chunk_stream(), metadata=retry_metadata
+                content=_single_chunk_stream(), metadata=stream_metadata
             )
 
-        # Streaming retries are not currently supported; fall back to original response
-        return backend_response
+        # Fallback for unexpected cases
+        return original_response
 
     async def _process_streaming_response(
         self,
@@ -713,12 +914,44 @@ class BackendRequestManager(IBackendRequestManager):
                 )
 
                 if metadata.get("tool_call_swallowed") and not swallowed_detected:
+                    # Get current retry count from extra_body
+                    current_retry_count: int = 0
+                    if isinstance(original_extra_body, dict):
+                        current_retry_count = original_extra_body.get(
+                            self._DANGEROUS_RETRY_KEY, 0
+                        )
+
                     if reactor_retry_active:
+                        # Check if we've exceeded the limit - if so, yield terminal error
+                        if current_retry_count >= self._MAX_DANGEROUS_COMMAND_RETRIES:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Streaming: Dangerous command retry limit exceeded "
+                                    "for session %s (attempt %d). Terminating.",
+                                    session_id,
+                                    current_retry_count + 1,
+                                )
+                            terminal_content = self._DANGEROUS_TERMINAL_ERROR.format(
+                                count=current_retry_count + 1
+                            )
+                            terminal_metadata = {
+                                "dangerous_command_limit_exceeded": True,
+                                "dangerous_command_retry_count": current_retry_count + 1,
+                                "session_terminated": True,
+                                "is_done": True,
+                                "finish_reason": "security_limit",
+                            }
+                            yield ProcessedResponse(
+                                content=terminal_content,
+                                metadata=terminal_metadata,
+                            )
+                            return
+
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "Tool call swallow detected during retry for session %s; forwarding chunk without additional retry",
+                                "Streaming: Tool call swallow detected during retry "
+                                "for session %s; forwarding chunk for further retry",
                                 session_id,
-                                chunk,
                             )
                         swallowed_detected = True
                         if isinstance(chunk, ProcessedResponse):

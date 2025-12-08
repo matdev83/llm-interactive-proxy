@@ -1,0 +1,382 @@
+"""
+Tests for Dangerous Command Loop Prevention.
+
+These tests verify the escalating retry mechanism that prevents infinite loops
+when LLMs repeatedly attempt dangerous commands.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.backend_request_manager_service import BackendRequestManager
+
+from tests.helpers.angel_factory_stub import AngelFactoryStub
+
+
+def _make_context() -> RequestContext:
+    return RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        client_host=None,
+        session_id=None,
+        agent=None,
+        original_request=None,
+        processing_context=None,
+    )
+
+
+def _create_swallowed_metadata(retry_count: int = 0) -> dict:
+    """Create metadata for a swallowed dangerous command with retry count."""
+    return {
+        "tool_call_swallowed": True,
+        "steering_message": "original steering",
+        "swallowed_original_content": "dangerous output",
+        "swallowed_tool_calls": [
+            {"function": {"name": "execute_command", "arguments": "git reset --hard"}}
+        ],
+    }
+
+
+def _create_request_with_retry_count(retry_count: int) -> ChatRequest:
+    """Create a request with the specified retry count."""
+    extra_body = {}
+    if retry_count > 0:
+        extra_body["_dangerous_command_retry_count"] = retry_count
+        extra_body["_tool_call_reactor_retry"] = True
+    return ChatRequest(
+        model="gemini",
+        messages=[ChatMessage(role="user", content="do git reset --hard")],
+        stream=False,
+        extra_body=extra_body if extra_body else None,
+    )
+
+
+class TestDangerousCommandLoopPrevention:
+    """Test the escalating retry logic for dangerous command prevention."""
+
+    @pytest.mark.asyncio
+    async def test_first_attempt_uses_first_warning_message(self) -> None:
+        """First dangerous command attempt should use the first warning message."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        original_request = _create_request_with_retry_count(0)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        # Mock a clean retry response
+        backend_processor.process_backend_request.return_value = ResponseEnvelope(
+            content="safe response"
+        )
+        response_processor.process_response = AsyncMock(
+            return_value=ProcessedResponse(content="safe response", metadata={})
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request, backend_response, "session-1", _make_context()
+        )
+
+        # Verify the retry request was made
+        assert backend_processor.process_backend_request.await_count == 1
+        retry_call = backend_processor.process_backend_request.await_args
+        retry_request = retry_call.kwargs["request"]
+
+        # Check retry count is set
+        assert retry_request.extra_body["_dangerous_command_retry_count"] == 1
+        assert retry_request.extra_body["_tool_call_reactor_retry"] is True
+
+        # Check the message contains first warning
+        proxy_message = retry_request.messages[-1].content
+        assert "Attempt 1/3" in proxy_message
+        assert "First Warning" in proxy_message
+        assert "Proxy Security Notice" in proxy_message
+
+    @pytest.mark.asyncio
+    async def test_second_attempt_uses_second_warning_message(self) -> None:
+        """Second dangerous command attempt should use stronger warning."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        # Start with retry count = 1 (meaning this is the second attempt)
+        original_request = _create_request_with_retry_count(1)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        backend_processor.process_backend_request.return_value = ResponseEnvelope(
+            content="safe response"
+        )
+        response_processor.process_response = AsyncMock(
+            return_value=ProcessedResponse(content="safe response", metadata={})
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request, backend_response, "session-2", _make_context()
+        )
+
+        retry_call = backend_processor.process_backend_request.await_args
+        retry_request = retry_call.kwargs["request"]
+
+        # Check retry count incremented
+        assert retry_request.extra_body["_dangerous_command_retry_count"] == 2
+
+        # Check the message contains second warning
+        proxy_message = retry_request.messages[-1].content
+        assert "Attempt 2/3" in proxy_message
+        assert "SECOND WARNING" in proxy_message
+
+    @pytest.mark.asyncio
+    async def test_third_attempt_uses_final_warning_message(self) -> None:
+        """Third dangerous command attempt should use final warning."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        original_request = _create_request_with_retry_count(2)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        backend_processor.process_backend_request.return_value = ResponseEnvelope(
+            content="safe response"
+        )
+        response_processor.process_response = AsyncMock(
+            return_value=ProcessedResponse(content="safe response", metadata={})
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request, backend_response, "session-3", _make_context()
+        )
+
+        retry_call = backend_processor.process_backend_request.await_args
+        retry_request = retry_call.kwargs["request"]
+
+        assert retry_request.extra_body["_dangerous_command_retry_count"] == 3
+
+        proxy_message = retry_request.messages[-1].content
+        assert "Attempt 3/3" in proxy_message
+        assert "FINAL WARNING" in proxy_message
+
+    @pytest.mark.asyncio
+    async def test_fourth_attempt_returns_terminal_error_non_streaming(self) -> None:
+        """Fourth attempt should return terminal error instead of retrying."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        # Retry count = 3 means we've already had 3 retries
+        original_request = _create_request_with_retry_count(3)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request,
+            backend_response,
+            "session-terminal",
+            _make_context(),
+            is_streaming=False,
+        )
+
+        # Should NOT call the backend - terminal error returned immediately
+        assert backend_processor.process_backend_request.await_count == 0
+
+        # Check terminal response
+        assert isinstance(result, ResponseEnvelope)
+        assert "Session Terminated" in result.content
+        assert "4 times" in result.content
+        assert result.metadata["dangerous_command_limit_exceeded"] is True
+        assert result.metadata["session_terminated"] is True
+        assert result.metadata["finish_reason"] == "security_limit"
+
+    @pytest.mark.asyncio
+    async def test_fourth_attempt_returns_terminal_error_streaming(self) -> None:
+        """Fourth attempt in streaming mode should return terminal error stream."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        original_request = _create_request_with_retry_count(3)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request,
+            backend_response,
+            "session-terminal-stream",
+            _make_context(),
+            is_streaming=True,
+        )
+
+        # Should NOT call the backend
+        assert backend_processor.process_backend_request.await_count == 0
+
+        # Check terminal streaming response
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        chunks = [chunk async for chunk in result.content]
+        assert len(chunks) == 1
+        assert "Session Terminated" in chunks[0].content
+        assert chunks[0].metadata["dangerous_command_limit_exceeded"] is True
+        assert chunks[0].metadata["session_terminated"] is True
+
+    @pytest.mark.asyncio
+    async def test_retry_counter_preserved_across_retries(self) -> None:
+        """Retry counter should be properly incremented and preserved."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        original_request = _create_request_with_retry_count(0)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        # Simulate LLM repeating dangerous command on retry
+        repeated_swallow_response = ProcessedResponse(
+            content="still dangerous",
+            metadata={
+                "tool_call_swallowed": True,
+                "steering_message": "blocked again",
+                "swallowed_tool_calls": [
+                    {"function": {"name": "execute_command", "arguments": "rm -rf /"}}
+                ],
+            },
+        )
+
+        # First call returns dangerous, then mock for recursive retry
+        backend_processor.process_backend_request.side_effect = [
+            ResponseEnvelope(content="raw"),
+            ResponseEnvelope(content="still raw"),
+        ]
+        response_processor.process_response = AsyncMock(
+            return_value=repeated_swallow_response
+        )
+
+        # This should detect the repeated swallow and recursively retry until limit
+        result = await manager._retry_after_tool_swallow(
+            original_request, backend_response, "session-recursive", _make_context()
+        )
+
+        # Should have made 3 backend calls (initial + 2 recursive retries before hitting limit)
+        assert backend_processor.process_backend_request.await_count == 3
+
+        # Third call should have retry count = 3 (the max)
+        third_call = backend_processor.process_backend_request.await_args_list[2]
+        third_request = third_call.kwargs["request"]
+        assert third_request.extra_body["_dangerous_command_retry_count"] == 3
+
+
+class TestStreamingLoopPrevention:
+    """Test loop prevention in streaming mode."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_terminal_error_after_max_retries(self) -> None:
+        """Streaming should return terminal error when max retries exceeded."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        # Request already at max retries  
+        request_at_limit = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="dangerous")],
+            stream=True,
+            extra_body={
+                "_dangerous_command_retry_count": 3,
+                "_tool_call_reactor_retry": True,
+            },
+        )
+
+        async def initial_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content="still dangerous",
+                metadata={
+                    "tool_call_swallowed": True,
+                    "steering_message": "blocked",
+                },
+            )
+
+        backend_processor.process_backend_request.return_value = (
+            StreamingResponseEnvelope(content=initial_stream())
+        )
+
+        result = await manager._process_streaming_response(
+            StreamingResponseEnvelope(content=initial_stream()),
+            request_at_limit,
+            "session-stream-limit",
+            _make_context(),
+        )
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        chunks = [chunk async for chunk in result.content]
+
+        # Should get terminal error
+        assert len(chunks) == 1
+        assert "Session Terminated" in chunks[0].content
+        assert chunks[0].metadata["dangerous_command_limit_exceeded"] is True
+
+    @pytest.mark.asyncio
+    async def test_metadata_includes_retry_count(self) -> None:
+        """Retry responses should include retry count in metadata."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+        response_processor.process_streaming_response = lambda stream, _sid: stream
+        manager = BackendRequestManager(
+            backend_processor, response_processor, AngelFactoryStub()
+        )
+
+        original_request = _create_request_with_retry_count(1)
+        backend_response = ResponseEnvelope(
+            content="dangerous", metadata=_create_swallowed_metadata()
+        )
+
+        backend_processor.process_backend_request.return_value = ResponseEnvelope(
+            content="safe"
+        )
+        response_processor.process_response = AsyncMock(
+            return_value=ProcessedResponse(content="safe", metadata={})
+        )
+
+        result = await manager._retry_after_tool_swallow(
+            original_request, backend_response, "session-meta", _make_context()
+        )
+
+        assert isinstance(result, ResponseEnvelope)
+        assert result.metadata["dangerous_command_retry_count"] == 2
+        assert result.metadata["steering_retry_occurred"] is True

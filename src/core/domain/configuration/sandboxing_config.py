@@ -35,6 +35,7 @@ class SandboxingConfiguration(DomainModel):
     # Default file-changing tool patterns based on TOOL_INVENTORY.md
     default_tool_patterns: list[str] = Field(
         default_factory=lambda: [
+            # File editors/creators
             r"write_to_file",
             r"write_file",
             r"fsWrite",
@@ -55,6 +56,16 @@ class SandboxingConfiguration(DomainModel):
             r"insert_content",
             r"search_and_replace",
             r"generate_image",
+            # Shell/command runners
+            r"Execute",
+            r"execute_command",
+            r"run_shell_command",
+            r"run_terminal_command",
+            r"exec_command",
+            r"bash",
+            r"shell",
+            r"local_shell",
+            r"container\.exec",
         ]
     )
     """Default regex patterns for identifying file-changing tools."""
@@ -81,6 +92,10 @@ class SandboxingConfiguration(DomainModel):
             "files",
             "file_list",
             "targets",
+            "cwd",
+            "workdir",
+            "directory",
+            "dir",
         ]
     )
     """Parameter names that may contain file paths in tool call arguments."""
