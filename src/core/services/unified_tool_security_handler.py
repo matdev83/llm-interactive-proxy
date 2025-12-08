@@ -365,7 +365,9 @@ class FileSandboxingCheck(ISecurityCheck):
         if not paths and command_service.is_shell_tool(context.tool_name):
             commands = command_service.extract_command_strings(context.tool_arguments)
             for cmd in commands:
-                paths.extend(command_service.extract_paths_from_command(cmd, project_root))
+                paths.extend(
+                    command_service.extract_paths_from_command(cmd, project_root)
+                )
 
         if not paths:
             if self._config.strict_mode:

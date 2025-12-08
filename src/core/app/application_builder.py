@@ -66,9 +66,7 @@ def _register_sandboxing_handler(
     # File sandboxing is now handled by UnifiedToolSecurityHandler
     # which is registered in the tool call reactor factory
     if logger.isEnabledFor(logging.INFO):
-        logger.info(
-            "File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)"
-        )
+        logger.info("File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)")
 
 
 class ApplicationBuilder:

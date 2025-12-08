@@ -170,9 +170,14 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             "Mirror push that can delete remote refs.",
         ),
         (
-            r"git\s+branch\s+-D\s+\S+",
+            r"git\s+branch\s+(?-i:-D)\s+\S+",
             "git-branch-force-delete",
             "Force deletes a branch even if not merged.",
+        ),
+        (
+            r"git\s+branch\s+-d\s+\S+",
+            "git-branch-delete",
+            "Deletes a branch.",
         ),
         (
             r"git\s+update-ref\s+-d\s+\S+",

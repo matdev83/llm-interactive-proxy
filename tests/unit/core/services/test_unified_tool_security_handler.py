@@ -55,9 +55,7 @@ class TestCommandExtractionService:
     def test_extract_command_from_nested_dict(self) -> None:
         """Should extract command from nested input structure."""
         service = CommandExtractionService()
-        result = service.extract_command_string(
-            {"input": {"command": "git clean -fd"}}
-        )
+        result = service.extract_command_string({"input": {"command": "git clean -fd"}})
         assert result == "git clean -fd"
 
     def test_normalize_command_strips_env_prefix(self) -> None:
@@ -122,9 +120,7 @@ class TestDangerousCommandCheck:
     def command_service(self) -> CommandExtractionService:
         return CommandExtractionService()
 
-    def _make_context(
-        self, tool_name: str, arguments: dict | str
-    ) -> ToolCallContext:
+    def _make_context(self, tool_name: str, arguments: dict | str) -> ToolCallContext:
         return ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
@@ -150,7 +146,9 @@ class TestDangerousCommandCheck:
         self, check: DangerousCommandCheck, command_service: CommandExtractionService
     ) -> None:
         """Should block git push --force commands."""
-        context = self._make_context("bash", {"command": "git push origin main --force"})
+        context = self._make_context(
+            "bash", {"command": "git push origin main --force"}
+        )
         result = await check.check(context, command_service)
         assert result.blocked is True
         assert "git_push_force" in result.reason
@@ -195,9 +193,7 @@ class TestDangerousCommandCheck:
         assert result.blocked is False
 
     @pytest.mark.asyncio
-    async def test_custom_rule(
-        self, command_service: CommandExtractionService
-    ) -> None:
+    async def test_custom_rule(self, command_service: CommandExtractionService) -> None:
         """Should support custom rules."""
         config = DangerousCommandsConfig(
             enabled=True,
@@ -235,7 +231,9 @@ class TestFileSandboxingCheck:
     @pytest.fixture
     def path_validator(self) -> MagicMock:
         validator = MagicMock()
-        validator.extract_paths_from_arguments = MagicMock(return_value=["/project/file.txt"])
+        validator.extract_paths_from_arguments = MagicMock(
+            return_value=["/project/file.txt"]
+        )
         validator.normalize_path = MagicMock(side_effect=lambda p, _: Path(p))
         validator.is_within_boundary = MagicMock(return_value=True)
         return validator
@@ -261,9 +259,7 @@ class TestFileSandboxingCheck:
     def command_service(self) -> CommandExtractionService:
         return CommandExtractionService()
 
-    def _make_context(
-        self, tool_name: str, arguments: dict | str
-    ) -> ToolCallContext:
+    def _make_context(self, tool_name: str, arguments: dict | str) -> ToolCallContext:
         return ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
@@ -341,16 +337,16 @@ class TestUnifiedToolSecurityHandler:
         return UnifiedSecurityConfig(
             enabled=True,
             dangerous_commands=DangerousCommandsConfig(enabled=True),
-            file_sandboxing=FileSandboxingConfig(enabled=False),  # Only test dangerous commands
+            file_sandboxing=FileSandboxingConfig(
+                enabled=False
+            ),  # Only test dangerous commands
         )
 
     @pytest.fixture
     def handler(self, config: UnifiedSecurityConfig) -> UnifiedToolSecurityHandler:
         return UnifiedToolSecurityHandler(config)
 
-    def _make_context(
-        self, tool_name: str, arguments: dict | str
-    ) -> ToolCallContext:
+    def _make_context(self, tool_name: str, arguments: dict | str) -> ToolCallContext:
         return ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
@@ -466,9 +462,7 @@ class TestUnifiedSecurityConfig:
 
         # Invalid pattern should raise
         with pytest.raises(ValueError):
-            DangerousCommandRuleConfig(
-                name="bad", pattern=r"[invalid(", description=""
-            )
+            DangerousCommandRuleConfig(name="bad", pattern=r"[invalid(", description="")
 
     def test_loop_prevention_config(self) -> None:
         """Should configure loop prevention settings."""

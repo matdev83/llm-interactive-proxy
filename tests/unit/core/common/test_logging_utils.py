@@ -192,7 +192,9 @@ class TestDiscoverApiKeysFromConfigAndEnv:
             # Discover API keys
             # Patch _logged_security_warnings to ensure we start with a clean state
             # This prevents interference from other tests that might have already logged warnings
-            with patch("src.core.common.logging_utils._logged_security_warnings", set()):
+            with patch(
+                "src.core.common.logging_utils._logged_security_warnings", set()
+            ):
                 with patch(
                     "src.core.common.logging_utils.get_logger"
                 ) as mock_get_logger:

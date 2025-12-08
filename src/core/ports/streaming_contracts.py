@@ -319,7 +319,12 @@ class StreamingContent:
 
         if self.content:
             if isinstance(self.content, str):
-                if self.content.strip():
+                # IMPORTANT: Consider whitespace-only strings as NON-EMPTY.
+                # Models often stream spaces and newlines as separate deltas,
+                # and dropping them causes words to be merged (e.g., "wordword"
+                # instead of "word word" or missing line breaks).
+                # Only truly empty strings (len == 0) should be considered empty.
+                if len(self.content) > 0:
                     return False
             else:
                 return False

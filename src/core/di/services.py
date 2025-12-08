@@ -2082,7 +2082,9 @@ def register_core_services(
                         reactor.register_handler_sync(unified_security_handler)
                         if logger.isEnabledFor(logging.INFO):
                             features = []
-                            if unified_security_handler._config.dangerous_commands.enabled:
+                            if (
+                                unified_security_handler._config.dangerous_commands.enabled
+                            ):
                                 features.append("dangerous_commands")
                             if unified_security_handler._config.file_sandboxing.enabled:
                                 features.append("file_sandboxing")

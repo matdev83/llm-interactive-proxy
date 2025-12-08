@@ -312,7 +312,7 @@ class TestStreamingLoopPrevention:
             backend_processor, response_processor, AngelFactoryStub()
         )
 
-        # Request already at max retries  
+        # Request already at max retries
         request_at_limit = ChatRequest(
             model="gemini",
             messages=[ChatMessage(role="user", content="dangerous")],

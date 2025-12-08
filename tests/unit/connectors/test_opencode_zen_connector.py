@@ -588,9 +588,9 @@ class TestInitialization:
         """Should populate available_models on successful init."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
         expected_models = [
-            "claude-opus-4-5",
-            "gpt-5.1",
-            "gemini-3-pro",
+            "anthropic/claude-opus-4.5",
+            "openai/gpt-5.1",
+            "google/gemini-3-pro",
         ]
         for model in expected_models:
             assert model in connector.available_models
@@ -609,7 +609,7 @@ class TestChatCompletions:
         """Should raise BackendError when not functional."""
         connector.is_functional = False
         chat_request = ChatRequest(
-            model="opencode-zen:anthropic/claude-sonnet-4",
+            model="opencode-zen/anthropic/claude-sonnet-4",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
@@ -617,7 +617,7 @@ class TestChatCompletions:
             await connector.chat_completions(
                 chat_request,
                 chat_request.messages,
-                "opencode-zen:anthropic/claude-sonnet-4",
+                "opencode-zen/anthropic/claude-sonnet-4",
             )
 
     @pytest.mark.asyncio
@@ -634,7 +634,7 @@ class TestChatCompletions:
         os.utime(temp_credentials_file, None)
 
         chat_request = ChatRequest(
-            model="opencode-zen:anthropic/claude-sonnet-4",
+            model="opencode-zen/anthropic/claude-sonnet-4",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
@@ -650,16 +650,16 @@ class TestChatCompletions:
             await connector.chat_completions(
                 chat_request,
                 chat_request.messages,
-                "opencode-zen:anthropic/claude-sonnet-4",
+                "opencode-zen/anthropic/claude-sonnet-4",
             )
 
     @pytest.mark.asyncio
     async def test_preserves_vendor_prefix(self, connector, temp_credentials_file):
-        """Should preserve vendor prefix (e.g. 'anthropic/') but strip 'opencode-zen:'."""
+        """Should preserve vendor prefix (e.g. 'anthropic/') but strip 'opencode-zen/'."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
 
         chat_request = ChatRequest(
-            model="opencode-zen:anthropic/claude-sonnet-4",
+            model="opencode-zen/anthropic/claude-sonnet-4",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
@@ -674,10 +674,10 @@ class TestChatCompletions:
             await connector.chat_completions(
                 chat_request,
                 chat_request.messages,
-                "opencode-zen:anthropic/claude-sonnet-4",
+                "opencode-zen/anthropic/claude-sonnet-4",
             )
             # Verify the effective_model passed to parent
-            # Should be "anthropic/claude-sonnet-4" because only "opencode-zen:" is stripped
+            # Should be "anthropic/claude-sonnet-4" because only "opencode-zen/" is stripped
             call_args = mock_super.call_args
             effective_model = (
                 call_args.kwargs.get("effective_model") or call_args.args[2]
@@ -699,15 +699,56 @@ class TestModelList:
         assert connector.get_available_models() == []
 
     @pytest.mark.asyncio
-    async def test_returns_prefixed_models_when_functional(
+    async def test_returns_models_without_backend_prefix_when_functional(
         self, connector, temp_credentials_file
     ):
-        """Should return vendor-prefixed models when functional."""
+        """Should return models without backend prefix when functional."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
         models = connector.get_available_models()
         assert len(models) > 0
         for model in models:
-            assert model.startswith("opencode-zen:")
+            # Models should NOT start with backend prefix
+            assert not model.startswith("opencode-zen:")
+            assert not model.startswith("opencode-zen/")
+            # But should have vendor prefix from the source, OR be one of the known fallback models
+            assert "/" in model
+            assert model in [
+                "openai/gpt-5.1",
+                "google/gemini-3-pro",
+                "anthropic/claude-opus-4.5",
+                "anthropic/claude-sonnet-4.5",
+                "openai/gpt-5.1-codex",
+            ]
+
+    @pytest.mark.asyncio
+    async def test_uses_api_models_when_available(
+        self, connector, temp_credentials_file, http_client
+    ):
+        """Should prioritize API models over fallback list when available."""
+        # Mock successful API response with custom models
+        http_client.get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "data": [
+                    {
+                        "id": "claude-3-haiku"
+                    },  # Should be normalized to anthropic/claude-3-haiku
+                    {"id": "gpt-4o"},  # Should be normalized to openai/gpt-4o
+                    {"id": "custom-model"},  # Should remain custom-model
+                ]
+            },
+        )
+
+        await connector.initialize(credentials_path=str(temp_credentials_file))
+        models = connector.get_available_models()
+
+        assert len(models) == 3
+        assert "anthropic/claude-3-haiku" in models
+        assert "openai/gpt-4o" in models
+        assert "custom-model" in models
+        # Ensure fallback models are NOT present
+        assert "anthropic/claude-opus-4.5" not in models
+        assert "google/gemini-3-pro" not in models
 
 
 class TestHealthCheck:

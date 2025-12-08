@@ -94,7 +94,10 @@ class TestSandboxingHandlerRegistration:
             _register_sandboxing_handler(config, service_provider)
 
         # Verify the new log message about unified handler
-        assert "File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)" in caplog.text
+        assert (
+            "File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)"
+            in caplog.text
+        )
         # Service provider should not be called since registration is done elsewhere
         service_provider.get_required_service.assert_not_called()
 

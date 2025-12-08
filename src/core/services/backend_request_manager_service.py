@@ -667,6 +667,7 @@ class BackendRequestManager(IBackendRequestManager):
         Used when the dangerous command retry limit is exceeded.
         """
         if is_streaming:
+
             async def _terminal_stream() -> AsyncIterator[ProcessedResponse]:
                 yield ProcessedResponse(content=content, metadata=metadata)
 
@@ -730,13 +731,16 @@ class BackendRequestManager(IBackendRequestManager):
                             session_id,
                         )
                     # Recursively retry with incremented count (will hit limit eventually)
-                    return await self._retry_after_tool_swallow(
-                        retry_request,
-                        retry_response,
-                        session_id,
-                        context,
-                        is_streaming=False,
-                    ) or retry_response
+                    return (
+                        await self._retry_after_tool_swallow(
+                            retry_request,
+                            retry_response,
+                            session_id,
+                            context,
+                            is_streaming=False,
+                        )
+                        or retry_response
+                    )
 
                 return retry_response
 
@@ -936,7 +940,8 @@ class BackendRequestManager(IBackendRequestManager):
                             )
                             terminal_metadata = {
                                 "dangerous_command_limit_exceeded": True,
-                                "dangerous_command_retry_count": current_retry_count + 1,
+                                "dangerous_command_retry_count": current_retry_count
+                                + 1,
                                 "session_terminated": True,
                                 "is_done": True,
                                 "finish_reason": "security_limit",

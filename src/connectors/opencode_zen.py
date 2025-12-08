@@ -56,7 +56,7 @@ class OpencodeZenConnector(OpenAIConnector):
     ) -> None:
         super().__init__(client, config, translation_service=translation_service)
         self.name = "opencode-zen"
-        self._default_endpoint = "https://api.gateway.opencode.ai/v1"
+        self._default_endpoint = "https://api.opencode.ai/v1"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
@@ -303,6 +303,29 @@ class OpencodeZenConnector(OpenAIConnector):
             len(self.available_models),
         )
 
+    def _normalize_model_name(self, model_name: str) -> str:
+        """Map raw model names to vendor/model-name format.
+
+        Examples:
+            "claude-3-opus" -> "anthropic/claude-3-opus"
+            "gpt-4" -> "openai/gpt-4"
+            "gemini-1.5-pro" -> "google/gemini-1.5-pro"
+        """
+        # If already formatted (contains slash), trust it
+        if "/" in model_name:
+            return model_name
+
+        # Heuristic mapping based on model name prefixes
+        if model_name.startswith("claude"):
+            return f"anthropic/{model_name}"
+        if model_name.startswith(("gpt", "o1-")):
+            return f"openai/{model_name}"
+        if model_name.startswith("gemini"):
+            return f"google/{model_name}"
+
+        # Return as-is if no known vendor detected
+        return model_name
+
     async def _fetch_available_models(self) -> list[str]:
         """Fetch available models from the backend API.
 
@@ -326,7 +349,7 @@ class OpencodeZenConnector(OpenAIConnector):
                 ):
                     for model in data["data"]:
                         if isinstance(model, dict) and "id" in model:
-                            models.append(model["id"])
+                            models.append(self._normalize_model_name(model["id"]))
 
                 if models:
                     logger.info(
@@ -345,14 +368,15 @@ class OpencodeZenConnector(OpenAIConnector):
                 "Error fetching models from API: %s, using defaults", e, exc_info=True
             )
 
-        # Default fallback models
-        return [
-            "claude-opus-4-5",
-            "claude-sonnet-4-5",
+        # Default fallback models (raw names, normalized dynamically)
+        fallback_models = [
+            "claude-opus-4.5",
+            "claude-sonnet-4.5",
             "gpt-5.1",
             "gpt-5.1-codex",
             "gemini-3-pro",
         ]
+        return [self._normalize_model_name(m) for m in fallback_models]
 
     async def get_available_models_async(self) -> list[str]:
         """Async version of get_available_models to allow fetching from API if needed."""
@@ -362,15 +386,15 @@ class OpencodeZenConnector(OpenAIConnector):
         return self.get_available_models()
 
     def get_available_models(self) -> list[str]:
-        """Return available models with vendor prefix for unified model routing.
+        """Return available models.
 
         Returns:
-            List of available model names with 'opencode-zen:' vendor prefix.
+            List of available model names (e.g. 'anthropic/claude-sonnet-4').
+            The backend prefix is NOT included here.
         """
         if not self.is_functional:
             return []
-        # Use ':' as separator per requirements, overriding standard '/' behavior
-        return [f"{self.VENDOR_PREFIX}:{m}" for m in (self.available_models or [])]
+        return self.available_models or []
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
@@ -476,11 +500,11 @@ class OpencodeZenConnector(OpenAIConnector):
                 )
 
         model_name = effective_model
-        if model_name.startswith("opencode-zen:"):
-            model_name = model_name[len("opencode-zen:") :]
-        elif model_name.startswith("opencode-zen/"):
-            # Fallback for backward compatibility or accidental slash usage
+        if model_name.startswith("opencode-zen/"):
             model_name = model_name[len("opencode-zen/") :]
+        elif model_name.startswith("opencode-zen:"):
+            # Legacy support for ':' separator
+            model_name = model_name[len("opencode-zen:") :]
 
         # Update request_data with the stripped model name to ensure it propagates to streaming logic
         # which might extract the model from request_data directly

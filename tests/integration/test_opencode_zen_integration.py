@@ -105,13 +105,13 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
 
         # 2. Request chat completion
         request = ChatRequest(
-            model="opencode-zen:openai/gpt-4.1",
+            model="opencode-zen/openai/gpt-4.1",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
 
         response = await connector.chat_completions(
-            request, request.messages, "opencode-zen:openai/gpt-4.1"
+            request, request.messages, "opencode-zen/openai/gpt-4.1"
         )
 
         # 3. Verify response
@@ -164,13 +164,13 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
 
         # 4. Make request - should trigger reload and use NEW token
         request = ChatRequest(
-            model="opencode-zen:openai/gpt-4.1",
+            model="opencode-zen/openai/gpt-4.1",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
 
         await connector.chat_completions(
-            request, request.messages, "opencode-zen:openai/gpt-4.1"
+            request, request.messages, "opencode-zen/openai/gpt-4.1"
         )
 
         # 5. Verify NEW token was used
@@ -209,13 +209,13 @@ async def test_streaming_response(connector, mock_credentials_file):
         await connector.initialize(credentials_path=str(mock_credentials_file))
 
         request = ChatRequest(
-            model="opencode-zen:openai/gpt-4.1",
+            model="opencode-zen/openai/gpt-4.1",
             messages=[ChatMessage(role="user", content="Hello")],
             stream=True,
         )
 
         response_handle = await connector.chat_completions(
-            request, request.messages, "opencode-zen:openai/gpt-4.1"
+            request, request.messages, "opencode-zen/openai/gpt-4.1"
         )
 
         # Consume stream

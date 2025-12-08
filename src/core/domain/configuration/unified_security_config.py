@@ -205,14 +205,10 @@ class UnifiedSecurityConfig(DomainModel):
     )
     """Configuration for dangerous command detection."""
 
-    file_sandboxing: FileSandboxingConfig = Field(
-        default_factory=FileSandboxingConfig
-    )
+    file_sandboxing: FileSandboxingConfig = Field(default_factory=FileSandboxingConfig)
     """Configuration for file access sandboxing."""
 
-    loop_prevention: LoopPreventionConfig = Field(
-        default_factory=LoopPreventionConfig
-    )
+    loop_prevention: LoopPreventionConfig = Field(default_factory=LoopPreventionConfig)
     """Configuration for retry loop prevention."""
 
     # Shared shell tool patterns (used by both features)
