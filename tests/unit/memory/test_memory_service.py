@@ -40,6 +40,7 @@ class TestMemoryService:
             available=True,
             database_path=str(temp_db_path),
             require_project_discovery=False,
+            summarization_delay_seconds=0,  # Immediate queue for tests
         )
 
     @pytest.fixture

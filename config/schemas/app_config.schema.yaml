@@ -5,6 +5,7 @@ additionalProperties: false
 properties:
   host: { type: string }
   port: { type: integer, minimum: 1 }
+  public_url: { type: ["string", "null"] }
   anthropic_port: { type: integer, minimum: 1 }
   proxy_timeout: { type: integer, minimum: 0 }
   command_prefix: { type: string }
@@ -302,6 +303,10 @@ properties:
       persistence_path: { type: string }
       flush_interval_seconds: { type: number, minimum: 0.1 }
       max_records_in_memory: { type: integer, minimum: 1000 }
+      use_database_persistence: { type: boolean }
+      write_queue_batch_size: { type: integer, minimum: 1 }
+      write_queue_flush_interval_seconds: { type: number, minimum: 0.1 }
+      write_queue_max_size: { type: integer, minimum: 1 }
   memory:
     type: object
     additionalProperties: false
@@ -314,6 +319,7 @@ properties:
       context_prompt: { type: ["string", "null"] }
       database_path: { type: string }
       session_timeout_minutes: { type: integer, minimum: 1 }
+      summarization_delay_seconds: { type: integer, minimum: 0 }
       max_sessions_to_consider: { type: integer, minimum: 1 }
       max_context_tokens: { type: integer, minimum: 1 }
       max_summary_tokens: { type: integer, minimum: 1 }

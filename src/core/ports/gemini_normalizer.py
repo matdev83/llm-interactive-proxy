@@ -235,8 +235,14 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             if "id" in metadata:
                 content_payload["id"] = metadata["id"]
 
+            # Use StopChunkWithUsage to ensure ContentAccumulationProcessor
+            # correctly merges any buffered content into this final chunk.
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            stop_chunk = StopChunkWithUsage(content_payload)
+
             return self.create_normalized_chunk(
-                content=content_payload,
+                content=stop_chunk,
                 metadata=metadata,
                 is_done=True,
                 is_empty=False,

@@ -42,6 +42,9 @@ class MemoryConfiguration(DomainModel):
 
     # Behavior configuration
     session_timeout_minutes: int = 30
+    summarization_delay_seconds: int = (
+        120  # Delay before summarizing sessions to avoid premature summarization
+    )
     max_sessions_to_consider: int = 10
     max_context_tokens: int = 2000
     max_summary_tokens: int = 800

@@ -108,7 +108,9 @@ class RequestProcessor(IRequestProcessor):
         # Ensure client_os is available in processing context for downstream middleware
         effective_client_os = getattr(session.state, "client_os", None)
         if effective_client_os:
-            context.ensure_processing_context().update({"client_os": effective_client_os})
+            context.ensure_processing_context().update(
+                {"client_os": effective_client_os}
+            )
 
         # Detect VTC (Virtual Tool Calling) client mode
         if not session.state.vtc_enabled and self._app_state is not None:

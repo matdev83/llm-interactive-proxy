@@ -81,7 +81,8 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 # FIX: If we have buffered content, merge it into the StopChunkWithUsage
                 # to ensure it's not lost. This happens when the stream ends with a
                 # StopChunkWithUsage but we have accumulated content (e.g. from SSE strings).
-                if state.chunks:
+                # NOTE: We must NOT merge if we have already sent the content (OpenAI pass-through mode).
+                if state.chunks and not state.has_sent_content:
                     final_content = "".join(state.chunks)
                     if final_content:
                         logger.debug(
@@ -215,6 +216,7 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
             # Pass through the original OpenAI-format chunk unchanged for SSE output
             # This ensures the client receives proper SSE chunks with choices/delta structure
+            state.has_sent_content = True
             return StreamingContent(
                 content=content.content,  # Keep original dict for SSE serialization
                 is_done=content.is_done,

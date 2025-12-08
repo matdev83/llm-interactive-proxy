@@ -113,7 +113,7 @@ class SecurityHeadersMiddleware:
         return response
 
 
-def add_security_headers_middleware(app: "FastAPI") -> None:  # noqa: F821
+def add_security_headers_middleware(app: "FastAPI") -> None:
     """
     Add security headers middleware to a FastAPI application.
 

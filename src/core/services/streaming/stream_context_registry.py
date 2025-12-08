@@ -19,6 +19,7 @@ class StreamBufferState:
     truncation_logged: bool = False
     metadata_snapshot: dict[str, Any] = field(default_factory=dict)
     completed: bool = False
+    has_sent_content: bool = False
     last_accessed: float = field(default_factory=time.time)
 
 

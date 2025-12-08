@@ -36,6 +36,9 @@ class SessionMemoryState:
     backend_model: str | None = None
     enabled_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     queued_for_analysis: bool = False
+    summary_task: asyncio.Task | None = (
+        None  # Background task for delayed summarization
+    )
 
 
 class MemoryService:
@@ -126,10 +129,19 @@ class MemoryService:
             logger.debug("Project root required but not available")
             return False
 
+        # Cancel any pending summary task if session is being resumed
         async with self._state_lock:
             if session_id in self._session_states:
-                logger.debug("Session %s already has memory enabled", session_id)
-                return True
+                existing_state = self._session_states[session_id]
+                if (
+                    existing_state.summary_task
+                    and not existing_state.summary_task.done()
+                ):
+                    existing_state.summary_task.cancel()
+                    logger.debug(
+                        "Cancelled pending summary task for resumed session %s",
+                        session_id,
+                    )
 
             # Get or create project_id
             project_id = None
@@ -146,18 +158,16 @@ class MemoryService:
                 project_id=project_id,
             )
 
-            logger.info(
-                "Memory enabled for session %s (user=%s, project=%s)",
-                session_id,
-                user_id,
-                project_id,
-            )
             return True
 
     async def disable_for_session(self, session_id: str) -> None:
         """Disable memory capture for a session."""
         async with self._state_lock:
             if session_id in self._session_states:
+                state = self._session_states[session_id]
+                # Cancel any pending summary task
+                if state.summary_task and not state.summary_task.done():
+                    state.summary_task.cancel()
                 del self._session_states[session_id]
                 logger.debug("Memory disabled for session %s", session_id)
 
@@ -222,7 +232,7 @@ class MemoryService:
         branch: str | None = None,
         head_sha: str | None = None,
     ) -> bool:
-        """Mark a session as complete and queue for summary generation.
+        """Mark a session as complete and queue for summary generation after a configurable delay.
 
         Returns False if session not enabled or already queued.
         """
@@ -236,26 +246,47 @@ class MemoryService:
                 logger.debug("Session %s already queued for analysis", session_id)
                 return False
 
+            # Cancel any existing summary task
+            if state.summary_task and not state.summary_task.done():
+                state.summary_task.cancel()
+                logger.debug(
+                    "Cancelled existing summary task for session %s", session_id
+                )
+
             # Update state with backend info
             if backend_model:
                 state.backend_model = backend_model
 
             state.queued_for_analysis = True
 
-        # Try to queue for analysis with backpressure
-        try:
-            self._analysis_queue.put_nowait(session_id)
-            logger.info("Session %s queued for analysis", session_id)
-            return True
-        except asyncio.QueueFull:
-            logger.warning(
-                "Analysis queue full, dropping session %s (backpressure)",
-                session_id,
+        # Create background task with configurable delay
+        if self._config.summarization_delay_seconds > 0:
+            state.summary_task = asyncio.create_task(
+                self._delayed_summary(
+                    session_id, self._config.summarization_delay_seconds
+                )
             )
-            async with self._state_lock:
-                if session_id in self._session_states:
-                    self._session_states[session_id].queued_for_analysis = False
-            return False
+            logger.info(
+                "Session %s scheduled for summary in %d seconds",
+                session_id,
+                self._config.summarization_delay_seconds,
+            )
+        else:
+            # Immediate summarization for delay=0 (backwards compatibility)
+            try:
+                self._analysis_queue.put_nowait(session_id)
+                logger.info("Session %s queued for analysis immediately", session_id)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "Analysis queue full, dropping session %s (backpressure)",
+                    session_id,
+                )
+                async with self._state_lock:
+                    if session_id in self._session_states:
+                        self._session_states[session_id].queued_for_analysis = False
+                return False
+
+        return True
 
     async def get_session_user_id(self, session_id: str) -> str | None:
         """Get the user ID associated with a session."""
@@ -311,6 +342,44 @@ class MemoryService:
 
         async with self._state_lock:
             self._session_states.pop(session_id, None)
+
+    async def _delayed_summary(self, session_id: str, delay_seconds: int) -> None:
+        """Background task to queue delayed session summarization."""
+        try:
+            await asyncio.sleep(delay_seconds)
+            # Check if session still exists and is still queued for analysis
+            async with self._state_lock:
+                if session_id not in self._session_states:
+                    logger.debug(
+                        "Session %s no longer exists, skipping delayed summary",
+                        session_id,
+                    )
+                    return
+                state = self._session_states[session_id]
+                if not state.queued_for_analysis:
+                    logger.debug("Session %s no longer queued for analysis", session_id)
+                    return
+
+            # Queue for actual analysis processing
+            try:
+                self._analysis_queue.put_nowait(session_id)
+                logger.info("Session %s queued for delayed analysis", session_id)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "Analysis queue full during delayed processing, dropping session %s (backpressure)",
+                    session_id,
+                )
+                async with self._state_lock:
+                    if session_id in self._session_states:
+                        self._session_states[session_id].queued_for_analysis = False
+
+        except asyncio.CancelledError:
+            logger.debug("Delayed summary task cancelled for session %s", session_id)
+            raise
+        except Exception as e:
+            logger.exception(
+                "Error in delayed summary task for session %s: %s", session_id, e
+            )
 
     def get_analysis_queue_size(self) -> int:
         """Get the current size of the analysis queue."""
