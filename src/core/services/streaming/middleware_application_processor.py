@@ -76,6 +76,9 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         # Also check for calling_agent directly in metadata
         if "calling_agent" in content.metadata and "calling_agent" not in context:
             context["calling_agent"] = content.metadata["calling_agent"]
+        # Extract client_os for Windows double-ampersand fixer
+        if "client_os" in content.metadata:
+            context["client_os"] = content.metadata["client_os"]
 
         # Per-route flags
         if "expected_json" in content.metadata:

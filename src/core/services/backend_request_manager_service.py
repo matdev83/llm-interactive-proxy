@@ -1209,11 +1209,18 @@ class BackendRequestManager(IBackendRequestManager):
         async def _attach_stream_context(
             stream: AsyncIterator[ProcessedResponse | Any],
         ) -> AsyncIterator[ProcessedResponse]:
+            # Extract client_os from context for downstream middleware
+            client_os_value = None
+            if hasattr(context, "processing_context") and context.processing_context:
+                client_os_value = context.processing_context.values.get("client_os")
+
             async for chunk in stream:
                 if isinstance(chunk, ProcessedResponse):
                     processed_metadata = dict(chunk.metadata or {})
                     processed_metadata.setdefault("original_request", original_request)
                     processed_metadata.setdefault("session_id", session_id)
+                    if client_os_value:
+                        processed_metadata.setdefault("client_os", client_os_value)
                     chunk.metadata = processed_metadata
                     yield chunk
                     continue
@@ -1225,6 +1232,8 @@ class BackendRequestManager(IBackendRequestManager):
                         metadata = dict(raw_metadata)
                 metadata.setdefault("original_request", original_request)
                 metadata.setdefault("session_id", session_id)
+                if client_os_value:
+                    metadata.setdefault("client_os", client_os_value)
                 content_value = getattr(chunk, "content", chunk)
                 yield ProcessedResponse(content=content_value, metadata=metadata)
 
