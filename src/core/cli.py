@@ -735,6 +735,15 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable protection against dangerous git commands (overwrites config file and environment variable)",
     )
 
+    # Windows double-ampersand fixes
+    parser.add_argument(
+        "--disable-double-ampersand-fixes-for-windows",
+        action="store_true",
+        dest="disable_double_ampersand_fixes_for_windows",
+        default=None,
+        help="Disable automatic && to ; replacement in commands for Windows clients",
+    )
+
     # Tool Access Control arguments
     tool_access_group = parser.add_argument_group(
         "Tool Access Control",
@@ -1740,6 +1749,18 @@ def apply_cli_args(
             "session.dangerous_command_prevention_enabled",
             not args.disable_dangerous_git_commands_protection,
             "--disable-dangerous-git-commands-protection",
+        )
+
+    # Windows double-ampersand fixes
+    if getattr(args, "disable_double_ampersand_fixes_for_windows", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        session["double_ampersand_fixes_for_windows_enabled"] = (
+            not args.disable_double_ampersand_fixes_for_windows
+        )
+        record_cli(
+            "session.double_ampersand_fixes_for_windows_enabled",
+            not args.disable_double_ampersand_fixes_for_windows,
+            "--disable-double-ampersand-fixes-for-windows",
         )
 
     # File access sandboxing

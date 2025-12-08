@@ -30,6 +30,9 @@ from src.core.services.streaming.stream_context_registry import (
     ToolCallBufferState,
     get_global_streaming_context_registry,
 )
+from src.core.services.windows_double_ampersand_fixer import (
+    WindowsDoubleAmpersandFixer,
+)
 from src.tool_call_loop.lifecycle_registry import (
     ToolCallLifecycleRegistry,
     build_tool_call_signature,
@@ -54,6 +57,7 @@ class ToolCallReactorFeature(IResponseFeature):
         enabled: bool = True,
         priority: int = -10,
         lifecycle_registry: ToolCallLifecycleRegistry | None = None,
+        double_ampersand_fixer: WindowsDoubleAmpersandFixer | None = None,
     ):
         """Initialize the tool call reactor feature."""
         super().__init__(priority)
@@ -61,6 +65,9 @@ class ToolCallReactorFeature(IResponseFeature):
         self._enabled = enabled
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry(
             max_streams=1024
+        )
+        self._double_ampersand_fixer = (
+            double_ampersand_fixer or WindowsDoubleAmpersandFixer(enabled=True)
         )
 
     async def _process_response(
@@ -278,6 +285,22 @@ class ToolCallReactorFeature(IResponseFeature):
                 calling_agent=calling_agent,
             )
 
+            # Fix double-ampersand command separators for Windows clients
+            tool_name = function_payload.get("name", "unknown")
+            client_os = context.get("client_os")
+            tool_arguments, args_modified = (
+                self._double_ampersand_fixer.fix_tool_arguments(
+                    tool_arguments=tool_arguments,
+                    tool_name=tool_name,
+                    client_os=client_os,
+                )
+            )
+            if args_modified:
+                self._write_back_modified_arguments(
+                    tool_call=tool_call,
+                    new_arguments=tool_arguments,
+                )
+
             full_response = getattr(response, "content", None)
 
             tool_context = ToolCallContext(
@@ -285,7 +308,7 @@ class ToolCallReactorFeature(IResponseFeature):
                 backend_name=backend_name,
                 model_name=model_name,
                 full_response=full_response,
-                tool_name=function_payload.get("name", "unknown"),
+                tool_name=tool_name,
                 tool_arguments=tool_arguments,
                 calling_agent=calling_agent,
             )
@@ -724,9 +747,9 @@ class ToolCallReactorFeature(IResponseFeature):
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
             return tool_arguments
 
-        fixed = path.replace("/", "\\")
-        if not fixed.startswith("\\"):
-            fixed = "\\" + fixed
+        fixed = path.replace("\\", "/")
+        if not fixed.startswith("/"):
+            fixed = "/" + fixed
 
         if isinstance(args, str):
             return fixed
@@ -734,7 +757,35 @@ class ToolCallReactorFeature(IResponseFeature):
             new_args = dict(args)
             new_args[key] = fixed
             return new_args
+        if isinstance(args, dict):
+            new_args = dict(args)
+            new_args["file_path"] = fixed
+            return new_args
         return tool_arguments
+
+    @staticmethod
+    def _write_back_modified_arguments(
+        tool_call: dict[str, Any],
+        new_arguments: Any,
+    ) -> None:
+        """Write modified arguments back to the tool call dict.
+
+        Args:
+            tool_call: The tool call dict to modify
+            new_arguments: The new arguments to write back
+        """
+        function_payload = tool_call.get("function")
+        if not isinstance(function_payload, dict):
+            return
+
+        original_args = function_payload.get("arguments")
+        if isinstance(original_args, str):
+            if isinstance(new_arguments, dict):
+                function_payload["arguments"] = json.dumps(new_arguments)
+            else:
+                function_payload["arguments"] = str(new_arguments)
+        else:
+            function_payload["arguments"] = new_arguments
 
 
 # Legacy middleware kept for backward compatibility during transition
@@ -1438,9 +1489,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
             return tool_arguments
 
-        fixed = path.replace("/", "\\")
-        if not fixed.startswith("\\"):
-            fixed = "\\" + fixed
+        fixed = path.replace("\\", "/")
+        if not fixed.startswith("/"):
+            fixed = "/" + fixed
 
         if isinstance(args, str):
             return fixed

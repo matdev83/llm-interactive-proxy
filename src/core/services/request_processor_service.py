@@ -94,6 +94,22 @@ class RequestProcessor(IRequestProcessor):
         if session_agent:
             request_data = request_data.model_copy(update={"agent": session_agent})
 
+        # Auto-detect client OS if not yet detected
+        if hasattr(session, "state") and not getattr(session.state, "client_os", None):
+            client_os = self._detect_client_os(request_data)
+            if client_os:
+                new_state = session.state.with_client_os(client_os)
+                session.update_state(new_state)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Detected client OS for session {session_id}: {client_os}"
+                    )
+
+        # Ensure client_os is available in processing context for downstream middleware
+        effective_client_os = getattr(session.state, "client_os", None)
+        if effective_client_os:
+            context.ensure_processing_context().update({"client_os": effective_client_os})
+
         # Detect VTC (Virtual Tool Calling) client mode
         if not session.state.vtc_enabled and self._app_state is not None:
             from src.core.services.vtc_detection import detect_vtc_client
@@ -1132,6 +1148,37 @@ class RequestProcessor(IRequestProcessor):
                     return float(value)
             except (AttributeError, TypeError, ValueError):
                 return None
+
+        return None
+
+    def _detect_client_os(self, request_data: ChatRequest) -> str | None:
+        """Detect client OS from request messages."""
+        if not hasattr(request_data, "messages"):
+            return None
+
+        for message in request_data.messages:
+            # Check user messages for system info
+            role, content = self._get_message_role_and_content(message)
+            if role == "user" and isinstance(content, str):
+                # Look for "User system info (win32 10.0.19045)"
+                # The regex captures the content inside parentheses
+                match = re.search(r"User system info \((.*?)\)", content)
+                if match:
+                    os_info = match.group(1).lower()
+                    if "win32" in os_info or "windows" in os_info:
+                        return "windows"
+                    if "darwin" in os_info or "macos" in os_info:
+                        return "macos"
+                    if "linux" in os_info:
+                        return "linux"
+
+                # Secondary heuristic: File paths
+                # Windows path: C:\Users\... (case-insensitive drive letter)
+                if re.search(r"[a-zA-Z]:\\[^\s]+", content):
+                    return "windows"
+                # Unix path: /Users/... or /home/...
+                # Note: This is less reliable as URLs also use /
+                # but typically absolute paths start with / and don't have protocol://
 
         return None
 

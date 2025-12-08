@@ -773,12 +773,25 @@ def register_core_services(
         from src.core.services.tool_call_reactor_middleware import (
             ToolCallReactorFeature,
         )
+        from src.core.services.windows_double_ampersand_fixer import (
+            WindowsDoubleAmpersandFixer,
+        )
 
         tool_call_reactor = provider.get_required_service(ToolCallReactorService)
+
+        # Create double-ampersand fixer based on configuration
+        double_ampersand_enabled = getattr(
+            cfg.session, "double_ampersand_fixes_for_windows_enabled", True
+        )
+        double_ampersand_fixer = WindowsDoubleAmpersandFixer(
+            enabled=double_ampersand_enabled
+        )
+
         features.append(
             ToolCallReactorFeature(
                 tool_call_reactor=tool_call_reactor,
                 lifecycle_registry=lifecycle_registry,
+                double_ampersand_fixer=double_ampersand_fixer,
             )
         )
 

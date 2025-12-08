@@ -288,31 +288,31 @@ class TestLogging:
             ].backend_registry.get_registered_backends.return_value = ["minimax"]
 
             # Case 1: Key matches env var -> No warning
-            with patch.dict("os.environ", {"MINIMAX_API_KEY": "test-minimax-key"}):
-                with patch(
-                    "src.core.common.logging_utils.get_logger"
-                ) as mock_get_logger:
-                    mock_logger = MagicMock()
-                    mock_get_logger.return_value = mock_logger
+            with (
+                patch.dict("os.environ", {"MINIMAX_API_KEY": "test-minimax-key"}),
+                patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            ):
+                mock_logger = MagicMock()
+                mock_get_logger.return_value = mock_logger
 
-                    discover_api_keys_from_config_and_env(config)
+                discover_api_keys_from_config_and_env(config)
 
-                    # Verify no warning logged
-                    mock_logger.warning.assert_not_called()
+                # Verify no warning logged
+                mock_logger.warning.assert_not_called()
 
             # Reset warnings for next case
             _logged_security_warnings.clear()
 
             # Case 2: Key does NOT match env var -> Warning logged
-            with patch.dict("os.environ", {"MINIMAX_API_KEY": "different-key"}):
-                with patch(
-                    "src.core.common.logging_utils.get_logger"
-                ) as mock_get_logger:
-                    mock_logger = MagicMock()
-                    mock_get_logger.return_value = mock_logger
+            with (
+                patch.dict("os.environ", {"MINIMAX_API_KEY": "different-key"}),
+                patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            ):
+                mock_logger = MagicMock()
+                mock_get_logger.return_value = mock_logger
 
-                    discover_api_keys_from_config_and_env(config)
+                discover_api_keys_from_config_and_env(config)
 
-                    # Verify warning logged
-                    mock_logger.warning.assert_called_once()
-                    assert "SECURITY WARNING" in mock_logger.warning.call_args[0][0]
+                # Verify warning logged
+                mock_logger.warning.assert_called_once()
+                assert "SECURITY WARNING" in mock_logger.warning.call_args[0][0]

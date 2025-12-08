@@ -540,6 +540,8 @@ class SessionConfig(DomainModel):
     droid_antigravity_path_fix_enabled: bool = False
     fix_think_tags_enabled: bool = False
     fix_think_tags_streaming_buffer_size: int = 4096
+    double_ampersand_fixes_for_windows_enabled: bool = True
+    """Whether automatic && to ; replacement is enabled for Windows clients."""
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
     max_per_session_backends: int = 32
     session_continuity: SessionContinuityConfig = Field(
@@ -1674,6 +1676,13 @@ class AppConfig(DomainModel, IConfig):
                 4096,
                 env,
                 path="session.fix_think_tags_streaming_buffer_size",
+                resolution=resolution,
+            ),
+            "double_ampersand_fixes_for_windows_enabled": _env_to_bool(
+                "DOUBLE_AMPERSAND_FIXES_FOR_WINDOWS_ENABLED",
+                True,
+                env,
+                path="session.double_ampersand_fixes_for_windows_enabled",
                 resolution=resolution,
             ),
             "planning_phase": {

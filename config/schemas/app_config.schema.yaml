@@ -148,6 +148,7 @@ properties:
       fix_think_tags_enabled: { type: boolean }
       fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
       droid_antigravity_path_fix_enabled: { type: boolean }
+      double_ampersand_fixes_for_windows_enabled: { type: boolean }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object

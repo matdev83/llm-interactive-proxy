@@ -26,6 +26,7 @@
 --disable-auth
 --disable-brute-force-protection
 --disable-dangerous-git-commands-protection
+--disable-double-ampersand-fixes-for-windows
 --disable-edit-precision
 --disable-gemini-oauth-fallback
 --disable-hybrid-backend

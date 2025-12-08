@@ -318,3 +318,12 @@ class ISessionState(IValueObject, ISessionStateMutator):
         self, backend: str | None, model: str | None
     ) -> ISessionState:
         """Create a new state with updated stored planning-phase backend/model."""
+
+    @property
+    @abstractmethod
+    def client_os(self) -> str | None:
+        """Get the detected client operating system."""
+
+    @abstractmethod
+    def with_client_os(self, client_os: str | None) -> ISessionState:
+        """Create a new state with updated client OS."""

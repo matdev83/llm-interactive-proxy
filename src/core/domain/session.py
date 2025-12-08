@@ -84,6 +84,7 @@ class SessionState(ValueObject):
     planning_phase_original_model: str | None = None
     replacement_state: dict[str, Any] | None = None
     replacement_disabled: bool = False
+    client_os: str | None = None
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -173,6 +174,10 @@ class SessionState(ValueObject):
                 "planning_phase_original_model": model,
             }
         )
+
+    def with_client_os(self, client_os: str | None) -> SessionState:
+        """Create a new session state with updated client OS."""
+        return self.model_copy(update={"client_os": client_os})
 
     def with_multiple_updates(self, **updates: Any) -> SessionState:
         """Create a new session state with multiple field updates in a single model_copy operation.
@@ -523,6 +528,16 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_planning_phase_original_route(
             backend, model
         )
+        return SessionStateAdapter(new_state)
+
+    @property
+    def client_os(self) -> str | None:
+        """Get the detected client operating system."""
+        return self._state.client_os
+
+    def with_client_os(self, client_os: str | None) -> ISessionState:
+        """Create a new state with updated client OS."""
+        new_state = cast(SessionState, self._state).with_client_os(client_os)
         return SessionStateAdapter(new_state)
 
     def with_multiple_updates(self, **updates: Any) -> ISessionState:

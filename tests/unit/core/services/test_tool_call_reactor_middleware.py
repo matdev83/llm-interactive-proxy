@@ -12,7 +12,10 @@ from src.core.interfaces.tool_call_reactor_interface import (
     ToolCallReactionResult,
 )
 from src.core.services.streaming.stream_context_registry import ToolCallBufferState
-from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
+from src.core.services.tool_call_reactor_middleware import (
+    ToolCallReactorFeature,
+    ToolCallReactorMiddleware,
+)
 
 
 @pytest.fixture
@@ -545,3 +548,21 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
     reactor.record_tool_argument_repair_outcome.assert_called()
     outcome = reactor.record_tool_argument_repair_outcome.call_args[0][0]
     assert outcome in {"success", "recovered"}
+
+
+def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
+    """Single-segment relative paths should be normalized with leading slash."""
+    fixed = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        ".gitignore", "gemini-oauth-antigravity", "droid"
+    )
+    assert fixed == "/.gitignore"
+
+
+def test_maybe_fix_droid_antigravity_path_handles_single_filename_dict() -> None:
+    """Dictionary arguments should also be normalized for single-segment paths."""
+    args: dict[str, str] = {"file_path": "foo.txt"}
+    fixed = ToolCallReactorMiddleware._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "droid"
+    )
+    assert isinstance(fixed, dict)
+    assert fixed.get("file_path") == "/foo.txt"

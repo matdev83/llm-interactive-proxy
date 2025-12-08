@@ -32,6 +32,22 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         allow_headers=["*"],  # Allows all headers
     )
 
+    # Security headers middleware - adds X-Content-Type-Options, Cache-Control,
+    # CSP (for HTML), X-Frame-Options (for HTML), etc.
+    try:
+        from src.core.app.middleware.security_headers_middleware import (
+            add_security_headers_middleware,
+        )
+
+        add_security_headers_middleware(app)
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Security headers middleware is enabled")
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register SecurityHeadersMiddleware: %s", e, exc_info=True
+            )
+
     # Check if SSO is enabled (used later to disable legacy auth)
     sso_enabled = (
         config.sso.enabled
