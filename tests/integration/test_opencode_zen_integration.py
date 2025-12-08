@@ -99,8 +99,11 @@ async def test_full_flow_with_credentials(connector, mock_credentials_file):
             )
         )
 
-        # 1. Initialize
-        await connector.initialize(credentials_path=str(mock_credentials_file))
+        # 1. Initialize with debugging override enabled
+        await connector.initialize(
+            credentials_path=str(mock_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
         assert connector.is_functional
 
         # 2. Request chat completion
@@ -144,7 +147,10 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
         )
 
         # 1. Initialize with valid credentials
-        await connector.initialize(credentials_path=str(mock_credentials_file))
+        await connector.initialize(
+            credentials_path=str(mock_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
 
         # 2. Simulate token expiry in memory
         connector._oauth_credentials["expires"] = time.time() - 100
@@ -206,7 +212,10 @@ async def test_streaming_response(connector, mock_credentials_file):
             )
         )
 
-        await connector.initialize(credentials_path=str(mock_credentials_file))
+        await connector.initialize(
+            credentials_path=str(mock_credentials_file),
+            enable_opencode_zen_backend_debugging_override=True,
+        )
 
         request = ChatRequest(
             model="opencode-zen/openai/gpt-4.1",

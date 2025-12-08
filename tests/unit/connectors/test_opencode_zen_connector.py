@@ -607,7 +607,7 @@ class TestChatCompletions:
         connector.is_functional = False
         # Enable the override to bypass the first guard and test the is_functional guard
         connector._enable_opencode_zen_backend_debugging_override = True
-        
+
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",
             messages=[ChatMessage(role="user", content="Hello")],
@@ -738,34 +738,45 @@ class TestChatCompletions:
             )
             assert effective_model == expected_api_model
 
-
     @pytest.mark.asyncio
-    async def test_raises_403_if_debugging_flag_is_not_set(self, connector, temp_credentials_file):
+    async def test_raises_403_if_debugging_flag_is_not_set(
+        self, connector, temp_credentials_file
+    ):
         """Should raise HTTPException 403 if the backend is called without the debug flag."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
-        
-        chat_request = ChatRequest(model="opencode-zen:google/gemini-3-pro", messages=[ChatMessage(role="user", content="test")])
-        
+
+        chat_request = ChatRequest(
+            model="opencode-zen:google/gemini-3-pro",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
         with pytest.raises(HTTPException) as exc_info:
-            await connector.chat_completions(chat_request, [], "opencode-zen:google/gemini-3-pro")
-        
+            await connector.chat_completions(
+                chat_request, [], "opencode-zen:google/gemini-3-pro"
+            )
+
         assert exc_info.value.status_code == 403
         assert "Forbidden" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_works_correctly_if_debugging_flag_is_set(self, connector, temp_credentials_file):
+    async def test_works_correctly_if_debugging_flag_is_set(
+        self, connector, temp_credentials_file
+    ):
         """Should not raise 403 and should proceed normally if the debug flag is set."""
         # Initialize with the debugging flag enabled
         await connector.initialize(
             credentials_path=str(temp_credentials_file),
             enable_opencode_zen_backend_debugging_override=True,
         )
-        
+
         # Ensure the flag was set correctly
         assert connector._enable_opencode_zen_backend_debugging_override is True
 
-        chat_request = ChatRequest(model="opencode-zen:google/gemini-3-pro", messages=[ChatMessage(role="user", content="test")])
-        
+        chat_request = ChatRequest(
+            model="opencode-zen:google/gemini-3-pro",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
         from src.connectors.openai import OpenAIConnector
 
         # Patch the super call to prevent actual network request and just verify the flow
@@ -775,10 +786,13 @@ class TestChatCompletions:
             new=AsyncMock(return_value=SimpleNamespace(ok=True)),
         ) as mock_super:
             # This call should now succeed without a 403 error
-            await connector.chat_completions(chat_request, [], "opencode-zen:google/gemini-3-pro")
-            
+            await connector.chat_completions(
+                chat_request, [], "opencode-zen:google/gemini-3-pro"
+            )
+
             # Assert that the super method was called, proving the guard was bypassed
             mock_super.assert_called_once()
+
 
 # ============================================================================
 # TASK-17 to TASK-19: Supporting Features Tests
@@ -951,6 +965,8 @@ class TestModelNameNormalization:
             ("some-random-model", "some-random-model"),
         ],
     )
-    def test_denormalize_model_name(self, connector, normalized_name, expected_raw_name):
+    def test_denormalize_model_name(
+        self, connector, normalized_name, expected_raw_name
+    ):
         """Should correctly denormalize vendor/model names back to raw format."""
         assert connector._denormalize_model_name(normalized_name) == expected_raw_name
