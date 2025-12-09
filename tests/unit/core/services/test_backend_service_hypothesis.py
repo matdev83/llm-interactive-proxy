@@ -310,7 +310,13 @@ class TestBackendServiceHypothesis:
         mock_app_state,
         stub_failover_coordinator,
     ):
-        """Test rate limiting with various rate limit configurations."""
+        """Test rate limiting via ResilienceCoordinator with various configurations.
+
+        Note: With the new architecture, rate limiting is handled by the
+        ResilienceCoordinator, not the legacy rate limiter.
+        """
+        from src.core.interfaces.resilience_interface import ResilienceDecision
+
         # Arrange
         service = create_backend_service(
             backend_factory,
@@ -326,21 +332,19 @@ class TestBackendServiceHypothesis:
             extra_body={"backend_type": BackendType.OPENAI},
         )
 
-        # Test with different rate limit configurations
-        for remaining in [0, -1, -5]:
-            with (
-                patch.object(
-                    service._rate_limiter,
-                    "check_limit",
-                    AsyncMock(
-                        return_value=Mock(
-                            is_limited=True, remaining=remaining, reset_at=123, limit=10
-                        )
-                    ),
-                ),
-                pytest.raises(RateLimitExceededError),
-            ):
-                # Act & Assert
+        # Test with different cooldown configurations
+        for cooldown in [60.0, 120.0, 300.0]:
+            # Create a mock ResilienceCoordinator that rejects requests
+            mock_resilience = Mock()
+            mock_decision = Mock(spec=ResilienceDecision)
+            mock_decision.should_proceed.return_value = False
+            mock_decision.reason = f"Rate limit exceeded, cooldown {cooldown}s"
+            mock_decision.cooldown_remaining = cooldown
+            mock_resilience.check_availability.return_value = mock_decision
+
+            service._resilience = mock_resilience
+
+            with pytest.raises(RateLimitExceededError):
                 await service.call_completion(chat_request)
 
     @pytest.mark.asyncio

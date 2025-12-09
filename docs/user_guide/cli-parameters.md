@@ -318,6 +318,19 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
  | `--replacement-backend-model BACKEND:MODEL` | `REPLACEMENT_BACKEND_MODEL` | Backend and model to use for replacement. |
  | `--replacement-turn-count N` | `REPLACEMENT_TURN_COUNT` | Number of turns to stay on replacement. |
 
+### Failure Handling
+
+Configure automatic retry and failover behavior for backend errors. See [Failure Handling](features/failure-handling.md) for detailed documentation.
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--disable-failure-handling` | `DISABLE_FAILURE_HANDLING=1` | Disable automatic failure handling (retry/failover). |
+| `--max-silent-wait SECONDS` | `FAILURE_HANDLING_MAX_SILENT_WAIT` | Max seconds to wait before failover (default: 30). |
+| `--total-timeout-budget SECONDS` | `FAILURE_HANDLING_TOTAL_TIMEOUT_BUDGET` | Total timeout budget across failover attempts (default: 90). |
+| `--keepalive-interval SECONDS` | `FAILURE_HANDLING_KEEPALIVE_INTERVAL` | SSE keepalive interval during waits (default: 8). |
+| `--max-failover-hops N` | `FAILURE_HANDLING_MAX_FAILOVER_HOPS` | Max backend instances to try (default: 5). |
+| `--min-retry-wait SECONDS` | `FAILURE_HANDLING_MIN_RETRY_WAIT` | Minimum retry wait time (default: 1). |
+
 ### Other Features
 
 | CLI Argument | Environment Variable | Description |

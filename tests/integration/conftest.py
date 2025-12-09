@@ -118,3 +118,24 @@ def app_config_legacy_log_disabled():
             }
         }
     )
+
+
+@pytest.fixture
+def app_config_legacy_log_enabled():
+    """
+    Provides an AppConfig instance with emit_legacy_steering_log set to True.
+
+    This enables both the structured log and the legacy-formatted log for
+    backward compatibility with existing monitoring dashboards.
+    """
+    from src.core.config.app_config import AppConfig
+
+    return AppConfig.model_validate(
+        {
+            "session": {
+                "tool_call_reactor": {
+                    "emit_legacy_steering_log": True,
+                },
+            }
+        }
+    )

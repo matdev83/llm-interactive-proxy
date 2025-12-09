@@ -29,6 +29,7 @@
 --disable-dangerous-git-commands-protection
 --disable-double-ampersand-fixes-for-windows
 --disable-edit-precision
+--disable-failure-handling
 --disable-gemini-oauth-fallback
 --disable-hybrid-backend
 --disable-interactive-commands
@@ -80,6 +81,7 @@
 --identity-title
 --identity-url
 --identity-user-agent
+--keepalive-interval
 --llm-assessment-confidence-threshold
 --llm-assessment-history-window
 --llm-assessment-model
@@ -87,6 +89,8 @@
 --log
 --log-colors
 --log-level
+--max-failover-hops
+--max-silent-wait
 --memory-available
 --memory-context-model
 --memory-context-prompt
@@ -103,6 +107,7 @@
 --memory-single-user-mode
 --memory-summary-model
 --memory-summary-prompt
+--min-retry-wait
 --model-alias
 --no-log-colors
 --no-test-execution-reminder-enabled
@@ -128,6 +133,7 @@
 --test-execution-reminder-enabled
 --thinking-budget
 --timeout
+--total-timeout-budget
 --trusted-ip
 --use-angel-model
 --zai-api-key

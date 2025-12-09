@@ -42,6 +42,7 @@ def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.configuration.compaction_config import CompactionConfig
+from src.core.domain.configuration.failure_handling_config import FailureHandlingConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
@@ -1226,6 +1227,11 @@ class AppConfig(DomainModel, IConfig):
     # Health check settings for backend endpoints
     health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
 
+    # Failure handling settings
+    failure_handling: FailureHandlingConfig = Field(
+        default_factory=FailureHandlingConfig
+    )
+
     # Routing settings
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
 
@@ -1292,6 +1298,7 @@ class AppConfig(DomainModel, IConfig):
             "usage_tracking",
             "replacement",
             "health_check",
+            "failure_handling",
             "routing",
             "memory",
             "database",
@@ -1993,6 +2000,54 @@ class AppConfig(DomainModel, IConfig):
                 "REWRITING_CONFIG_PATH",
                 "config/replacements",
                 path="rewriting.config_path",
+                resolution=resolution,
+            ),
+        }
+
+        # Failure handling configuration from environment
+        # Note: DISABLE_FAILURE_HANDLING=1 means enabled=False
+        failure_handling_enabled = not _env_to_bool(
+            "DISABLE_FAILURE_HANDLING",
+            False,  # Default not disabled
+            env,
+            path="failure_handling.enabled",
+            resolution=resolution,
+        )
+        config["failure_handling"] = {
+            "enabled": failure_handling_enabled,
+            "max_silent_wait": _env_to_float(
+                "FAILURE_HANDLING_MAX_SILENT_WAIT",
+                30.0,
+                env,
+                path="failure_handling.max_silent_wait",
+                resolution=resolution,
+            ),
+            "total_timeout_budget": _env_to_float(
+                "FAILURE_HANDLING_TOTAL_TIMEOUT_BUDGET",
+                90.0,
+                env,
+                path="failure_handling.total_timeout_budget",
+                resolution=resolution,
+            ),
+            "keepalive_interval": _env_to_float(
+                "FAILURE_HANDLING_KEEPALIVE_INTERVAL",
+                8.0,
+                env,
+                path="failure_handling.keepalive_interval",
+                resolution=resolution,
+            ),
+            "max_failover_hops": _env_to_int(
+                "FAILURE_HANDLING_MAX_FAILOVER_HOPS",
+                5,
+                env,
+                path="failure_handling.max_failover_hops",
+                resolution=resolution,
+            ),
+            "min_retry_wait": _env_to_float(
+                "FAILURE_HANDLING_MIN_RETRY_WAIT",
+                1.0,
+                env,
+                path="failure_handling.min_retry_wait",
                 resolution=resolution,
             ),
         }

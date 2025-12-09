@@ -1,4 +1,9 @@
-"""Tests for BackendService rate limit feedback behavior."""
+"""Tests for BackendService rate limit feedback behavior.
+
+Note: With the new failure handling architecture, rate limiting feedback
+goes to the ResilienceCoordinator rather than the legacy RateLimiter.
+Retry decisions are made by the IFailureHandlingStrategy.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +11,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.connectors.base import LLMBackend
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.rate_limiter_interface import RateLimitInfo
+from src.core.interfaces.resilience_interface import ResilienceDecision
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
@@ -66,8 +72,12 @@ class _DummyBackend(LLMBackend):
 async def test_call_completion_applies_cooldown_on_429(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """BackendService should push cooldown feedback to the rate limiter when a backend returns 429."""
+    """BackendService should record failure via ResilienceCoordinator on 429.
 
+    Note: With the new architecture, 429 errors with allow_failover=False
+    are raised immediately. The ResilienceCoordinator records the failure.
+    This test verifies the failure is recorded for cooldown tracking.
+    """
     app_config = AppConfig()
     rate_limiter = AsyncMock()
     rate_limiter.check_limit.return_value = RateLimitInfo(
@@ -75,6 +85,13 @@ async def test_call_completion_applies_cooldown_on_429(
     )
     rate_limiter.record_usage.return_value = None
     rate_limiter.apply_cooldown = AsyncMock()
+
+    # Mock ResilienceCoordinator to track failure recording
+    mock_resilience = MagicMock()
+    mock_decision = MagicMock(spec=ResilienceDecision)
+    mock_decision.should_proceed.return_value = True  # Allow the request to proceed
+    mock_resilience.check_availability.return_value = mock_decision
+    mock_resilience.record_failure = MagicMock()
 
     factory = MagicMock(spec=BackendFactory)
     session_service = AsyncMock(spec=ISessionService)
@@ -92,6 +109,7 @@ async def test_call_completion_applies_cooldown_on_429(
         failover_strategy=None,
         failover_coordinator=None,
         wire_capture=None,
+        resilience_coordinator=mock_resilience,
     )
 
     backend = _DummyBackend(app_config)
@@ -104,17 +122,16 @@ async def test_call_completion_applies_cooldown_on_429(
         )
     )
 
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr("src.core.services.backend_service.asyncio.sleep", sleep_mock)
-
     request = ChatRequest(
         model="gemini-cli-oauth-personal:models/gemini-2.5-pro",
         messages=[ChatMessage(role="user", content="Hello")],
     )
 
-    response = await service.call_completion(request)
+    # With allow_failover=False, 429 should raise immediately
+    with pytest.raises((BackendError, RateLimitExceededError)):
+        await service.call_completion(request, allow_failover=False)
 
-    assert isinstance(response, ResponseEnvelope)
-    assert backend._calls == 2  # initial failure + retry after cooldown
-    rate_limiter.apply_cooldown.assert_awaited_once_with("backend:gemini-oauth-plan", 5)
-    sleep_mock.assert_awaited_once_with(5)
+    # Only one call should have been made (no automatic retry without failover)
+    assert backend._calls == 1
+    # Verify failure was recorded in resilience coordinator
+    mock_resilience.record_failure.assert_called_once()

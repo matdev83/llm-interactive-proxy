@@ -2450,14 +2450,33 @@ def register_core_services(
         # Get routing service for backend discovery
         routing_service = provider.get_service(BackendRoutingService)
 
-        # Create default configuration
-        config = FailureHandlingConfig(
-            max_silent_wait=30.0,
-            total_timeout_budget=90.0,
-            keepalive_interval=8.0,
-            max_failover_hops=5,
-            min_retry_wait=1.0,
-        )
+        # Get AppConfig to read failure handling settings
+        app_config = provider.get_service(AppConfig)
+        if app_config is not None and hasattr(app_config, "failure_handling"):
+            fh_config = app_config.failure_handling
+            # Check if failure handling is disabled
+            if not fh_config.enabled:
+                logging.getLogger(__name__).info(
+                    "Failure handling strategy is disabled via configuration"
+                )
+                return None  # type: ignore[return-value]
+
+            config = FailureHandlingConfig(
+                max_silent_wait=fh_config.max_silent_wait,
+                total_timeout_budget=fh_config.total_timeout_budget,
+                keepalive_interval=fh_config.keepalive_interval,
+                max_failover_hops=fh_config.max_failover_hops,
+                min_retry_wait=fh_config.min_retry_wait,
+            )
+        else:
+            # Fallback to defaults if config not available
+            config = FailureHandlingConfig(
+                max_silent_wait=30.0,
+                total_timeout_budget=90.0,
+                keepalive_interval=8.0,
+                max_failover_hops=5,
+                min_retry_wait=1.0,
+            )
 
         return DefaultFailureHandlingStrategy(
             config=config,

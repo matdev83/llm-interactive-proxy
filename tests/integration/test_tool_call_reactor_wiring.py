@@ -345,3 +345,128 @@ async def test_unified_steering_policy_priority_overrides():
     assert policy_names_in_order[1] == "configured_rules"
     # Expect PytestFullSuitePolicy to be third due to priority 70
     assert policy_names_in_order[2] == "pytest_full_suite"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_unified_steering_legacy_log_enabled(
+    app_config_legacy_log_enabled: AppConfig,
+):
+    """
+    Integration test to verify that emit_legacy_steering_log=True is correctly
+    passed through to UnifiedSteeringHandler.
+    """
+    # Arrange
+    config = app_config_legacy_log_enabled
+    builder = ApplicationBuilder().add_default_stages()
+
+    # Act
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+
+    from src.services.steering import UnifiedSteeringHandler
+
+    unified_handler = service_provider.get_required_service(UnifiedSteeringHandler)
+
+    # Assert
+    assert unified_handler._emit_legacy_log_enabled is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_unified_steering_emits_both_log_formats_when_legacy_enabled(
+    app_config_legacy_log_enabled: AppConfig, caplog
+):
+    """
+    Integration test to verify that when emit_legacy_steering_log=True,
+    both the structured log and the legacy log are emitted on steering events.
+    """
+    import logging
+
+    from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+
+    # Arrange
+    config = app_config_legacy_log_enabled
+    builder = ApplicationBuilder().add_default_stages()
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+
+    reactor_middleware = service_provider.get_required_service(
+        ToolCallReactorMiddleware
+    )
+
+    # Create a tool call that triggers inline python steering
+    tool_call = ToolCall(
+        id="call_legacy_test",
+        function=FunctionCall(
+            name="shell", arguments='{"command": "python -c \\"print(1)\\"" }'
+        ),
+        type="function",
+    )
+
+    message = ChatMessage(role="assistant", tool_calls=[tool_call])
+    context = {"session_id": "test_legacy_log_session"}
+
+    # Act
+    with caplog.at_level(logging.INFO):
+        await reactor_middleware.process(
+            response=message, session_id="test_legacy_log_session", context=context
+        )
+
+    # Assert - check for structured log
+    assert "Unified steering evaluation" in caplog.text
+
+    # Assert - check for legacy log format
+    assert "Steering via rule" in caplog.text
+    assert "test_legacy_log_session" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_unified_steering_emits_only_structured_log_when_legacy_disabled(
+    app_config_legacy_log_disabled: AppConfig, caplog
+):
+    """
+    Integration test to verify that when emit_legacy_steering_log=False,
+    only the structured log is emitted (no legacy format).
+    """
+    import logging
+
+    from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+
+    # Arrange
+    config = app_config_legacy_log_disabled
+    builder = ApplicationBuilder().add_default_stages()
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+
+    reactor_middleware = service_provider.get_required_service(
+        ToolCallReactorMiddleware
+    )
+
+    # Create a tool call that triggers inline python steering
+    tool_call = ToolCall(
+        id="call_structured_only_test",
+        function=FunctionCall(
+            name="shell", arguments='{"command": "python -c \\"print(1)\\"" }'
+        ),
+        type="function",
+    )
+
+    message = ChatMessage(role="assistant", tool_calls=[tool_call])
+    context = {"session_id": "test_structured_log_session"}
+
+    # Act
+    with caplog.at_level(logging.INFO):
+        await reactor_middleware.process(
+            response=message, session_id="test_structured_log_session", context=context
+        )
+
+    # Assert - check for structured log
+    assert "Unified steering evaluation" in caplog.text
+
+    # Assert - legacy log should NOT be present
+    assert "Steering via rule" not in caplog.text

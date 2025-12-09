@@ -1871,11 +1871,16 @@ class BackendService(IBackendService):
 
                     # SURFACE_ERROR or no next backend - fall through to raise
 
-                # If we get here, wrap the last error into BackendError
+                # If we get here, re-raise the original error if it's already a domain error,
+                # otherwise wrap it in BackendError
+                if isinstance(
+                    last_error, BackendError | RateLimitExceededError | LLMProxyError
+                ):
+                    raise last_error
                 raise BackendError(
                     message=f"Backend call failed: {last_error!s}",
                     backend_name=current_backend,
-                )
+                ) from last_error
 
         except (BackendError, RateLimitExceededError, LLMProxyError) as exc:
             # Record failure in resilience coordinator (handles cooldown/backoff)

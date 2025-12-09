@@ -1030,6 +1030,54 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Client/agent name to exclude from memory features (can be specified multiple times)",
     )
 
+    # Failure handling configuration
+    failure_group = parser.add_argument_group(
+        "Failure Handling",
+        "Configure automatic retry and failover behavior for backend errors",
+    )
+    failure_group.add_argument(
+        "--disable-failure-handling",
+        dest="disable_failure_handling",
+        action="store_true",
+        help="Disable automatic failure handling (retry/failover)",
+    )
+    failure_group.add_argument(
+        "--max-silent-wait",
+        dest="max_silent_wait",
+        type=float,
+        metavar="SECONDS",
+        help="Max seconds to wait before failover (default: 30.0). "
+        "If retry-after <= this, proxy waits silently. If > this, it fails over.",
+    )
+    failure_group.add_argument(
+        "--total-timeout-budget",
+        dest="total_timeout_budget",
+        type=float,
+        metavar="SECONDS",
+        help="Total timeout budget across all failover attempts (default: 90.0)",
+    )
+    failure_group.add_argument(
+        "--keepalive-interval",
+        dest="keepalive_interval",
+        type=float,
+        metavar="SECONDS",
+        help="Seconds between SSE keepalive comments during waits (default: 8.0)",
+    )
+    failure_group.add_argument(
+        "--max-failover-hops",
+        dest="max_failover_hops",
+        type=int,
+        metavar="N",
+        help="Maximum backend instances to try in failover chain (default: 5)",
+    )
+    failure_group.add_argument(
+        "--min-retry-wait",
+        dest="min_retry_wait",
+        type=float,
+        metavar="SECONDS",
+        help="Minimum retry wait even for sub-second retry-after (default: 1.0)",
+    )
+
     return parser
 
 
@@ -2407,6 +2455,64 @@ def apply_cli_args(
     # Add memory overrides to main overrides if any
     if memory_overrides:
         cli_overrides["memory"] = memory_overrides
+
+    # Failure handling configuration
+    failure_overrides: dict[str, Any] = {}
+    if getattr(args, "disable_failure_handling", False):
+        failure_overrides["enabled"] = False
+        os.environ["DISABLE_FAILURE_HANDLING"] = "1"
+        record_cli("failure_handling.enabled", False, "--disable-failure-handling")
+
+    if getattr(args, "max_silent_wait", None) is not None:
+        failure_overrides["max_silent_wait"] = args.max_silent_wait
+        os.environ["FAILURE_HANDLING_MAX_SILENT_WAIT"] = str(args.max_silent_wait)
+        record_cli(
+            "failure_handling.max_silent_wait",
+            args.max_silent_wait,
+            "--max-silent-wait",
+        )
+
+    if getattr(args, "total_timeout_budget", None) is not None:
+        failure_overrides["total_timeout_budget"] = args.total_timeout_budget
+        os.environ["FAILURE_HANDLING_TOTAL_TIMEOUT_BUDGET"] = str(
+            args.total_timeout_budget
+        )
+        record_cli(
+            "failure_handling.total_timeout_budget",
+            args.total_timeout_budget,
+            "--total-timeout-budget",
+        )
+
+    if getattr(args, "keepalive_interval", None) is not None:
+        failure_overrides["keepalive_interval"] = args.keepalive_interval
+        os.environ["FAILURE_HANDLING_KEEPALIVE_INTERVAL"] = str(args.keepalive_interval)
+        record_cli(
+            "failure_handling.keepalive_interval",
+            args.keepalive_interval,
+            "--keepalive-interval",
+        )
+
+    if getattr(args, "max_failover_hops", None) is not None:
+        failure_overrides["max_failover_hops"] = args.max_failover_hops
+        os.environ["FAILURE_HANDLING_MAX_FAILOVER_HOPS"] = str(args.max_failover_hops)
+        record_cli(
+            "failure_handling.max_failover_hops",
+            args.max_failover_hops,
+            "--max-failover-hops",
+        )
+
+    if getattr(args, "min_retry_wait", None) is not None:
+        failure_overrides["min_retry_wait"] = args.min_retry_wait
+        os.environ["FAILURE_HANDLING_MIN_RETRY_WAIT"] = str(args.min_retry_wait)
+        record_cli(
+            "failure_handling.min_retry_wait",
+            args.min_retry_wait,
+            "--min-retry-wait",
+        )
+
+    # Add failure handling overrides to main overrides if any
+    if failure_overrides:
+        cli_overrides["failure_handling"] = failure_overrides
 
     # Create new config with CLI overrides if any
     if cli_overrides:

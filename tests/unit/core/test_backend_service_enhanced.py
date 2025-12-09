@@ -476,6 +476,7 @@ class TestBackendServiceCompletions:
         Rate limiting is now handled by the ResilienceCoordinator.
         """
         from unittest.mock import MagicMock
+
         from src.core.interfaces.resilience_interface import ResilienceDecision
 
         # Create a mock ResilienceCoordinator that returns rate limited decision
@@ -504,8 +505,13 @@ class TestBackendServiceCompletions:
     async def test_retry_429_preserves_backend_kwargs(
         self, service, chat_request
     ) -> None:
-        """Ensure retry logic preserves session-scoped backend kwargs on 429 errors."""
+        """Test that 429 errors with allow_failover=False raise immediately.
 
+        Note: With the new failure handling architecture, when allow_failover=False,
+        the backend service does NOT retry on 429 errors. The error is raised
+        immediately to the caller. Automatic retry behavior requires allow_failover=True
+        and is managed by the IFailureHandlingStrategy.
+        """
         session_state = SimpleNamespace(project="proj-alpha", project_dir="/tmp/proj")
         session_obj = SimpleNamespace(state=session_state)
         service._session_service.get_session = AsyncMock(return_value=session_obj)
@@ -551,21 +557,24 @@ class TestBackendServiceCompletions:
         backend = RecordingBackend()
 
         with patch.object(service, "_get_or_create_backend", return_value=backend):
-            response = await service.call_completion(
-                chat_request,
-                allow_failover=False,
-                context=context,
-            )
+            # With allow_failover=False, 429 errors should raise immediately
+            with pytest.raises(BackendError) as exc_info:
+                await service.call_completion(
+                    chat_request,
+                    allow_failover=False,
+                    context=context,
+                )
 
-        assert isinstance(response, ResponseEnvelope)
-        assert len(backend.calls) == 2
+            assert exc_info.value.status_code == 429
+
+        # Only one call should have been made (no retry with allow_failover=False)
+        assert len(backend.calls) == 1
         expected_kwargs = {
             "session_id": "session-123",
             "project": "proj-alpha",
             "project_dir": "/tmp/proj",
         }
         assert backend.calls[0]["kwargs"] == expected_kwargs
-        assert backend.calls[1]["kwargs"] == expected_kwargs
 
     @pytest.mark.asyncio
     async def test_call_completion_backend_error(self, service, chat_request):
@@ -589,7 +598,13 @@ class TestBackendServiceCompletions:
     async def test_retry_429_preserves_backend_kwargs_alt(
         self, service, chat_request
     ) -> None:
-        """Ensure retrying a 429 keeps backend kwargs like session and project (alternative implementation)."""
+        """Test that 429 errors with allow_failover=False raise immediately (alternative).
+
+        Note: With the new failure handling architecture, when allow_failover=False,
+        the backend service does NOT retry on 429 errors. The error is raised
+        immediately to the caller. Automatic retry behavior requires allow_failover=True
+        and is managed by the IFailureHandlingStrategy.
+        """
 
         class TrackingBackend(LLMBackend):
             def __init__(self) -> None:
@@ -656,14 +671,17 @@ class TestBackendServiceCompletions:
             }
         )
 
-        response = await service.call_completion(
-            request_with_session, context=context, allow_failover=False
-        )
+        # With allow_failover=False, 429 errors should raise immediately
+        with pytest.raises(BackendError) as exc_info:
+            await service.call_completion(
+                request_with_session, context=context, allow_failover=False
+            )
 
-        assert isinstance(response, ResponseEnvelope)
-        assert backend.calls and len(backend.calls) == 2
-        first_call, second_call = backend.calls
-        assert first_call == second_call
+        assert exc_info.value.status_code == 429
+
+        # Only one call should have been made (no retry with allow_failover=False)
+        assert len(backend.calls) == 1
+        first_call = backend.calls[0]
         assert first_call.get("session_id") == "sess-123"
         assert first_call.get("project") == "proj-alpha"
         assert first_call.get("project_dir") == "/tmp/proj"
@@ -962,7 +980,14 @@ class TestBackendServiceFailover:
 
     @pytest.mark.asyncio
     async def test_simple_failover(self, service_with_simple_failover, chat_request):
-        """Test simple backend failover when primary fails."""
+        """Test that backend failures are surfaced when no failure strategy is configured.
+
+        Note: With the new architecture, backend-level failover routes (e.g., openai -> openrouter)
+        are no longer supported via _failover_routes. Failover is now managed by the
+        IFailureHandlingStrategy which finds alternative backend INSTANCES for the same MODEL.
+
+        This test verifies that without a failure strategy, backend failures are surfaced.
+        """
         # Arrange
         # Create primary backend that fails
         client1 = httpx.AsyncClient()
@@ -971,41 +996,27 @@ class TestBackendServiceFailover:
             "Primary backend error"
         )
 
-        # Create fallback backend that succeeds
-        client2 = httpx.AsyncClient()
-        fallback_backend = MockBackend(client2)
-        fallback_backend.chat_completions_mock.return_value = ResponseEnvelope(
-            content={
-                "id": "fallback-resp",
-                "created": 123,
-                "model": "fallback-model",
-                "choices": [],
-            },
-            headers={},
-        )
-
-        # Mock the factory's ensure_backend method to return the appropriate backend
+        # Mock the factory's ensure_backend method to return the primary backend
         async def mock_ensure_backend(backend_type, config, translation_service):
             if backend_type == BackendType.OPENAI:
                 return primary_backend
-            elif backend_type == BackendType.OPENROUTER:
-                return fallback_backend
             else:
                 raise ValueError(f"Unexpected backend type: {backend_type}")
 
-        # Act
+        # Act & Assert
+        # Without a failure strategy, the error should be surfaced
         with patch.object(
             service_with_simple_failover._factory,
             "ensure_backend",
             side_effect=mock_ensure_backend,
         ):
-            response = await service_with_simple_failover.call_completion(chat_request)
+            with pytest.raises(BackendError) as exc_info:
+                await service_with_simple_failover.call_completion(chat_request)
 
-        # Assert
+            assert "Primary backend error" in str(exc_info.value)
+
+        # Only the primary backend should have been called
         assert primary_backend.chat_completions_called
-        assert fallback_backend.chat_completions_called
-        assert response.content["id"] == "fallback-resp"
-        assert response.content["model"] == "fallback-model"
 
     @pytest.mark.asyncio
     async def test_complex_failover_first_attempt(

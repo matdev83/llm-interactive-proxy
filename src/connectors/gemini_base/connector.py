@@ -1718,6 +1718,62 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         accumulated_tool_calls: list[dict[str, Any]] = []
         finish_reason: str | None = None
         usage_data: dict[str, int] | None = None
+        accumulated_reasoning: str = ""
+
+        def _process_openai_chunk(data: dict[str, Any]) -> None:
+            """Process an OpenAI-style chunk and accumulate content."""
+            nonlocal accumulated_content, finish_reason, usage_data, accumulated_reasoning
+
+            choices = data.get("choices", [])
+            if choices:
+                choice = choices[0]
+                # Handle both streaming delta and non-streaming message formats
+                delta = choice.get("delta", {}) or choice.get("message", {})
+
+                # Accumulate text content
+                content_piece = delta.get("content")
+                if content_piece:
+                    accumulated_content += content_piece
+
+                # Accumulate reasoning content (for thinking models)
+                reasoning_piece = delta.get("reasoning_content") or delta.get(
+                    "reasoning"
+                )
+                if reasoning_piece:
+                    accumulated_reasoning += reasoning_piece
+
+                # Accumulate tool calls
+                if "tool_calls" in delta:
+                    for tc in delta["tool_calls"]:
+                        tc_index = tc.get("index", len(accumulated_tool_calls))
+                        while len(accumulated_tool_calls) <= tc_index:
+                            accumulated_tool_calls.append(
+                                {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            )
+                        if tc.get("id"):
+                            accumulated_tool_calls[tc_index]["id"] = tc["id"]
+                        if "function" in tc:
+                            fn = tc["function"]
+                            if fn.get("name"):
+                                accumulated_tool_calls[tc_index]["function"]["name"] = (
+                                    fn["name"]
+                                )
+                            if "arguments" in fn:
+                                accumulated_tool_calls[tc_index]["function"][
+                                    "arguments"
+                                ] += fn["arguments"]
+
+                # Capture finish reason
+                if choice.get("finish_reason"):
+                    finish_reason = choice["finish_reason"]
+
+            # Capture usage data
+            if data.get("usage"):
+                usage_data = data["usage"]
 
         try:
             if streaming_response.content is None:
@@ -1742,7 +1798,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 else:
                     chunk_content = chunk
 
-                # Parse SSE data format
+                # Handle dict content directly (from ProcessedResponse with dict content)
+                # This is the common case for _chat_completions_code_assist_streaming
+                if isinstance(chunk_content, dict):
+                    _process_openai_chunk(chunk_content)
+                    continue
+
+                # Parse SSE data format (for raw SSE streams)
                 if isinstance(chunk_content, bytes):
                     chunk_content = chunk_content.decode("utf-8", errors="ignore")
 
@@ -1764,53 +1826,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     except json.JSONDecodeError:
                         continue
 
-                    # Extract content from OpenAI-style response
-                    choices = data.get("choices", [])
-                    if choices:
-                        choice = choices[0]
-                        delta = choice.get("delta", {})
-
-                        # Accumulate text content
-                        if delta.get("content"):
-                            accumulated_content += delta["content"]
-
-                        # Accumulate tool calls
-                        if "tool_calls" in delta:
-                            for tc in delta["tool_calls"]:
-                                tc_index = tc.get("index", len(accumulated_tool_calls))
-                                while len(accumulated_tool_calls) <= tc_index:
-                                    accumulated_tool_calls.append(
-                                        {
-                                            "id": "",
-                                            "type": "function",
-                                            "function": {"name": "", "arguments": ""},
-                                        }
-                                    )
-                                if tc.get("id"):
-                                    accumulated_tool_calls[tc_index]["id"] = tc["id"]
-                                if "function" in tc:
-                                    fn = tc["function"]
-                                    if fn.get("name"):
-                                        accumulated_tool_calls[tc_index]["function"][
-                                            "name"
-                                        ] = fn["name"]
-                                    if "arguments" in fn:
-                                        accumulated_tool_calls[tc_index]["function"][
-                                            "arguments"
-                                        ] += fn["arguments"]
-
-                        # Capture finish reason
-                        if choice.get("finish_reason"):
-                            finish_reason = choice["finish_reason"]
-
-                    # Capture usage data
-                    if data.get("usage"):
-                        usage_data = data["usage"]
+                    _process_openai_chunk(data)
 
         except Exception as e:
             logger.warning(f"Error accumulating streaming response: {e}", exc_info=True)
 
         # Build OpenAI-style response
+        message_content: dict[str, Any] = {
+            "role": "assistant",
+            "content": accumulated_content if accumulated_content else None,
+        }
+
+        # Add reasoning content if present (for thinking models)
+        if accumulated_reasoning:
+            message_content["reasoning_content"] = accumulated_reasoning
+
         response_content: dict[str, Any] = {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
@@ -1819,10 +1849,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             "choices": [
                 {
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": accumulated_content if accumulated_content else None,
-                    },
+                    "message": message_content,
                     "finish_reason": finish_reason or "stop",
                 }
             ],
@@ -1975,11 +2002,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             request_body = _build_request_body()
 
             # Make the actual API call
+            # NOTE: params={"alt": "sse"} is required for this API to work correctly
+            # Without it, we get 403 PERMISSION_DENIED errors
             try:
                 response = await asyncio.to_thread(
                     auth_session.request,
                     method="POST",
                     url=url,
+                    params={"alt": "sse"},
                     json=request_body,
                     headers={"Content-Type": "application/json"},
                     timeout=int(DEFAULT_READ_TIMEOUT),
@@ -2445,6 +2475,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         )
                                     return
 
+                            # After internal graceful degradation failed, raise BackendError
+                            # so that BackendService's failure handling strategy can decide
+                            # whether to wait-and-retry or failover to another backend
                             error_detail: Any
                             try:
                                 error_detail = response.json()
@@ -2454,7 +2487,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             error_message = (
                                 "Service temporarily unavailable due to rate limiting."
                             )
-                            error_code: int | None = 429
                             error_type = "rate_limit_exceeded"
 
                             if isinstance(error_detail, dict):
@@ -2473,45 +2505,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     else:
                                         error_message = message_val
 
-                                error_code = cast(
-                                    int | None, detail_error.get("code", error_code)
-                                )
-
-                            if error_type == "quota_exceeded":
-                                error_code = 503
-
-                            error_chunk = {
-                                "id": f"chatcmpl-error-{int(time.time())}",
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": effective_model,
-                                "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "error"}
-                                ],
-                                "error": {
-                                    "message": error_message,
-                                    "type": error_type,
-                                    "code": error_code,
-                                },
-                            }
-                            # Surface the 429 immediately instead of blocking on retries
-                            yield ProcessedResponse(
-                                content=error_chunk,
-                                metadata={
-                                    "finish_reason": "error",
-                                    "error": error_chunk["error"],
-                                    "id": error_chunk["id"],
-                                    "model": error_chunk["model"],
-                                    "created": error_chunk["created"],
-                                },
-                            )
-                            # Set quota flag for all 429 errors (rate limiting)
-                            # Put specific model in cooldown for quota errors
-                            # but keep backend functional for other models
+                            # Set quota flag for tracking
                             self._quota_exceeded = True
                             if error_type == "quota_exceeded":
                                 self._set_cooldown(effective_model)
-                            return
+
+                            # Raise BackendError so BackendService failure handling strategy
+                            # can catch it and decide on retry/failover
+                            raise BackendError(
+                                message=error_message,
+                                code=error_type,
+                                status_code=429,
+                                details=(
+                                    error_detail
+                                    if isinstance(error_detail, dict)
+                                    else {"raw": error_detail}
+                                ),
+                                backend_name=self.backend_type,
+                            )
 
                         # For non-429 errors, yield error chunk (with optional retry sans tools)
                         # Graceful error handling - yield error chunk instead of raising exception
@@ -3190,9 +3201,58 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 "calling_agent": getattr(request_data, "agent", None),
             }
 
+            # Create the base generator
+            base_generator = stream_generator()
+
+            # Wrap with prefetch to trigger immediate errors (like 429) before returning
+            # This ensures BackendService.call_completion() can catch and handle errors
+            # with the failure handling strategy
+            async def prefetch_first_chunk_wrapper() -> (
+                AsyncGenerator[ProcessedResponse, None]
+            ):
+                # Prefetch first chunk to trigger HTTP request and any immediate errors
+                # This is critical for failure handling strategy to work with streaming
+                first_chunk = None
+                try:
+                    first_chunk = await base_generator.__anext__()
+                except StopAsyncIteration:
+                    # Empty stream, nothing to yield
+                    return
+
+                # Yield the prefetched first chunk
+                yield first_chunk
+
+                # Continue with remaining chunks
+                async for chunk in base_generator:
+                    yield chunk
+
+            # Prefetch the first chunk NOW to catch immediate errors
+            # before returning the StreamingResponseEnvelope
+            prefetch_gen = prefetch_first_chunk_wrapper()
+            first_chunk_holder: list[ProcessedResponse] = []
+            try:
+                first_chunk = await prefetch_gen.__anext__()
+                first_chunk_holder.append(first_chunk)
+            except StopAsyncIteration:
+                # Empty stream
+                pass
+            # NOTE: BackendError from 429 will propagate here and be caught
+            # by the except BackendError block below (line ~3235)
+
+            # Create a generator that yields the prefetched chunk then continues
+            async def continue_from_prefetch() -> (
+                AsyncGenerator[ProcessedResponse, None]
+            ):
+                # Yield prefetched first chunk if any
+                for chunk in first_chunk_holder:
+                    yield chunk
+                # Continue with remaining chunks
+                async for chunk in prefetch_gen:
+                    yield chunk
+
             return StreamingResponseEnvelope(
                 content=wrap_processed_response_stream_with_vtc(
-                    stream_generator(),
+                    continue_from_prefetch(),
                     vtc_enabled=vtc_enabled,
                     tool_call_reactor=tool_call_reactor,
                     session_id=getattr(request_data, "session_id", None),

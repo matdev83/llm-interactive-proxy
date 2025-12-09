@@ -288,6 +288,16 @@ properties:
           method: { type: string, enum: [GET, HEAD] }
           path: { type: string }
           accept_any_response: { type: boolean }
+  failure_handling:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      max_silent_wait: { type: number, minimum: 0 }
+      total_timeout_budget: { type: number, minimum: 0 }
+      keepalive_interval: { type: number, minimum: 1 }
+      max_failover_hops: { type: integer, minimum: 1 }
+      min_retry_wait: { type: number, minimum: 0.1 }
   routing:
     type: object
     additionalProperties: false
