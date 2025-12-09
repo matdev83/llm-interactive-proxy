@@ -175,6 +175,13 @@ Configuration is resolved in the following order (highest to lowest priority):
 | N/A | `STREAMING_SAMPLER_RATE` | Sampling rate (0.0 to 1.0). |
 | N/A | `STREAMING_SAMPLER_MAX_SAMPLES` | Max samples to retain. |
 
+### History Compaction
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--enable-context-compaction` | `ENABLE_CONTEXT_COMPACTION=true` | Enable history compaction to reduce stale tool outputs. (Default: Disabled) |
+| `--compaction-min-tokens N` | `COMPACTION_MIN_TOKENS` | Minimum tokens required to trigger compaction. (Default: 100,000) |
+
 ---
 
 ## Features

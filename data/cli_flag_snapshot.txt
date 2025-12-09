@@ -18,6 +18,7 @@
 --cbor-capture-dir
 --cbor-capture-session
 --command-prefix
+--compaction-min-tokens
 --config
 --daemon
 --default-backend
@@ -51,6 +52,7 @@
 --enable-antigravity-backend-debugging-override
 --enable-brute-force-protection
 --enable-cline-backend-debugging-override
+--enable-context-compaction
 --enable-droid-path-fix
 --enable-edit-precision
 --enable-gemini-oauth-free-backend-debugging-override

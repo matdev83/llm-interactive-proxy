@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import inspect
 import logging
-import math
 import re
 import time
 from collections import OrderedDict
@@ -34,6 +33,10 @@ from src.core.interfaces.failover_interface import (
     IFailoverCoordinator,
     IFailoverStrategy,
 )
+from src.core.interfaces.failure_strategy_interface import (
+    FailureDecision,
+    IFailureHandlingStrategy,
+)
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.resilience_interface import (
     IResilienceCoordinator,
@@ -43,7 +46,6 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
-from src.rate_limit import parse_retry_delay
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ class BackendService(IBackendService):
         wire_capture: IWireCapture | None = None,
         routing_service: BackendRoutingService | None = None,
         resilience_coordinator: IResilienceCoordinator | None = None,
+        failure_handling_strategy: IFailureHandlingStrategy | None = None,
     ):
         """Initialize the backend service.
 
@@ -81,6 +84,7 @@ class BackendService(IBackendService):
             failover_routes: Routes for backend failover
             routing_service: Service for instance routing and discovery
             resilience_coordinator: Coordinator for rate limiting and error recovery
+            failure_handling_strategy: Strategy for handling backend failures with retry/failover
         """
         self._factory = factory
         self._rate_limiter = rate_limiter
@@ -95,6 +99,9 @@ class BackendService(IBackendService):
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._routing_service = routing_service
         self._resilience: IResilienceCoordinator | None = resilience_coordinator
+        self._failure_strategy: IFailureHandlingStrategy | None = (
+            failure_handling_strategy
+        )
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -1227,20 +1234,15 @@ class BackendService(IBackendService):
                 )
 
         # Rate limiting is now handled by the ResilienceCoordinator above
+        # and the FailureHandlingStrategy for retry/failover decisions
 
-        rate_key = f"backend:{backend_type}"
-        limit_info = await self._rate_limiter.check_limit(rate_key)
-        if limit_info.is_limited:
-            raise RateLimitExceededError(
-                message=f"Rate limit exceeded for {backend_type}",
-                reset_at=limit_info.reset_at,
-                limit=limit_info.limit,
-                remaining=limit_info.remaining,
-            )
+        # Initialize failure strategy tracking
+        start_time = time.time()
+        attempted_backends: list[str] = []
+        current_backend = backend_type
+        content_started = False
 
         try:
-            await self._rate_limiter.record_usage(rate_key)
-
             session: Any | None = None
             session_id_for_backend: str | None = None
 
@@ -1607,55 +1609,9 @@ class BackendService(IBackendService):
                         # Re-raise for recoverable backends
                         raise
 
-                    # Lightweight retry once on HTTP 429 from backend
-                    if getattr(be, "status_code", None) == 429:
-                        delay_seconds = parse_retry_delay(getattr(be, "details", None))
-                        cooldown_seconds = (
-                            math.ceil(delay_seconds) if delay_seconds else 15
-                        )
-
-                        # Store retry-after in backend instance to prevent future spam
-                        if (
-                            delay_seconds
-                            and delay_seconds > 0
-                            and hasattr(backend, "set_retry_after")
-                        ):
-                            backend.set_retry_after(delay_seconds)
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Backend %s rate limited, set retry-after for %.1f seconds",
-                                    backend_type,
-                                    delay_seconds,
-                                )
-
-                        try:
-                            await self._rate_limiter.apply_cooldown(
-                                rate_key, cooldown_seconds
-                            )
-                        except Exception:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Rate limiter is not available", exc_info=True
-                                )
-                        if delay_seconds:
-                            try:
-                                await asyncio.sleep(delay_seconds)
-                            except Exception:
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        "Retry delay sleep failed for backend %s",
-                                        backend_type,
-                                        exc_info=True,
-                                    )
-                        result = await backend.chat_completions(
-                            request_data=domain_request,
-                            processed_messages=request.messages,
-                            effective_model=effective_model,
-                            identity=identity,
-                            **backend_call_kwargs,
-                        )
-                    else:
-                        raise
+                    # All backend errors (including 429) are now handled by the
+                    # failure handling strategy at the outer loop level
+                    raise
                 # Get session_id from context for stream correlation
                 session_id = getattr(context, "session_id", None)
                 session_id = self._resolve_stream_session_id(
@@ -1804,7 +1760,7 @@ class BackendService(IBackendService):
                             if logger.isEnabledFor(logging.INFO):
                                 logger.info(
                                     "Backend %s rate limited, cached retry-after for %.1f seconds",
-                                    backend_type,
+                                    current_backend,
                                     retry_after_seconds,
                                 )
 
@@ -1820,20 +1776,105 @@ class BackendService(IBackendService):
                         # Immediate wrapping when failover is disabled
                         raise BackendError(
                             message=f"Backend call failed: {call_exc!s}",
-                            backend_name=backend_type,
+                            backend_name=current_backend,
                         ) from call_exc  # Chain the exception
                     last_error = call_exc  # type: ignore[assignment]
 
-                # Handle failover on backend call failure
-                if allow_failover:
-                    return await self._handle_backend_call_failover(
-                        request, backend_type, stream, last_error
+                # Use the failure handling strategy to decide next action
+                if allow_failover and self._failure_strategy is not None:
+                    # Normalize the error for the strategy
+                    normalized_error = (
+                        last_error
+                        if isinstance(last_error, BackendError)
+                        else BackendError(
+                            message=str(last_error),
+                            backend_name=current_backend,
+                        )
                     )
+
+                    # Track this backend as attempted
+                    if current_backend not in attempted_backends:
+                        attempted_backends.append(current_backend)
+
+                    # Consult the failure strategy
+                    failure_decision, wait_seconds, next_backend = (
+                        await self._apply_failure_strategy(
+                            error=normalized_error,
+                            model=effective_model,
+                            backend_type=current_backend,
+                            attempted_backends=attempted_backends,
+                            start_time=start_time,
+                            is_streaming=stream,
+                            content_started=content_started,
+                        )
+                    )
+
+                    if failure_decision == FailureDecision.WAIT_AND_RETRY:
+                        if wait_seconds is not None and wait_seconds > 0:
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Failure strategy: waiting %.1fs before retrying %s/%s",
+                                    wait_seconds,
+                                    current_backend,
+                                    effective_model,
+                                )
+                            await asyncio.sleep(wait_seconds)
+                        # Remove from attempted to allow retry
+                        if (
+                            attempted_backends
+                            and attempted_backends[-1] == current_backend
+                        ):
+                            attempted_backends.pop()
+                        # Continue the outer loop (re-resolve backend for retry)
+                        # Create modified request to retry same backend
+                        retry_request = request.model_copy(
+                            update={
+                                "extra_body": {
+                                    **(request.extra_body or {}),
+                                    "backend_type": current_backend,
+                                }
+                            }
+                        )
+                        return await self.call_completion(
+                            retry_request,
+                            stream=stream,
+                            allow_failover=True,
+                            context=context,
+                        )
+
+                    if (
+                        failure_decision == FailureDecision.FAILOVER_IMMEDIATE
+                        and next_backend is not None
+                    ):
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Failure strategy: failing over from %s to %s for model %s",
+                                current_backend,
+                                next_backend,
+                                effective_model,
+                            )
+                        # Create request targeting the new backend
+                        failover_request = request.model_copy(
+                            update={
+                                "extra_body": {
+                                    **(request.extra_body or {}),
+                                    "backend_type": next_backend,
+                                }
+                            }
+                        )
+                        return await self.call_completion(
+                            failover_request,
+                            stream=stream,
+                            allow_failover=True,
+                            context=context,
+                        )
+
+                    # SURFACE_ERROR or no next backend - fall through to raise
 
                 # If we get here, wrap the last error into BackendError
                 raise BackendError(
                     message=f"Backend call failed: {last_error!s}",
-                    backend_name=backend_type,
+                    backend_name=current_backend,
                 )
 
         except (BackendError, RateLimitExceededError, LLMProxyError) as exc:
@@ -2599,94 +2640,70 @@ class BackendService(IBackendService):
         """
         return self._backends.copy()
 
-    async def _handle_backend_call_failover(
+    async def _apply_failure_strategy(
         self,
-        request: ChatRequest,
+        error: BackendError,
+        model: str,
         backend_type: str,
-        stream: bool,
-        last_error: Exception,
-        context: RequestContext | None = None,
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Handle failover logic when a backend call fails.
+        attempted_backends: list[str],
+        start_time: float,
+        is_streaming: bool,
+        content_started: bool,
+    ) -> tuple[FailureDecision, float | None, str | None]:
+        """Apply failure handling strategy to decide how to handle a backend failure.
 
-        This method inspects request-scoped and service-level failover routes
-        and attempts alternative backends/models when the primary call fails.
+        Args:
+            error: The backend error that occurred.
+            model: Fully qualified model name.
+            backend_type: Name of the backend instance that failed.
+            attempted_backends: List of backend instances already tried.
+            start_time: Timestamp when the original request started.
+            is_streaming: Whether this is a streaming request.
+            content_started: Whether content has already been sent to client.
+
+        Returns:
+            Tuple of (decision, wait_seconds, next_backend).
         """
-        # Proceed with failover logic using last_error as the last seen exception
-        request_failover_routes_nested: dict[str, Any] | None = (
-            request.extra_body.get("failover_routes") if request.extra_body else None
+        if self._failure_strategy is None:
+            # No failure strategy configured, surface all errors
+            return FailureDecision.SURFACE_ERROR, None, None
+
+        elapsed_time = time.time() - start_time
+
+        # Find available backend alternatives
+        available_backends: list[str] | None = None
+        if self._routing_service is not None:
+            available_backends = self._routing_service.find_alternative_instances(
+                model, [*attempted_backends, backend_type]
+            )
+
+        result = self._failure_strategy.decide(
+            error=error,
+            model=model,
+            current_backend=backend_type,
+            attempted_backends=attempted_backends,
+            elapsed_time=elapsed_time,
+            is_streaming=is_streaming,
+            content_started=content_started,
+            available_backends=available_backends,
         )
-        effective_failover_routes_nested: dict[str, Any] = (
-            request_failover_routes_nested
-            if request_failover_routes_nested
-            else self._failover_routes
-        )
 
-        if request.model in effective_failover_routes_nested:
-            try:
-                # Get the failover plan using the consolidated approach
-                plan_nested: list[tuple[str, str]] = self._get_failover_plan(
-                    request.model, backend_type
-                )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failure strategy decision for %s/%s: %s (reason: %s)",
+                backend_type,
+                model,
+                result.decision.value,
+                result.reason,
+            )
 
-                return await self._attempt_failover_plan(
-                    request, plan_nested, stream, backend_type, context
-                )
-            except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"Failover processing failed: {failover_error!s}", exc_info=True
-                    )
-                raise BackendError(
-                    message=f"Failover processing failed: {failover_error!s}",
-                    backend_name=backend_type,
-                ) from failover_error
+        return result.decision, result.wait_seconds, result.next_backend
 
-        elif backend_type in self._failover_routes:
-            fallback_info: dict[str, Any] = self._failover_routes.get(backend_type, {})
-            fallback_backend: str | None = fallback_info.get("backend")
-            fallback_model: str | None = fallback_info.get("model")
-
-            if fallback_backend:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Primary backend {backend_type} failed with error: {last_error!s}. "
-                        f"Attempting fallback to {fallback_backend}"
-                    )
-
-                fallback_extra_body: dict[str, Any] = (
-                    request.extra_body.copy() if request.extra_body else {}
-                )
-                fallback_extra_body["backend_type"] = fallback_backend
-
-                fallback_updates: dict[str, Any] = {"extra_body": fallback_extra_body}
-                if fallback_model:
-                    fallback_updates["model"] = fallback_model
-
-                fallback_request: ChatRequest = request.model_copy(
-                    update=fallback_updates
-                )
-
-                return await self.call_completion(
-                    fallback_request,
-                    stream=stream,
-                    allow_failover=False,
-                    context=context,
-                )
-
-        normalized_last_error = self._normalize_provider_exception(
-            last_error, backend_type
-        )
-        if isinstance(
-            normalized_last_error, RateLimitExceededError | BackendError | LLMProxyError
-        ):
-            raise normalized_last_error
-
-        # If no failover options available, raise the original error
-        raise BackendError(
-            message=f"Backend call failed: {last_error!s}",
-            backend_name=backend_type,
-        )
+    # NOTE: Legacy _handle_backend_call_failover and _execute_with_failure_handling
+    # methods have been removed. Failure handling is now integrated directly into
+    # call_completion() using the IFailureHandlingStrategy.
+    # Failure handling is now managed by the IFailureHandlingStrategy,
+    # which is integrated directly into call_completion().
 
     def _discard_backend(
         self, backend_type: str, session_id: str | None, reason: str = "Unknown"

@@ -106,6 +106,13 @@ session:
   force_reprocess_tool_calls: false
   log_skipped_tool_calls: false
 
+# History Compaction
+# Reduces context size by compacting stale tool outputs in long conversations.
+# This helps maintain performance and stay within context limits.
+compaction:
+  enabled: false  # Default: false. usage: true to enable.
+  token_threshold: 100000  # Minimum tokens required to trigger compaction. Default: 100,000.
+
 # Logging
 logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL

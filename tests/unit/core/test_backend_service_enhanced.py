@@ -29,7 +29,6 @@ from src.core.domain.request_context import (
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
-from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
@@ -471,31 +470,35 @@ class TestBackendServiceCompletions:
 
     @pytest.mark.asyncio
     async def test_call_completion_rate_limited(self, service, chat_request):
-        """Test rate limiting in the backend service."""
-        # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
+        """Test rate limiting via ResilienceCoordinator in the backend service.
 
-        # Add the backend properly through a patched factory
-        with patch.object(
-            service._factory, "ensure_backend", return_value=mock_backend
-        ):
-            # Cache the backend
-            await service._get_or_create_backend(BackendType.OPENAI)
+        Note: Legacy rate limiter checks have been removed from call_completion.
+        Rate limiting is now handled by the ResilienceCoordinator.
+        """
+        from unittest.mock import MagicMock
+        from src.core.interfaces.resilience_interface import ResilienceDecision
 
-        # Configure rate limiter to report limit exceeded
-        service._rate_limiter.limits[f"backend:{BackendType.OPENAI}"] = RateLimitInfo(
-            is_limited=True, remaining=0, reset_at=123, limit=10, time_window=60
-        )
+        # Create a mock ResilienceCoordinator that returns rate limited decision
+        mock_resilience = MagicMock()
+        mock_decision = MagicMock(spec=ResilienceDecision)
+        mock_decision.should_proceed.return_value = False
+        mock_decision.reason = "Rate limit exceeded for test"
+        mock_decision.cooldown_remaining = 60.0
+        mock_resilience.check_availability.return_value = mock_decision
+
+        # Set the mock resilience coordinator
+        service._resilience = mock_resilience
 
         # Act & Assert
         with pytest.raises(RateLimitExceededError) as exc_info:
             await service.call_completion(chat_request)
 
         # Verify exception details - only check the basic message
-        assert "Rate limit exceeded" in str(exc_info.value)
-        # The actual rate limit values may not be included in the string representation
-        # so we're only checking for the essential message
+        assert "Rate limit exceeded" in str(exc_info.value) or "test" in str(
+            exc_info.value
+        )
+        # Verify resilience coordinator was consulted
+        mock_resilience.check_availability.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_retry_429_preserves_backend_kwargs(

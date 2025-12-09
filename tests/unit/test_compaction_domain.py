@@ -285,7 +285,7 @@ class TestCompactionConfig:
     def test_default_config(self) -> None:
         """Default config has sensible defaults."""
         config = CompactionConfig()
-        assert config.enabled is True
+        assert config.enabled is False  # Changed: now disabled by default
         assert config.token_threshold == 100_000
         assert config.max_tokens == 150_000
 
@@ -297,7 +297,7 @@ class TestCompactionConfig:
     def test_default_factory_with_policies(self) -> None:
         """Default factory includes recommended policies."""
         config = CompactionConfig.default()
-        assert config.enabled is True
+        assert config.enabled is False  # Changed: now disabled by default
         assert ToolCategory.FILE_READ.value in config.allowed_tool_categories
         assert ToolCategory.FILE_WRITE.value in config.denied_tool_categories
 

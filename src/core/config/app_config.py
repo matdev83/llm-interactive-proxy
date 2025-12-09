@@ -41,6 +41,7 @@ def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
 
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.assessment_config import AssessmentConfig
+from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
@@ -1228,6 +1229,9 @@ class AppConfig(DomainModel, IConfig):
     # Routing settings
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
 
+    # Compaction settings
+    compaction: CompactionConfig = Field(default_factory=CompactionConfig)
+
     # ProxyMem - cross-session memory layer settings
     memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
 
@@ -2172,6 +2176,24 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="routing.disable_model_names",
+                resolution=resolution,
+            ),
+        }
+
+        # Compaction configuration
+        config["compaction"] = {
+            "enabled": _env_to_bool(
+                "ENABLE_CONTEXT_COMPACTION",
+                False,
+                env,
+                path="compaction.enabled",
+                resolution=resolution,
+            ),
+            "token_threshold": _env_to_int(
+                "COMPACTION_MIN_TOKENS",
+                100_000,
+                env,
+                path="compaction.token_threshold",
                 resolution=resolution,
             ),
         }

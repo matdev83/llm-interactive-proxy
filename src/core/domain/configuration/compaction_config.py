@@ -34,7 +34,7 @@ class CompactionConfig:
         stub_template: Template for generating stub messages
     """
 
-    enabled: bool = True
+    enabled: bool = False
     token_threshold: int = 100_000  # Start compacting above this estimate
     max_tokens: int = 150_000  # Warn if cannot reduce below this
 
@@ -90,7 +90,7 @@ class CompactionConfig:
             CompactionConfig instance
         """
         return cls(
-            enabled=data.get("enabled", True),
+            enabled=data.get("enabled", False),
             token_threshold=data.get("token_threshold", 100_000),
             max_tokens=data.get("max_tokens", 150_000),
             allowed_tool_categories=data.get("allowed_tool_categories", []),
@@ -123,7 +123,7 @@ class CompactionConfig:
             CompactionConfig with sensible defaults
         """
         return cls(
-            enabled=True,
+            enabled=False,
             token_threshold=100_000,
             max_tokens=150_000,
             allowed_tool_categories=[

@@ -136,7 +136,9 @@ def test_save_and_load_persistent_config(
             print(f"Validation error type: {type(e).__name__}")
             print(f"Validation error message: {e}")
             if hasattr(e, "details") and "errors" in e.details:  # type: ignore
-                print(f"Specific errors: {e.details['errors']}")  # type: ignore
+                print("Specific errors:")
+                for err in e.details["errors"]:  # type: ignore
+                    print(f"  - {err}")
             elif hasattr(e, "details"):  # type: ignore
                 print(f"Error details: {e.details}")  # type: ignore
             raise

@@ -3883,9 +3883,27 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 retry_delay = (
                     self._extract_retry_delay(last_error) if last_error else None
                 )
+
+                # For empty responses without explicit retry delay, use a minimal cooldown
+                # (5s instead of default 10min) since empty responses indicate transient
+                # issues (content filtering, safety blocks) not quota exhaustion
+                if retry_delay is None and last_error:
+                    is_empty_response = (
+                        getattr(last_error, "code", None) == "empty_response"
+                    )
+                    if is_empty_response:
+                        retry_delay = 5.0  # Minimal cooldown for empty responses
+                        logger.info(
+                            "Model %s returned empty response, using minimal cooldown of %.1fs",
+                            model,
+                            retry_delay,
+                        )
+
                 self._set_cooldown(model, duration=retry_delay)
 
-                if retry_delay:
+                if retry_delay and not (
+                    last_error and getattr(last_error, "code", None) == "empty_response"
+                ):
                     logger.info(
                         "Model %s put in cooldown for %.1fs based on API response",
                         model,
@@ -3905,15 +3923,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 retry_delay = (
                     self._extract_retry_delay(last_error) if last_error else None
                 )
+
+                # For empty responses without explicit retry delay, use a minimal cooldown
+                if retry_delay is None and last_error:
+                    is_empty_response = (
+                        getattr(last_error, "code", None) == "empty_response"
+                    )
+                    if is_empty_response:
+                        retry_delay = 5.0  # Minimal cooldown for empty responses
+                        logger.info(
+                            "Fallback model %s returned empty response, using minimal cooldown of %.1fs",
+                            model,
+                            retry_delay,
+                        )
+
                 self._set_cooldown(model, duration=retry_delay)
 
-                if retry_delay:
+                if retry_delay and not (
+                    last_error and getattr(last_error, "code", None) == "empty_response"
+                ):
                     logger.info(
                         "Fallback model %s put in cooldown for %.1fs based on API response",
                         model,
                         retry_delay,
                     )
-                else:
+                elif not (
+                    last_error and getattr(last_error, "code", None) == "empty_response"
+                ):
                     logger.info("Fallback model %s exhausted, put in cooldown", model)
 
         # If we get here, all requested models failed

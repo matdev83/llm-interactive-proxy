@@ -47,6 +47,10 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.failure_strategy_interface import (
+    FailureHandlingConfig,
+    IFailureHandlingStrategy,
+)
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.memory_service_interface import IMemoryService
 
@@ -1216,12 +1220,14 @@ def register_core_services(
         wire_capture = provider.get_required_service(IWireCapture)  # type: ignore[type-abstract]
         # Optional: history compaction service for context compaction feature
         history_compaction_service = provider.get_service(HistoryCompactionService)
+        config = provider.get_required_service(AppConfig)
         return BackendRequestManager(
             backend_processor,
             response_processor,
             angel_service_factory,
             wire_capture,
             history_compaction_service=history_compaction_service,
+            config=config,
         )
 
     _add_singleton(
@@ -2432,6 +2438,37 @@ def register_core_services(
         ResilienceCoordinator, implementation_factory=_resilience_coordinator_factory
     )
 
+    # Register failure handling strategy
+    def _failure_handling_strategy_factory(
+        provider: IServiceProvider,
+    ) -> IFailureHandlingStrategy:
+        from src.core.services.backend_routing_service import BackendRoutingService
+        from src.core.services.failure_handling_strategy import (
+            DefaultFailureHandlingStrategy,
+        )
+
+        # Get routing service for backend discovery
+        routing_service = provider.get_service(BackendRoutingService)
+
+        # Create default configuration
+        config = FailureHandlingConfig(
+            max_silent_wait=30.0,
+            total_timeout_budget=90.0,
+            keepalive_interval=8.0,
+            max_failover_hops=5,
+            min_retry_wait=1.0,
+        )
+
+        return DefaultFailureHandlingStrategy(
+            config=config,
+            backend_discovery=routing_service,
+        )
+
+    _add_singleton(
+        cast(type, IFailureHandlingStrategy),
+        implementation_factory=_failure_handling_strategy_factory,
+    )
+
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
         # Import required modules
@@ -2531,6 +2568,11 @@ def register_core_services(
         # Get or create resilience coordinator
         resilience_coordinator = provider.get_service(ResilienceCoordinator)
 
+        # Get or create failure handling strategy
+        failure_handling_strategy = provider.get_service(
+            cast(type, IFailureHandlingStrategy)
+        )
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -2544,6 +2586,7 @@ def register_core_services(
             wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
             routing_service=routing_service,
             resilience_coordinator=resilience_coordinator,
+            failure_handling_strategy=failure_handling_strategy,
         )
 
     # Register backend service and bind to interface

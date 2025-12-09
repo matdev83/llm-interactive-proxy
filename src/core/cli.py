@@ -419,6 +419,25 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable file access sandboxing to restrict file operations to the project directory (env: ENABLE_SANDBOXING)",
     )
 
+    # History Compaction options
+    compaction_group = parser.add_argument_group(
+        "History Compaction", "Options for tool output compaction"
+    )
+    compaction_group.add_argument(
+        "--enable-context-compaction",
+        dest="enable_context_compaction",
+        action="store_true",
+        default=None,
+        help="Enable history compaction for stale tool outputs (overrides config)",
+    )
+    compaction_group.add_argument(
+        "--compaction-min-tokens",
+        dest="compaction_min_tokens",
+        type=int,
+        metavar="TOKENS",
+        help="Minimum token estimate to trigger compaction (default: 100,000)",
+    )
+
     # Planning phase options
     parser.add_argument(
         "--enable-planning-phase",
@@ -1348,6 +1367,27 @@ def apply_cli_args(
             for rule in cli_aliases
         ]
         os.environ["MODEL_ALIASES"] = json.dumps(alias_data)
+
+    # Compaction configuration
+    compaction_overrides: dict[str, Any] = {}
+    if getattr(args, "enable_context_compaction", None) is not None:
+        compaction_overrides["enabled"] = args.enable_context_compaction
+        record_cli(
+            "compaction.enabled",
+            args.enable_context_compaction,
+            "--enable-context-compaction",
+        )
+
+    if getattr(args, "compaction_min_tokens", None) is not None:
+        compaction_overrides["token_threshold"] = args.compaction_min_tokens
+        record_cli(
+            "compaction.token_threshold",
+            args.compaction_min_tokens,
+            "--compaction-min-tokens",
+        )
+
+    if compaction_overrides:
+        cli_overrides["compaction"] = compaction_overrides
 
     # API keys and URLs
     if args.openrouter_api_key is not None:

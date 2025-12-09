@@ -149,3 +149,77 @@ class BackendRoutingService:
             )
 
         return selected
+
+    def find_alternative_instances(
+        self,
+        model: str,
+        exclude: list[str],
+    ) -> list[str]:
+        """Find backend instances that can serve the given model.
+
+        This method is used by the failure handling strategy to find
+        alternative backend instances when one fails.
+
+        Args:
+            model: Fully qualified model name (e.g., "openai/gpt-4o" or "gpt-4o").
+            exclude: List of backend instance names to exclude (already tried).
+
+        Returns:
+            List of backend instance names that can serve the model,
+            sorted for consistent ordering.
+        """
+        excluded_set = set(exclude)
+        candidates: list[str] = []
+
+        # Parse model to extract backend type hint if present
+        # Format could be "vendor/model" or just "model"
+        backend_hint = None
+        model_name = model
+        if "/" in model:
+            parts = model.split("/", 1)
+            backend_hint = parts[0]
+            model_name = parts[1]
+
+        # Check if config provider supports iteration
+        if not hasattr(self._config_provider, "iter_backend_names"):
+            return []
+
+        for backend_name in self._config_provider.iter_backend_names():
+            if backend_name in excluded_set:
+                continue
+
+            cfg = self._config_provider.get_backend_config(backend_name)
+            if not cfg:
+                continue
+
+            # Check if this backend provides the model
+            # Match against both full model name and model_name portion
+            models_list = getattr(cfg, "models", []) or []
+            if model in models_list or model_name in models_list:
+                candidates.append(backend_name)
+                continue
+
+            # If we have a backend hint, check if backend type matches
+            if backend_hint:
+                # Extract base type from instance name (e.g., "openai.1" -> "openai")
+                base_type = (
+                    backend_name.split(".")[0] if "." in backend_name else backend_name
+                )
+                if base_type == backend_hint:
+                    # Backend type matches, might support the model
+                    # Add it as a candidate (will be validated when actually used)
+                    candidates.append(backend_name)
+
+        # Sort for consistent ordering
+        candidates.sort()
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Found %d alternative instances for model '%s' (excluding %s): %s",
+                len(candidates),
+                model,
+                exclude,
+                candidates,
+            )
+
+        return candidates

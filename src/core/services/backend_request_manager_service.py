@@ -19,6 +19,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
@@ -101,14 +102,25 @@ class BackendRequestManager(IBackendRequestManager):
         angel_service_factory: IAngelServiceFactory,
         wire_capture: Any | None = None,
         history_compaction_service: HistoryCompactionService | None = None,
+        config: IConfig | None = None,
     ) -> None:
-        """Initialize the backend request manager."""
+        """Initialize the backend request manager.
+
+        Args:
+            backend_processor: The backend processor
+            response_processor: The response processor
+            angel_service_factory: Factory for modifying schemas
+            wire_capture: Optional wire capture service
+            history_compaction_service: Optional service for compacting history
+            config: Optional application configuration
+        """
         self._backend_processor = backend_processor
         if angel_service_factory is None:
             raise ValueError("angel_service_factory is required")
         self._response_processor = response_processor
         self._angel_service_factory = angel_service_factory
         self._history_compaction_service = history_compaction_service
+        self._config = config
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
@@ -202,23 +214,31 @@ class BackendRequestManager(IBackendRequestManager):
 
         # Apply history compaction to reduce stale tool outputs (Task 4.2)
         # This is done after command processing but before connector translation
-        # Note: Compaction runs regardless of whether commands were executed
+        # Use history compaction if available and we have a token count
         if self._history_compaction_service is not None:
+            # Fast approximate token estimate using character count / 4
+            # This is O(n) and avoids expensive tokenization for threshold checking
+            # Actual tokenization happens later in the pipeline if needed
+            total_chars = sum(
+                len(str(msg.content or "")) for msg in final_request.messages
+            )
+            token_estimate = total_chars // 4  # ~4 chars per token average
+
             try:
                 from src.core.domain.configuration.compaction_config import (
                     CompactionConfig,
                 )
 
-                # Use default compaction config - could be injected from app_config later
-                config = CompactionConfig.default()
-                if config.enabled:
-                    # Fast approximate token estimate using character count / 4
-                    # This is O(n) and avoids expensive tokenization for threshold checking
-                    # Actual tokenization happens later in the pipeline if needed
-                    total_chars = sum(
-                        len(str(msg.content or "")) for msg in final_request.messages
-                    )
-                    token_estimate = total_chars // 4  # ~4 chars per token average
+                # Use injected config or default
+                if self._config and hasattr(self._config, "compaction"):
+                    config = self._config.compaction
+                else:
+                    config = CompactionConfig.default()
+
+                # Check if we should even check compaction (token threshold)
+                # First check: is feature enabled?
+                # Second check: is token count above threshold?
+                if config.enabled and token_estimate >= config.token_threshold:
                     compaction_result = (
                         await self._history_compaction_service.compact_history(
                             final_request.messages,
@@ -226,20 +246,21 @@ class BackendRequestManager(IBackendRequestManager):
                             current_token_estimate=token_estimate,
                         )
                     )
+                    if compaction_result.was_compacted and logger.isEnabledFor(
+                        logging.INFO
+                    ):
+                        # Use structured logging with observability context (Req 4.2)
+                        logger.info(
+                            "Compacted conversation history",
+                            extra={
+                                "original_messages": compaction_result.original_message_count,
+                                "compacted_messages": compaction_result.compacted_count,
+                                "removed_messages": compaction_result.compacted_count,
+                                "original_tokens": token_estimate,  # Approx
+                            },
+                        )
                     if compaction_result.was_compacted:
-                        if logger.isEnabledFor(logging.INFO):
-                            # Use structured logging with observability context (Req 4.2)
-                            log_context = compaction_result.to_log_context()
-                            logger.info(
-                                "History compaction applied: compacted=%d, bytes_saved=%d, "
-                                "tokens_saved=%d, stale_resources=%d",
-                                compaction_result.compacted_count,
-                                compaction_result.bytes_saved,
-                                compaction_result.tokens_saved_estimate,
-                                len(compaction_result.stale_resources),
-                                extra={"compaction": log_context},
-                            )
-                        return final_request.model_copy(
+                        final_request = final_request.model_copy(
                             update={"messages": compaction_result.messages}
                         )
             except Exception as exc:
