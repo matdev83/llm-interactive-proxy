@@ -126,5 +126,6 @@ Only disable this protection if you:
 ## Related Features
 
 - [Tool Access Control](tool-access-control.md) - Fine-grained control over tool execution
-- [File Access Sandboxing](file-access-sandboxing.md) - Restrict file operations to project directory
+- [File Access Sandboxing](file-sandboxing.md) - Restrict file operations to project directory
+- [Inline Python Steering](inline-python-steering.md) - Prevent unstable inline Python execution
 - [Angel Verification System](angel-verification.md) - Real-time response verification

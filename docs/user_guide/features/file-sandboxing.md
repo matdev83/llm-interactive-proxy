@@ -353,6 +353,8 @@ Priority level: **80** (runs before most handlers, after authentication)
 ## Related Documentation
 
 - [Tool Call Reactor System](./tool-call-reactor.md)
+- [Dangerous Command Protection](dangerous-command-protection.md)
+- [Inline Python Steering](inline-python-steering.md)
 - [Security Best Practices](../security/best-practices.md)
 - [Configuration Guide](../configuration.md)
 - [CLI Parameters](../cli-parameters.md)

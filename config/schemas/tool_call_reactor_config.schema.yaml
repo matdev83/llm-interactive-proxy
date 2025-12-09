@@ -20,6 +20,12 @@ properties:
     type:
       - string
       - "null"
+  inline_python_steering_enabled:
+    type: boolean
+  inline_python_steering_message:
+    type:
+      - string
+      - "null"
   test_execution_reminder_enabled:
     type: boolean
   test_execution_reminder_message:

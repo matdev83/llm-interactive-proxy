@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
+from src.core.domain.tool_constants import FileEditingTools, ShellExecutionTools
 from src.core.interfaces.model_bases import DomainModel
 
 
@@ -49,17 +50,7 @@ class DangerousCommandsConfig(DomainModel):
 
     # Default tool names that run shell commands
     tool_names: list[str] = Field(
-        default_factory=lambda: [
-            "bash",
-            "Execute",
-            "ShellTool",
-            "exec_command",
-            "run_shell_command",
-            "run_terminal_command",
-            "shell",
-            "local_shell",
-            "container.exec",
-        ]
+        default_factory=lambda: ShellExecutionTools.get_all()
     )
     """Tool names to monitor for dangerous commands."""
 
@@ -94,39 +85,7 @@ class FileSandboxingConfig(DomainModel):
 
     # Default file-changing tool patterns
     default_tool_patterns: list[str] = Field(
-        default_factory=lambda: [
-            # File editors/creators
-            r"write_to_file",
-            r"write_file",
-            r"fsWrite",
-            r"replace_in_file",
-            r"str_replace",
-            r"strReplace",
-            r"edit_file",
-            r"patch_file",
-            r"apply_diff",
-            r"apply_patch",
-            r"delete_file",
-            r"deleteFile",
-            r"remove_file",
-            r"create_file",
-            r"move_file",
-            r"rename_file",
-            r"copy_file",
-            r"insert_content",
-            r"search_and_replace",
-            r"generate_image",
-            # Shell/command runners
-            r"Execute",
-            r"execute_command",
-            r"run_shell_command",
-            r"run_terminal_command",
-            r"exec_command",
-            r"bash",
-            r"shell",
-            r"local_shell",
-            r"container\.exec",
-        ]
+        default_factory=lambda: FileEditingTools.get_all_patterns() + [ShellExecutionTools.PATTERN]
     )
     """Default regex patterns for identifying file-changing tools."""
 
@@ -213,17 +172,7 @@ class UnifiedSecurityConfig(DomainModel):
 
     # Shared shell tool patterns (used by both features)
     shell_tool_patterns: list[str] = Field(
-        default_factory=lambda: [
-            r"\bexecute\b",
-            r"execute_command",
-            r"run_shell_command",
-            r"run_terminal_command",
-            r"exec_command",
-            r"\bshell\b",
-            r"\bbash\b",
-            r"local_shell",
-            r"container\.exec",
-        ]
+        default_factory=lambda: [ShellExecutionTools.PATTERN]
     )
     """Shared patterns for identifying shell/command execution tools."""
 

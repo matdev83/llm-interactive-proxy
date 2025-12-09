@@ -213,6 +213,87 @@ class TestDangerousCommandCheck:
         assert "custom_danger" in result.reason
 
 
+class TestDangerousCommandProjectRootProtection:
+    """Tests for project root integrity protection."""
+
+    @pytest.fixture
+    def config(self) -> DangerousCommandsConfig:
+        return DangerousCommandsConfig(enabled=True)
+
+    @pytest.fixture
+    def session_service(self) -> AsyncMock:
+        service = AsyncMock()
+        session = MagicMock()
+        session.state.project_dir = r"C:\Users\User\Project"
+        service.get_session.return_value = session
+        return service
+
+    @pytest.fixture
+    def check(
+        self, config: DangerousCommandsConfig, session_service: AsyncMock
+    ) -> DangerousCommandCheck:
+        return DangerousCommandCheck(config, session_service)
+
+    @pytest.fixture
+    def command_service(self) -> CommandExtractionService:
+        return CommandExtractionService()
+
+    def _make_context(self, tool_name: str, arguments: dict | str) -> ToolCallContext:
+        return ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name=tool_name,
+            tool_arguments=arguments if isinstance(arguments, dict) else {},
+            calling_agent=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_blocks_mv_project_root(
+        self, check: DangerousCommandCheck, command_service: CommandExtractionService
+    ) -> None:
+        """Should block moving project root."""
+        cmd = r"mv C:\Users\User\Project C:\Users\User\Project_Old"
+        context = self._make_context("bash", {"command": cmd})
+        result = await check.check(context, command_service)
+        assert result.blocked is True
+        assert "move_project_root" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_blocks_rmdir_project_root(
+        self, check: DangerousCommandCheck, command_service: CommandExtractionService
+    ) -> None:
+        """Should block rmdir of project root."""
+        cmd = r"rmdir C:\Users\User\Project"
+        context = self._make_context("bash", {"command": cmd})
+        result = await check.check(context, command_service)
+        assert result.blocked is True
+        assert "rmdir_project_root" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_blocks_git_rm_project_root(
+        self, check: DangerousCommandCheck, command_service: CommandExtractionService
+    ) -> None:
+        """Should block git rm of project root."""
+        cmd = r"git rm -r C:\Users\User\Project"
+        context = self._make_context("bash", {"command": cmd})
+        result = await check.check(context, command_service)
+        assert result.blocked is True
+        assert "git_rm_project_root" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_allows_operations_on_subdirectories(
+        self, check: DangerousCommandCheck, command_service: CommandExtractionService
+    ) -> None:
+        """Should allow operations on subdirectories."""
+        cmd = r"mv C:\Users\User\Project\subdir C:\Users\User\Project\subdir2"
+        context = self._make_context("bash", {"command": cmd})
+        result = await check.check(context, command_service)
+        assert result.blocked is False
+
+
+
 # =============================================================================
 # File Sandboxing Check Tests
 # =============================================================================

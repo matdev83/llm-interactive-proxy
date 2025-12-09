@@ -2150,6 +2150,38 @@ def register_core_services(
                         f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
                     )
 
+            # Register InlinePythonSteeringHandler if enabled
+            try:
+                if getattr(reactor_config, "inline_python_steering_enabled", False):
+                    from src.core.services.tool_call_handlers.inline_python_steering_handler import (
+                        InlinePythonSteeringHandler,
+                    )
+
+                    steering_message = getattr(
+                        reactor_config, "inline_python_steering_message", None
+                    )
+                    inline_python_handler = InlinePythonSteeringHandler(
+                        message=steering_message,
+                        enabled=True,
+                    )
+                    try:
+                        reactor.register_handler_sync(inline_python_handler)
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Registered InlinePythonSteeringHandler with priority 95"
+                            )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register inline python steering handler: {e}",
+                                exc_info=True,
+                            )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register InlinePythonSteeringHandler: {e}", exc_info=True
+                    )
+
             # Register PytestContextSavingHandler if enabled
             try:
                 if getattr(reactor_config, "pytest_context_saving_enabled", False):

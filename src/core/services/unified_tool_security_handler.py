@@ -171,15 +171,21 @@ class DangerousCommandCheck(ISecurityCheck):
         ),
     )
 
-    def __init__(self, config: DangerousCommandsConfig) -> None:
+    def __init__(
+        self,
+        config: DangerousCommandsConfig,
+        session_service: ISessionService | None = None,
+    ) -> None:
         """Initialize the dangerous command check.
 
         Args:
             config: Configuration for dangerous command detection.
+            session_service: Optional session service for project root detection.
         """
         self._config = config
         self._enabled = config.enabled
         self._tool_names: set[str] = {n.lower() for n in config.tool_names}
+        self._session_service = session_service
 
         # Compile all patterns
         self._compiled_patterns: list[tuple[str, re.Pattern[str], str]] = []
@@ -230,6 +236,12 @@ class DangerousCommandCheck(ISecurityCheck):
         if not command:
             return SecurityCheckResult.allow()
 
+        # Check for project root integrity (explicit deletion/move of root dir)
+        if self._session_service:
+            root_result = await self._check_project_root_integrity(context, command)
+            if root_result.blocked:
+                return root_result
+
         # Normalize for matching
         normalized = command_service.normalize_command(command)
 
@@ -249,6 +261,101 @@ class DangerousCommandCheck(ISecurityCheck):
                         "rule": rule_name,
                         "command": command[:500],
                         "description": description,
+                    },
+                )
+
+        return SecurityCheckResult.allow()
+
+    async def _check_project_root_integrity(
+        self, context: ToolCallContext, command: str
+    ) -> SecurityCheckResult:
+        """Check if command explicitly tries to delete, move, or rename the project root."""
+        try:
+            session = await self._session_service.get_session(context.session_id)
+            project_dir = session.state.project_dir
+        except Exception:
+            return SecurityCheckResult.allow()
+
+        if not project_dir:
+            return SecurityCheckResult.allow()
+
+        # Normalize command spacing for regex matching
+        normalized_cmd = " " + re.sub(r"\s+", " ", command).strip() + " "
+
+        # Build regex for the project root path
+        # We need to match both forward and backward slashes
+        parts = re.split(r"[\\/]", str(Path(project_dir).resolve()))
+        escaped_parts = [re.escape(p) for p in parts if p]
+        
+        # Pattern that matches the path with any separator style
+        path_pattern_str = r"[\\/]+".join(escaped_parts)
+        if not path_pattern_str:
+            return SecurityCheckResult.allow()
+            
+        # Handle drive letter (e.g. C:)
+        if re.match(r"^[a-zA-Z]:", parts[0]):
+             # If starts with drive letter, the first part is already escaped "C:"
+             # But the separator after it might be matched by joining.
+             pass
+
+        # Match exact path or quoted exact path, optionally with trailing separator
+        # NOTE: We use [\\/]* for optional trailing separator
+        target_pattern = (
+            f"(?:[\"']{path_pattern_str}[\\/]*[\"']|{path_pattern_str}[\\/]*)"
+        )
+
+        # Dangerous operations on root
+        patterns = [
+            (
+                "move_project_root",
+                re.compile(
+                    f"(?:^|\\s)(?:mv|move|rename|ren)\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}\\s+",
+                    re.IGNORECASE,
+                ),
+                "Moving or renaming the project root directory is not allowed.",
+            ),
+            (
+                "rmdir_project_root",
+                re.compile(
+                    f"(?:^|\\s)(?:rmdir|rd)\\s+(?:/[a-zA-Z]+\\s+)*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Deleting the project root directory is not allowed.",
+            ),
+            (
+                "git_rm_project_root",
+                re.compile(
+                    f"(?:^|\\s)git\\s+rm\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Removing the project root from git is not allowed.",
+            ),
+            (
+                "powershell_remove_project_root",
+                re.compile(
+                    f"(?:^|\\s)Remove-Item\\s+.*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Deleting the project root directory is not allowed.",
+            ),
+        ]
+
+        for rule_name, pattern, description in patterns:
+            if pattern.search(normalized_cmd):
+                logger.warning(
+                    "Project root integrity violation: rule=%s, command='%s'",
+                    rule_name,
+                    command[:200],
+                )
+                return SecurityCheckResult.block(
+                    reason=f"dangerous_command:{rule_name}",
+                    message=self._build_block_message(rule_name, command, description),
+                    metadata={
+                        "check": self.name,
+                        "rule": rule_name,
+                        "command": command[:500],
+                        "description": description,
+                        "project_root": str(project_dir),
                     },
                 )
 
@@ -512,7 +619,9 @@ class UnifiedToolSecurityHandler(IToolCallHandler):
 
         # Add dangerous command check
         if config.dangerous_commands.enabled:
-            self._checks.append(DangerousCommandCheck(config.dangerous_commands))
+            self._checks.append(
+                DangerousCommandCheck(config.dangerous_commands, session_service)
+            )
             logger.info("Dangerous command security check enabled")
 
         # Add file sandboxing check (if dependencies provided)

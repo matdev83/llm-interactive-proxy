@@ -2,6 +2,8 @@ import re
 from re import Pattern
 from typing import NamedTuple
 
+from src.core.domain.tool_constants import ShellExecutionTools
+
 
 class DangerousCommandRule(NamedTuple):
     pattern: Pattern[str]
@@ -282,17 +284,6 @@ def get_default_dangerous_command_rules() -> list[DangerousCommandRule]:
 DEFAULT_DANGEROUS_COMMAND_RULES = get_default_dangerous_command_rules()
 
 DEFAULT_DANGEROUS_COMMAND_CONFIG = DangerousCommandConfig(
-    tool_names=[
-        "bash",
-        "Execute",
-        "ShellTool",
-        "exec_command",
-        "execute_command",
-        "run_shell_command",
-        "run_terminal_command",
-        "shell",
-        "local_shell",
-        "container.exec",
-    ],
+    tool_names=ShellExecutionTools.get_all(),
     rules=DEFAULT_DANGEROUS_COMMAND_RULES,
 )
