@@ -144,7 +144,6 @@ from src.core.services.streaming.tool_call_repair_processor import (
 from src.core.services.streaming.vtc_postprocessor import VTCPostProcessor
 from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.structured_output_middleware import StructuredOutputMiddleware
-from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import (
     InMemoryToolCallHistoryTracker,
     ToolCallReactorService,
@@ -346,11 +345,18 @@ def _ensure_tool_call_reactor_services(
         missing_components.append("ToolCallReactorService")
     if provider.get_service(ToolCallReactorFeature) is None:
         # Check if MiddlewareApplicationManager, which contains ToolCallReactorFeature, is available
-        from src.core.services.middleware_application_manager import MiddlewareApplicationManager
+        from src.core.services.middleware_application_manager import (
+            MiddlewareApplicationManager,
+        )
+
         manager = provider.get_service(MiddlewareApplicationManager)
-        if manager is None or not any(isinstance(f, ToolCallReactorFeature) for f in manager._middleware):
-            missing_components.append("ToolCallReactorFeature (not found in MiddlewareApplicationManager)")
-    
+        if manager is None or not any(
+            isinstance(f, ToolCallReactorFeature) for f in manager._middleware
+        ):
+            missing_components.append(
+                "ToolCallReactorFeature (not found in MiddlewareApplicationManager)"
+            )
+
     if not missing_components:
         return provider
 
@@ -382,10 +388,17 @@ def _ensure_tool_call_reactor_services(
         still_missing.append("ToolCallReactorService")
     if new_provider.get_service(ToolCallReactorFeature) is None:
         # Final check if the feature is available through the manager after re-registration
-        from src.core.services.middleware_application_manager import MiddlewareApplicationManager
+        from src.core.services.middleware_application_manager import (
+            MiddlewareApplicationManager,
+        )
+
         manager = new_provider.get_service(MiddlewareApplicationManager)
-        if manager is None or not any(isinstance(f, ToolCallReactorFeature) for f in manager._middleware):
-            still_missing.append("ToolCallReactorFeature (not found in MiddlewareApplicationManager)")
+        if manager is None or not any(
+            isinstance(f, ToolCallReactorFeature) for f in manager._middleware
+        ):
+            still_missing.append(
+                "ToolCallReactorFeature (not found in MiddlewareApplicationManager)"
+            )
 
     if still_missing:
         raise ServiceResolutionError(
@@ -2313,10 +2326,16 @@ def register_core_services(
         implementation_factory=_tool_call_lifecycle_registry_factory,
     )
 
+    # NOTE: ToolCallReactorMiddleware is deprecated but still registered for backward
+    # compatibility with tests. Production code should use ToolCallReactorFeature
+    # (registered via MiddlewareApplicationManager) for proper streaming/non-streaming parity.
     def _tool_call_reactor_middleware_factory(
         provider: IServiceProvider,
     ) -> ToolCallReactorMiddleware:
         from src.core.config.app_config import AppConfig
+        from src.core.services.tool_call_reactor_middleware import (
+            ToolCallReactorMiddleware,
+        )
 
         reactor = provider.get_required_service(ToolCallReactorService)
 
@@ -2332,6 +2351,10 @@ def register_core_services(
             priority=-10,
             lifecycle_registry=lifecycle,
         )
+
+    from src.core.services.tool_call_reactor_middleware import (
+        ToolCallReactorMiddleware,
+    )
 
     _add_singleton(
         ToolCallReactorMiddleware,

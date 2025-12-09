@@ -545,7 +545,9 @@ class ClineAuthMixin:
         if isinstance(value, str):
             try:
                 # Try parsing with ISO format including 'Z' for UTC
-                dt = datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+                dt = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc
+                )
                 return dt.timestamp()
             except ValueError:
                 # Fallback to email.utils.parsedate_to_datetime

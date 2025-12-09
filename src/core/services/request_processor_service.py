@@ -1168,17 +1168,17 @@ class RequestProcessor(IRequestProcessor):
                 for part in content:
                     part_type = None
                     part_text = None
-                    
+
                     if isinstance(part, dict):
                         part_type = part.get("type")
                         part_text = part.get("text")
                     else:
                         part_type = getattr(part, "type", None)
                         part_text = getattr(part, "text", None)
-                    
+
                     if part_type == "text" and isinstance(part_text, str):
                         text_parts.append(part_text)
-                        
+
                 if text_parts:
                     content = "\n".join(text_parts)
 

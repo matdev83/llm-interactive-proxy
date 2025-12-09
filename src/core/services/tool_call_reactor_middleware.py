@@ -816,7 +816,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             enabled: Whether middleware is enabled
             priority: Priority of this middleware (lower numbers run later)
         """
-        logger.error(
+        logger.warning(
             "DEPRECATED: ToolCallReactorMiddleware instantiated. "
             "Use ToolCallReactorFeature instead for proper streaming/non-streaming parity."
         )

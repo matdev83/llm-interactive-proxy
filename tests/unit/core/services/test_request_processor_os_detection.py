@@ -1,6 +1,7 @@
 """
 Unit tests for OS detection in RequestProcessor.
 """
+
 from unittest.mock import MagicMock
 
 from src.core.domain.chat import ChatRequest
@@ -15,12 +16,10 @@ def test_detect_client_os_from_string_content():
         backend_request_manager=MagicMock(),
         response_manager=MagicMock(),
     )
-    
-    messages = [
-        {"role": "user", "content": "User system info (win32 10.0.19045)"}
-    ]
+
+    messages = [{"role": "user", "content": "User system info (win32 10.0.19045)"}]
     request = ChatRequest(messages=messages, model="test-model")
-    
+
     client_os = processor._detect_client_os(request)
     assert client_os == "windows"
 
@@ -33,20 +32,20 @@ def test_detect_client_os_from_list_content():
         backend_request_manager=MagicMock(),
         response_manager=MagicMock(),
     )
-    
+
     messages = [
         {
-            "role": "user", 
+            "role": "user",
             "content": [
                 {
-                    "type": "text", 
-                    "text": "<system-reminder>\n\nUser system info (win32 10.0.19045)\nModel: px-ag:gemini-3-pro-high"
+                    "type": "text",
+                    "text": "<system-reminder>\n\nUser system info (win32 10.0.19045)\nModel: px-ag:gemini-3-pro-high",
                 }
-            ]
+            ],
         }
     ]
     request = ChatRequest(messages=messages, model="test-model")
-    
+
     client_os = processor._detect_client_os(request)
     assert client_os == "windows"
 
@@ -59,12 +58,10 @@ def test_detect_client_os_macos():
         backend_request_manager=MagicMock(),
         response_manager=MagicMock(),
     )
-    
-    messages = [
-        {"role": "user", "content": "User system info (darwin 20.0.0)"}
-    ]
+
+    messages = [{"role": "user", "content": "User system info (darwin 20.0.0)"}]
     request = ChatRequest(messages=messages, model="test-model")
-    
+
     client_os = processor._detect_client_os(request)
     assert client_os == "macos"
 
@@ -77,12 +74,10 @@ def test_detect_client_os_linux():
         backend_request_manager=MagicMock(),
         response_manager=MagicMock(),
     )
-    
-    messages = [
-        {"role": "user", "content": "User system info (linux 5.4.0)"}
-    ]
+
+    messages = [{"role": "user", "content": "User system info (linux 5.4.0)"}]
     request = ChatRequest(messages=messages, model="test-model")
-    
+
     client_os = processor._detect_client_os(request)
     assert client_os == "linux"
 
@@ -95,11 +90,9 @@ def test_detect_client_os_none():
         backend_request_manager=MagicMock(),
         response_manager=MagicMock(),
     )
-    
-    messages = [
-        {"role": "user", "content": "Hello world"}
-    ]
+
+    messages = [{"role": "user", "content": "Hello world"}]
     request = ChatRequest(messages=messages, model="test-model")
-    
+
     client_os = processor._detect_client_os(request)
     assert client_os is None

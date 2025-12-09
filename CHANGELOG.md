@@ -1,5 +1,19 @@
 # Changelog
 
+## [2025-12-09]
+
+### Fixed: Anthropic Tool Validation and DI Improvements
+
+- **Anthropic Tool Validation**: Enhanced robustness for Anthropic tool definition parsing
+  - Added support for both flat and nested tool definition formats
+  - Implemented fallback logic to handle ambiguous tool structures
+  - Improved error handling for validation failures
+
+- **Core Services Improvements**:
+  - **Dependency Injection**: Fixed `ToolCallReactorFeature` detection in `_ensure_tool_call_reactor_services` to correctly identify the feature in `MiddlewareApplicationManager`
+  - **Deprecation Warnings**: Downgraded `ToolCallReactorMiddleware` deprecation log from ERROR to WARNING to reduce noise during migration
+  - **Timezone Handling**: Improved ISO date parsing in `ClineAuthMixin` to robustly handle 'Z' suffix
+
 ## [2025-12-08]
 
 ### Enhanced: OpenCode Zen Connector and Droid Support

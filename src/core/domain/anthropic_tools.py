@@ -5,8 +5,8 @@ This module defines the data structures for Anthropic tool definitions,
 replacing manual dictionary construction with type-safe Pydantic models.
 """
 
-from typing import Any
 import logging
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.config import ConfigDict
@@ -79,6 +79,29 @@ class OpenAIToolDefinition(BaseModel):
         return super().model_dump(**kwargs)
 
 
+def _is_flat_anthropic_format(tool: dict[str, Any]) -> bool:
+    """
+    Detect if a tool definition is in flat Anthropic format.
+
+    Flat format: {"name": "...", "description": "...", "input_schema": {...}}
+    Nested format: {"type": "tool", "function": {"name": "...", "input_schema": {...}}}
+
+    A tool is considered flat if:
+    - It has "name" at root level, AND
+    - Either no "function" key, OR the "function" value is not a dict with "name" in it
+    """
+    if "name" not in tool:
+        return False
+
+    function_value = tool.get("function")
+    if function_value is None:
+        return True
+    if not isinstance(function_value, dict):
+        return True
+    # If "function" is a dict but doesn't have "name", it's not a proper nested format
+    return "name" not in function_value
+
+
 def convert_anthropic_tool_to_openai(
     anthropic_tool: dict[str, Any] | AnthropicToolDefinition,
 ) -> OpenAIToolDefinition:
@@ -98,13 +121,8 @@ def convert_anthropic_tool_to_openai(
         OpenAI tool definition as Pydantic model
     """
     if isinstance(anthropic_tool, dict):
-        # Check if this is the flat Anthropic API format (name at root level)
-        # This means it has a 'name' field, and either no 'function' field,
-        # or the 'function' field is present but its value is not a dictionary
-        if "name" in anthropic_tool and (
-            "function" not in anthropic_tool
-            or not isinstance(anthropic_tool.get("function"), dict)
-        ):
+        # Check if this is the flat Anthropic API format
+        if _is_flat_anthropic_format(anthropic_tool):
             logger.debug("Identified as flat Anthropic tool format.")
             # Flat Anthropic format: {"name": "...", "description": "...", "input_schema": {...}}
             name = anthropic_tool.get("name", "")
@@ -130,23 +148,60 @@ def convert_anthropic_tool_to_openai(
             )
             return OpenAIToolDefinition(type="function", function=openai_function)
         else:
-            # Assume it's a nested format that needs validation
+            # Attempt to validate as nested format
             try:
                 anthropic_tool = AnthropicToolDefinition.model_validate(anthropic_tool)
             except ValidationError as e:
-                # If validation fails, it might be a flat format missing some keys from the Pydantic model
-                # Re-raise if it's not related to 'function' field missing
-                if "function" not in str(e) and "Field required" not in str(e):
+                # If nested validation fails, try falling back to flat format processing
+                # This handles edge cases where the structure is ambiguous
+                logger.debug(
+                    "Nested format validation failed, attempting flat format fallback: %s",
+                    e,
+                )
+                # At this point we know anthropic_tool is a dict (model_validate only accepts dicts)
+                # but mypy needs help understanding this
+                tool_dict: dict[str, Any] = anthropic_tool  # type: ignore[assignment]
+
+                # Extract name from root level or function if available
+                fallback_name = tool_dict.get("name", "")
+                if not fallback_name:
+                    func = tool_dict.get("function", {})
+                    if isinstance(func, dict):
+                        fallback_name = func.get("name", "")
+
+                if not fallback_name:
+                    # Cannot determine name - re-raise the original error
                     raise
-                # Fallback to attempt processing as flat if ValidationError is about missing 'function'
-                # This branch handles cases where a flat tool might not have 'name' or 'input_schema'
-                # but still shouldn't be treated as a nested tool with a missing function.
-                # However, the initial check 'if "name" in anthropic_tool and "function" not in anthropic_tool:'
-                # should ideally catch all intended flat tools.
-                # If we reach here, it implies a dict that is neither clearly flat nor a valid nested Pydantic.
-                # For now, we will re-raise the error as the initial check should be robust enough.
-                # If we need to support more ambiguous formats, this logic would need to be expanded.
-                raise
+
+                fallback_description = tool_dict.get("description")
+                if not fallback_description:
+                    func = tool_dict.get("function", {})
+                    if isinstance(func, dict):
+                        fallback_description = func.get("description")
+
+                fallback_input_schema = tool_dict.get("input_schema", {})
+                if not fallback_input_schema:
+                    func = tool_dict.get("function", {})
+                    if isinstance(func, dict):
+                        fallback_input_schema = func.get("input_schema", {})
+
+                fallback_params: dict[str, Any] = {}
+                if isinstance(fallback_input_schema, dict):
+                    fallback_params["type"] = fallback_input_schema.get(
+                        "type", "object"
+                    )
+                    fallback_params["properties"] = fallback_input_schema.get(
+                        "properties", {}
+                    )
+                    if fallback_input_schema.get("required"):
+                        fallback_params["required"] = fallback_input_schema["required"]
+
+                openai_function = OpenAIToolFunction(
+                    name=fallback_name,
+                    description=fallback_description,
+                    parameters=fallback_params,
+                )
+                return OpenAIToolDefinition(type="function", function=openai_function)
 
     # Handle Pydantic model (nested format)
     input_schema = anthropic_tool.function.input_schema

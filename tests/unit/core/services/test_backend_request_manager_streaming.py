@@ -32,7 +32,9 @@ async def test_streaming_retry_replays_full_replacement_stream() -> None:
     """Ensure streaming retries forward the complete replacement stream."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -88,7 +90,9 @@ async def test_empty_stream_is_retried_before_forwarding() -> None:
     """Empty streaming responses should trigger a retry instead of reaching the client."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -136,7 +140,9 @@ async def test_streaming_retry_skipped_when_retry_marker_present() -> None:
     """When retry marker is present, the reactor should not trigger again."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -196,7 +202,9 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -257,7 +265,9 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
         content="steering-text", metadata=steering_metadata
     )
     response_processor.process_response = AsyncMock(return_value=steering_processed)
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -291,7 +301,9 @@ async def test_streaming_full_suite_swallow_replays_history_and_hides_steering()
     """Streaming full-suite steering should replay history and hide steering chunk."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -359,7 +371,9 @@ async def test_streaming_full_suite_swallow_retry_failure_does_not_leak_steering
     """Streaming replay failures should not surface steering content."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -424,7 +438,9 @@ async def test_dangerous_command_swallow_replays_history_and_hides_steering() ->
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -480,7 +496,9 @@ async def test_tool_access_block_non_streaming_replays_and_hides_steering() -> N
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -515,7 +533,9 @@ async def test_tool_access_block_streaming_replays_and_hides_steering() -> None:
     """Tool access control steering should replay history and hide steering chunk."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -568,7 +588,9 @@ async def test_config_steering_streaming_retry_failure_does_not_leak() -> None:
     """Config steering replay failures should not leak steering content."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -632,7 +654,9 @@ async def test_config_steering_non_streaming_replays_and_hides_steering() -> Non
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -666,7 +690,9 @@ async def test_file_sandboxing_streaming_retry_failure_does_not_leak() -> None:
     """File sandboxing steering replay failures should not leak steering content."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -715,7 +741,9 @@ async def test_dangerous_command_streaming_replays_and_hides_steering() -> None:
     """Dangerous command steering should replay history and hide steering chunk (streaming)."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id, context=None: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
