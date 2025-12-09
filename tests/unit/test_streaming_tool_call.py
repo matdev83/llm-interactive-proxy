@@ -117,7 +117,7 @@ async def test_streaming_tool_call_in_first_chunk():
         angel_service_factory=AngelFactoryStub(),
     )
     mock_response_processor.process_streaming_response = (
-        lambda stream, _session_id: stream
+        lambda stream, _session_id, **kwargs: stream
     )
 
     from src.core.services import tool_text_renderer
@@ -210,7 +210,10 @@ class _RecordingStreamingProcessor(IResponseProcessor):
         return ProcessedResponse(content=response, metadata={})
 
     def process_streaming_response(
-        self, response_iterator: AsyncIterator[Any], session_id: str
+        self,
+        response_iterator: AsyncIterator[Any],
+        session_id: str,
+        **kwargs: Any,
     ) -> AsyncIterator[ProcessedResponse]:
         async def _generator() -> AsyncIterator[ProcessedResponse]:
             async for chunk in self._normalizer.process_stream(

@@ -68,7 +68,9 @@ class TestDangerousCommandLoopPrevention:
         """First dangerous command attempt should use the first warning message."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -110,7 +112,9 @@ class TestDangerousCommandLoopPrevention:
         """Second dangerous command attempt should use stronger warning."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -148,7 +152,9 @@ class TestDangerousCommandLoopPrevention:
         """Third dangerous command attempt should use final warning."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -183,7 +189,9 @@ class TestDangerousCommandLoopPrevention:
         """Fourth attempt should return terminal error instead of retrying."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -218,7 +226,9 @@ class TestDangerousCommandLoopPrevention:
         """Fourth attempt in streaming mode should return terminal error stream."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -254,7 +264,9 @@ class TestDangerousCommandLoopPrevention:
         """Retry counter should be properly incremented and preserved."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -307,7 +319,9 @@ class TestStreamingLoopPrevention:
         """Streaming should return terminal error when max retries exceeded."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )
@@ -356,7 +370,9 @@ class TestStreamingLoopPrevention:
         """Retry responses should include retry count in metadata."""
         backend_processor = AsyncMock()
         response_processor = MagicMock()
-        response_processor.process_streaming_response = lambda stream, _sid: stream
+        response_processor.process_streaming_response = (
+            lambda stream, _sid, **kwargs: stream
+        )
         manager = BackendRequestManager(
             backend_processor, response_processor, AngelFactoryStub()
         )

@@ -61,7 +61,9 @@ def _build_stream(chunks: list[ProcessedResponse]) -> AsyncIterator[ProcessedRes
 async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, **kwargs: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -126,7 +128,9 @@ async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
 async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, **kwargs: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -198,7 +202,9 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
 async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, **kwargs: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )
@@ -271,7 +277,9 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
 async def test_streaming_angel_respects_frequency(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, **kwargs: stream
+    )
     manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()
     )

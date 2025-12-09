@@ -288,7 +288,10 @@ async def test_end_to_end_non_streaming_redaction() -> None:
             model="fakemodel",
             messages=[ChatMessage(role="user", content=f"Use {secret} and !/hello")],
         )
-        context = AsyncMock()
+        context = MagicMock()
+        context.headers = {}
+        context.processing_context = MagicMock()
+        context.processing_context.values = {}
 
         resp = await processor.process_request(context, req)
         assert isinstance(resp, ResponseEnvelope)
@@ -368,7 +371,10 @@ async def test_end_to_end_streaming_redaction() -> None:
             messages=[ChatMessage(role="user", content=f"Stream {secret} and !/help")],
             stream=True,
         )
-        context = AsyncMock()
+        context = MagicMock()
+        context.headers = {}
+        context.processing_context = MagicMock()
+        context.processing_context.values = {}
 
         resp = await processor.process_request(context, req)
         assert isinstance(resp, StreamingResponseEnvelope)
