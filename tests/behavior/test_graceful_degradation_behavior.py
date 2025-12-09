@@ -24,6 +24,7 @@ from src.connectors.gemini_oauth_base import (
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.responses import StreamingResponseEnvelope
 
 
 @dataclass
@@ -108,8 +109,21 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self, request_data, processed_messages, effective_model, **kwargs
     ):
         """Mock streaming API call."""
-        return await self._chat_completions_code_assist(
+        result = await self._chat_completions_code_assist(
             request_data, processed_messages, effective_model, **kwargs
+        )
+
+        async def content_generator():
+            import json
+
+            # Yield the result formatted as SSE
+            yield f"data: {json.dumps(result)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponseEnvelope(
+            content=content_generator(),
+            media_type="text/event-stream",
+            headers={},
         )
 
     async def _discover_project_id(self, auth_session):
