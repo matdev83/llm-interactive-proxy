@@ -279,7 +279,7 @@ class ToolCallReactorFeature(IResponseFeature):
                 tool_arguments = tool_arguments_raw
 
             # Safety net: auto-fix Droid + Antigravity relative paths when handler isn't active
-            tool_arguments = self._maybe_fix_droid_antigravity_path(
+            tool_arguments, path_modified = self._maybe_fix_droid_antigravity_path(
                 tool_arguments=tool_arguments,
                 backend_name=backend_name,
                 calling_agent=calling_agent,
@@ -288,14 +288,15 @@ class ToolCallReactorFeature(IResponseFeature):
             # Fix double-ampersand command separators for Windows clients
             tool_name = function_payload.get("name", "unknown")
             client_os = context.get("client_os")
-            tool_arguments, args_modified = (
+            tool_arguments, ampersand_modified = (
                 self._double_ampersand_fixer.fix_tool_arguments(
                     tool_arguments=tool_arguments,
                     tool_name=tool_name,
                     client_os=client_os,
                 )
             )
-            if args_modified:
+            # Write back if either path fix or ampersand fix modified the arguments
+            if path_modified or ampersand_modified:
                 self._write_back_modified_arguments(
                     tool_call=tool_call,
                     new_arguments=tool_arguments,
@@ -721,7 +722,7 @@ class ToolCallReactorFeature(IResponseFeature):
     @staticmethod
     def _maybe_fix_droid_antigravity_path(
         tool_arguments: Any, backend_name: str | None, calling_agent: str | None
-    ) -> Any:
+    ) -> tuple[Any, bool]:
         """Best-effort fix for relative paths from Droid agent sessions.
 
         The dedicated DroidAntigravityPathFixHandler is gated behind a flag; when it
@@ -729,11 +730,14 @@ class ToolCallReactorFeature(IResponseFeature):
         by normalizing obvious relative paths emitted by the backend.
 
         This fix applies to any backend when the calling agent is "droid".
+
+        Returns:
+            Tuple of (possibly modified arguments, was_modified flag).
         """
         # Check agent name - must contain "droid" to activate
         agent = (calling_agent or "").lower()
         if "droid" not in agent:
-            return tool_arguments
+            return tool_arguments, False
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
             if isinstance(args, str):
@@ -747,26 +751,27 @@ class ToolCallReactorFeature(IResponseFeature):
 
         args, path, key = _extract_path(tool_arguments)
         if not path:
-            return tool_arguments
+            return tool_arguments, False
 
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
-            return tool_arguments
+            return tool_arguments, False
 
-        fixed = path.replace("\\", "/")
-        if not fixed.startswith("/"):
-            fixed = "/" + fixed
+        # Use Windows-style backslashes (consistent with DroidAntigravityPathFixHandler)
+        fixed = path.replace("/", "\\")
+        if not fixed.startswith("\\"):
+            fixed = "\\" + fixed
 
         if isinstance(args, str):
-            return fixed
+            return fixed, True
         if isinstance(args, dict) and key:
             new_args = dict(args)
             new_args[key] = fixed
-            return new_args
+            return new_args, True
         if isinstance(args, dict):
             new_args = dict(args)
             new_args["file_path"] = fixed
-            return new_args
-        return tool_arguments
+            return new_args, True
+        return tool_arguments, False
 
     @staticmethod
     def _write_back_modified_arguments(
@@ -1463,7 +1468,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
     @staticmethod
     def _maybe_fix_droid_antigravity_path(
         tool_arguments: Any, backend_name: str | None, calling_agent: str | None
-    ) -> Any:
+    ) -> tuple[Any, bool]:
         """Best-effort fix for relative paths from Droid agent sessions.
 
         The dedicated DroidAntigravityPathFixHandler is gated behind a flag; when it
@@ -1471,11 +1476,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         by normalizing obvious relative paths emitted by the backend.
 
         This fix applies to any backend when the calling agent is "droid".
+
+        Returns:
+            Tuple of (possibly modified arguments, was_modified flag).
         """
         # Check agent name - must contain "droid" to activate
         agent = (calling_agent or "").lower()
         if "droid" not in agent:
-            return tool_arguments
+            return tool_arguments, False
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
             if isinstance(args, str):
@@ -1489,22 +1497,27 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         args, path, key = _extract_path(tool_arguments)
         if not path:
-            return tool_arguments
+            return tool_arguments, False
 
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
-            return tool_arguments
+            return tool_arguments, False
 
-        fixed = path.replace("\\", "/")
-        if not fixed.startswith("/"):
-            fixed = "/" + fixed
+        # Use Windows-style backslashes (consistent with DroidAntigravityPathFixHandler)
+        fixed = path.replace("/", "\\")
+        if not fixed.startswith("\\"):
+            fixed = "\\" + fixed
 
         if isinstance(args, str):
-            return fixed
+            return fixed, True
         if isinstance(args, dict) and key:
-            args[key] = fixed
-        elif isinstance(args, dict):
-            args["file_path"] = fixed
-        return tool_arguments
+            new_args = dict(args)
+            new_args[key] = fixed
+            return new_args, True
+        if isinstance(args, dict):
+            new_args = dict(args)
+            new_args["file_path"] = fixed
+            return new_args, True
+        return tool_arguments, False
 
     def _reset_stream_state_if_needed(
         self, stream_key: str, response: Any, is_streaming: bool

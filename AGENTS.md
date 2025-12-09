@@ -81,6 +81,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 - **Async**: Use `await` for all I/O. Don't block the event loop.
 - **Paths**: Use `pathlib` or `/` forward slashes (Windows accepts them).
 - **Errors**: Don't use bare `except Exception`. Log with `exc_info=True`.
+- **No inline Python code**: Don't use `python -c "..."` during debugging, it tends to break terminals on Windows. Create temporary scripts instead.
 
 ## Debugging
 

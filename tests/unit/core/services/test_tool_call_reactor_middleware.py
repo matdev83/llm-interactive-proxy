@@ -551,18 +551,40 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
 
 
 def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
-    """Single-segment relative paths should be normalized with leading slash."""
-    fixed = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+    """Single-segment relative paths should be normalized with leading backslash."""
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         ".gitignore", "gemini-oauth-antigravity", "droid"
     )
-    assert fixed == "/.gitignore"
+    assert fixed == "\\.gitignore"
+    assert modified is True
 
 
 def test_maybe_fix_droid_antigravity_path_handles_single_filename_dict() -> None:
     """Dictionary arguments should also be normalized for single-segment paths."""
     args: dict[str, str] = {"file_path": "foo.txt"}
-    fixed = ToolCallReactorMiddleware._maybe_fix_droid_antigravity_path(
+    fixed, modified = ToolCallReactorMiddleware._maybe_fix_droid_antigravity_path(
         args, "gemini-oauth-antigravity", "droid"
     )
     assert isinstance(fixed, dict)
-    assert fixed.get("file_path") == "/foo.txt"
+    assert fixed.get("file_path") == "\\foo.txt"
+    assert modified is True
+
+
+def test_maybe_fix_droid_antigravity_path_not_modified_for_absolute_path() -> None:
+    """Paths that are already absolute should not be modified."""
+    args: dict[str, str] = {"file_path": "\\src\\test.py"}
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "droid"
+    )
+    assert fixed is args  # Same reference, unchanged
+    assert modified is False
+
+
+def test_maybe_fix_droid_antigravity_path_not_modified_for_non_droid_agent() -> None:
+    """Non-droid agents should not have paths modified."""
+    args: dict[str, str] = {"file_path": "relative/path.py"}
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "other-agent"
+    )
+    assert fixed is args  # Same reference, unchanged
+    assert modified is False

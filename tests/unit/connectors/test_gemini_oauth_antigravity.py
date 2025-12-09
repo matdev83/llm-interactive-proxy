@@ -746,8 +746,11 @@ class TestModelValidation:
         connector._validate_runtime_credentials = AsyncMock(return_value=True)  # type: ignore[attr-defined]
         connector._ensure_healthy = AsyncMock()  # type: ignore[attr-defined]
 
-        # Mock the inner method to avoid network calls and verify delegation
-        connector._chat_completions_code_assist = AsyncMock(return_value=Mock(status_code=200))  # type: ignore
+        # Mock the streaming method since non-streaming now uses streaming internally
+        # then accumulates via _accumulate_streaming_response
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(return_value=mock_streaming_response)  # type: ignore
+        connector._accumulate_streaming_response = AsyncMock(return_value=Mock(status_code=200))  # type: ignore
 
         request_data = Mock()
         request_data.stream = False
@@ -760,9 +763,9 @@ class TestModelValidation:
             effective_model="invalid-model-xyz",
         )
 
-        # Verify the invalid model was passed through to the inner method
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        # Verify the invalid model was passed through to the streaming method
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "invalid-model-xyz"
 
 
@@ -954,7 +957,11 @@ class TestGemini3ProModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -971,8 +978,8 @@ class TestGemini3ProModelMapping:
         )
 
         # Verify the model was mapped to gemini-3-pro-high
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "gemini-3-pro-high"
 
     @pytest.mark.asyncio
@@ -999,7 +1006,11 @@ class TestGemini3ProModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -1016,8 +1027,8 @@ class TestGemini3ProModelMapping:
         )
 
         # Verify the model was mapped to gemini-3-pro-low
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "gemini-3-pro-low"
 
 
@@ -1305,7 +1316,11 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -1323,8 +1338,8 @@ class TestGptOssModelMapping:
         )
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always)
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "claude-opus-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1354,7 +1369,11 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -1372,8 +1391,8 @@ class TestGptOssModelMapping:
         )
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always, ignoring reasoning_effort)
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "claude-opus-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1403,7 +1422,11 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -1421,8 +1444,8 @@ class TestGptOssModelMapping:
             effective_model="anthropic/claude-sonnet-4.5",
         )
 
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "claude-sonnet-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1449,7 +1472,11 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        connector._chat_completions_code_assist = AsyncMock(
+        mock_streaming_response = Mock(status_code=200)
+        connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=mock_streaming_response
+        )
+        connector._accumulate_streaming_response = AsyncMock(
             return_value=Mock(status_code=200)
         )
 
@@ -1467,6 +1494,6 @@ class TestGptOssModelMapping:
         )
 
         # Verify the model was mapped to gpt-oss-120b-medium (always)
-        assert connector._chat_completions_code_assist.called
-        call_args = connector._chat_completions_code_assist.call_args
+        assert connector._chat_completions_code_assist_streaming.called
+        call_args = connector._chat_completions_code_assist_streaming.call_args
         assert call_args.kwargs.get("effective_model") == "gpt-oss-120b-medium"

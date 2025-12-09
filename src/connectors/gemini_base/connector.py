@@ -1586,6 +1586,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             is_streaming = getattr(request_data, "stream", False)
 
             try:
+                # IMPORTANT: The Gemini Code Assist API only supports streaming endpoints
+                # (streamGenerateContent). For non-streaming requests, we always use
+                # the streaming path internally and accumulate the response.
+                # This avoids blocking synchronous calls that cause client timeouts.
                 if is_streaming:
                     return await self._chat_completions_code_assist_streaming(
                         request_data=request_data,
@@ -1594,12 +1598,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         **kwargs,
                     )
                 else:
-                    return await self._chat_completions_code_assist(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model_name,
-                        **kwargs,
+                    # Use streaming internally but accumulate to non-streaming response
+                    # This prevents client timeouts by processing progressively
+                    streaming_response = (
+                        await self._chat_completions_code_assist_streaming(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=model_name,
+                            **kwargs,
+                        )
                     )
+                    # Accumulate streaming response into a ResponseEnvelope
+                    return await self._accumulate_streaming_response(streaming_response)
             except BackendError as e:
                 # Handle 429 errors with graceful degradation
                 if getattr(e, "status_code", None) == 429:
@@ -1686,6 +1696,157 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> None:
         """Ensure only Gemini-compatible function tools are sent."""
         sanitize_code_assist_tools(canonical_request, code_assist_request)
+
+    async def _accumulate_streaming_response(
+        self,
+        streaming_response: StreamingResponseEnvelope,
+    ) -> ResponseEnvelope:
+        """Accumulate a streaming response into a non-streaming ResponseEnvelope.
+
+        This method is used when the client requests non-streaming mode but the
+        backend only supports streaming (e.g., Gemini Code Assist API).
+        It consumes the async iterator and builds a complete response.
+
+        Args:
+            streaming_response: The streaming response envelope to accumulate
+
+        Returns:
+            A ResponseEnvelope containing the accumulated content
+        """
+        import json
+
+        accumulated_content: str = ""
+        accumulated_tool_calls: list[dict[str, Any]] = []
+        finish_reason: str | None = None
+        usage_data: dict[str, int] | None = None
+
+        try:
+            if streaming_response.content is None:
+                # Empty stream - return empty response
+                return ResponseEnvelope(
+                    content={
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": ""},
+                                "finish_reason": "stop",
+                            }
+                        ]
+                    },
+                    headers={},
+                    status_code=200,
+                )
+            async for chunk in streaming_response.content:
+                # Handle ProcessedResponse objects
+                if hasattr(chunk, "content"):
+                    chunk_content = chunk.content
+                else:
+                    chunk_content = chunk
+
+                # Parse SSE data format
+                if isinstance(chunk_content, bytes):
+                    chunk_content = chunk_content.decode("utf-8", errors="ignore")
+
+                if not isinstance(chunk_content, str):
+                    continue
+
+                # Handle SSE data lines
+                for line in chunk_content.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        continue
+
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Extract content from OpenAI-style response
+                    choices = data.get("choices", [])
+                    if choices:
+                        choice = choices[0]
+                        delta = choice.get("delta", {})
+
+                        # Accumulate text content
+                        if delta.get("content"):
+                            accumulated_content += delta["content"]
+
+                        # Accumulate tool calls
+                        if "tool_calls" in delta:
+                            for tc in delta["tool_calls"]:
+                                tc_index = tc.get("index", len(accumulated_tool_calls))
+                                while len(accumulated_tool_calls) <= tc_index:
+                                    accumulated_tool_calls.append(
+                                        {
+                                            "id": "",
+                                            "type": "function",
+                                            "function": {"name": "", "arguments": ""},
+                                        }
+                                    )
+                                if tc.get("id"):
+                                    accumulated_tool_calls[tc_index]["id"] = tc["id"]
+                                if "function" in tc:
+                                    fn = tc["function"]
+                                    if fn.get("name"):
+                                        accumulated_tool_calls[tc_index]["function"][
+                                            "name"
+                                        ] = fn["name"]
+                                    if "arguments" in fn:
+                                        accumulated_tool_calls[tc_index]["function"][
+                                            "arguments"
+                                        ] += fn["arguments"]
+
+                        # Capture finish reason
+                        if choice.get("finish_reason"):
+                            finish_reason = choice["finish_reason"]
+
+                    # Capture usage data
+                    if data.get("usage"):
+                        usage_data = data["usage"]
+
+        except Exception as e:
+            logger.warning(f"Error accumulating streaming response: {e}", exc_info=True)
+
+        # Build OpenAI-style response
+        response_content: dict[str, Any] = {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": getattr(self, "backend_type", "gemini"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": accumulated_content if accumulated_content else None,
+                    },
+                    "finish_reason": finish_reason or "stop",
+                }
+            ],
+        }
+
+        # Add tool calls if present
+        if accumulated_tool_calls:
+            response_content["choices"][0]["message"][
+                "tool_calls"
+            ] = accumulated_tool_calls
+            if not finish_reason:
+                response_content["choices"][0]["finish_reason"] = "tool_calls"
+
+        # Add usage data if available
+        if usage_data:
+            response_content["usage"] = usage_data
+
+        return ResponseEnvelope(
+            content=response_content,
+            headers=streaming_response.headers or {},
+            status_code=streaming_response.status_code or 200,
+            usage=usage_data,
+        )
 
     async def _chat_completions_code_assist(
         self,
@@ -2345,8 +2506,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     "created": error_chunk["created"],
                                 },
                             )
+                            # Set quota flag for all 429 errors (rate limiting)
                             # Put specific model in cooldown for quota errors
                             # but keep backend functional for other models
+                            self._quota_exceeded = True
                             if error_type == "quota_exceeded":
                                 self._set_cooldown(effective_model)
                             return

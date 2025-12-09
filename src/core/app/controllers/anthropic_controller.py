@@ -19,6 +19,7 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.app.controllers.request_processor_resolver import (
     resolve_request_processor,
 )
@@ -26,9 +27,12 @@ from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
 )
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.wire_capture_interface import IWireCapture
+
+# FastAPI Response is imported as Response in line 12
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -84,6 +88,34 @@ class AnthropicController:
 
         return None
 
+    async def _capture_and_return_response(
+        self,
+        response_data: Any,
+        status_code: int,
+        headers: dict[str, Any],
+        ctx: RequestContext,
+        anthropic_request: AnthropicMessagesRequest,
+    ) -> Response:
+        """Capture the outbound response and return a FastAPIResponse."""
+        if self._wire_capture and self._wire_capture.enabled():
+            session_id = ctx.session_id or ""
+            await self._wire_capture.capture_outbound_response(
+                context=ctx,
+                session_id=session_id,
+                backend=None,  # Client-facing response (not backend)
+                model=anthropic_request.model,
+                key_name=None,
+                response_content=response_data,
+            )
+        from fastapi import Response as FastAPIResponse
+
+        return FastAPIResponse(
+            content=json.dumps(response_data),
+            media_type="application/json",
+            status_code=status_code,
+            headers=headers,
+        )
+
     async def handle_anthropic_messages(
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
     ) -> Response:
@@ -127,7 +159,7 @@ class AnthropicController:
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Handling Anthropic messages request: model={anthropic_request.model}"
+                    f"Handling Anthropic messages request: model={anthropic_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
                 )
 
             # Convert Anthropic request to canonical OpenAI request
@@ -135,13 +167,45 @@ class AnthropicController:
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
+            try:
+                raw_body_bytes = await request.body()
+            except Exception:
+                raw_body_bytes = b""
+
+            # Log request body preview for debugging
+            if raw_body_bytes:
+                preview = raw_body_bytes[:1024]
+                try:
+                    rendered_preview = preview.decode("utf-8", errors="replace")
+                except Exception:
+                    rendered_preview = repr(preview)
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Incoming /v1/messages raw request (len=%d): %s%s",
+                        len(raw_body_bytes),
+                        rendered_preview,
+                        "..." if len(raw_body_bytes) > len(preview) else "",
+                    )
+
+            # Attach domain request and raw body to context for middleware/session resolver
+            with contextlib.suppress(Exception):
+                ctx.domain_request = chat_request  # type: ignore[attr-defined]
+                if raw_body_bytes:
+                    ctx.raw_body = raw_body_bytes  # type: ignore[attr-defined]
+
+            # Ensure session_id is available in context if provided in request
+            if hasattr(chat_request, "session_id") and chat_request.session_id:
+                ctx.session_id = chat_request.session_id
+
             if self._wire_capture and self._wire_capture.enabled():
                 with contextlib.suppress(Exception):
                     await self._wire_capture.capture_inbound_request(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=chat_request,
-                        raw_body=None,
+                        raw_body=raw_body_bytes,
                     )
 
             # Process the request using the request processor
@@ -304,7 +368,6 @@ class AnthropicController:
                 )
 
             # Return as FastAPI Response with appropriate format
-            from fastapi import Response as FastAPIResponse
             from fastapi.responses import StreamingResponse
 
             if is_streaming:
@@ -348,13 +411,28 @@ class AnthropicController:
                         async for chunk_str in anthropic_stream_str:
                             yield chunk_str.encode("utf-8")
 
+                    # The final stream to be sent to the client
+                    final_stream = _anthropic_stream()
+
+                    # Wrap the final stream with wire capture if enabled
+                    if self._wire_capture and self._wire_capture.enabled():
+                        with contextlib.suppress(Exception):
+                            final_stream = self._wire_capture.wrap_outbound_stream(
+                                context=ctx,
+                                session_id=session_id,
+                                backend=None,  # Client-facing stream (not backend)
+                                model=anthropic_request.model,
+                                key_name=None,
+                                stream=final_stream,
+                            )
+
                     headers = dict(adapted_response.headers)
                     headers["content-type"] = sse_content_type
                     headers.setdefault("cache-control", "no-cache")
                     headers.setdefault("connection", "keep-alive")
 
                     return StreamingResponse(
-                        _anthropic_stream(),
+                        final_stream,
                         media_type=sse_content_type,
                         status_code=getattr(adapted_response, "status_code", 200),
                         headers=headers,
@@ -402,11 +480,12 @@ class AnthropicController:
                             "content-length",
                         )
                     }
-                    return FastAPIResponse(
-                        content=json.dumps(anthropic_formatted),
-                        media_type="application/json",
-                        status_code=status_code,
-                        headers=safe_headers,
+                    return await self._capture_and_return_response(
+                        anthropic_formatted,
+                        status_code,
+                        safe_headers,
+                        ctx,
+                        anthropic_request,
                     )
                 else:
                     # Already in Anthropic format or custom format
@@ -421,11 +500,12 @@ class AnthropicController:
                             "content-length",
                         )
                     }
-                    return FastAPIResponse(
-                        content=json.dumps(anthropic_response_data),
-                        media_type="application/json",
-                        status_code=status_code,
-                        headers=safe_headers,
+                    return await self._capture_and_return_response(
+                        anthropic_response_data,
+                        status_code,
+                        safe_headers,
+                        ctx,
+                        anthropic_request,
                     )
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions

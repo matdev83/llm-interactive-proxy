@@ -105,6 +105,28 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         # Otherwise raise a generic error
         raise BackendError(f"No more results configured for {effective_model}")
 
+    async def _chat_completions_code_assist_streaming(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        **kwargs: Any,
+    ) -> Any:
+        """Mock streaming API call using same behavior as non-streaming.
+
+        The production code now always uses streaming internally even for
+        non-streaming requests (to avoid client timeouts), so tests need
+        to mock this method as well.
+        """
+        # Delegate to the non-streaming mock for simplicity in tests
+        return await self._chat_completions_code_assist(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            _in_graceful_degradation=False,
+            **kwargs,
+        )
+
     async def _discover_project_id(self, auth_session: Any) -> str:
         """Mock project ID discovery."""
         return "test-project"

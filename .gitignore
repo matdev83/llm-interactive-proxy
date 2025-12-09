@@ -48,6 +48,8 @@ debug.log
 temp/
 tmp/
 tmp_*.py
+tmp_*.md
+tmp_*.txt
 
 # OS-specific files
 .DS_Store
@@ -70,8 +72,6 @@ pip-log.txt
 
 # Project-specific ignores (already present)
 .cursor/
-# Keep data folder in repo but ignore its contents
-data/*
 !data/.gitkeep
 !data/cli_flag_snapshot.txt
 !data/test_suite_state.json
