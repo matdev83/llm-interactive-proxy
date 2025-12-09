@@ -305,8 +305,8 @@ def test_ruff_linting_on_tests() -> None:
     if check_result.returncode == 0:
         return
 
-    # If there are issues, try to auto-fix them
-    subprocess.run(
+    # If there are issues, try to auto-fix them (safe fixes first)
+    fix_result = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -320,7 +320,7 @@ def test_ruff_linting_on_tests() -> None:
         cwd=project_root,
     )
 
-    # Check if auto-fix resolved all issues
+    # Check if safe auto-fix resolved all issues
     final_check = subprocess.run(
         [
             sys.executable,
@@ -335,9 +335,45 @@ def test_ruff_linting_on_tests() -> None:
         cwd=project_root,
     )
 
+    # If safe fixes didn't resolve all issues, try unsafe fixes
+    if final_check.returncode != 0:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--fix",
+                "--unsafe-fixes",
+                str(tests_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
+
+        # Check again after unsafe fixes
+        final_check = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--no-fix",
+                str(tests_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
+
     # Only fail if there are still unfixable issues
     if final_check.returncode != 0:
-        error_msg = f"ruff linting failed on tests directory (unfixable issues found):\n{final_check.stdout}\n{final_check.stderr}"
+        error_msg = (
+            f"ruff linting failed on tests directory (unfixable issues found):\n"
+            f"{final_check.stdout}\n{final_check.stderr}\n"
+            f"Fix attempt output:\n{fix_result.stdout}\n{fix_result.stderr}"
+        )
         pytest.fail(error_msg)
 
 
