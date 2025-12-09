@@ -31,6 +31,7 @@ async def test_streaming_wait_and_retry_emits_keepalives():
     class MockBackends:
         static_route = None
         default_backend = "mock-backend"
+
         def get(self, key, default=None):
             return getattr(self, key, default)
 
@@ -83,17 +84,17 @@ async def test_streaming_wait_and_retry_emits_keepalives():
     # Use MagicMock allowing sync methods by default, but make async methods explicitly AsyncMock
     mock_backend = MagicMock()
     mock_backend.chat_completions = AsyncMock()
-    
+
     # Mock sync methods
     mock_backend.is_in_cooldown.return_value = False
     mock_backend.get_cooldown_remaining.return_value = 0.0
     mock_backend.get_retry_after_remaining.return_value = None
-    
+
     mock_factory.ensure_backend.return_value = mock_backend
     # Mock chat_completions to raise BackendError then return success
     mock_backend.chat_completions.side_effect = [
         BackendError("Rate limited", status_code=429),  # 1st call
-        success_response  # 2nd call (retry)
+        success_response,  # 2nd call (retry)
     ]
     mock_backend.is_backend_functional.return_value = True
 
