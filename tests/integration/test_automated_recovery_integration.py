@@ -239,7 +239,7 @@ class TestAutomatedRecoveryIntegration:
         connector._api_call_count["gemini-2.5-pro"] = 0
         connector.set_api_behavior("gemini-2.5-pro", [{"success": True}] * 5)
 
-        for i in range(3):
+        for _ in range(3):
             result = await connector.chat_completions(
                 request_data=mock_request,
                 processed_messages=mock_request.messages,
