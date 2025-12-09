@@ -102,8 +102,6 @@ class BackendService(IBackendService):
         )
         # Registry for permanently disabled backends {backend_type: {reason, timestamp}}
         self._disabled_backends: dict[str, dict[str, Any]] = {}
-        # Per-backend exponential backoff after rate limit errors
-        self._rate_limit_backoff: dict[str, tuple[float, float]] = {}
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
 
@@ -1228,8 +1226,7 @@ class BackendService(IBackendService):
                     ),
                 )
 
-        # Honor any active rate-limit backoff before proceeding (legacy)
-        await self._enforce_rate_limit_backoff(backend_type)
+        # Rate limiting is now handled by the ResilienceCoordinator above
 
         rate_key = f"backend:{backend_type}"
         limit_info = await self._rate_limiter.check_limit(rate_key)
@@ -1840,12 +1837,9 @@ class BackendService(IBackendService):
                 )
 
         except (BackendError, RateLimitExceededError, LLMProxyError) as exc:
-            # Record failure in resilience coordinator
+            # Record failure in resilience coordinator (handles cooldown/backoff)
             if self._resilience:
                 self._resilience.record_failure(backend_type, effective_model, exc)
-
-            if isinstance(exc, RateLimitExceededError):
-                await self._register_rate_limit_backoff(backend_type, exc)
             # Propagate expected exceptions as-is
             raise
         except Exception as e:
@@ -1874,50 +1868,9 @@ class BackendService(IBackendService):
                 )
             return False, f"Backend validation failed: {e!s}"
 
-    async def _enforce_rate_limit_backoff(self, backend_type: str) -> None:
-        """Delay if this backend is in a rate-limit backoff window."""
-        backoff = self._rate_limit_backoff.get(backend_type)
-        if not backoff:
-            return
-        wait_until, delay = backoff
-        remaining = wait_until - time.time()
-        if remaining > 0:
-            try:
-                await asyncio.sleep(min(remaining, delay))
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Backoff sleep interrupted for backend %s",
-                        backend_type,
-                        exc_info=True,
-                    )
-        # If the window has passed, clear it
-        if time.time() >= wait_until:
-            self._rate_limit_backoff.pop(backend_type, None)
-
-    async def _register_rate_limit_backoff(
-        self, backend_type: str, error: RateLimitExceededError
-    ) -> None:
-        """Register exponential backoff after a 429 to avoid rapid retries."""
-        _, prev_delay = self._rate_limit_backoff.get(backend_type, (0.0, 0.0))
-        next_delay = prev_delay * 2 if prev_delay else 2.0
-        next_delay = min(next_delay, 60.0)
-
-        reset_at = getattr(error, "reset_at", None)
-        if reset_at and reset_at > time.time():
-            retry_after = reset_at - time.time()
-            next_delay = max(next_delay, retry_after)
-
-        wait_until = time.time() + next_delay
-        self._rate_limit_backoff[backend_type] = (wait_until, next_delay)
-
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Rate limit hit for backend %s; backing off for %.1fs (next window until %.1f)",
-                backend_type,
-                next_delay,
-                wait_until,
-            )
+    # NOTE: Legacy rate limit backoff methods (_enforce_rate_limit_backoff,
+    # _register_rate_limit_backoff) have been removed. Rate limiting is now
+    # handled by the ResilienceCoordinator via the resilience layer.
 
     async def _get_or_create_backend(
         self, backend_type: str, session_id: str | None = None

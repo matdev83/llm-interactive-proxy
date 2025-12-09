@@ -178,17 +178,22 @@ def _canonical_request(model: str = "gemini-2.5-pro") -> CanonicalChatRequest:
 
 
 @pytest.mark.asyncio
-async def test_immediate_fallback_returns_flash_response(
+async def test_retry_success_returns_pro_response_no_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that retries on the same model work without fallback.
+
+    Note: As of the Resilience Layer implementation, automatic model fallbacks
+    are disabled globally. Only retries on the requested model are attempted.
+    """
     connector = ClientExperienceConnector()
     connector.set_behavior(
         "gemini-2.5-pro",
         [
             BackendError("Rate limit", status_code=429),
+            "pro-response",  # Second attempt succeeds
         ],
     )
-    connector.set_behavior("gemini-2.5-flash", ["flash-response"])
 
     # Mock sleep to avoid real delay
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
@@ -202,13 +207,10 @@ async def test_immediate_fallback_returns_flash_response(
     elapsed = time.time() - start
 
     assert isinstance(response, ResponseEnvelope)
-    assert response.content.content == "flash-response"  # type: ignore[attr-defined]
-    assert connector._call_count["gemini-2.5-pro"] == 1
-    assert connector._call_count["gemini-2.5-flash"] == 1
-    metrics = connector.get_graceful_degradation_metrics()
-    assert metrics["fallback_invocations"] == 1
-    # Initial 2s delay per model to prevent burst rate limiting (+ jitter)
-    # gemini-2.5-pro ~2s + gemini-2.5-flash ~2s = ~4s total
+    assert response.content.content == "pro-response"  # type: ignore[attr-defined]
+    assert connector._call_count["gemini-2.5-pro"] >= 2
+    # Flash should NOT be attempted (fallbacks disabled)
+    assert connector._call_count.get("gemini-2.5-flash", 0) == 0
     assert elapsed < 6.0
 
 
@@ -240,11 +242,15 @@ async def test_flash_failure_marks_backend_unusable(
 async def test_metrics_capture_wait_time_and_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that metrics capture wait time and duration during retries.
+
+    Note: With fallbacks disabled, only the requested model is retried.
+    """
     connector = ClientExperienceConnector()
     connector._degradation_config.retry_delays = [0.05]
     rate_limit = BackendError("Rate", status_code=429)
-    connector.set_behavior("gemini-2.5-pro", [rate_limit])
-    connector.set_behavior("gemini-2.5-flash", [rate_limit, "recovered"])
+    # Retry on pro model eventually succeeds
+    connector.set_behavior("gemini-2.5-pro", [rate_limit, "recovered"])
 
     wait_times: list[float] = []
 
@@ -262,17 +268,24 @@ async def test_metrics_capture_wait_time_and_duration(
     metrics = connector.get_graceful_degradation_metrics()
     assert wait_times  # ensure we recorded at least one delay
     assert metrics["total_wait_time"] == pytest.approx(sum(wait_times))
-    assert metrics["total_attempts"] >= 2  # pro attempt + fallback
+    assert metrics["total_attempts"] >= 2  # initial + retry attempts
     assert metrics["last_duration"] >= 0.0
 
 
 @pytest.mark.asyncio
-async def test_streaming_envelope_carries_fallback_text(
+async def test_streaming_envelope_carries_response_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that streaming envelope carries response text after retry.
+
+    Note: With fallbacks disabled, the response comes from retry on the same model.
+    """
     connector = ClientExperienceConnector()
-    connector.set_behavior("gemini-2.5-pro", [BackendError("limit", status_code=429)])
-    connector.set_behavior("gemini-2.5-flash", ["streamed-response"])
+    # First attempt fails, second succeeds
+    connector.set_behavior(
+        "gemini-2.5-pro",
+        [BackendError("limit", status_code=429), "streamed-response"],
+    )
 
     # Mock sleep to avoid real delay
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
@@ -284,6 +297,9 @@ async def test_streaming_envelope_carries_fallback_text(
     )
 
     assert isinstance(envelope, ResponseEnvelope)
+
+    # Reset behavior for streaming test
+    connector.set_behavior("gemini-2.5-pro", ["streamed-response"])
 
     stream_envelope = await connector._chat_completions_code_assist_streaming(
         request_data=_canonical_request(),

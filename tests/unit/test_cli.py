@@ -18,9 +18,6 @@ from src.core.config.parameter_resolution import ParameterSource
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
-from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
-    PytestFullSuiteHandler,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -494,8 +491,11 @@ def test_cli_api_keys_are_stored_as_strings(
 def test_steering_handler_is_enabled_via_cli_flag():
     """
     Integration test to verify that the --enable-pytest-full-suite-steering
-    flag results in a correctly configured and enabled PytestFullSuiteHandler
-    in the application's dependency injection container.
+    flag results in the unified steering handler being registered.
+
+    Note: Legacy PytestFullSuiteHandler has been removed. The pytest-full-suite
+    steering functionality is now provided by PytestFullSuitePolicy within the
+    unified steering framework.
     """
     # Arrange: Set up CLI arguments to enable the feature
     args = argparse.Namespace(
@@ -574,9 +574,13 @@ def test_steering_handler_is_enabled_via_cli_flag():
     # Act: Build the application configuration and the service container
     config = _unwrap_config(apply_cli_args(args))
 
+    # Import SteeringStage to register UnifiedSteeringHandler
+    from src.core.app.stages.steering import SteeringStage
+
     builder = ApplicationBuilder()
     builder.add_stage(InfrastructureStage())
     builder.add_stage(CoreServicesStage())
+    builder.add_stage(SteeringStage())  # Required for UnifiedSteeringHandler
 
     # We need to run the async build process
     loop = asyncio.new_event_loop()
@@ -587,19 +591,15 @@ def test_steering_handler_is_enabled_via_cli_flag():
         loop.close()
     container = app.state.service_provider
 
-    # Assert: Check the tool call reactor service for the handler
+    # Assert: Check the tool call reactor service for the unified steering handler
+    # The pytest-full-suite steering is now handled by PytestFullSuitePolicy
+    # within the UnifiedSteeringHandler
     from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
     reactor = container.get_required_service(ToolCallReactorService)
     handler_names = reactor.get_registered_handlers()
 
+    # Unified steering handler should be registered (replaces legacy handlers)
     assert (
-        "pytest_full_suite_handler" in handler_names
-    ), f"PytestFullSuiteHandler should be registered. Found handlers: {handler_names}"
-
-    # Also verify the handler is actually enabled by checking the internal state
-    pytest_handler = reactor._handlers.get("pytest_full_suite_handler")
-    assert pytest_handler is not None and isinstance(
-        pytest_handler, PytestFullSuiteHandler
-    ), "PytestFullSuiteHandler should be a PytestFullSuiteHandler instance."
-    assert pytest_handler._enabled is True, "PytestFullSuiteHandler should be enabled."
+        "unified_steering_handler" in handler_names
+    ), f"UnifiedSteeringHandler should be registered. Found handlers: {handler_names}"

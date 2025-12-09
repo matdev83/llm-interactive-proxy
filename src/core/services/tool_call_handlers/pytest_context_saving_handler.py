@@ -49,8 +49,8 @@ def _extract_command(arguments: Any) -> str | None:
             parsed = json.loads(arguments)
             arguments = parsed
         except (ValueError, TypeError):
-            # Plain string
-            return arguments
+            # Plain string - type narrowing tells us it's still str
+            return str(arguments)
 
     # If dict, try common fields
     if isinstance(arguments, dict):
@@ -66,13 +66,15 @@ def _extract_command(arguments: Any) -> str | None:
                 sub = inner.get("command") or inner.get("cmd")
                 if isinstance(sub, str) and sub.strip():
                     return sub
-        # If args array provided, join into a single string
+        # If args provided (list or string), handle it
         args = arguments.get("args")
         if isinstance(args, list) and args:
             try:
                 return " ".join(str(a) for a in args)
             except Exception:
                 return None
+        if isinstance(args, str) and args.strip():
+            return args
         return None
 
     # If list/tuple, join
