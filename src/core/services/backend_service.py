@@ -1369,7 +1369,6 @@ class BackendService(IBackendService):
                     if stream or getattr(request, "stream", False):
                         from collections.abc import AsyncGenerator
 
-                        from src.core.domain.responses import StreamingResponseEnvelope
                         from src.core.interfaces.response_processor_interface import (
                             ProcessedResponse,
                         )
@@ -1620,7 +1619,7 @@ class BackendService(IBackendService):
                 if context is not None and not getattr(context, "session_id", None):
                     with contextlib.suppress(Exception):
                         context.session_id = session_id
-                from src.core.domain.responses import StreamingResponseEnvelope
+                # StreamingResponseEnvelope is imported at module level
 
                 # Wire-capture: capture inbound
                 try:
@@ -1818,14 +1817,18 @@ class BackendService(IBackendService):
                                     current_backend,
                                     effective_model,
                                 )
-                            await asyncio.sleep(wait_seconds)
+                            # Only sleep here for non-streaming requests.
+                            # Streaming requests handle waiting via KeepAliveGenerator below.
+                            if not (stream or getattr(request, "stream", False)):
+                                await asyncio.sleep(wait_seconds)
+
                         # Remove from attempted to allow retry
                         if (
                             attempted_backends
                             and attempted_backends[-1] == current_backend
                         ):
                             attempted_backends.pop()
-                        # Continue the outer loop (re-resolve backend for retry)
+
                         # Create modified request to retry same backend
                         retry_request = request.model_copy(
                             update={
@@ -1835,6 +1838,78 @@ class BackendService(IBackendService):
                                 }
                             }
                         )
+
+                        # For streaming, we can start sending keepalives immediately
+                        # if the wait is significant, to prevent client timeouts
+                        if stream or getattr(request, "stream", False):
+                            from src.core.services.streaming_keepalive import (
+                                KeepAliveGenerator,
+                            )
+
+                            async def _wait_and_retry_stream() -> Any:
+
+                                # 1. Yield keepalives during the wait
+                                if wait_seconds and wait_seconds > 0:
+                                    # Use configured keepalive interval or default
+                                    ka_interval = 8.0
+                                    if hasattr(self._config, "failure_handling"):
+                                        ka_interval = getattr(
+                                            self._config.failure_handling,
+                                            "keepalive_interval",
+                                            8.0,
+                                        )
+
+                                    async for chunk in KeepAliveGenerator(
+                                        wait_seconds=wait_seconds,
+                                        interval_seconds=ka_interval,
+                                        include_status=True,
+                                    ):
+                                        # Yield raw bytes as keepalive comments
+                                        yield chunk
+
+                                # 2. Execute retry
+                                try:
+                                    result = await self.call_completion(
+                                        retry_request,
+                                        stream=True,
+                                        allow_failover=True,
+                                        context=context,
+                                    )
+
+                                    # 3. Yield from the successful retry
+                                    if isinstance(result, StreamingResponseEnvelope):
+                                        async for chunk in result.content:  # type: ignore
+                                            yield chunk
+                                    else:
+                                        # Should not happen for stream=True, but handle just in case
+                                        yield result.content
+                                except Exception as e:
+                                    # If retry fails and can't be handled (e.g. fatal error),
+                                    # we need to yield an error chunk since we already sent headers
+                                    logger.error(
+                                        f"Retry failed during stream: {e}",
+                                        exc_info=True,
+                                    )
+                                    from src.core.interfaces.response_processor_interface import (
+                                        ProcessedResponse,
+                                    )
+
+                                    yield ProcessedResponse(
+                                        content="",
+                                        metadata={"error": str(e)},
+                                        usage=None,
+                                    )
+
+                            return StreamingResponseEnvelope(
+                                content=_wait_and_retry_stream(),
+                                media_type="text/event-stream",
+                                headers={
+                                    "Cache-Control": "no-cache",
+                                    "Connection": "keep-alive",
+                                },
+                            )
+
+                        # Non-streaming: just recurse after sleep (already slept above)
                         return await self.call_completion(
                             retry_request,
                             stream=stream,

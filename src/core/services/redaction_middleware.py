@@ -3,6 +3,9 @@ Redaction middleware for the request pipeline.
 
 This middleware handles API key redaction and command filtering to prevent
 sensitive information from being sent to LLM backends.
+
+Optimization: Uses session-level caching to avoid reprocessing historical
+messages that have already been redacted in previous requests.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from typing import Any
 from src.core.common.env_utils import get_env_flag
 from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
 from src.core.interfaces.request_processor_interface import IRequestMiddleware
+from src.core.services.redaction_cache import get_global_redaction_cache
 from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
@@ -54,18 +58,27 @@ class RedactionMiddleware(IRequestMiddleware):
 
         Args:
             request: The chat request to process
-            context: Additional context
+            context: Additional context (should include 'session_id' for caching)
 
         Returns:
             The processed request with sensitive information redacted
         """
+        total_messages = len(request.messages) if request.messages else 0
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"RedactionMiddleware.process called with {len(request.messages if request.messages else [])} messages"
+                f"RedactionMiddleware.process called with {total_messages} messages"
             )
         # Skip if no messages
         if not request.messages:
             return request
+
+        # Get session_id for caching optimization
+        session_id: str | None = None
+        if context:
+            session_id = context.get("session_id")
+
+        # Get the redaction cache for session-level optimization
+        cache = get_global_redaction_cache() if session_id else None
 
         # We always filter commands to prevent any command leakage to backend LLMs,
         # except for tool/function responses which contain legitimate tool output
@@ -121,8 +134,31 @@ class RedactionMiddleware(IRequestMiddleware):
                 )
                 messages = list(processed_request.messages)
 
-        # Process each remaining message
-        for message in processed_request.messages:
+        # Optimization: Get indices of messages that need processing
+        # (skip already-processed messages from previous requests in this session)
+        if cache and session_id:
+            unprocessed_indices = set(
+                cache.get_unprocessed_indices(session_id, processed_request.messages)
+            )
+            skipped_count = len(processed_request.messages) - len(unprocessed_indices)
+            if skipped_count > 0 and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Redaction cache hit: skipping {skipped_count} already-processed "
+                    f"messages, processing {len(unprocessed_indices)} new messages"
+                )
+        else:
+            # No caching - process all messages
+            unprocessed_indices = set(range(len(processed_request.messages)))
+
+        # Track messages we process for cache update
+        newly_processed_messages: list[ChatMessage] = []
+
+        # Process only unprocessed messages
+        for idx, message in enumerate(processed_request.messages):
+            # Skip already-processed messages
+            if idx not in unprocessed_indices:
+                continue
+
             if message.content:
                 # Skip command filtering for tool/function responses
                 # These contain legitimate tool output that may include proxy command examples
@@ -175,6 +211,19 @@ class RedactionMiddleware(IRequestMiddleware):
                                     part.text = self._command_filter.filter_commands(
                                         part.text
                                     )
+
+            newly_processed_messages.append(message)
+
+        # Update cache with newly processed messages
+        if cache and session_id and newly_processed_messages:
+            cache.mark_batch_processed(session_id, newly_processed_messages)
+            if logger.isEnabledFor(logging.DEBUG):
+                stats = cache.get_stats(session_id)
+                logger.debug(
+                    f"Redaction cache updated for session {session_id}: "
+                    f"{stats['cached_hashes']} hashes cached, "
+                    f"{stats['total_processed']} total processed"
+                )
 
         return processed_request
 

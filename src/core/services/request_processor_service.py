@@ -635,7 +635,11 @@ class RequestProcessor(IRequestProcessor):
                         api_keys=api_keys,
                         command_prefix=command_prefix or "!/",
                     )
-                    redaction_context = {"commands_disabled": commands_disabled}
+                    # Include session_id for caching optimization
+                    redaction_context = {
+                        "commands_disabled": commands_disabled,
+                        "session_id": session_id,
+                    }
 
                     # Debug logging before redaction (minimal for performance)
                     if (

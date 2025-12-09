@@ -137,12 +137,19 @@ class TestGeminiOAuthPlanConnector:
         connector,
         monkeypatch,
     ):
-        """Ensure streaming degradation surfaces recovered content to the client."""
+        """Ensure streaming degradation surfaces recovered content to the client.
+
+        Note: By default, graceful degradation is disabled in favor of the Resilience Layer.
+        This test explicitly enables it to verify the legacy graceful degradation path.
+        """
 
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
         connector._discover_project_id = AsyncMock(return_value="project-id")
         connector.gemini_api_base_url = "https://example.com"
+
+        # Enable graceful degradation for this test (disabled by default for Resilience Layer)
+        connector._degradation_config.enabled = True
 
         degraded_usage = {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
         connector._handle_429_with_graceful_degradation = AsyncMock(

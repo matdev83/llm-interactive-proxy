@@ -617,7 +617,12 @@ class TestConfigurationBehavior:
 
     @pytest.mark.asyncio
     async def test_disabled_graceful_degradation(self, mock_request):
-        """Test that disabling graceful degradation falls back to original behavior."""
+        """Test that disabling graceful degradation lets errors propagate to BackendService.
+
+        With the Resilience Layer architecture, when graceful degradation is disabled,
+        the connector does NOT mark itself as non-functional. Instead, it re-raises
+        the error for BackendService's failure handling strategy to manage.
+        """
         # Setup: Create connector with disabled graceful degradation
         connector = MockGeminiOAuthConnector()
         connector._degradation_config.enabled = False
@@ -626,7 +631,7 @@ class TestConfigurationBehavior:
         error_429 = BackendError("Rate limit exceeded", status_code=429)
         connector.set_api_behavior("gemini-2.5-pro", [error_429])
 
-        # Execute: Expect immediate failure without retry
+        # Execute: Expect immediate failure without retry (error propagates)
         with pytest.raises(BackendError):
             await connector.chat_completions(
                 request_data=mock_request,
@@ -634,9 +639,13 @@ class TestConfigurationBehavior:
                 effective_model="gemini-2.5-pro",
             )
 
-        # Verify: Backend marked as unusable (original behavior)
-        assert not connector.is_functional
-        assert connector._quota_exceeded
+        # Verify: Backend remains functional (Resilience Layer handles state)
+        # With the new architecture, the connector does NOT mark itself as non-functional
+        # The BackendService's ResilienceCoordinator handles rate limit state tracking
+        assert (
+            connector.is_functional
+        ), "Connector should remain functional - Resilience Layer handles state"
+        # Note: _quota_exceeded is NOT set because the error is re-raised without internal handling
 
     @pytest.mark.asyncio
     async def test_disabled_recovery_probing(self, connector, mock_request, mock_sleep):

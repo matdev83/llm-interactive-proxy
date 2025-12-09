@@ -182,6 +182,46 @@ class RateLimitErrorHandler(BaseErrorHandler):
                     if parsed is not None:
                         return parsed
 
+        # Check for Google-style nested details (RetryInfo or ErrorInfo metadata)
+        # Structure: error.details.error.details[].(retryDelay | metadata.quotaResetDelay)
+        try:
+            # Depending on how the error is wrapped, 'details' might be the top level dict
+            # or we might need to look deeper.
+            # 1. Check details['error']['details']
+            error_details = None
+            if isinstance(details, dict):
+                error_info = details.get("error", details)
+                if isinstance(error_info, dict):
+                    error_details = error_info.get("details")
+
+            # 2. Check direct details list if details is a list (rare but possible)
+            if isinstance(details, list):
+                error_details = details
+
+            if isinstance(error_details, list):
+                for detail in error_details:
+                    if not isinstance(detail, dict):
+                        continue
+
+                    # Case 1: RetryInfo with retryDelay
+                    retry_delay = detail.get("retryDelay")
+                    if isinstance(retry_delay, str):
+                        parsed = self._parse_duration_string(retry_delay)
+                        if parsed is not None:
+                            return parsed
+
+                    # Case 2: ErrorInfo with quotaResetDelay in metadata
+                    metadata = detail.get("metadata")
+                    if isinstance(metadata, dict):
+                        reset_delay = metadata.get("quotaResetDelay")
+                        if isinstance(reset_delay, str):
+                            parsed = self._parse_duration_string(reset_delay)
+                            if parsed is not None:
+                                return parsed
+        except Exception:
+            # Be defensive parsing complex structures
+            pass
+
         # Check for retry_after directly on error
         retry_after_direct = getattr(error, "retry_after", None)
         if retry_after_direct is not None:
@@ -218,6 +258,44 @@ class RateLimitErrorHandler(BaseErrorHandler):
                 return None
 
         return None
+
+    def _parse_duration_string(self, duration: str) -> float | None:
+        """Parse duration string like '10s' or '4h51m33.9s'.
+
+        Args:
+            duration: The duration string
+
+        Returns:
+            Seconds as float, or None if parsing fails
+        """
+        if not isinstance(duration, str):
+            return None
+
+        try:
+            # Simple seconds format (e.g. "17493.989s" or "0.517960407s")
+            if duration.endswith("s") and "m" not in duration and "h" not in duration:
+                return float(duration[:-1])
+
+            # Complex format (e.g. "4h51m33.989s")
+            total_seconds = 0.0
+            current_val = ""
+
+            for char in duration:
+                if char.isdigit() or char == ".":
+                    current_val += char
+                elif char == "h":
+                    total_seconds += float(current_val) * 3600
+                    current_val = ""
+                elif char == "m":
+                    total_seconds += float(current_val) * 60
+                    current_val = ""
+                elif char == "s":
+                    total_seconds += float(current_val)
+                    current_val = ""
+
+            return total_seconds if total_seconds > 0 else None
+        except (ValueError, TypeError):
+            return None
 
     def _is_instance_wide_limit(self, error: Exception) -> bool:
         """Detect if rate limit affects entire instance or just the model.

@@ -87,6 +87,34 @@ class TestRateLimitErrorHandler:
         assert action.type == ActionType.COOLDOWN
         assert action.duration == 300.0
 
+    def test_extracts_retry_after_from_google_rpc_error(self) -> None:
+        """Should extract retry-after from Google RPC error details."""
+        manager = RateLimitStateManager()
+        handler = RateLimitErrorHandler(manager)
+
+        # Structure matches Google's ErrorInfo metadata
+        error = RateLimitExceededError(
+            "Rate limited",
+            details={
+                "error": {
+                    "code": 429,
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "metadata": {"quotaResetDelay": "4.15s"},
+                        }
+                    ],
+                }
+            },
+        )
+        context = ErrorContext(instance_id="backend.1", model="gemini-pro", error=error)
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.COOLDOWN
+        # Should be parsed as 4.15s
+        assert abs(action.duration - 4.15) < 0.001
+
     def test_default_cooldown_when_no_retry_after(self) -> None:
         """Should use default cooldown when retry-after not available."""
         manager = RateLimitStateManager()

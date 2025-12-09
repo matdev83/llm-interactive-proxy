@@ -13,6 +13,8 @@ import logging
 import time
 from typing import Any
 
+from src.core.common.exceptions import BackendError
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,6 +122,59 @@ def build_rate_limit_chunk(
         code=code,
         model=model,
         error_type=error_type,
+    )
+
+
+def build_rate_limit_backend_error(
+    error_payload: Any, model: str = "unknown"
+) -> BackendError | None:
+    """Build a BackendError from a streaming error payload when it signals rate limiting.
+
+    Args:
+        error_payload: Parsed SSE data (either the whole payload or the nested ``error`` dict).
+        model: Model name for logging/context.
+
+    Returns:
+        BackendError when the payload indicates rate limiting; otherwise None.
+    """
+    if not isinstance(error_payload, dict):
+        return None
+
+    error_body = (
+        error_payload.get("error") if "error" in error_payload else error_payload
+    )
+    if not isinstance(error_body, dict):
+        return None
+
+    error_code = error_body.get("code")
+    error_status = str(error_body.get("status", "")).upper()
+
+    if error_code != 429 and error_status != "RESOURCE_EXHAUSTED":
+        return None
+
+    message_val = error_body.get("message")
+    error_type = (
+        "quota_exceeded"
+        if error_status == "RESOURCE_EXHAUSTED"
+        else "rate_limit_exceeded"
+    )
+    message = (
+        f"Service temporarily unavailable due to rate limiting. Details: {message_val}"
+        if isinstance(message_val, str) and message_val.strip()
+        else "Service temporarily unavailable due to rate limiting."
+    )
+
+    details = (
+        error_payload if isinstance(error_payload, dict) else {"raw": error_payload}
+    )
+
+    return BackendError(
+        message=message,
+        code=error_type,
+        status_code=429,
+        details=details,
+        backend_name=None,
+        model=model,
     )
 
 
@@ -286,6 +341,7 @@ __all__ = [
     "build_auth_error_chunk",
     "build_connection_error_chunk",
     "build_error_chunk",
+    "build_rate_limit_backend_error",
     "build_rate_limit_chunk",
     "build_timeout_error_chunk",
     "extract_429_error_details",

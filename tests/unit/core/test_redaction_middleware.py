@@ -12,7 +12,19 @@ from src.core.domain.chat import (
     MessageContentPartText,
     ToolCall,
 )
+from src.core.services.redaction_cache import (
+    get_global_redaction_cache,
+    reset_global_redaction_cache,
+)
 from src.core.services.redaction_middleware import RedactionMiddleware
+
+
+@pytest.fixture(autouse=True)
+def reset_cache():
+    """Reset the global redaction cache before and after each test."""
+    reset_global_redaction_cache()
+    yield
+    reset_global_redaction_cache()
 
 
 @pytest.mark.asyncio
@@ -288,3 +300,146 @@ async def test_redaction_middleware_preserves_non_proxy_tool_outputs() -> None:
 
     tool_contents = [msg.content for msg in processed.messages if msg.role == "tool"]
     assert tool_contents == ["external tool response", "proxy response"]
+
+
+# =============================================================================
+# Caching behavior tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_caches_processed_messages() -> None:
+    """Verify that processed messages are cached to avoid reprocessing."""
+    api_keys = ["sk-TESTSECRET12345"]
+    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    session_id = "test-session-cache"
+
+    # First request with 2 messages
+    req1 = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="First message"),
+            ChatMessage(role="assistant", content="Response 1"),
+        ],
+    )
+
+    await mw.process(req1, context={"session_id": session_id})
+
+    # Check cache stats
+    cache = get_global_redaction_cache()
+    stats = cache.get_stats(session_id)
+    assert stats["cached_hashes"] == 2
+    assert stats["total_processed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_skips_cached_messages() -> None:
+    """Verify that already-cached messages are skipped on subsequent requests."""
+    api_keys = ["sk-TESTSECRET12345"]
+    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    session_id = "test-session-skip"
+
+    # First request with 2 messages
+    req1 = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="First message"),
+            ChatMessage(role="assistant", content="Response 1"),
+        ],
+    )
+    await mw.process(req1, context={"session_id": session_id})
+
+    # Second request with 3 messages (same 2 + 1 new)
+    req2 = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="First message"),
+            ChatMessage(role="assistant", content="Response 1"),
+            ChatMessage(role="user", content="New message"),
+        ],
+    )
+    await mw.process(req2, context={"session_id": session_id})
+
+    # Cache should now have 3 hashes (2 original + 1 new)
+    cache = get_global_redaction_cache()
+    stats = cache.get_stats(session_id)
+    assert stats["cached_hashes"] == 3
+    # Total processed should be 3 (not 5) because first 2 were skipped
+    assert stats["total_processed"] == 3
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_without_session_id() -> None:
+    """Verify that middleware works without session_id (no caching)."""
+    api_keys = ["sk-TESTSECRET12345"]
+    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content=f"Use {api_keys[0]} for this"),
+        ],
+    )
+
+    # Process without session_id
+    processed = await mw.process(req, context=None)
+
+    # Should still work and redact
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in str(processed.messages[0].content)
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_different_sessions_isolated() -> None:
+    """Verify that different sessions have isolated caches."""
+    api_keys = ["sk-TESTSECRET12345"]
+    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="Same message"),
+        ],
+    )
+
+    # Process for session 1
+    await mw.process(req, context={"session_id": "session-1"})
+
+    # Process for session 2
+    await mw.process(req, context={"session_id": "session-2"})
+
+    # Each session should have its own cache
+    cache = get_global_redaction_cache()
+    assert cache.get_stats("session-1")["cached_hashes"] == 1
+    assert cache.get_stats("session-2")["cached_hashes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_redaction_still_applies_to_new_messages_with_api_keys() -> None:
+    """Verify that new messages containing API keys are still properly redacted."""
+    api_keys = ["sk-TESTSECRET12345"]
+    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    session_id = "test-session-redact-new"
+
+    # First request - establishes cache
+    req1 = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="First message"),
+        ],
+    )
+    await mw.process(req1, context={"session_id": session_id})
+
+    # Second request - has a new message with API key
+    req2 = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="First message"),
+            ChatMessage(role="user", content=f"Use {api_keys[0]} here"),
+        ],
+    )
+    processed = await mw.process(req2, context={"session_id": session_id})
+
+    # The new message should be redacted
+    new_msg_content = processed.messages[1].content
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in str(new_msg_content)
+    assert api_keys[0] not in str(new_msg_content)

@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
 
-A swiss-army knife proxy for LLM-powered applications. Sits between any LLM-aware client and any backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to your chosen provider. Translate requests, override models, rotate API keys, prevent leaks, inspect traffic, and execute chat-embedded commands—all from a single drop-in gateway.
+A swiss-army knife proxy for LLM-powered applications. Sits between any LLM-aware client (agent) and any backend, presenting multiple front-end APIs (OpenAI, Responses API, Anthropic, Gemini) while routing to your chosen provider. Translate requests, override models, rotate API keys, prevent leaks, inspect traffic, and execute chat-embedded commands—all from a single drop-in gateway.
 
 ## Architecture
 

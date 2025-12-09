@@ -72,6 +72,9 @@ from src.connectors.gemini_base.prompt_limiter import (
 )
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
+from src.connectors.gemini_base.stream_processor import (
+    build_rate_limit_backend_error,
+)
 from src.connectors.gemini_base.token_manager import TokenManager
 from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
@@ -493,7 +496,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # Initialize graceful degradation
         self._graceful_metrics = GracefulDegradationMetrics()
+        # Force disabled by default to comply with new Resilience Layer architecture
+        # Fallbacks/Retries are handled by BackendService + ResilienceCoordinator
         self._degradation_config = GracefulDegradationConfig.from_config(self.config)
+        self._degradation_config.enabled = False
         self._model_retry_states: dict[str, ModelRetryState] = {}
         self._permanently_failed = False
         self._recovery_probe_task: asyncio.Task[Any] | None = None
@@ -1621,14 +1627,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             **kwargs,
                         )
                     else:
-                        # Graceful degradation disabled, use original behavior
-                        self._quota_exceeded = True
-                        self.is_functional = False
-                        logger.error(
-                            "Backend %s marked as unusable due to rate limit and graceful degradation disabled. "
-                            "Manual intervention may be required to restore functionality.",
-                            self.name,
-                        )
+                        # Graceful degradation disabled in favor of Resilience Layer.
+                        # Do NOT mark backend as non-functional; let BackendService handle retries.
                         raise
                 else:
                     # Re-raise non-429 BackendErrors
@@ -2456,8 +2456,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         error=quota_error,
                                         **kwargs,
                                     )
-                                except BackendError:
-                                    fallback_response = None
+                                except BackendError as graceful_error:
+                                    # Re-raise the error with full details so BackendService
+                                    # failure handling strategy can extract retry-after
+                                    raise graceful_error
                                 else:
                                     if isinstance(
                                         fallback_response, StreamingResponseEnvelope
@@ -2508,7 +2510,31 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             # Set quota flag for tracking
                             self._quota_exceeded = True
                             if error_type == "quota_exceeded":
-                                self._set_cooldown(effective_model)
+                                # Extract retry delay from error details to avoid
+                                # using the default 600s cooldown for short rate limits
+                                quota_error = BackendError(
+                                    message=error_message,
+                                    code=error_type,
+                                    status_code=429,
+                                    details=(
+                                        error_detail
+                                        if isinstance(error_detail, dict)
+                                        else {"raw": error_detail}
+                                    ),
+                                )
+                                retry_delay = self._extract_retry_delay(quota_error)
+                                if retry_delay is not None:
+                                    self._set_cooldown(
+                                        effective_model, duration=retry_delay
+                                    )
+                                    logger.debug(
+                                        "Set cooldown for model %s with retry delay %.2fs from error response",
+                                        effective_model,
+                                        retry_delay,
+                                    )
+                                else:
+                                    # Only set default cooldown if no retry-after was provided
+                                    self._set_cooldown(effective_model)
 
                             # Raise BackendError so BackendService failure handling strategy
                             # can catch it and decide on retry/failover
@@ -2554,7 +2580,29 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                         if is_quota_error:
                             # Put specific model in cooldown, keep backend functional
-                            self._set_cooldown(effective_model)
+                            # Extract retry delay from error details to avoid using default 600s cooldown
+                            temp_error = BackendError(
+                                message=error_message or "Rate limit exceeded",
+                                code="quota_exceeded",
+                                status_code=429,
+                                details=(
+                                    general_error_detail
+                                    if isinstance(general_error_detail, dict)
+                                    else {"raw": general_error_detail}
+                                ),
+                            )
+                            retry_delay = self._extract_retry_delay(temp_error)
+                            if retry_delay is not None:
+                                self._set_cooldown(
+                                    effective_model, duration=retry_delay
+                                )
+                                logger.debug(
+                                    "Set cooldown for model %s with retry delay %.2fs",
+                                    effective_model,
+                                    retry_delay,
+                                )
+                            else:
+                                self._set_cooldown(effective_model)
                             # Extract user-friendly error message
                             user_message = (
                                 "Service temporarily unavailable due to rate limiting."
@@ -2673,6 +2721,27 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 return
                             try:
                                 data = json.loads(data_str)
+
+                                rate_limit_error = build_rate_limit_backend_error(
+                                    data, effective_model
+                                )
+                                if rate_limit_error:
+                                    self._quota_exceeded = True
+                                    retry_delay = self._extract_retry_delay(
+                                        rate_limit_error
+                                    )
+                                    if retry_delay:
+                                        self._set_cooldown(
+                                            effective_model, duration=retry_delay
+                                        )
+                                    elif (
+                                        getattr(rate_limit_error, "code", None)
+                                        == "quota_exceeded"
+                                    ):
+                                        self._set_cooldown(effective_model)
+                                    with contextlib.suppress(Exception):
+                                        response.close()
+                                    raise rate_limit_error
                             except json.JSONDecodeError as e:
                                 logger.warning(
                                     "Received malformed JSON chunk in streaming response: %s (error: %s)",
@@ -2781,6 +2850,38 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                             if isinstance(parsed_error, dict) and (
                                                 "error" in parsed_error
                                             ):
+                                                rate_limit_error = (
+                                                    build_rate_limit_backend_error(
+                                                        parsed_error, effective_model
+                                                    )
+                                                )
+                                                if rate_limit_error:
+                                                    self._quota_exceeded = True
+                                                    retry_delay = (
+                                                        self._extract_retry_delay(
+                                                            rate_limit_error
+                                                        )
+                                                    )
+                                                    if retry_delay:
+                                                        self._set_cooldown(
+                                                            effective_model,
+                                                            duration=retry_delay,
+                                                        )
+                                                    elif (
+                                                        getattr(
+                                                            rate_limit_error,
+                                                            "code",
+                                                            None,
+                                                        )
+                                                        == "quota_exceeded"
+                                                    ):
+                                                        self._set_cooldown(
+                                                            effective_model
+                                                        )
+                                                    with contextlib.suppress(Exception):
+                                                        response.close()
+                                                    raise rate_limit_error
+
                                                 error_info = (
                                                     parsed_error.get("error") or {}
                                                 )
@@ -3788,7 +3889,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             state = self._model_retry_states[model]
 
-            # Check if the initial error dictates a long cooldown for the original model
+            # Check if the initial error dictates a cooldown for the original model
             # This prevents "spamming" the API when it has already told us to wait
             if (
                 model == original_model
@@ -3796,17 +3897,31 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 and self._is_rate_limit_like_error(error)
             ):
                 retry_delay = self._extract_retry_delay(error)
-                # If delay is significant (e.g. > 10s), respect it immediately
-                # For short delays (e.g. 1s), we might still attempt retries with backoff
-                if retry_delay and retry_delay > 10.0:
+                if retry_delay is not None:
+                    # Set cooldown with the exact duration provided by the API
                     self._set_cooldown(model, duration=retry_delay)
-                    logger.warning(
-                        "Model %s returned 429 with long retry delay (%.1fs); skipping retries and setting cooldown.",
-                        model,
-                        retry_delay,
-                    )
-                    # Skip retries for this model, proceed to fallback
-                    continue
+
+                    # For very short delays (< 30s which is max_silent_wait in failure handling),
+                    # let BackendService handle via transparent wait-and-retry instead of
+                    # doing internal graceful degradation retries that would add latency
+                    if retry_delay <= 30.0:
+                        logger.info(
+                            "Model %s returned 429 with short retry delay (%.2fs); "
+                            "letting BackendService handle transparent retry.",
+                            model,
+                            retry_delay,
+                        )
+                        # Re-raise the error for BackendService failure handling strategy
+                        raise error
+                    else:
+                        logger.warning(
+                            "Model %s returned 429 with long retry delay (%.2fs); "
+                            "skipping retries and checking fallback options.",
+                            model,
+                            retry_delay,
+                        )
+                        # For long delays, skip internal retries but continue to fallback models
+                        continue
 
             # If model is in cooldown, try to recover it first
             if self._is_in_cooldown(model):

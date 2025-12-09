@@ -1391,6 +1391,70 @@ def apply_cli_args(
             "--hybrid-reasoning-force-initial-turns",
         )
 
+    # Backend Debugging Overrides
+    if getattr(args, "enable_antigravity_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_antigravity_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_antigravity_backend_debugging_override",
+            True,
+            "--enable-antigravity-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_cline_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_cline_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_cline_backend_debugging_override",
+            True,
+            "--enable-cline-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_gemini_oauth_free_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_gemini_oauth_free_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_gemini_oauth_free_backend_debugging_override",
+            True,
+            "--enable-gemini-oauth-free-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_gemini_oauth_plan_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_gemini_oauth_plan_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_gemini_oauth_plan_backend_debugging_override",
+            True,
+            "--enable-gemini-oauth-plan-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_qwen_oauth_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_qwen_oauth_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_qwen_oauth_backend_debugging_override",
+            True,
+            "--enable-qwen-oauth-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_openai_codex_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_openai_codex_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_openai_codex_backend_debugging_override",
+            True,
+            "--enable-openai-codex-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_anthropic_oauth_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["enable_anthropic_oauth_backend_debugging_override"] = True
+        record_cli(
+            "backends.enable_anthropic_oauth_backend_debugging_override",
+            True,
+            "--enable-anthropic-oauth-backend-debugging-override",
+        )
+
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:
         from src.core.config.app_config import ModelAliasRule
