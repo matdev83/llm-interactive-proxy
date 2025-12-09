@@ -1161,6 +1161,27 @@ class RequestProcessor(IRequestProcessor):
         for message in request_data.messages:
             # Check user messages for system info
             role, content = self._get_message_role_and_content(message)
+
+            # Normalize content to string if it's a list of text blocks (multimodal)
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    part_type = None
+                    part_text = None
+                    
+                    if isinstance(part, dict):
+                        part_type = part.get("type")
+                        part_text = part.get("text")
+                    else:
+                        part_type = getattr(part, "type", None)
+                        part_text = getattr(part, "text", None)
+                    
+                    if part_type == "text" and isinstance(part_text, str):
+                        text_parts.append(part_text)
+                        
+                if text_parts:
+                    content = "\n".join(text_parts)
+
             if role == "user" and isinstance(content, str):
                 # Look for "User system info (win32 10.0.19045)"
                 # The regex captures the content inside parentheses
