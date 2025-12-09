@@ -551,11 +551,11 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
 
 
 def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
-    """Single-segment relative paths should be normalized with leading backslash."""
+    """Single-segment relative paths should be normalized with leading forward slash."""
     fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         ".gitignore", "gemini-oauth-antigravity", "droid"
     )
-    assert fixed == "\\.gitignore"
+    assert fixed == "/.gitignore"
     assert modified is True
 
 
@@ -566,13 +566,43 @@ def test_maybe_fix_droid_antigravity_path_handles_single_filename_dict() -> None
         args, "gemini-oauth-antigravity", "droid"
     )
     assert isinstance(fixed, dict)
-    assert fixed.get("file_path") == "\\foo.txt"
+    assert fixed.get("file_path") == "/foo.txt"
+    assert modified is True
+
+
+def test_maybe_fix_droid_antigravity_path_handles_nested_path() -> None:
+    """Nested relative paths should be normalized with forward slashes."""
+    args: dict[str, str] = {"file_path": "tests/behavior/some_file.py"}
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "droid"
+    )
+    assert isinstance(fixed, dict)
+    assert fixed.get("file_path") == "/tests/behavior/some_file.py"
     assert modified is True
 
 
 def test_maybe_fix_droid_antigravity_path_not_modified_for_absolute_path() -> None:
     """Paths that are already absolute should not be modified."""
-    args: dict[str, str] = {"file_path": "\\src\\test.py"}
+    # Test with forward slash prefix
+    args: dict[str, str] = {"file_path": "/src/test.py"}
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "droid"
+    )
+    assert fixed is args  # Same reference, unchanged
+    assert modified is False
+
+    # Test with backslash prefix
+    args2: dict[str, str] = {"file_path": "\\src\\test.py"}
+    fixed2, modified2 = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args2, "gemini-oauth-antigravity", "droid"
+    )
+    assert fixed2 is args2  # Same reference, unchanged
+    assert modified2 is False
+
+
+def test_maybe_fix_droid_antigravity_path_not_modified_for_drive_letter() -> None:
+    """Windows drive letter paths should not be modified."""
+    args: dict[str, str] = {"file_path": "C:\\Users\\test\\file.py"}
     fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         args, "gemini-oauth-antigravity", "droid"
     )

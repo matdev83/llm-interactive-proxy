@@ -293,7 +293,6 @@ class TestDangerousCommandProjectRootProtection:
         assert result.blocked is False
 
 
-
 # =============================================================================
 # File Sandboxing Check Tests
 # =============================================================================

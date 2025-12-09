@@ -7,13 +7,13 @@ from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddle
 
 
 @pytest.mark.asyncio
-async def test_tool_call_reactor_handlers_are_wired_up():
+async def test_tool_call_reactor_handlers_are_wired_up(app_config_legacy_log_disabled: AppConfig):
     """
     Integration test to ensure that all default tool call reactor handlers
     are correctly registered in the dependency injection container.
     """
     # Arrange
-    config = AppConfig()
+    config = app_config_legacy_log_disabled
     builder = ApplicationBuilder().add_default_stages()
 
     # Act
@@ -27,16 +27,28 @@ async def test_tool_call_reactor_handlers_are_wired_up():
     registered_handlers = reactor_middleware.get_registered_handlers()
 
     # Assert
-    assert "config_steering_handler" in registered_handlers
+    assert "unified_steering_handler" in registered_handlers
+    assert "unified_tool_security_handler" in registered_handlers
+    # Legacy handler should NOT be present when unified is active (default)
+    assert "config_steering_handler" not in registered_handlers
     assert "unified_tool_security_handler" in registered_handlers
     assert "pytest_compression_handler" in registered_handlers
+
+    # Assert that emit_legacy_log_enabled is correctly passed through
+    from src.services.steering import UnifiedSteeringHandler
+    unified_handler = service_provider.get_required_service(UnifiedSteeringHandler)
+    assert unified_handler._emit_legacy_log_enabled is False
 
     # Also test the service directly
     from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
     reactor_service = service_provider.get_required_service(ToolCallReactorService)
     service_handlers = reactor_service.get_registered_handlers()
-    assert "config_steering_handler" in service_handlers
+
+    # Same assertions for the service directly
+    assert "unified_steering_handler" in service_handlers
+    assert "unified_tool_security_handler" in service_handlers
+    assert "config_steering_handler" not in service_handlers
     assert "unified_tool_security_handler" in service_handlers
     assert "pytest_compression_handler" in service_handlers
 
@@ -278,3 +290,54 @@ async def test_droid_path_fix_handler_not_wired_when_disabled():
 
     # Assert
     assert "droid_antigravity_path_fix_handler" not in registered_handlers
+
+
+@pytest.mark.asyncio
+async def test_unified_steering_policy_priority_overrides():
+    """
+    Integration test to ensure unified steering policy priorities can be overridden
+    via configuration and are correctly applied.
+    """
+    # Arrange: Define policies with default priorities
+    # InlinePythonPolicy has priority 80
+    # ConfiguredRulesPolicy has priority 90
+    # PytestFullSuitePolicy has priority 70
+    # We want to override them such that InlinePythonPolicy runs first (highest priority)
+    config = AppConfig.model_validate(
+        {
+            "session": {
+                "tool_call_reactor": {
+                    "unified_steering_enabled": True,
+                    "steering_policy_priorities": {
+                        "inline_python": 100,  # Override to make it highest
+                        "configured_rules": 80,  # Override to make it lower than inline_python
+                        "pytest_full_suite": 70, # Keep default or override explicitly
+                    },
+                },
+            }
+        }
+    )
+    builder = ApplicationBuilder().add_default_stages()
+
+    # Act
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)  # Allow time for handlers to register
+    service_provider = app.state.service_provider
+
+    from src.services.steering import UnifiedSteeringHandler
+    unified_handler = service_provider.get_required_service(UnifiedSteeringHandler)
+
+    # Assert that policies are sorted by the overridden priorities
+    policies = unified_handler._policies
+    # We expect 3 policies: InlinePythonPolicy, ConfiguredRulesPolicy, PytestFullSuitePolicy
+    assert len(policies) == 3
+
+    # Find the policies by name and check their order based on overridden priorities
+    policy_names_in_order = [p.name for p in policies]
+
+    # Expect InlinePythonPolicy to be first due to priority 100
+    assert policy_names_in_order[0] == "inline_python"
+    # Expect ConfiguredRulesPolicy to be second due to priority 80
+    assert policy_names_in_order[1] == "configured_rules"
+    # Expect PytestFullSuitePolicy to be third due to priority 70
+    assert policy_names_in_order[2] == "pytest_full_suite"

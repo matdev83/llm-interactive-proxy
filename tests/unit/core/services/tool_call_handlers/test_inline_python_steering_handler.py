@@ -30,7 +30,9 @@ class TestInlinePythonSteeringHandler:
         )
 
     @pytest.mark.asyncio
-    async def test_can_handle_python_c(self, handler: InlinePythonSteeringHandler) -> None:
+    async def test_can_handle_python_c(
+        self, handler: InlinePythonSteeringHandler
+    ) -> None:
         """Should detect python -c commands."""
         # Simple case
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
@@ -49,15 +51,17 @@ class TestInlinePythonSteeringHandler:
         assert await handler.can_handle(context)
 
     @pytest.mark.asyncio
-    async def test_can_handle_nested_args(self, handler: InlinePythonSteeringHandler) -> None:
+    async def test_can_handle_nested_args(
+        self, handler: InlinePythonSteeringHandler
+    ) -> None:
         """Should detect nested command structures."""
-        context = self._make_context(
-            "Execute", {"command": 'python -c "print(1)"'}
-        )
+        context = self._make_context("Execute", {"command": 'python -c "print(1)"'})
         assert await handler.can_handle(context)
 
     @pytest.mark.asyncio
-    async def test_ignores_normal_python_execution(self, handler: InlinePythonSteeringHandler) -> None:
+    async def test_ignores_normal_python_execution(
+        self, handler: InlinePythonSteeringHandler
+    ) -> None:
         """Should ignore normal python file execution."""
         context = self._make_context("bash", {"command": "python script.py"})
         assert not await handler.can_handle(context)
@@ -66,17 +70,21 @@ class TestInlinePythonSteeringHandler:
         assert not await handler.can_handle(context)
 
     @pytest.mark.asyncio
-    async def test_ignores_non_shell_tools(self, handler: InlinePythonSteeringHandler) -> None:
+    async def test_ignores_non_shell_tools(
+        self, handler: InlinePythonSteeringHandler
+    ) -> None:
         """Should ignore non-shell tools."""
         context = self._make_context("write_file", {"path": "python -c file.txt"})
         assert not await handler.can_handle(context)
 
     @pytest.mark.asyncio
-    async def test_handle_returns_steering_message(self, handler: InlinePythonSteeringHandler) -> None:
+    async def test_handle_returns_steering_message(
+        self, handler: InlinePythonSteeringHandler
+    ) -> None:
         """Should return the proper steering message."""
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
         result = await handler.handle(context)
-        
+
         assert result.should_swallow is True
         assert "inline Python code" in result.replacement_response
         assert "create a temporary script" in result.replacement_response
@@ -89,7 +97,7 @@ class TestInlinePythonSteeringHandler:
         handler = InlinePythonSteeringHandler(message=custom_msg)
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
         result = await handler.handle(context)
-        
+
         assert result.replacement_response == custom_msg
 
     @pytest.mark.asyncio
@@ -97,8 +105,8 @@ class TestInlinePythonSteeringHandler:
         """Should do nothing if disabled."""
         handler = InlinePythonSteeringHandler(enabled=False)
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
-        
+
         assert not await handler.can_handle(context)
-        
+
         result = await handler.handle(context)
         assert result.should_swallow is False

@@ -7,6 +7,7 @@ from .core_services import CoreServicesStage
 from .health_check import HealthCheckStage
 from .infrastructure import InfrastructureStage
 from .processor import ProcessorStage
+from .steering import SteeringStage
 from .test_stages import RealBackendTestStage
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "InfrastructureStage",
     "InitializationStage",
     "ProcessorStage",
+    "SteeringStage",
     "RealBackendTestStage",
 ]

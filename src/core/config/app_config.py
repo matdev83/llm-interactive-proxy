@@ -364,6 +364,21 @@ class ToolCallReactorConfig(DomainModel):
     enabled: bool = True
     """Whether the Tool Call Reactor is enabled."""
 
+    unified_steering_enabled: bool = True
+    """Whether to use the unified steering handler (replacing legacy handlers)."""
+
+    emit_legacy_steering_log: bool = True
+    """Whether to emit a legacy-formatted steering log for compatibility."""
+
+    steering_policy_priorities: dict[str, int] | None = None
+    """Overrides for steering policy priorities. Map of policy name to priority integer."""
+
+    steering_session_ttl_seconds: int = 1800
+    """TTL in seconds for steering session state (default 30 mins)."""
+
+    steering_max_sessions: int = 1024
+    """Maximum number of sessions to track in steering state store."""
+
     apply_diff_steering_enabled: bool = True
     """Whether the legacy apply_diff steering handler is enabled."""
 
@@ -385,6 +400,12 @@ class ToolCallReactorConfig(DomainModel):
 
     pytest_full_suite_steering_message: str | None = None
     """Optional custom steering message when detecting full pytest suite runs."""
+
+    inline_python_steering_enabled: bool = True
+    """Whether inline Python execution steering is enabled."""
+
+    inline_python_steering_message: str | None = None
+    """Optional custom steering message for inline Python execution."""
 
     pytest_context_saving_enabled: bool = False
     """Whether pytest context-saving command rewrites are enabled."""

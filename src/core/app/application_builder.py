@@ -139,11 +139,15 @@ class ApplicationBuilder:
             CoreServicesStage,
             InfrastructureStage,
             ProcessorStage,
+            SteeringStage,
         )
 
         return (
             self.add_stage(InfrastructureStage())
             .add_stage(CoreServicesStage())
+            .add_stage(
+                SteeringStage()
+            )  # After core services, before backends to ensure handlers are available
             .add_stage(BackendStage())
             .add_stage(CommandStage())
             .add_stage(ProcessorStage())

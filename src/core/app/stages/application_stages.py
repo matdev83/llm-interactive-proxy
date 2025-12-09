@@ -12,6 +12,7 @@ from .core_services import CoreServicesStage
 from .health_check import HealthCheckStage
 from .infrastructure import InfrastructureStage
 from .processor import ProcessorStage
+from .steering import SteeringStage
 
 
 class DefaultApplicationStages:
@@ -21,6 +22,7 @@ class DefaultApplicationStages:
         self._stages: tuple[InitializationStage, ...] = (
             InfrastructureStage(),
             CoreServicesStage(),
+            SteeringStage(),  # After core services, before backends
             BackendStage(),
             HealthCheckStage(),  # After backends so we can monitor their URLs
             CommandStage(),

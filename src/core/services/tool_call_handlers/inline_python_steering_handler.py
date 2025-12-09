@@ -73,11 +73,14 @@ class InlinePythonSteeringHandler(IToolCallHandler):
             return False
 
         tool_name = (context.tool_name or "").strip()
-        
+
         # Check if tool is a known shell execution tool
         # (Exact match or regex match handled by CommandExtractionService if needed,
         # but here we stick to the specific list for precision as per other handlers)
-        if tool_name not in self._shell_tools and not self._command_service.is_shell_tool(tool_name):
+        if (
+            tool_name not in self._shell_tools
+            and not self._command_service.is_shell_tool(tool_name)
+        ):
             return False
 
         command = self._command_service.extract_command_string(context.tool_arguments)

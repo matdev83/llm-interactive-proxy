@@ -23,7 +23,9 @@ class ShellExecutionTools:
     CONTAINER_EXEC: Final[str] = "container.exec"
 
     # Regex pattern for matching shell tool names
-    PATTERN: Final[str] = r"\bexecute\b|execute_command|run_shell_command|run_terminal_command|exec_command|\bshell\b|\bbash\b|local_shell|container\.exec"
+    PATTERN: Final[str] = (
+        r"\bexecute\b|execute_command|run_shell_command|run_terminal_command|exec_command|\bshell\b|\bbash\b|local_shell|container\.exec"
+    )
 
     @classmethod
     def get_all(cls) -> list[str]:

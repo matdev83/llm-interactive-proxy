@@ -49,9 +49,7 @@ class DangerousCommandsConfig(DomainModel):
     """Whether dangerous command detection is enabled."""
 
     # Default tool names that run shell commands
-    tool_names: list[str] = Field(
-        default_factory=lambda: ShellExecutionTools.get_all()
-    )
+    tool_names: list[str] = Field(default_factory=lambda: ShellExecutionTools.get_all())
     """Tool names to monitor for dangerous commands."""
 
     rules: list[DangerousCommandRuleConfig] = Field(default_factory=list)
@@ -83,9 +81,9 @@ class FileSandboxingConfig(DomainModel):
     excluded_tools: list[str] = Field(default_factory=list)
     """Regex patterns for tools to exempt from sandboxing."""
 
-    # Default file-changing tool patterns
+    # Default file-changing tool patterns (use iterable unpacking to avoid RUF005)
     default_tool_patterns: list[str] = Field(
-        default_factory=lambda: FileEditingTools.get_all_patterns() + [ShellExecutionTools.PATTERN]
+        default_factory=lambda: [*FileEditingTools.get_all_patterns(), ShellExecutionTools.PATTERN]
     )
     """Default regex patterns for identifying file-changing tools."""
 

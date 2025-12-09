@@ -97,3 +97,18 @@ async def mock_qwen_oauth_refresh(monkeypatch):
     monkeypatch.setattr(
         QwenOAuthConnector, "_validate_runtime_credentials", mock_validate
     )
+
+
+@pytest.fixture
+def app_config_legacy_log_disabled() -> AppConfig:
+    """
+    Provides an AppConfig instance with emit_legacy_steering_log set to False.
+    """
+    from src.core.config.app_config import AppConfig
+    return AppConfig.model_validate(
+        {
+            "session": {
+                "tool_call_reactor": {"emit_legacy_steering_log": False},
+            }
+        }
+    )

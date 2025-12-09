@@ -286,17 +286,17 @@ class DangerousCommandCheck(ISecurityCheck):
         # We need to match both forward and backward slashes
         parts = re.split(r"[\\/]", str(Path(project_dir).resolve()))
         escaped_parts = [re.escape(p) for p in parts if p]
-        
+
         # Pattern that matches the path with any separator style
         path_pattern_str = r"[\\/]+".join(escaped_parts)
         if not path_pattern_str:
             return SecurityCheckResult.allow()
-            
+
         # Handle drive letter (e.g. C:)
         if re.match(r"^[a-zA-Z]:", parts[0]):
-             # If starts with drive letter, the first part is already escaped "C:"
-             # But the separator after it might be matched by joining.
-             pass
+            # If starts with drive letter, the first part is already escaped "C:"
+            # But the separator after it might be matched by joining.
+            pass
 
         # Match exact path or quoted exact path, optionally with trailing separator
         # NOTE: We use [\\/]* for optional trailing separator

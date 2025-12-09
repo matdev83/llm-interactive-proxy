@@ -2022,75 +2022,168 @@ def register_core_services(
 
         # Register default handlers if enabled
         if reactor_config.enabled:
-            from src.core.services.tool_call_handlers.config_steering_handler import (
-                ConfigSteeringHandler,
-            )
-            from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
-                PytestFullSuiteHandler,
+            # Check for Unified Steering (prefer unified handler over legacy individual handlers)
+            unified_steering_enabled = getattr(
+                reactor_config, "unified_steering_enabled", True
             )
 
-            # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
-            try:
-                # Build effective rules from config while avoiding expensive deep copy.
-                # Since steering_rules are configuration data (immutable during runtime),
-                # we can safely use a shallow copy for better performance.
-                effective_rules = (
-                    (reactor_config.steering_rules or []).copy()
-                    if reactor_config.steering_rules
-                    else []
-                )
+            if unified_steering_enabled:
+                try:
+                    from src.services.steering import UnifiedSteeringHandler
 
-                # Synthesize legacy apply_diff rule if enabled and missing
-                if getattr(reactor_config, "apply_diff_steering_enabled", True):
-                    has_apply_rule = False
-                    for r in effective_rules:
-                        triggers = (r or {}).get("triggers") or {}
-                        tnames = triggers.get("tool_names") or []
-                        phrases = triggers.get("phrases") or []
-                        if "apply_diff" in tnames or any(
-                            isinstance(p, str) and "apply_diff" in p for p in phrases
-                        ):
-                            has_apply_rule = True
-                            break
-                    if not has_apply_rule:
-                        effective_rules.append(
-                            {
-                                "name": "apply_diff_to_patch_file",
-                                "enabled": True,
-                                "priority": 100,
-                                "triggers": {
-                                    "tool_names": ["apply_diff"],
-                                    "phrases": [],
-                                },
-                                "message": (
-                                    reactor_config.apply_diff_steering_message
-                                    or (
-                                        "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, "
-                                        "as it is superior to apply_diff and provides automated Python QA checks."
-                                    )
-                                ),
-                                "rate_limit": {
-                                    "calls_per_window": 1,
-                                    "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
-                                },
-                            }
-                        )
+                    # Resolve from DI (registered in SteeringStage)
+                    unified_handler = provider.get_service(UnifiedSteeringHandler)
 
-                if effective_rules:
-                    config_handler = ConfigSteeringHandler(rules=effective_rules)
-                    try:
-                        reactor.register_handler_sync(config_handler)
-                    except Exception as e:
+                    if unified_handler:
+                        reactor.register_handler_sync(unified_handler)
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info("Registered UnifiedSteeringHandler")
+                    else:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Failed to register config steering handler: {e}",
-                                exc_info=True,
+                                "UnifiedSteeringHandler enabled but not found in DI. "
+                                "SteeringStage might be missing."
                             )
-            except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to register steering handlers: %s", e, exc_info=True
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to register UnifiedSteeringHandler: {e}",
+                            exc_info=True,
+                        )
+
+            # Register legacy handlers ONLY if unified steering is disabled
+            if not unified_steering_enabled:
+                from src.core.services.tool_call_handlers.config_steering_handler import (
+                    ConfigSteeringHandler,
+                )
+                from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
+                    PytestFullSuiteHandler,
+                )
+
+                # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
+                try:
+                    # Build effective rules from config while avoiding expensive deep copy.
+                    # Since steering_rules are configuration data (immutable during runtime),
+                    # we can safely use a shallow copy for better performance.
+                    effective_rules = (
+                        (reactor_config.steering_rules or []).copy()
+                        if reactor_config.steering_rules
+                        else []
                     )
+
+                    # Synthesize legacy apply_diff rule if enabled and missing
+                    if getattr(reactor_config, "apply_diff_steering_enabled", True):
+                        has_apply_rule = False
+                        for r in effective_rules:
+                            triggers = (r or {}).get("triggers") or {}
+                            tnames = triggers.get("tool_names") or []
+                            phrases = triggers.get("phrases") or []
+                            if "apply_diff" in tnames or any(
+                                isinstance(p, str) and "apply_diff" in p
+                                for p in phrases
+                            ):
+                                has_apply_rule = True
+                                break
+                        if not has_apply_rule:
+                            effective_rules.append(
+                                {
+                                    "name": "apply_diff_to_patch_file",
+                                    "enabled": True,
+                                    "priority": 100,
+                                    "triggers": {
+                                        "tool_names": ["apply_diff"],
+                                        "phrases": [],
+                                    },
+                                    "message": (
+                                        reactor_config.apply_diff_steering_message
+                                        or (
+                                            "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, "
+                                            "as it is superior to apply_diff and provides automated Python QA checks."
+                                        )
+                                    ),
+                                    "rate_limit": {
+                                        "calls_per_window": 1,
+                                        "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
+                                    },
+                                }
+                            )
+
+                    if effective_rules:
+                        config_handler = ConfigSteeringHandler(rules=effective_rules)
+                        try:
+                            reactor.register_handler_sync(config_handler)
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Failed to register config steering handler: {e}",
+                                    exc_info=True,
+                                )
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to register steering handlers: %s", e, exc_info=True
+                        )
+
+                # Register PytestFullSuiteHandler if enabled
+                try:
+                    if getattr(
+                        reactor_config, "pytest_full_suite_steering_enabled", False
+                    ):
+                        steering_message = getattr(
+                            reactor_config, "pytest_full_suite_steering_message", None
+                        )
+                        pytest_full_suite_handler = PytestFullSuiteHandler(
+                            message=steering_message,
+                            enabled=True,
+                        )
+                        try:
+                            reactor.register_handler_sync(pytest_full_suite_handler)
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Failed to register pytest full-suite handler: {e}",
+                                    exc_info=True,
+                                )
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to register PytestFullSuiteHandler: {e}",
+                            exc_info=True,
+                        )
+
+                # Register InlinePythonSteeringHandler if enabled
+                try:
+                    if getattr(reactor_config, "inline_python_steering_enabled", False):
+                        from src.core.services.tool_call_handlers.inline_python_steering_handler import (
+                            InlinePythonSteeringHandler,
+                        )
+
+                        steering_message = getattr(
+                            reactor_config, "inline_python_steering_message", None
+                        )
+                        inline_python_handler = InlinePythonSteeringHandler(
+                            message=steering_message,
+                            enabled=True,
+                        )
+                        try:
+                            reactor.register_handler_sync(inline_python_handler)
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Registered InlinePythonSteeringHandler with priority 95"
+                                )
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Failed to register inline python steering handler: {e}",
+                                    exc_info=True,
+                                )
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to register InlinePythonSteeringHandler: {e}",
+                            exc_info=True,
+                        )
+
             # Register UnifiedToolSecurityHandler (replaces separate DangerousCommandHandler
             # and FileSandboxingHandler with a single, more efficient handler)
             try:
@@ -2124,62 +2217,6 @@ def register_core_services(
                     logger.warning(
                         f"Failed to register UnifiedToolSecurityHandler: {e}",
                         exc_info=True,
-                    )
-
-            # Register PytestFullSuiteHandler if enabled
-            try:
-                if getattr(reactor_config, "pytest_full_suite_steering_enabled", False):
-                    steering_message = getattr(
-                        reactor_config, "pytest_full_suite_steering_message", None
-                    )
-                    pytest_full_suite_handler = PytestFullSuiteHandler(
-                        message=steering_message,
-                        enabled=True,
-                    )
-                    try:
-                        reactor.register_handler_sync(pytest_full_suite_handler)
-                    except Exception as e:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                f"Failed to register pytest full-suite handler: {e}",
-                                exc_info=True,
-                            )
-            except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
-                    )
-
-            # Register InlinePythonSteeringHandler if enabled
-            try:
-                if getattr(reactor_config, "inline_python_steering_enabled", False):
-                    from src.core.services.tool_call_handlers.inline_python_steering_handler import (
-                        InlinePythonSteeringHandler,
-                    )
-
-                    steering_message = getattr(
-                        reactor_config, "inline_python_steering_message", None
-                    )
-                    inline_python_handler = InlinePythonSteeringHandler(
-                        message=steering_message,
-                        enabled=True,
-                    )
-                    try:
-                        reactor.register_handler_sync(inline_python_handler)
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Registered InlinePythonSteeringHandler with priority 95"
-                            )
-                    except Exception as e:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                f"Failed to register inline python steering handler: {e}",
-                                exc_info=True,
-                            )
-            except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Failed to register InlinePythonSteeringHandler: {e}", exc_info=True
                     )
 
             # Register PytestContextSavingHandler if enabled
