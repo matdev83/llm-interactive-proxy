@@ -448,9 +448,11 @@ class BackendStage(InitializationStage):
             # Manually create a backend_factory_service if not available
             backend_factory_service = provider.get_service(BackendFactory)
             if backend_factory_service is None:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "BackendFactory service not available for validation check, creating a temporary one."
+                # This is expected during early validation before BackendStage executes.
+                # Log at DEBUG level to reduce noise during normal startup.
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "BackendFactory service not available for validation check during early startup, creating a temporary one."
                     )
                 # This is a workaround. The DI container should ideally be fully configured.
                 # Replicating the logic from di/services.py's _backend_service_factory's manual creation
@@ -544,9 +546,11 @@ class BackendStage(InitializationStage):
                 )
             )
         except InitializationError as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "BackendFactory unavailable for validation; using manual backend checks instead: %s",
+            # This is expected during early validation before BackendStage has fully
+            # initialized the BackendFactory. Log at DEBUG level to reduce noise.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "BackendFactory unavailable for validation during early startup; using manual backend checks instead: %s",
                     exc,
                 )
             functional_backends.extend(
@@ -688,8 +692,10 @@ class BackendStage(InitializationStage):
                             continue
                         raise
                     except Exception as create_error:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
+                        # Backends like 'gemini' may fail during early validation if
+                        # required parameters are not yet available. Log at DEBUG level.
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
                                 f"Backend '{backend_name}' cannot be instantiated during validation: {create_error}"
                             )
                         continue

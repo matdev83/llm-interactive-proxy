@@ -2046,10 +2046,14 @@ def register_core_services(
                     if logger.isEnabledFor(logging.INFO):
                         logger.info("Registered UnifiedSteeringHandler")
                 else:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "UnifiedSteeringHandler not found in DI. "
-                            "SteeringStage might be missing."
+                    # This warning may appear during early validation when stages haven't
+                    # executed yet. The UnifiedSteeringHandler will be available after
+                    # SteeringStage.execute() runs. Log at DEBUG level to reduce noise.
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "UnifiedSteeringHandler not found in DI during factory creation. "
+                            "This is expected during early validation; it will be registered "
+                            "when SteeringStage executes."
                         )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
