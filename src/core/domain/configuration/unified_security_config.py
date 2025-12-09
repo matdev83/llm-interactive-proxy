@@ -83,7 +83,10 @@ class FileSandboxingConfig(DomainModel):
 
     # Default file-changing tool patterns (use iterable unpacking to avoid RUF005)
     default_tool_patterns: list[str] = Field(
-        default_factory=lambda: [*FileEditingTools.get_all_patterns(), ShellExecutionTools.PATTERN]
+        default_factory=lambda: [
+            *FileEditingTools.get_all_patterns(),
+            ShellExecutionTools.PATTERN,
+        ]
     )
     """Default regex patterns for identifying file-changing tools."""
 

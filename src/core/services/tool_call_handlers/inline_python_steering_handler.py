@@ -45,18 +45,20 @@ class InlinePythonSteeringHandler(IToolCallHandler):
 
     def __init__(
         self,
+        command_service: CommandExtractionService,
         message: str | None = None,
         enabled: bool = True,
     ) -> None:
         """Initialize the handler.
 
         Args:
+            command_service: Command extraction service (injected for DI compliance).
             message: Custom steering message to return.
             enabled: Whether the handler is enabled.
         """
         self._message = message or self.DEFAULT_MESSAGE
         self._enabled = enabled
-        self._command_service = CommandExtractionService()
+        self._command_service = command_service
         self._shell_tools = set(ShellExecutionTools.get_all())
 
     @property

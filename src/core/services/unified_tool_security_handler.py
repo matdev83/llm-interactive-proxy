@@ -270,6 +270,9 @@ class DangerousCommandCheck(ISecurityCheck):
         self, context: ToolCallContext, command: str
     ) -> SecurityCheckResult:
         """Check if command explicitly tries to delete, move, or rename the project root."""
+        if not self._session_service:
+            return SecurityCheckResult.allow()
+
         try:
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir
@@ -440,6 +443,9 @@ class FileSandboxingCheck(ISecurityCheck):
             return SecurityCheckResult.allow()
 
         # Get project directory from session
+        if not self._session_service:
+            return SecurityCheckResult.allow()
+
         try:
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir

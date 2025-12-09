@@ -756,10 +756,11 @@ class ToolCallReactorFeature(IResponseFeature):
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
             return tool_arguments, False
 
-        # Use Windows-style backslashes (consistent with DroidAntigravityPathFixHandler)
-        fixed = path.replace("/", "\\")
-        if not fixed.startswith("\\"):
-            fixed = "\\" + fixed
+        # Use Unix-style forward slashes for chroot-style absolute paths
+        # The path is treated as absolute within the project root (chroot model)
+        fixed = path.replace("\\", "/")
+        if not fixed.startswith("/"):
+            fixed = "/" + fixed
 
         if isinstance(args, str):
             return fixed, True
@@ -1502,10 +1503,11 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
             return tool_arguments, False
 
-        # Use Windows-style backslashes (consistent with DroidAntigravityPathFixHandler)
-        fixed = path.replace("/", "\\")
-        if not fixed.startswith("\\"):
-            fixed = "\\" + fixed
+        # Use Unix-style forward slashes for chroot-style absolute paths
+        # The path is treated as absolute within the project root (chroot model)
+        fixed = path.replace("\\", "/")
+        if not fixed.startswith("/"):
+            fixed = "/" + fixed
 
         if isinstance(args, str):
             return fixed, True

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
+from src.core.services.command_extraction_service import CommandExtractionService
 from src.core.services.tool_call_handlers.inline_python_steering_handler import (
     InlinePythonSteeringHandler,
 )
@@ -16,7 +17,9 @@ class TestInlinePythonSteeringHandler:
 
     @pytest.fixture
     def handler(self) -> InlinePythonSteeringHandler:
-        return InlinePythonSteeringHandler(enabled=True)
+        return InlinePythonSteeringHandler(
+            command_service=CommandExtractionService(), enabled=True
+        )
 
     def _make_context(self, tool_name: str, arguments: dict | str) -> ToolCallContext:
         return ToolCallContext(
@@ -94,7 +97,9 @@ class TestInlinePythonSteeringHandler:
     async def test_custom_message(self) -> None:
         """Should support custom messages."""
         custom_msg = "No inline python!"
-        handler = InlinePythonSteeringHandler(message=custom_msg)
+        handler = InlinePythonSteeringHandler(
+            command_service=CommandExtractionService(), message=custom_msg
+        )
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
         result = await handler.handle(context)
 
@@ -103,7 +108,9 @@ class TestInlinePythonSteeringHandler:
     @pytest.mark.asyncio
     async def test_disabled(self) -> None:
         """Should do nothing if disabled."""
-        handler = InlinePythonSteeringHandler(enabled=False)
+        handler = InlinePythonSteeringHandler(
+            command_service=CommandExtractionService(), enabled=False
+        )
         context = self._make_context("bash", {"command": 'python -c "print(1)"'})
 
         assert not await handler.can_handle(context)

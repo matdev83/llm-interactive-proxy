@@ -36,6 +36,7 @@ class InlinePythonPolicy(ISteeringPolicy):
         message: str | None = None,
         enabled: bool = True,
         prompt_override_path: Path | None = None,
+        command_service: CommandExtractionService | None = None,
     ) -> None:
         """Initialize the policy.
 
@@ -43,9 +44,10 @@ class InlinePythonPolicy(ISteeringPolicy):
             message: Custom steering message
             enabled: Whether the policy is enabled
             prompt_override_path: Path to a file to override the default message
+            command_service: Service for command extraction (for DI)
         """
         self._enabled = enabled
-        self._command_service = CommandExtractionService()
+        self._command_service = command_service or CommandExtractionService()
         self._shell_tools = set(ShellExecutionTools.get_all())
 
         final_message = message or self.DEFAULT_MESSAGE

@@ -7,7 +7,9 @@ from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddle
 
 
 @pytest.mark.asyncio
-async def test_tool_call_reactor_handlers_are_wired_up(app_config_legacy_log_disabled: AppConfig):
+async def test_tool_call_reactor_handlers_are_wired_up(
+    app_config_legacy_log_disabled: AppConfig,
+):
     """
     Integration test to ensure that all default tool call reactor handlers
     are correctly registered in the dependency injection container.
@@ -36,6 +38,7 @@ async def test_tool_call_reactor_handlers_are_wired_up(app_config_legacy_log_dis
 
     # Assert that emit_legacy_log_enabled is correctly passed through
     from src.services.steering import UnifiedSteeringHandler
+
     unified_handler = service_provider.get_required_service(UnifiedSteeringHandler)
     assert unified_handler._emit_legacy_log_enabled is False
 
@@ -311,7 +314,7 @@ async def test_unified_steering_policy_priority_overrides():
                     "steering_policy_priorities": {
                         "inline_python": 100,  # Override to make it highest
                         "configured_rules": 80,  # Override to make it lower than inline_python
-                        "pytest_full_suite": 70, # Keep default or override explicitly
+                        "pytest_full_suite": 70,  # Keep default or override explicitly
                     },
                 },
             }
@@ -325,6 +328,7 @@ async def test_unified_steering_policy_priority_overrides():
     service_provider = app.state.service_provider
 
     from src.services.steering import UnifiedSteeringHandler
+
     unified_handler = service_provider.get_required_service(UnifiedSteeringHandler)
 
     # Assert that policies are sorted by the overridden priorities

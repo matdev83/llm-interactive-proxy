@@ -105,6 +105,7 @@ def app_config_legacy_log_disabled() -> AppConfig:
     Provides an AppConfig instance with emit_legacy_steering_log set to False.
     """
     from src.core.config.app_config import AppConfig
+
     return AppConfig.model_validate(
         {
             "session": {

@@ -157,7 +157,10 @@ async def test_telemetry_with_legacy_log_emission(context, caplog):
     assert "'matched_policy': 'match_policy'" in caplog.text
 
     # Assert legacy log is present
-    assert "Steering via rule 'match_policy' for tool 'shell' in session test_session" in caplog.text
+    assert (
+        "Steering via rule 'match_policy' for tool 'shell' in session test_session"
+        in caplog.text
+    )
 
 
 @pytest.mark.asyncio
@@ -175,4 +178,7 @@ async def test_telemetry_without_legacy_log_emission(context, caplog):
     assert "'matched_policy': 'match_policy'" in caplog.text
 
     # Assert legacy log is NOT present
-    assert "Steering via rule 'match_policy' for tool 'shell' in session test_session" not in caplog.text
+    assert (
+        "Steering via rule 'match_policy' for tool 'shell' in session test_session"
+        not in caplog.text
+    )

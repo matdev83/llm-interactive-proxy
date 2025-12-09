@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import requests
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
+from src.core.domain.chat import ChatRequest
 
 
-@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_request_counter_incremented_on_request(
     gemini_oauth_plan_connector: GeminiOAuthPlanConnector,
@@ -31,6 +31,14 @@ async def test_request_counter_incremented_on_request(
         b'{"candidates": [{"content": {"parts": [{"text": "response"}]}}]}'
     )
 
+    # Create a mock response object for httpx client
+    mock_httpx_response = AsyncMock()
+    mock_httpx_response.status_code = 200
+    mock_httpx_response.json.return_value = {
+        "candidates": [{"content": {"parts": [{"text": "response"}]}}]
+    }
+    mock_httpx_response.headers = {}
+
     # Mock other dependencies
     with (
         patch(
@@ -40,6 +48,7 @@ async def test_request_counter_incremented_on_request(
         patch.object(
             gemini_oauth_plan_connector,
             "_refresh_token_if_needed",
+            new_callable=AsyncMock,
             return_value=True,
         ),
         patch.object(
@@ -66,11 +75,17 @@ async def test_request_counter_incremented_on_request(
             "to_domain_stream_chunk",
             return_value={"choices": [{"delta": {"content": "response"}}]},
         ),
+        patch.object(
+            gemini_oauth_plan_connector.client,
+            "post",
+            return_value=mock_httpx_response,
+        ),
     ):
-        request_data = {
-            "model": "gemini-1.5-pro-latest",
-            "messages": [{"role": "user", "content": "Hello"}],
-        }
+        # Changed request_data to be a ChatRequest instance
+        request_data = ChatRequest(
+            model="gemini-1.5-pro-latest",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
         processed_messages = [{"role": "user", "parts": [{"text": "Hello"}]}]
         effective_model = "models/gemini-1.5-pro-latest"
 

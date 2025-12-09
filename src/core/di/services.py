@@ -2023,9 +2023,47 @@ def register_core_services(
         # Register default handlers if enabled
         if reactor_config.enabled:
             # Check for Unified Steering (prefer unified handler over legacy individual handlers)
+            # However, if specific legacy handlers are explicitly enabled via CLI/config, disable unified steering
             unified_steering_enabled = getattr(
                 reactor_config, "unified_steering_enabled", True
             )
+
+            # If any legacy handlers are explicitly enabled, disable unified steering to allow them to register
+            if unified_steering_enabled:
+                legacy_handlers_explicitly_enabled = any(
+                    [
+                        getattr(
+                            reactor_config, "pytest_full_suite_steering_enabled", False
+                        ),
+                        getattr(
+                            reactor_config, "inline_python_steering_enabled", False
+                        ),
+                        getattr(
+                            reactor_config, "apply_diff_steering_enabled", True
+                        ),  # Note: this defaults to True
+                        bool(getattr(reactor_config, "steering_rules", None)),
+                    ]
+                )
+
+                if legacy_handlers_explicitly_enabled:
+                    unified_steering_enabled = False
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Unified steering disabled because specific legacy handlers are enabled: "
+                            "pytest_full_suite=%s, inline_python=%s, apply_diff=%s, rules=%s",
+                            getattr(
+                                reactor_config,
+                                "pytest_full_suite_steering_enabled",
+                                False,
+                            ),
+                            getattr(
+                                reactor_config, "inline_python_steering_enabled", False
+                            ),
+                            getattr(
+                                reactor_config, "apply_diff_steering_enabled", True
+                            ),
+                            bool(getattr(reactor_config, "steering_rules", None)),
+                        )
 
             if unified_steering_enabled:
                 try:
@@ -2154,6 +2192,9 @@ def register_core_services(
                 # Register InlinePythonSteeringHandler if enabled
                 try:
                     if getattr(reactor_config, "inline_python_steering_enabled", False):
+                        from src.core.services.command_extraction_service import (
+                            CommandExtractionService,
+                        )
                         from src.core.services.tool_call_handlers.inline_python_steering_handler import (
                             InlinePythonSteeringHandler,
                         )
@@ -2162,6 +2203,7 @@ def register_core_services(
                             reactor_config, "inline_python_steering_message", None
                         )
                         inline_python_handler = InlinePythonSteeringHandler(
+                            command_service=CommandExtractionService(),
                             message=steering_message,
                             enabled=True,
                         )

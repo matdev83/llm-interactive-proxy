@@ -1,36 +1,43 @@
-# Test Failures Fix Plan
+# Test Failures Fix Checklist
 
-## Issues Summary
-- [ ] 1. Documentation Index Issue - `inline-python-steering.md` not listed in user_guide/index.md
-- [ ] 2. Ruff Linting Issues - F821 and RUF005 violations  
-- [ ] 3. DI Container Violations - CommandExtractionService direct instantiation
-- [ ] 4. MyPy Type Checking Issues - ConfiguredRulesPolicy undefined and union attribute
+## Test Failures Identified:
+1. **test_documentation_structure.py** - `inline-python-steering.md` not listed in user_guide/index.md
+2. **test_cli.py** - PytestFullSuiteHandler should be registered
+3. **test_di_container_usage.py** - DI container violations detected
+4. **test_mypy_validation.py** - mypy type checking failed on src directory
 
-## Implementation Steps
+## Implementation Steps:
 
-### Phase 1: Fix Overlapping Issues (High Priority)
-- [ ] 1.1 Fix undefined `ConfiguredRulesPolicy` in steering.py:160
-- [ ] 1.2 Fix mypy union attribute issue in unified_tool_security_handler.py:274
-- [ ] 1.3 Fix ruff concatenation issue in unified_security_config.py:86
+### 1. Documentation Structure Fix
+- [ ] 1.1 Examine test_documentation_structure.py to understand the requirement
+- [ ] 1.2 Check if inline-python-steering.md exists in user_guide/
+- [ ] 1.3 Update user_guide/index.md to include inline-python-steering.md
+- [ ] 1.4 Re-run test_documentation_structure.py to verify fix
 
-### Phase 2: Fix DI Container Violations
-- [ ] 2.1 Fix CommandExtractionService instantiation in inline_python_steering_handler.py:59
-- [ ] 2.2 Fix CommandExtractionService instantiation in inline_python_policy.py:48
+### 2. CLI Handler Registration Fix
+- [ ] 2.1 Examine test_cli.py to understand what PytestFullSuiteHandler should be
+- [ ] 2.2 Check current CLI flag configuration and handlers
+- [ ] 2.3 Add or fix PytestFullSuiteHandler registration
+- [ ] 2.4 Re-run test_cli.py to verify fix
 
-### Phase 3: Fix Documentation Issues
-- [ ] 3.1 Add missing `inline-python-steering.md` link to user_guide/index.md
+### 3. DI Container Violations Fix
+- [ ] 3.1 Examine test_di_container_usage.py to understand violations
+- [ ] 3.2 Run the DI container violation detection
+- [ ] 3.3 Fix the identified DI container violations
+- [ ] 3.4 Re-run test_di_container_usage.py to verify fix
 
-### Phase 4: Verification
-- [ ] 4.1 Run ruff linting test to verify fixes
-- [ ] 4.2 Run mypy validation test to verify fixes
-- [ ] 4.3 Run DI container test to verify fixes
-- [ ] 4.4 Run documentation structure test to verify fixes
-- [ ] 4.5 Run all failing tests together to confirm complete resolution
+### 4. MyPy Validation Fix
+- [ ] 4.1 Run mypy validation to see specific type errors
+- [ ] 4.2 Fix type annotations and type checking issues
+- [ ] 4.3 Re-run mypy validation to ensure all issues are resolved
+- [ ] 4.4 Re-run test_mypy_validation.py to verify fix
 
-## Files to Modify
-1. `src/core/app/stages/steering.py` - Fix ConfiguredRulesPolicy import
-2. `src/core/services/unified_tool_security_handler.py` - Fix union attribute
-3. `src/core/domain/configuration/unified_security_config.py` - Fix concatenation
-4. `src/core/services/tool_call_handlers/inline_python_steering_handler.py` - Fix DI violation
-5. `src/services/steering/policies/inline_python_policy.py` - Fix DI violation
-6. `docs/user_guide/index.md` - Add missing documentation link
+### 5. Final Verification
+- [ ] 5.1 Run all failing tests individually to confirm fixes
+- [ ] 5.2 Run full test suite to ensure no regressions
+- [ ] 5.3 Clean up any temporary files created during debugging
+
+## Notes:
+- Use Windows venv interpreter: ./.venv/Scripts/python.exe
+- Focus on one test at a time for systematic debugging
+- Document any configuration changes needed

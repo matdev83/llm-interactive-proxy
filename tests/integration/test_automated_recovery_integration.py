@@ -7,8 +7,9 @@ with real-world timing to prove the system works as intended.
 
 import asyncio
 import contextlib
+import json
 import time
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,16 +21,19 @@ from src.connectors.gemini_oauth_base import (
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import ChatRequest  # Added import
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 pytestmark = pytest.mark.integration
 
 
-@dataclass
-class MockChatRequest:
+# Changed to inherit from ChatRequest
+class MockChatRequest(ChatRequest):
     """Mock chat request for testing."""
 
-    model: str
-    messages: list
+    model: str = "gemini-2.5-pro"  # Default model
+    messages: list = []  # Default empty list
     stream: bool = False
     max_tokens: int = 100
     temperature: float = 0.0
@@ -94,7 +98,7 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
 
     async def _chat_completions_code_assist(
         self, request_data, processed_messages, effective_model, **kwargs
-    ):
+    ) -> ResponseEnvelope:  # Changed return type
         """Mock API call that simulates real recovery behavior."""
         call_count = self._api_call_count.get(effective_model, 0)
         self._api_call_count[effective_model] = call_count + 1
@@ -110,33 +114,53 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
 
         if should_recover and call_count >= len(results):
             # Model has recovered, return success
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": f"Recovered response from {effective_model}"
+            return ResponseEnvelope(  # Wrap in ResponseEnvelope
+                content={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": f"Recovered response from {effective_model}"
+                            }
                         }
-                    }
-                ]
-            }
+                    ]
+                }
+            )
 
         if call_count < len(results):
             result = results[call_count]
             if isinstance(result, Exception):
                 raise result
-            return result
+            return ResponseEnvelope(content=result)  # Wrap in ResponseEnvelope
 
         # If no more configured results and haven't recovered, raise 429
         raise BackendError(
             f"Rate limit exceeded for {effective_model}", status_code=429
         )
 
+    async def _create_async_generator(self, items):
+        for item in items:
+            yield item
+
     async def _chat_completions_code_assist_streaming(
         self, request_data, processed_messages, effective_model, **kwargs
-    ):
+    ) -> AsyncGenerator[StreamingResponseEnvelope, None]:  # Changed return type
         """Mock streaming API call."""
-        return await self._chat_completions_code_assist(
+        # This will now return a ResponseEnvelope
+        response_envelope = await self._chat_completions_code_assist(
             request_data, processed_messages, effective_model, **kwargs
+        )
+
+        # Simulate streaming by yielding a single chunk as a ProcessedResponse within StreamingResponseEnvelope
+        processed_response = ProcessedResponse(
+            content=json.dumps(response_envelope.content).encode("utf-8"),
+            metadata=response_envelope.metadata,
+            usage=response_envelope.usage,
+        )
+        yield StreamingResponseEnvelope(
+            content=self._create_async_generator([processed_response]),
+            headers=response_envelope.headers,
+            status_code=response_envelope.status_code,
+            metadata=response_envelope.metadata,
         )
 
     async def _discover_project_id(self, auth_session):
@@ -339,7 +363,6 @@ class TestAutomatedRecoveryIntegration:
             processed_messages=mock_request.messages,
             effective_model="gemini-2.5-pro",
         )
-        # Graceful degradation succeeds with flash fallback
         assert result is not None
 
         assert connector._is_in_cooldown("gemini-2.5-pro")

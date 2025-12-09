@@ -1677,7 +1677,9 @@ def apply_cli_args(
             args.pytest_full_suite_steering_enabled
         )
         # Also update tool_call_reactor
-        tool_call_reactor_overrides: dict[str, Any] = {}
+        tool_call_reactor_overrides: dict[str, Any] = session.get(
+            "tool_call_reactor", {}
+        )
         tool_call_reactor_overrides["pytest_full_suite_steering_enabled"] = (
             args.pytest_full_suite_steering_enabled
         )

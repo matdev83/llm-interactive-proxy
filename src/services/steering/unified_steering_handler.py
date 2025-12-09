@@ -189,10 +189,10 @@ class UnifiedSteeringHandler(IToolCallHandler):
         matched_policy: str | None,
         result: SteeringResult | None,
         elapsed: float,
-        emit_legacy_log: bool = False, # New parameter for legacy logging
+        emit_legacy_log: bool = False,  # New parameter for legacy logging
     ) -> None:
         """Emit structured telemetry for this evaluation.
-        
+
         Args:
             context: The tool call context.
             command: The normalized command string.
@@ -218,7 +218,7 @@ class UnifiedSteeringHandler(IToolCallHandler):
         if result:
             log_data["severity"] = result.severity
             log_data["should_block"] = result.should_block
-            
+
             if emit_legacy_log and result.should_block and matched_policy:
                 # Emit legacy-formatted log for compatibility
                 logger.info(
