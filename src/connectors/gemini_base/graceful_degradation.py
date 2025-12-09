@@ -24,25 +24,11 @@ from src.core.common.exceptions import BackendError
 logger = logging.getLogger(__name__)
 
 
-# Fallback mapping from "pro" models to "flash" variants
-DEFAULT_FALLBACK_MAP: dict[str, str | list[str] | None] = {
-    # Gemini 3.x series
-    "gemini-3-pro": ["gemini-2.5-pro", "gemini-2.5-flash"],
-    "gemini-3-pro-high": ["gemini-2.5-pro", "gemini-2.5-flash"],
-    "gemini-3-flash": None,  # No fallback for flash variants
-    "gemini-3-flash-lite": None,
-    # Gemini 2.5 series
-    "gemini-2.5-pro": "gemini-2.5-flash",
-    "gemini-2.5-flash": None,  # No fallback for flash
-    "gemini-2.5-flash-lite": None,
-    "gemini-2.5-pro-preview-05-06": "gemini-2.5-flash",
-    "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20": None,
-    # Gemini 2.0/1.5 series
-    "gemini-2.0-flash": "gemini-1.5-flash",
-    "gemini-1.5-pro": "gemini-1.5-flash",
-    "gemini-1.5-flash": None,
-}
+# Fallback mapping is now disabled - the Resilience Layer handles
+# rate limiting and error recovery at the BackendService level.
+# Automatic model fallbacks (e.g., Pro -> Flash) are no longer performed
+# within connectors to maintain clear separation of concerns.
+DEFAULT_FALLBACK_MAP: dict[str, str | list[str] | None] = {}
 
 
 def get_fallback_model(

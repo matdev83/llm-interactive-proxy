@@ -131,10 +131,6 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 ),
             )
 
-        # Increment the daily request counter for usage tracking
-        if self._request_counter is not None:
-            self._request_counter.increment()
-
         return await super().chat_completions(
             request_data,
             processed_messages,

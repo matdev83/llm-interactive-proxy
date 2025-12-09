@@ -21,9 +21,10 @@ from src.core.interfaces.tool_call_reactor_interface import (
     ToolCallReactionResult,
 )
 from src.core.services.pytest_compression_service import PytestCompressionService
-from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
+
+# Import from unified steering policy (replaces legacy pytest_full_suite_handler)
+from src.services.steering.policies.pytest_full_suite_policy import (
     _PYTEST_ROOT_PATTERN,
-    _extract_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,56 @@ if not logger.handlers:
     logger.addHandler(logging.NullHandler())
     logger.propagate = False
 PASS_THROUGH_RESULT = ToolCallReactionResult(should_swallow=False)
+
+
+def _extract_command(arguments: Any) -> str | None:
+    """Extract shell command string from tool arguments.
+
+    Supports various shapes including strings, dicts with "command"/"cmd", nested
+    inputs, and arg lists. This is a standalone utility for command extraction.
+    """
+    if arguments is None:
+        return None
+
+    # If it's already a string, see if it's JSON first
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            arguments = parsed
+        except (ValueError, TypeError):
+            # Plain string
+            return arguments
+
+    # If dict, try common fields
+    if isinstance(arguments, dict):
+        cmd = arguments.get("command") or arguments.get("cmd")
+        if isinstance(cmd, str) and cmd.strip():
+            return cmd
+        # Sometimes a sub-dict holds the command
+        for key in ("input", "body", "data"):
+            inner = arguments.get(key)
+            if isinstance(inner, str) and inner.strip():
+                return inner
+            if isinstance(inner, dict):
+                sub = inner.get("command") or inner.get("cmd")
+                if isinstance(sub, str) and sub.strip():
+                    return sub
+        # If args array provided, join into a single string
+        args = arguments.get("args")
+        if isinstance(args, list) and args:
+            try:
+                return " ".join(str(a) for a in args)
+            except Exception:
+                return None
+        return None
+
+    # If list/tuple, join
+    if isinstance(arguments, list | tuple):
+        try:
+            return " ".join(str(a) for a in arguments)
+        except Exception:
+            return None
+    return None
 
 
 class PytestContextSavingHandler(IToolCallHandler):

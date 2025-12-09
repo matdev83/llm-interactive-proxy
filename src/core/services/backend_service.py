@@ -35,6 +35,9 @@ from src.core.interfaces.failover_interface import (
     IFailoverStrategy,
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
+from src.core.interfaces.resilience_interface import (
+    IResilienceCoordinator,
+)
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
@@ -64,10 +67,10 @@ class BackendService(IBackendService):
         failover_coordinator: IFailoverCoordinator | None = None,
         wire_capture: IWireCapture | None = None,
         routing_service: BackendRoutingService | None = None,
+        resilience_coordinator: IResilienceCoordinator | None = None,
     ):
         """Initialize the backend service.
 
-        Args:
         Args:
             factory: The factory for creating backends
             rate_limiter: The rate limiter for API calls
@@ -77,6 +80,7 @@ class BackendService(IBackendService):
             backend_configs: Configurations for backends
             failover_routes: Routes for backend failover
             routing_service: Service for instance routing and discovery
+            resilience_coordinator: Coordinator for rate limiting and error recovery
         """
         self._factory = factory
         self._rate_limiter = rate_limiter
@@ -90,6 +94,7 @@ class BackendService(IBackendService):
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._routing_service = routing_service
+        self._resilience: IResilienceCoordinator | None = resilience_coordinator
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -1203,7 +1208,27 @@ class BackendService(IBackendService):
                 backend_name=backend_type,
             )
 
-        # Honor any active rate-limit backoff before proceeding
+        # Check resilience coordinator for instance/model availability
+        if self._resilience:
+            decision = self._resilience.check_availability(
+                backend_type, effective_model
+            )
+            if not decision.should_proceed():
+                cooldown_info = (
+                    f" (retry after {decision.cooldown_remaining:.1f}s)"
+                    if decision.cooldown_remaining
+                    else ""
+                )
+                raise RateLimitExceededError(
+                    message=f"{decision.reason}{cooldown_info}",
+                    reset_at=(
+                        time.time() + decision.cooldown_remaining
+                        if decision.cooldown_remaining
+                        else None
+                    ),
+                )
+
+        # Honor any active rate-limit backoff before proceeding (legacy)
         await self._enforce_rate_limit_backoff(backend_type)
 
         rate_key = f"backend:{backend_type}"
@@ -1682,6 +1707,12 @@ class BackendService(IBackendService):
                                         ),
                                     )
 
+                            # Record success for streaming response
+                            if self._resilience:
+                                self._resilience.record_success(
+                                    backend_type, effective_model
+                                )
+
                             return StreamingResponseEnvelope(
                                 content=_to_processed_with_capture(),
                                 media_type=result.media_type,
@@ -1743,12 +1774,20 @@ class BackendService(IBackendService):
                                     ),
                                 )
 
+                    # Record success for streaming response
+                    if self._resilience:
+                        self._resilience.record_success(backend_type, effective_model)
+
                     return StreamingResponseEnvelope(
                         content=_inject_session_id(),
                         media_type=result.media_type,
                         headers=result.headers,
                         metadata=result.metadata,
                     )
+
+                # Record success in resilience coordinator
+                if self._resilience:
+                    self._resilience.record_success(backend_type, effective_model)
 
                 return result
             except (
@@ -1801,6 +1840,10 @@ class BackendService(IBackendService):
                 )
 
         except (BackendError, RateLimitExceededError, LLMProxyError) as exc:
+            # Record failure in resilience coordinator
+            if self._resilience:
+                self._resilience.record_failure(backend_type, effective_model, exc)
+
             if isinstance(exc, RateLimitExceededError):
                 await self._register_rate_limit_backoff(backend_type, exc)
             # Propagate expected exceptions as-is

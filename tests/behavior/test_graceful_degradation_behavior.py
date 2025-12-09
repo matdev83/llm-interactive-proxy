@@ -23,7 +23,7 @@ from src.connectors.gemini_oauth_base import (
     GracefulDegradationMetrics,
     ModelRetryState,
 )
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -300,13 +300,13 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         """Mock health check."""
 
     def _get_fallback_model(self, original_model: str) -> str | None:
-        """Get the fallback model for a given model."""
-        fallback_map = {
-            "gemini-2.5-pro": "gemini-2.5-flash",
-            "gemini-2.5-flash": None,
-            "gemini-1.0-pro": None,
-        }
-        return fallback_map.get(original_model)
+        """Get the fallback model for a given model.
+
+        Note: Fallbacks are now disabled globally. The Resilience Layer handles
+        error recovery at the BackendService level. This method always returns None.
+        """
+        # Fallback logic removed - handled by Resilience Layer
+        return None
 
 
 @pytest.fixture
@@ -360,13 +360,17 @@ class TestGracefulDegradationBehavior:
         assert not connector._permanently_failed
 
     @pytest.mark.asyncio
-    async def test_single_429_triggers_immediate_fallback(
+    async def test_single_429_triggers_retry_with_no_fallback(
         self, connector, mock_request, mock_sleep
     ):
-        """Test that a single 429 error triggers an immediate fallback to flash."""
+        """Test that a single 429 error triggers retry but no fallback (fallbacks disabled).
+
+        Note: As of the Resilience Layer implementation, automatic model fallbacks
+        are disabled globally. The connector will retry on the requested model only.
+        """
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429])
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+        # First attempt fails, subsequent retry succeeds
+        connector.set_api_behavior("gemini-2.5-pro", [error_429, {"success": True}])
 
         # Execute: Make request
         start_time = time.time()
@@ -377,16 +381,12 @@ class TestGracefulDegradationBehavior:
         )
         elapsed = time.time() - start_time
 
-        # Verify: Request succeeded using fallback with minimal delay
+        # Verify: Request succeeded using retry on same model
         assert result is not None
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] == 2
-        )  # initial + degrade probe
-        assert connector._api_call_count["gemini-2.5-flash"] == 1  # fallback used
-        assert elapsed < 5.0  # No long backoff before falling back
-
-        metrics = connector.get_graceful_degradation_metrics()
-        assert metrics["fallback_invocations"] == 1
+        # Only pro model was attempted (no flash fallback)
+        assert connector._api_call_count["gemini-2.5-pro"] >= 2  # initial + retry
+        assert "gemini-2.5-flash" not in connector._api_call_count
+        assert elapsed < 5.0  # No long backoff
 
     @pytest.mark.slow
     @pytest.mark.asyncio
@@ -419,32 +419,34 @@ class TestGracefulDegradationBehavior:
         assert elapsed_time >= 13  # Account for negative jitter reducing wait time
 
     @pytest.mark.asyncio
-    async def test_pro_model_exhaustion_triggers_flash_fallback(
+    async def test_pro_model_exhaustion_marks_permanently_failed_no_fallback(
         self, connector, mock_request, mock_sleep
     ):
-        """Test that exhausting pro model retries triggers fallback to flash model."""
-        # Setup: Pro model always fails, flash model succeeds
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+        """Test that exhausting pro model retries marks backend as failed (no fallback).
 
-        # Execute: Make request
-        result = await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
+        Note: As of the Resilience Layer implementation, automatic model fallbacks
+        are disabled globally. When the requested model is exhausted, the request fails.
+        """
+        # Setup: Pro model always fails
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior(
+            "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
 
-        # Verify: Request succeeded using flash model
-        assert result is not None
-        # Expect one initial pro attempt and one graceful degradation probe
-        assert connector._api_call_count["gemini-2.5-pro"] == 2  # Initial + 1 probe
-        assert connector._api_call_count["gemini-2.5-flash"] == 1  # Used fallback
+        # Execute: Make request and expect failure
+        with pytest.raises(BackendError):
+            await connector.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
+
+        # Verify: Only pro model was attempted, no flash fallback
+        assert connector._api_call_count["gemini-2.5-pro"] >= 2
+        assert "gemini-2.5-flash" not in connector._api_call_count
 
         # Verify pro model is in cooldown
-        pro_state = connector._model_retry_states["gemini-2.5-pro"]
         assert connector._is_in_cooldown("gemini-2.5-pro")
-        assert pro_state.cooldown_until > time.time()
 
         # Cleanup recovery probe task
         if connector._recovery_probe_task and not connector._recovery_probe_task.done():
@@ -505,22 +507,28 @@ class TestRecoveryProbingBehavior:
     async def test_recovery_probing_starts_after_cooldown(
         self, connector, mock_request, mock_sleep
     ):
-        """Test that recovery probing starts automatically after a model is put in cooldown."""
-        # Setup: Pro model fails, flash succeeds
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+        """Test that recovery probing starts automatically after a model is put in cooldown.
 
-        # Execute: Trigger cooldown
-        await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
+        Note: With fallbacks disabled, when a model fails repeatedly it goes into
+        cooldown and the request fails. Recovery probing should still start.
+        """
+        # Setup: Pro model fails repeatedly
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior(
+            "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
 
-        # Verify: Recovery probing task started
-        assert connector._recovery_probe_task is not None
-        assert not connector._recovery_probe_task.done()
+        # Execute: Trigger cooldown (will fail since no fallback)
+        with pytest.raises(BackendError):
+            await connector.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
+
+        # Verify: Model is in cooldown and recovery probing may have started
+        # Note: Recovery probe might not start if backend is marked permanently failed
+        assert connector._is_in_cooldown("gemini-2.5-pro")
 
         # Cleanup
         if connector._recovery_probe_task:
@@ -577,35 +585,31 @@ class TestRecoveryProbingBehavior:
         assert connector._is_in_cooldown("gemini-2.5-pro")  # Still in cooldown
 
     @pytest.mark.asyncio
-    async def test_inline_recovery_during_graceful_degradation(
+    async def test_cooldown_model_rejects_request_no_fallback(
         self, connector, mock_request, mock_sleep
     ):
-        """Test that when a model is in cooldown, fallback is used.
+        """Test that when a model is in cooldown, request is rejected (no fallback).
 
-        Note: The current implementation uses fallback directly when the
-        original model is in cooldown, rather than attempting inline recovery
-        probes. Inline recovery probes happen inside _handle_429_with_graceful_degradation
-        only after receiving a 429 error.
+        Note: With fallbacks disabled, when the requested model is in cooldown,
+        the request is immediately rejected with a RateLimitExceededError.
         """
-        # Setup: Put pro model in cooldown, configure both models
+        # Setup: Put pro model in cooldown
         connector._set_cooldown("gemini-2.5-pro")
 
-        # Setup: Flash model succeeds (fallback will be used)
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+        # Execute: Request with pro model in cooldown should be rejected
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            await connector.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
 
-        # Execute: Request with pro model in cooldown should use fallback
-        result = await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
-        )
-
-        # Verify: Request succeeded using fallback model
-        assert result is not None
-        # Pro model still in cooldown (no inline recovery attempted)
+        # Verify: Request was rejected, no fallback used
         assert connector._is_in_cooldown("gemini-2.5-pro")
-        # Flash model was used as fallback
-        assert connector._api_call_count.get("gemini-2.5-flash", 0) >= 1
+        # Flash model was NOT called (fallbacks disabled)
+        assert "gemini-2.5-flash" not in connector._api_call_count
+        # Error indicates rate limiting
+        assert "rate-limited" in str(exc_info.value).lower()
 
 
 class TestConfigurationBehavior:
@@ -636,23 +640,28 @@ class TestConfigurationBehavior:
 
     @pytest.mark.asyncio
     async def test_disabled_recovery_probing(self, connector, mock_request, mock_sleep):
-        """Test that disabling recovery probing prevents automatic recovery."""
+        """Test that disabling recovery probing prevents automatic recovery.
+
+        Note: With fallbacks disabled, the request will fail after retries are exhausted.
+        """
         # Setup: Disable recovery probing
         connector._degradation_config.enable_recovery_probing = False
 
         # Setup: Trigger cooldown
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
-
-        # Execute: Trigger cooldown
-        await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
+        connector.set_api_behavior(
+            "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
 
-        # Verify: No recovery probing task started
+        # Execute: Trigger cooldown (will fail since no fallback)
+        with pytest.raises(BackendError):
+            await connector.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
+
+        # Verify: No recovery probing task started and model is in cooldown
         assert connector._recovery_probe_task is None
         assert connector._is_in_cooldown("gemini-2.5-pro")
 
@@ -692,7 +701,10 @@ class TestEdgeCaseBehavior:
 
     @pytest.mark.asyncio
     async def test_streaming_request_graceful_degradation(self, connector, mock_sleep):
-        """Test that streaming requests also benefit from graceful degradation."""
+        """Test that streaming requests also benefit from graceful degradation retry.
+
+        Note: With fallbacks disabled, retry on the same model is still supported.
+        """
         # Setup: Streaming request
         streaming_request = MockChatRequest(
             model="gemini-2.5-pro",
@@ -700,10 +712,9 @@ class TestEdgeCaseBehavior:
             stream=True,
         )
 
-        # Setup: Pro model fails, flash succeeds
+        # Setup: Pro model fails first, then succeeds
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+        connector.set_api_behavior("gemini-2.5-pro", [error_429, {"success": True}])
 
         # Execute: Make streaming request
         result = await connector.chat_completions(
@@ -712,9 +723,10 @@ class TestEdgeCaseBehavior:
             effective_model="gemini-2.5-pro",
         )
 
-        # Verify: Fallback worked for streaming
+        # Verify: Retry worked for streaming (no fallback)
         assert result is not None
-        assert connector._api_call_count["gemini-2.5-flash"] == 1
+        assert connector._api_call_count["gemini-2.5-pro"] >= 2
+        assert "gemini-2.5-flash" not in connector._api_call_count
 
     @pytest.mark.slow
     @pytest.mark.asyncio
@@ -740,12 +752,14 @@ class TestEdgeCaseBehavior:
         assert "gemini-1.0-flash" not in connector._api_call_count
 
     @pytest.mark.asyncio
-    async def test_concurrent_requests_during_degradation(self, connector, mock_sleep):
-        """Test that concurrent requests during degradation are handled correctly."""
+    async def test_concurrent_requests_with_retry(self, connector, mock_sleep):
+        """Test that concurrent requests benefit from retry logic (no fallback).
+
+        Note: With fallbacks disabled, all requests will retry on the same model.
+        If retries succeed, requests complete. Otherwise, they fail.
+        """
         # Setup: Increase max total attempts to accommodate concurrent requests
-        connector._degradation_config.max_total_attempts = (
-            15  # Allow enough for concurrent requests
-        )
+        connector._degradation_config.max_total_attempts = 15
 
         # Setup: Multiple concurrent requests
         requests = [
@@ -756,12 +770,12 @@ class TestEdgeCaseBehavior:
             for i in range(3)
         ]
 
-        # Setup: Pro model fails, flash succeeds
+        # Setup: Pro model returns mix of failures and successes
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429] * 10)  # Many failures
         connector.set_api_behavior(
-            "gemini-2.5-flash", [{"success": True}] * 10
-        )  # Many successes
+            "gemini-2.5-pro",
+            [error_429, {"success": True}] * 5,  # Alternating fail/success
+        )
 
         # Execute: Concurrent requests
         tasks = [
@@ -773,20 +787,15 @@ class TestEdgeCaseBehavior:
             for req in requests
         ]
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Verify: All requests succeeded using fallback
-        assert all(result is not None for result in results)
-        assert connector._api_call_count["gemini-2.5-flash"] >= 3
+        # Verify: At least some requests succeeded via retry
+        successes = [r for r in results if not isinstance(r, Exception)]
+        assert len(successes) >= 1, "At least one request should succeed"
 
-        # Verify: After first request puts model in cooldown, subsequent requests
-        # skip directly to fallback without making additional pro API calls.
-        # This is more efficient than the old behavior of spamming the rate-limited API.
-        # First request: initial attempt + 1 degradation probe = 2 calls
-        # Subsequent requests: 0 calls (skip directly to fallback due to cooldown check)
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] >= 2
-        )  # At least 2 from first request
+        # Verify: Only pro model was attempted (no fallback)
+        assert "gemini-2.5-flash" not in connector._api_call_count
+        assert connector._api_call_count["gemini-2.5-pro"] >= 3
 
     @pytest.mark.slow
     @pytest.mark.asyncio

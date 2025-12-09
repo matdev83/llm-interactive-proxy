@@ -365,7 +365,11 @@ class ToolCallReactorConfig(DomainModel):
     """Whether the Tool Call Reactor is enabled."""
 
     unified_steering_enabled: bool = True
-    """Whether to use the unified steering handler (replacing legacy handlers)."""
+    """DEPRECATED: Unified steering is now the only implementation.
+    
+    This field is kept for backward compatibility but is ignored.
+    Legacy steering handlers have been removed.
+    """
 
     emit_legacy_steering_log: bool = True
     """Whether to emit a legacy-formatted steering log for compatibility."""

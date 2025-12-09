@@ -100,16 +100,21 @@ async def mock_qwen_oauth_refresh(monkeypatch):
 
 
 @pytest.fixture
-def app_config_legacy_log_disabled() -> AppConfig:
+def app_config_legacy_log_disabled():
     """
     Provides an AppConfig instance with emit_legacy_steering_log set to False.
+
+    Note: Legacy steering handlers have been removed. Unified steering is now
+    the only implementation, so no need to explicitly configure handler toggles.
     """
     from src.core.config.app_config import AppConfig
 
     return AppConfig.model_validate(
         {
             "session": {
-                "tool_call_reactor": {"emit_legacy_steering_log": False},
+                "tool_call_reactor": {
+                    "emit_legacy_steering_log": False,
+                },
             }
         }
     )

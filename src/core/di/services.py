@@ -111,6 +111,11 @@ from src.core.services.model_replacement_service import ModelReplacementService
 from src.core.services.path_validation_service import PathValidationService
 from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.request_processor_service import RequestProcessor
+from src.core.services.resilience import RateLimitStateManager, ResilienceCoordinator
+from src.core.services.resilience.handlers import (
+    AuthErrorHandler,
+    RateLimitErrorHandler,
+)
 from src.core.services.response_handlers import (
     DefaultNonStreamingResponseHandler,
     DefaultStreamingResponseHandler,
@@ -2022,209 +2027,30 @@ def register_core_services(
 
         # Register default handlers if enabled
         if reactor_config.enabled:
-            # Check for Unified Steering (prefer unified handler over legacy individual handlers)
-            # However, if specific legacy handlers are explicitly enabled via CLI/config, disable unified steering
-            unified_steering_enabled = getattr(
-                reactor_config, "unified_steering_enabled", True
-            )
+            # Register UnifiedSteeringHandler (the only steering implementation)
+            # Legacy handlers have been removed - unified steering is always used
+            try:
+                from src.services.steering import UnifiedSteeringHandler
 
-            # If any legacy handlers are explicitly enabled, disable unified steering to allow them to register
-            if unified_steering_enabled:
-                legacy_handlers_explicitly_enabled = any(
-                    [
-                        getattr(
-                            reactor_config, "pytest_full_suite_steering_enabled", False
-                        ),
-                        getattr(
-                            reactor_config, "inline_python_steering_enabled", False
-                        ),
-                        getattr(
-                            reactor_config, "apply_diff_steering_enabled", True
-                        ),  # Note: this defaults to True
-                        bool(getattr(reactor_config, "steering_rules", None)),
-                    ]
-                )
+                # Resolve from DI (registered in SteeringStage)
+                unified_handler = provider.get_service(UnifiedSteeringHandler)
 
-                if legacy_handlers_explicitly_enabled:
-                    unified_steering_enabled = False
+                if unified_handler:
+                    reactor.register_handler_sync(unified_handler)
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Unified steering disabled because specific legacy handlers are enabled: "
-                            "pytest_full_suite=%s, inline_python=%s, apply_diff=%s, rules=%s",
-                            getattr(
-                                reactor_config,
-                                "pytest_full_suite_steering_enabled",
-                                False,
-                            ),
-                            getattr(
-                                reactor_config, "inline_python_steering_enabled", False
-                            ),
-                            getattr(
-                                reactor_config, "apply_diff_steering_enabled", True
-                            ),
-                            bool(getattr(reactor_config, "steering_rules", None)),
-                        )
-
-            if unified_steering_enabled:
-                try:
-                    from src.services.steering import UnifiedSteeringHandler
-
-                    # Resolve from DI (registered in SteeringStage)
-                    unified_handler = provider.get_service(UnifiedSteeringHandler)
-
-                    if unified_handler:
-                        reactor.register_handler_sync(unified_handler)
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info("Registered UnifiedSteeringHandler")
-                    else:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "UnifiedSteeringHandler enabled but not found in DI. "
-                                "SteeringStage might be missing."
-                            )
-                except Exception as e:
+                        logger.info("Registered UnifiedSteeringHandler")
+                else:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Failed to register UnifiedSteeringHandler: {e}",
-                            exc_info=True,
+                            "UnifiedSteeringHandler not found in DI. "
+                            "SteeringStage might be missing."
                         )
-
-            # Register legacy handlers ONLY if unified steering is disabled
-            if not unified_steering_enabled:
-                from src.core.services.tool_call_handlers.config_steering_handler import (
-                    ConfigSteeringHandler,
-                )
-                from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
-                    PytestFullSuiteHandler,
-                )
-
-                # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
-                try:
-                    # Build effective rules from config while avoiding expensive deep copy.
-                    # Since steering_rules are configuration data (immutable during runtime),
-                    # we can safely use a shallow copy for better performance.
-                    effective_rules = (
-                        (reactor_config.steering_rules or []).copy()
-                        if reactor_config.steering_rules
-                        else []
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register UnifiedSteeringHandler: {e}",
+                        exc_info=True,
                     )
-
-                    # Synthesize legacy apply_diff rule if enabled and missing
-                    if getattr(reactor_config, "apply_diff_steering_enabled", True):
-                        has_apply_rule = False
-                        for r in effective_rules:
-                            triggers = (r or {}).get("triggers") or {}
-                            tnames = triggers.get("tool_names") or []
-                            phrases = triggers.get("phrases") or []
-                            if "apply_diff" in tnames or any(
-                                isinstance(p, str) and "apply_diff" in p
-                                for p in phrases
-                            ):
-                                has_apply_rule = True
-                                break
-                        if not has_apply_rule:
-                            effective_rules.append(
-                                {
-                                    "name": "apply_diff_to_patch_file",
-                                    "enabled": True,
-                                    "priority": 100,
-                                    "triggers": {
-                                        "tool_names": ["apply_diff"],
-                                        "phrases": [],
-                                    },
-                                    "message": (
-                                        reactor_config.apply_diff_steering_message
-                                        or (
-                                            "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, "
-                                            "as it is superior to apply_diff and provides automated Python QA checks."
-                                        )
-                                    ),
-                                    "rate_limit": {
-                                        "calls_per_window": 1,
-                                        "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
-                                    },
-                                }
-                            )
-
-                    if effective_rules:
-                        config_handler = ConfigSteeringHandler(rules=effective_rules)
-                        try:
-                            reactor.register_handler_sync(config_handler)
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Failed to register config steering handler: {e}",
-                                    exc_info=True,
-                                )
-                except Exception as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Failed to register steering handlers: %s", e, exc_info=True
-                        )
-
-                # Register PytestFullSuiteHandler if enabled
-                try:
-                    if getattr(
-                        reactor_config, "pytest_full_suite_steering_enabled", False
-                    ):
-                        steering_message = getattr(
-                            reactor_config, "pytest_full_suite_steering_message", None
-                        )
-                        pytest_full_suite_handler = PytestFullSuiteHandler(
-                            message=steering_message,
-                            enabled=True,
-                        )
-                        try:
-                            reactor.register_handler_sync(pytest_full_suite_handler)
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Failed to register pytest full-suite handler: {e}",
-                                    exc_info=True,
-                                )
-                except Exception as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"Failed to register PytestFullSuiteHandler: {e}",
-                            exc_info=True,
-                        )
-
-                # Register InlinePythonSteeringHandler if enabled
-                try:
-                    if getattr(reactor_config, "inline_python_steering_enabled", False):
-                        from src.core.services.command_extraction_service import (
-                            CommandExtractionService,
-                        )
-                        from src.core.services.tool_call_handlers.inline_python_steering_handler import (
-                            InlinePythonSteeringHandler,
-                        )
-
-                        steering_message = getattr(
-                            reactor_config, "inline_python_steering_message", None
-                        )
-                        inline_python_handler = InlinePythonSteeringHandler(
-                            command_service=CommandExtractionService(),
-                            message=steering_message,
-                            enabled=True,
-                        )
-                        try:
-                            reactor.register_handler_sync(inline_python_handler)
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Registered InlinePythonSteeringHandler with priority 95"
-                                )
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Failed to register inline python steering handler: {e}",
-                                    exc_info=True,
-                                )
-                except Exception as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"Failed to register InlinePythonSteeringHandler: {e}",
-                            exc_info=True,
-                        )
 
             # Register UnifiedToolSecurityHandler (replaces separate DangerousCommandHandler
             # and FileSandboxingHandler with a single, more efficient handler)
@@ -2575,6 +2401,37 @@ def register_core_services(
         BackendRoutingService, implementation_factory=_backend_routing_service_factory
     )
 
+    # Register resilience layer components
+    def _rate_limit_state_manager_factory(
+        provider: IServiceProvider,
+    ) -> RateLimitStateManager:
+        return RateLimitStateManager()
+
+    _add_singleton(
+        RateLimitStateManager, implementation_factory=_rate_limit_state_manager_factory
+    )
+
+    def _resilience_coordinator_factory(
+        provider: IServiceProvider,
+    ) -> ResilienceCoordinator:
+        state_manager = provider.get_required_service(RateLimitStateManager)
+
+        # Build error handler chain: RateLimit -> Auth
+        auth_handler = AuthErrorHandler(state_manager)
+        rate_limit_handler = RateLimitErrorHandler(
+            state_manager, next_handler=auth_handler
+        )
+
+        return ResilienceCoordinator(
+            state_manager=state_manager,
+            error_handler_chain=rate_limit_handler,
+            default_cooldown=60.0,
+        )
+
+    _add_singleton(
+        ResilienceCoordinator, implementation_factory=_resilience_coordinator_factory
+    )
+
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
         # Import required modules
@@ -2671,6 +2528,9 @@ def register_core_services(
 
         routing_service = provider.get_service(BackendRoutingService)
 
+        # Get or create resilience coordinator
+        resilience_coordinator = provider.get_service(ResilienceCoordinator)
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -2683,6 +2543,7 @@ def register_core_services(
             failover_strategy=failover_strategy,
             wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
             routing_service=routing_service,
+            resilience_coordinator=resilience_coordinator,
         )
 
     # Register backend service and bind to interface

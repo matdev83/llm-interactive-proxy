@@ -247,42 +247,52 @@ class TestDisableGeminiOAuthFallbackBehavior:
                 await connector_fallback_disabled._recovery_probe_task
 
     @pytest.mark.asyncio
-    async def test_fallback_enabled_attempts_flash(
+    async def test_fallback_enabled_no_longer_attempts_flash(
         self,
         connector_fallback_enabled: MockGeminiOAuthConnector,
         mock_request: MockRequest,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test that with fallback enabled, flash model IS attempted after pro fails."""
+        """Test that even with fallback config enabled, flash model is NOT attempted.
 
+        Note: As of the Resilience Layer implementation, automatic model fallbacks
+        are disabled globally. The Resilience Layer handles error recovery at
+        the BackendService level instead.
+        """
         # Mock sleep
-
         monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-        # Setup: Pro fails, Flash succeeds
-
+        # Setup: Pro fails, Flash would succeed (but won't be called)
         error_429 = BackendError("Rate limit exceeded", status_code=429)
 
         connector_fallback_enabled.set_api_behavior(
-            "gemini-2.5-pro", [error_429, error_429, error_429]
+            "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
-        connector_fallback_enabled.set_api_behavior(
-            "gemini-2.5-flash", [{"success": True, "model": "gemini-2.5-flash"}]
-        )
+        # Flash model behavior is irrelevant - it won't be called
 
-        # Execute: Should succeed using flash fallback
-        result = await connector_fallback_enabled.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
-        )
+        # Execute: Expect failure since fallbacks are now disabled globally
+        with pytest.raises(BackendError) as exc_info:
+            await connector_fallback_enabled.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
 
-        # Verify: Both models were attempted
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] == 2
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-flash"] >= 1
+        # Verify: Only pro model was attempted, no flash fallback
+        pro_attempts = connector_fallback_enabled._api_call_count["gemini-2.5-pro"]
+        assert (
+            pro_attempts >= 2
+        ), f"Expected at least 2 pro attempts, got {pro_attempts}"
+        assert "gemini-2.5-flash" not in connector_fallback_enabled._api_call_count
 
-        # Verify: Request succeeded
-        assert result is not None
+        # Verify: Error indicates rate limiting or exhaustion
+        error = exc_info.value
+        # Can be either "models_rate_limited" (cooldown) or "all_models_exhausted" depending on retry config
+        error_code = getattr(error, "code", None)
+        assert error_code in (
+            "models_rate_limited",
+            "all_models_exhausted",
+        ), f"Got {error_code}"
 
         # Cleanup
         if (
@@ -346,28 +356,27 @@ class TestDisableGeminiOAuthFallbackBehavior:
                 await connector_fallback_disabled._recovery_probe_task
 
     @pytest.mark.asyncio
-    async def test_fallback_enabled_with_both_models_failing(
+    async def test_fallback_enabled_only_tries_requested_model(
         self,
         connector_fallback_enabled: MockGeminiOAuthConnector,
         mock_request: MockRequest,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test that with fallback enabled, both models are tried before final failure."""
+        """Test that even with fallback config enabled, only requested model is tried.
 
+        Note: As of the Resilience Layer implementation, automatic model fallbacks
+        are disabled globally. Only the originally requested model will be tried.
+        """
         # Mock sleep
-
         monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-        # Setup: Both models fail
-
+        # Setup: Pro model fails
         error_429 = BackendError("Rate limit exceeded", status_code=429)
 
         connector_fallback_enabled.set_api_behavior(
-            "gemini-2.5-pro", [error_429, error_429, error_429]
+            "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
-        connector_fallback_enabled.set_api_behavior(
-            "gemini-2.5-flash", [error_429, error_429, error_429, error_429]
-        )
+        # Flash model behavior is irrelevant - it won't be called
 
         # Execute: Expect final failure
         with pytest.raises(BackendError):
@@ -377,9 +386,12 @@ class TestDisableGeminiOAuthFallbackBehavior:
                 effective_model="gemini-2.5-pro",
             )
 
-        # Verify: Both models were attempted
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] == 2
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-flash"] >= 1
+        # Verify: Only pro model was attempted, flash never tried
+        pro_attempts = connector_fallback_enabled._api_call_count["gemini-2.5-pro"]
+        assert (
+            pro_attempts >= 2
+        ), f"Expected at least 2 pro attempts, got {pro_attempts}"
+        assert "gemini-2.5-flash" not in connector_fallback_enabled._api_call_count
 
         # Cleanup
         if (

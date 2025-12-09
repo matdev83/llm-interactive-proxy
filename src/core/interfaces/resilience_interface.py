@@ -167,4 +167,3 @@ class IRecoveryStrategy(Protocol):
             ResilienceAction describing the recovery approach
         """
         ...
-
