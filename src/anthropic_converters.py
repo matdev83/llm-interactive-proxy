@@ -236,22 +236,46 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
     if not choices:
-        # Produce a minimal Anthropic-like message with empty text and usage mapping
+        # Check if this is an error response
+        error_info = oai_dict.get("error")
+        if error_info:
+            # Return Anthropic error format
+            error_msg = (
+                error_info.get("message", "Unknown error")
+                if isinstance(error_info, dict)
+                else str(error_info)
+            )
+            return {
+                "type": "error",
+                "error": {
+                    "type": "api_error",
+                    "message": error_msg,
+                },
+            }
+
+        # No choices and no explicit error - produce a message indicating
+        # empty response. Use a clear message instead of empty string to
+        # help debugging and prevent silent failures.
         usage = oai_dict.get("usage", {})
         response = {
             "id": oai_dict.get("id", "msg_unk"),
             "type": "message",
             "role": "assistant",
             "model": oai_dict.get("model", "unknown"),
-            "stop_reason": None,
-            "content": [{"type": "text", "text": ""}],
+            "stop_reason": "end_turn",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "[Backend returned empty response]",
+                }
+            ],
             "usage": {
                 "input_tokens": usage.get("prompt_tokens", 0),
                 "output_tokens": usage.get("completion_tokens", 0),
             },
         }
-        logger.debug(
-            "Converted OpenAI to Anthropic response (no choices): %r", response
+        logger.warning(
+            "Converting empty OpenAI response to Anthropic format: %r", oai_dict
         )
         return response
 

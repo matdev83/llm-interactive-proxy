@@ -3319,13 +3319,25 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 except StopAsyncIteration:
                     # Empty stream, nothing to yield
                     return
+                except GeneratorExit:
+                    # Consumer cancelled - close the base generator
+                    await base_generator.aclose()
+                    raise
 
                 # Yield the prefetched first chunk
-                yield first_chunk
+                try:
+                    yield first_chunk
+                except GeneratorExit:
+                    await base_generator.aclose()
+                    raise
 
                 # Continue with remaining chunks
-                async for chunk in base_generator:
-                    yield chunk
+                try:
+                    async for chunk in base_generator:
+                        yield chunk
+                except GeneratorExit:
+                    await base_generator.aclose()
+                    raise
 
             # Prefetch the first chunk NOW to catch immediate errors
             # before returning the StreamingResponseEnvelope
@@ -3344,12 +3356,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             async def continue_from_prefetch() -> (
                 AsyncGenerator[ProcessedResponse, None]
             ):
-                # Yield prefetched first chunk if any
-                for chunk in first_chunk_holder:
-                    yield chunk
-                # Continue with remaining chunks
-                async for chunk in prefetch_gen:
-                    yield chunk
+                try:
+                    # Yield prefetched first chunk if any
+                    for chunk in first_chunk_holder:
+                        yield chunk
+                    # Continue with remaining chunks
+                    async for chunk in prefetch_gen:
+                        yield chunk
+                except GeneratorExit:
+                    # Consumer cancelled - close the prefetch generator
+                    await prefetch_gen.aclose()
+                    raise
 
             return StreamingResponseEnvelope(
                 content=wrap_processed_response_stream_with_vtc(

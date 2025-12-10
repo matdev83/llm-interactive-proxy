@@ -2310,12 +2310,19 @@ class Translation(BaseTranslator):
                 raise ValueError("Message role is required")
 
             # Allow assistant messages that carry only tool_calls (no textual content)
+            # Also allow empty assistant messages (from error responses) - they will be
+            # filtered out when building the actual Gemini request
             if message.role != "system":
                 has_text = bool(message.content)
                 has_tool_calls = bool(getattr(message, "tool_calls", None))
-                if not has_text and not (
-                    message.role == "assistant" and has_tool_calls
-                ):
+                # Skip validation for assistant messages - they may be empty from
+                # error responses and will be filtered during request building
+                if message.role == "assistant":
+                    if not has_text and not has_tool_calls:
+                        logger.debug(
+                            "Allowing empty assistant message (will be filtered in request building)"
+                        )
+                elif not has_text:
                     raise ValueError(f"Content is required for {message.role} messages")
 
         # Validate tool parameters if present
@@ -2496,8 +2503,10 @@ class Translation(BaseTranslator):
             # to functionResponse parts below.
             if not has_tool_calls and message.role != "tool":
                 if isinstance(message.content, str):
-                    # Simple text content
-                    parts.append({"text": message.content})
+                    # Simple text content - skip empty strings to avoid sending
+                    # empty messages (e.g., from error responses)
+                    if message.content:
+                        parts.append({"text": message.content})
                 elif isinstance(message.content, list):
                     # Multimodal content (list of parts)
                     for part in message.content:

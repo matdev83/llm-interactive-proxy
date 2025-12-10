@@ -1,5 +1,18 @@
 # Changelog
 
+## [2025-12-10]
+
+### Fixed: Anthropic and Gemini Connector Resilience
+
+- **Anthropic Converter Improvements**:
+  - **Error Handling**: Improved mapping of OpenAI error responses to Anthropic error format
+  - **Empty Choices**: Defensive handling of empty choice lists to prevent crashes and provide clear error messages
+  - **Generator Cleanup**: Added `GeneratorExit` handling in streaming responses to ensure proper resource cleanup
+
+- **Gemini Connector Improvements**:
+  - **Stream Cleanup**: Added `GeneratorExit` handling in `continue_from_prefetch` to ensure upstream generators are closed properly
+  - **Empty Message Handling**: Allowed empty assistant messages in translation validation (needed for error scenarios) and updated message conversion to skip empty text parts
+
 ## [2025-12-09]
 
 ### Fixed: Anthropic Tool Validation and DI Improvements

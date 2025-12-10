@@ -390,7 +390,8 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["output_tokens"] == 7
 
     def test_openai_to_anthropic_response_model_with_empty_choices(self) -> None:
-        """Model responses without choices should yield an empty Anthropic message."""
+        """Model responses without choices should yield an Anthropic message with
+        clear indication of empty response (for debugging)."""
 
         class DummyResponse:
             def __init__(self) -> None:
@@ -402,7 +403,11 @@ class TestAnthropicConverters:
         anthropic_response = openai_to_anthropic_response(DummyResponse())
 
         assert anthropic_response["id"] == "chatcmpl-empty"
-        assert anthropic_response["content"][0]["text"] == ""
+        # Empty choices now return a clear message instead of empty string
+        assert (
+            anthropic_response["content"][0]["text"]
+            == "[Backend returned empty response]"
+        )
         assert anthropic_response["usage"]["input_tokens"] == 2
         assert anthropic_response["usage"]["output_tokens"] == 3
 
