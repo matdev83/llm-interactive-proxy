@@ -641,12 +641,13 @@ class VTCResponseStreamWrapper:
 
         if self._last_chunk_template is not None:
             chunk = self._inject_text(self._last_chunk_template, text)
-            # Merge tool calls into existing metadata
-            if tool_calls:
+            # Merge metadata into the chunk
+            if metadata:
                 if chunk.metadata:
-                    chunk.metadata["tool_calls"] = tool_calls
-                    chunk.metadata["vtc_tool_calls"] = True
+                    # Merge all metadata fields
+                    chunk.metadata.update(metadata)
                 else:
+                    # Create new chunk with metadata
                     chunk = ProcessedResponse(
                         content=chunk.content,
                         usage=chunk.usage,

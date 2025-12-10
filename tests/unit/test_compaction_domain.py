@@ -308,14 +308,14 @@ class TestResourceIdentityExtractor:
         # Edit file often has start_line/end_line but should be same resource identity
         args1 = {"file_path": "/path/to/file.py", "start_line": 10, "end_line": 20}
         args2 = {"file_path": "/path/to/file.py", "start_line": 30, "end_line": 40}
-        
+
         # Using a FILE_WRITE category tool
         result1 = extractor.extract("edit_file", args1)
         result2 = extractor.extract("edit_file", args2)
 
         assert result1 is not None
         assert result2 is not None
-        
+
         # Should be SAME identity despite different lines
         assert result1.primary_key == "/path/to/file.py"
         assert result2.primary_key == "/path/to/file.py"

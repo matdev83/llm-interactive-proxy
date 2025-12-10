@@ -38,6 +38,7 @@
 --disable-pytest-compression
 --disable-pytest-full-suite-steering
 --disable-redact-api-keys-in-prompts
+--disable-request-dedup
 --disable-routing-with-backend-ids
 --disable-routing-with-backend-names
 --disable-routing-with-only-model-names
@@ -125,6 +126,7 @@
 --project-dir-resolution-model
 --reasoning-injection-probability
 --reasoning_injection_probability
+--request-dedup-window
 --sso-auth-mode
 --sso-config
 --sso-provider

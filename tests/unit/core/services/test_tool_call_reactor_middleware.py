@@ -618,3 +618,130 @@ def test_maybe_fix_droid_antigravity_path_not_modified_for_non_droid_agent() -> 
     )
     assert fixed is args  # Same reference, unchanged
     assert modified is False
+
+
+class TestVTCToolCallBypass:
+    """Tests for VTC (Virtual Tool Calling) tool call bypass in ToolCallReactorFeature."""
+
+    @pytest.fixture
+    def feature(self, mock_tool_call_reactor: AsyncMock) -> ToolCallReactorFeature:
+        """Create a ToolCallReactorFeature for testing."""
+        return ToolCallReactorFeature(tool_call_reactor=mock_tool_call_reactor)
+
+    @pytest.mark.asyncio
+    async def test_vtc_tool_calls_bypassed_in_feature(
+        self,
+        feature: ToolCallReactorFeature,
+        mock_tool_call_reactor: AsyncMock,
+    ) -> None:
+        """VTC tool calls should be bypassed as they're already processed by VTCResponseStreamWrapper."""
+        # Create a response with VTC tool calls marker
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+            metadata={
+                "vtc_tool_calls": True,  # This marks it as VTC-processed
+                "tool_calls": [
+                    {
+                        "id": "vtc_123",
+                        "type": "function",
+                        "function": {"name": "execute_command", "arguments": "{}"},
+                    }
+                ],
+            },
+        )
+        context: dict[str, Any] = {"session_id": "test-session"}
+
+        # Process through the feature
+        result = await feature.process_non_streaming(response, "test-session", context)
+
+        # Should return unchanged response (bypassed)
+        assert result is response
+
+        # Reactor should NOT be called (VTC already processed these)
+        mock_tool_call_reactor.process_tool_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_vtc_tool_calls_processed_normally(
+        self,
+        feature: ToolCallReactorFeature,
+        mock_tool_call_reactor: AsyncMock,
+    ) -> None:
+        """Non-VTC tool calls should be processed through the reactor."""
+        # Create a response WITHOUT VTC marker
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+            metadata={
+                # No vtc_tool_calls marker
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "execute_command", "arguments": "{}"},
+                    }
+                ],
+            },
+        )
+        context: dict[str, Any] = {"session_id": "test-session"}
+
+        # Process through the feature
+        await feature.process_non_streaming(response, "test-session", context)
+
+        # Reactor SHOULD be called (non-VTC flow)
+        mock_tool_call_reactor.process_tool_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_vtc_tool_calls_bypassed_in_legacy_middleware(
+        self,
+        tool_call_reactor_middleware: ToolCallReactorMiddleware,
+        mock_tool_call_reactor: AsyncMock,
+    ) -> None:
+        """VTC tool calls should also be bypassed in legacy middleware."""
+        # Create a response with VTC tool calls marker
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+            metadata={
+                "vtc_tool_calls": True,  # VTC-processed marker
+                "tool_calls": [
+                    {
+                        "id": "vtc_456",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": "{}"},
+                    }
+                ],
+            },
+        )
+        context: dict[str, Any] = {"session_id": "test-session"}
+
+        # Process through the middleware
+        result = await tool_call_reactor_middleware.process(
+            response, "test-session", context
+        )
+
+        # Should return unchanged response (bypassed)
+        assert result is response
+
+        # Reactor should NOT be called
+        mock_tool_call_reactor.process_tool_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vtc_swallowed_metadata_preserved(
+        self,
+        feature: ToolCallReactorFeature,
+        mock_tool_call_reactor: AsyncMock,
+    ) -> None:
+        """VTC swallowed metadata should be preserved when bypassing."""
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "Blocked message"}}]},
+            metadata={
+                "vtc_tool_calls": True,
+                "vtc_tool_calls_swallowed": True,
+                "vtc_swallowed_count": 2,
+            },
+        )
+        context: dict[str, Any] = {"session_id": "test-session"}
+
+        result = await feature.process_non_streaming(response, "test-session", context)
+
+        # Metadata should be preserved
+        assert result.metadata.get("vtc_tool_calls_swallowed") is True
+        assert result.metadata.get("vtc_swallowed_count") == 2

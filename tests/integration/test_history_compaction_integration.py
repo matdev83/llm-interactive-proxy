@@ -17,6 +17,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
@@ -28,7 +29,6 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.history_compaction_interface import CompactionResult
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.history_compaction_service import HistoryCompactionService
-from src.core.config.app_config import AppConfig
 
 from tests.helpers.angel_factory_stub import AngelFactoryStub
 
@@ -334,14 +334,13 @@ class TestHistoryCompactionObservability:
         assert any(
             "Compacted conversation history" in r.message for r in caplog.records
         )
-        
+
         # Verify structured data
         record = next(
             r for r in caplog.records if "Compacted conversation history" in r.message
         )
         assert getattr(record, "compacted_messages", None) == 2
         assert getattr(record, "bytes_saved", None) == 1000
-
 
     @pytest.mark.asyncio
     async def test_warning_log_emitted_on_compaction_failure(

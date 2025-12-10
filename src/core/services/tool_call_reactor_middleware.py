@@ -81,6 +81,18 @@ class ToolCallReactorFeature(IResponseFeature):
         if not self._enabled or context.get("bypass_tool_call_reactor"):
             return response
 
+        # Skip VTC tool calls that have already been processed by VTCResponseStreamWrapper
+        # This prevents double-processing of tool calls for VTC (Virtual Tool Calling) clients
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("vtc_tool_calls"):
+            if logger.is_enabled_for(logging.DEBUG):
+                logger.debug(
+                    "Skipping reactor processing for VTC tool calls "
+                    "(already processed by VTCResponseStreamWrapper) in session %s",
+                    session_id,
+                )
+            return response
+
         stream_key = self._resolve_stream_key(session_id, context, response)
         buffer_state = self._resolve_buffer_state(context, stream_key)
 
@@ -859,6 +871,18 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             The processed response (potentially modified by handlers)
         """
         if not self._enabled or context.get("bypass_tool_call_reactor"):
+            return response
+
+        # Skip VTC tool calls that have already been processed by VTCResponseStreamWrapper
+        # This prevents double-processing of tool calls for VTC (Virtual Tool Calling) clients
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("vtc_tool_calls"):
+            if logger.is_enabled_for(logging.DEBUG):
+                logger.debug(
+                    "Skipping reactor processing for VTC tool calls "
+                    "(already processed by VTCResponseStreamWrapper) in session %s",
+                    session_id,
+                )
             return response
 
         stream_key = self._resolve_stream_key(session_id, context, response)

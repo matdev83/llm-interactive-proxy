@@ -524,13 +524,17 @@ class TestVTCReactorIntegration:
         """Tool call reactor should be invoked when tool calls are detected."""
         from unittest.mock import AsyncMock, MagicMock
 
+        from src.core.interfaces.tool_call_reactor_interface import (
+            ToolCallReactionResult,
+        )
         from src.core.services.streaming.vtc_response_wrapper import (
             wrap_processed_response_stream_with_vtc,
         )
 
-        # Create mock reactor
+        # Create mock reactor that does NOT swallow (returns proper result)
+        mock_result = ToolCallReactionResult(should_swallow=False)
         mock_reactor = MagicMock()
-        mock_reactor.process_tool_call = AsyncMock(return_value=MagicMock())
+        mock_reactor.process_tool_call = AsyncMock(return_value=mock_result)
 
         # Use simple format tool call (KiloCode style)
         xml_content = (
@@ -641,3 +645,191 @@ class TestVTCReactorIntegration:
 
         # Reactor should NOT be called (VTC disabled)
         assert not mock_reactor.process_tool_call.called
+
+    @pytest.mark.asyncio
+    async def test_tool_call_swallowed_injects_replacement_message(self):
+        """When reactor swallows a tool call, the replacement message should be injected."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.interfaces.tool_call_reactor_interface import (
+            ToolCallReactionResult,
+        )
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor that swallows the tool call
+        mock_result = ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="[BLOCKED] This tool call is not allowed by policy.",
+            metadata={"handler": "test_handler"},
+        )
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=mock_result)
+
+        # Use simple format tool call
+        xml_content = (
+            "I will run the command.\n\n"
+            "<execute_command>\n"
+            "<command>rm -rf /</command>\n"
+            "</execute_command>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            session_id="test-session-123",
+            context={"backend_name": "test-backend", "model_name": "test-model"},
+        ):
+            result_chunks.append(chunk)
+
+        # Combine all text content
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # The replacement message should be in the output
+        assert "[BLOCKED]" in all_text, "Replacement message should be injected"
+
+        # The original XML should NOT be in the output (it was stripped)
+        assert "<execute_command>" not in all_text, "Original XML should be stripped"
+        assert "rm -rf /" not in all_text, "Original command should be stripped"
+
+        # Check metadata indicates swallowing occurred
+        swallow_found = False
+        for chunk in result_chunks:
+            if chunk.metadata and chunk.metadata.get("vtc_tool_calls_swallowed"):
+                swallow_found = True
+                assert chunk.metadata.get("vtc_swallowed_count") == 1
+                break
+        assert swallow_found, "Metadata should indicate tool call was swallowed"
+
+    @pytest.mark.asyncio
+    async def test_partial_tool_call_swallowing(self):
+        """When some tool calls are swallowed and others pass through."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.interfaces.tool_call_reactor_interface import (
+            ToolCallReactionResult,
+        )
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor that only swallows 'dangerous_command'
+        def mock_process_tool_call(context):
+            if context.tool_name == "dangerous_command":
+                return ToolCallReactionResult(
+                    should_swallow=True,
+                    replacement_response="[BLOCKED] Dangerous command not allowed.",
+                )
+            return ToolCallReactionResult(should_swallow=False)
+
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(side_effect=mock_process_tool_call)
+
+        # Two tool calls - one should be blocked
+        xml_content = (
+            "Let me run some commands.\n\n"
+            "<function_calls>\n"
+            '<invoke name="safe_command">\n'
+            '<parameter name="cmd">ls -la</parameter>\n'
+            "</invoke>\n"
+            '<invoke name="dangerous_command">\n'
+            '<parameter name="cmd">rm -rf /</parameter>\n'
+            "</invoke>\n"
+            "</function_calls>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            session_id="test-session-123",
+        ):
+            result_chunks.append(chunk)
+
+        # Combine all text content
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # The replacement message should be present
+        assert "[BLOCKED]" in all_text
+
+        # Verify reactor was called twice (once per tool call)
+        assert mock_reactor.process_tool_call.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_non_swallowed_tool_calls_pass_through_unchanged(self):
+        """Tool calls that are not swallowed should pass through unchanged."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.interfaces.tool_call_reactor_interface import (
+            ToolCallReactionResult,
+        )
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock reactor that does NOT swallow
+        mock_result = ToolCallReactionResult(
+            should_swallow=False,
+            metadata={"handler": "test_handler", "decision": "allowed"},
+        )
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=mock_result)
+
+        xml_content = (
+            "I will run the command.\n\n"
+            "<execute_command>\n"
+            "<command>git status</command>\n"
+            "</execute_command>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            session_id="test-session-123",
+        ):
+            result_chunks.append(chunk)
+
+        # Combine all text content
+        all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
+
+        # Original content should be preserved (including XML)
+        assert "<execute_command>" in all_text or "execute_command" in all_text
+        assert "git status" in all_text
+
+        # No swallowing metadata
+        for chunk in result_chunks:
+            if chunk.metadata:
+                assert not chunk.metadata.get("vtc_tool_calls_swallowed")
