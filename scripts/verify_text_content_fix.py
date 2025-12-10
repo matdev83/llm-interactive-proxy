@@ -84,7 +84,9 @@ class TextContentVerificationReport:
 
         # Text in client output check
         text_in_client_passes = [r for r in self.text_in_client_results if r.passed]
-        text_in_client_failures = [r for r in self.text_in_client_results if not r.passed]
+        text_in_client_failures = [
+            r for r in self.text_in_client_results if not r.passed
+        ]
 
         if text_in_client_failures:
             lines.append(
@@ -100,7 +102,7 @@ class TextContentVerificationReport:
             for result in text_in_client_passes[:3]:
                 if result.details.get("content_preview"):
                     preview = result.details["content_preview"][:60]
-                    lines.append(f"  - Entry {result.entry_index}: \"{preview}...\"")
+                    lines.append(f'  - Entry {result.entry_index}: "{preview}..."')
         else:
             lines.append("[INFO] Text in client output: No text chunks found")
 
@@ -108,7 +110,9 @@ class TextContentVerificationReport:
 
         # Text preservation check
         preservation_passes = [r for r in self.text_preservation_results if r.passed]
-        preservation_failures = [r for r in self.text_preservation_results if not r.passed]
+        preservation_failures = [
+            r for r in self.text_preservation_results if not r.passed
+        ]
 
         if preservation_failures:
             lines.append(
@@ -118,9 +122,13 @@ class TextContentVerificationReport:
             for failure in preservation_failures[:5]:
                 lines.append(f"  - {failure.message}")
                 if failure.details.get("backend_content"):
-                    lines.append(f"    Backend: \"{failure.details['backend_content'][:50]}...\"")
+                    lines.append(
+                        f"    Backend: \"{failure.details['backend_content'][:50]}...\""
+                    )
                 if failure.details.get("client_content"):
-                    lines.append(f"    Client: \"{failure.details['client_content'][:50]}...\"")
+                    lines.append(
+                        f"    Client: \"{failure.details['client_content'][:50]}...\""
+                    )
         elif preservation_passes:
             lines.append(
                 f"[PASS] Text preservation: {len(preservation_passes)} comparisons verified"
@@ -207,8 +215,7 @@ class TextContentVerifier:
         # 1. Text content appears in client output (if backend had text)
         # 2. Text content is preserved from backend to client
         overall_passed = (
-            len(text_in_client_failures) == 0
-            and len(preservation_failures) == 0
+            len(text_in_client_failures) == 0 and len(preservation_failures) == 0
         )
 
         # Generate summary message
@@ -226,9 +233,13 @@ class TextContentVerifier:
         else:
             issues = []
             if text_in_client_failures:
-                issues.append(f"{len(text_in_client_failures)} text chunks missing from client")
+                issues.append(
+                    f"{len(text_in_client_failures)} text chunks missing from client"
+                )
             if preservation_failures:
-                issues.append(f"{len(preservation_failures)} text preservation failures")
+                issues.append(
+                    f"{len(preservation_failures)} text preservation failures"
+                )
             summary_message = f"Issues found: {'; '.join(issues)}"
 
         return TextContentVerificationReport(
@@ -276,9 +287,7 @@ class TextContentVerifier:
         # Check for patterns that indicate JSON leak
         if '"usage":' in content and '"prompt_tokens":' in content:
             return True
-        if '"chatcmpl-' in content and '"choices":' in content:
-            return True
-        return False
+        return bool('"chatcmpl-' in content and '"choices":' in content)
 
     def _verify_text_in_client_output(
         self, entries: list[CaptureEntry]
@@ -387,7 +396,10 @@ class TextContentVerifier:
 
             if backend_combined and client_combined:
                 # Both have text - check if they match or client contains backend text
-                if backend_combined == client_combined or backend_combined in client_combined:
+                if (
+                    backend_combined == client_combined
+                    or backend_combined in client_combined
+                ):
                     results.append(
                         VerificationResult(
                             passed=True,

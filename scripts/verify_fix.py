@@ -1,11 +1,14 @@
 """Verify the fix for whitespace chunk dropping."""
 
 import sys
+
 sys.path.insert(0, ".")
 
 # Force reimport
 import importlib
+
 import src.core.ports.streaming_contracts
+
 importlib.reload(src.core.ports.streaming_contracts)
 
 from src.core.ports.streaming_contracts import StreamingContent
@@ -33,4 +36,3 @@ for label, content in test_cases:
 # Expected results:
 # - Empty string should be is_empty=True
 # - Everything else (including whitespace) should be is_empty=False
-

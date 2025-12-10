@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
-from pydantic import field_validator
+from pydantic import ConfigDict, field_validator
 
 from src.core.domain.base import ValueObject
-from src.tool_call_loop.config import ToolLoopMode
-from src.tool_call_loop.tracker import ToolCallTracker
+
+# Import from standalone module to avoid circular imports
+from src.tool_call_loop.mode import ToolLoopMode
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
+
+# Re-export for backwards compatibility
+__all__ = ["LoopDetectionConfiguration", "ToolLoopMode"]
 
 
 class LoopDetectionConfiguration(ValueObject):
@@ -17,6 +25,9 @@ class LoopDetectionConfiguration(ValueObject):
     This class handles both standard loop detection and tool call loop detection
     settings.
     """
+
+    # Allow arbitrary types to avoid Pydantic trying to resolve ToolCallTracker
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     loop_detection_enabled: bool = True
     tool_loop_detection_enabled: bool = True
@@ -30,7 +41,8 @@ class LoopDetectionConfiguration(ValueObject):
 
     # Tool call tracker (not persisted)
     # This is mutable state that would be stored elsewhere in a proper implementation
-    tool_call_tracker: ToolCallTracker | None = None
+    # Use Any at runtime but ToolCallTracker for type checking
+    tool_call_tracker: Any = None
 
     @classmethod
     @field_validator("tool_loop_max_repeats")

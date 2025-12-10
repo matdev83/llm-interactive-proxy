@@ -17,14 +17,13 @@ from typing import Any
 
 from json_repair import repair_json
 
-from src.core.interfaces.model_bases import InternalDTO
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ToolCallSignature(InternalDTO):
+class ToolCallSignature:
     """Represents a tracked tool call with timestamp and signature."""
 
     timestamp: datetime.datetime

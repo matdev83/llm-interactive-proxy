@@ -388,20 +388,19 @@ class CoreServicesStage(InitializationStage):
         """Register usage tracking services.
 
         Registers:
-        - InMemoryUsageStore: Thread-safe storage with periodic persistence
+        - SqlUsageRepository: SQL-based storage with database persistence
         - UsageRecordingService: Service for recording usage metrics
         - StatisticsAggregationService: Service for aggregating statistics
         """
         try:
-            from pathlib import Path
-
+            from src.core.database.engine import DatabaseEngine
             from src.core.interfaces.statistics_service_interface import (
                 IStatisticsService,
             )
             from src.core.interfaces.usage_recording_interface import (
                 IUsageRecordingService,
             )
-            from src.core.services.in_memory_usage_store import InMemoryUsageStore
+            from src.core.services.sql_usage_store import SqlUsageStore
             from src.core.services.statistics_aggregation_service import (
                 StatisticsAggregationService,
             )
@@ -416,27 +415,22 @@ class CoreServicesStage(InitializationStage):
                     logger.info("Usage tracking is disabled")
                 return
 
-            # Register InMemoryUsageStore as singleton
-            def usage_store_factory(provider: IServiceProvider) -> InMemoryUsageStore:
-                cfg: AppConfig = provider.get_required_service(AppConfig)
-                usage_cfg = cfg.usage_tracking
-                return InMemoryUsageStore(
-                    persistence_path=Path(usage_cfg.persistence_path),
-                    flush_interval_seconds=usage_cfg.flush_interval_seconds,
-                    max_records_in_memory=usage_cfg.max_records_in_memory,
+            # Register SqlUsageStore as singleton
+            def usage_store_factory(provider: IServiceProvider) -> SqlUsageStore:
+                db_engine: DatabaseEngine = provider.get_required_service(
+                    DatabaseEngine
                 )
+                return SqlUsageStore(db_engine.session_factory)
 
             services.add_singleton(
-                InMemoryUsageStore, implementation_factory=usage_store_factory
+                SqlUsageStore, implementation_factory=usage_store_factory
             )
 
             # Register UsageRecordingService as singleton
             def usage_recording_factory(
                 provider: IServiceProvider,
             ) -> UsageRecordingService:
-                store: InMemoryUsageStore = provider.get_required_service(
-                    InMemoryUsageStore
-                )
+                store: SqlUsageStore = provider.get_required_service(SqlUsageStore)
                 return UsageRecordingService(store)
 
             services.add_singleton(
@@ -450,9 +444,7 @@ class CoreServicesStage(InitializationStage):
             def statistics_service_factory(
                 provider: IServiceProvider,
             ) -> StatisticsAggregationService:
-                store: InMemoryUsageStore = provider.get_required_service(
-                    InMemoryUsageStore
-                )
+                store: SqlUsageStore = provider.get_required_service(SqlUsageStore)
                 return StatisticsAggregationService(store)
 
             services.add_singleton(
@@ -465,9 +457,7 @@ class CoreServicesStage(InitializationStage):
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    "Usage tracking services registered successfully "
-                    f"(persistence_path={usage_config.persistence_path}, "
-                    f"flush_interval={usage_config.flush_interval_seconds}s)"
+                    "Usage tracking services registered successfully with database persistence"
                 )
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):

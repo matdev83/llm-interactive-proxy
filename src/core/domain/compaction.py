@@ -310,7 +310,7 @@ class ResourceIdentityExtractor:
         if primary_key:
             # For file read operations, include offset/limit as secondary keys
             # to distinguish reads of different file portions (Req 1.1.1)
-            secondary_keys = ()
+            secondary_keys: tuple[str, ...] = ()
             if categorize_tool(tool_name) == ToolCategory.FILE_READ:
                 secondary_keys = self._extract_offset_limit_keys(args_dict)
 

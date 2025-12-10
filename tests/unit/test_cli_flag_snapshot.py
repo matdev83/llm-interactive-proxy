@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from src.core.cli import build_cli_parser
 
-SNAPSHOT_PATH = Path(__file__).resolve().parents[2] / "var" / "state" / "cli_flag_snapshot.txt"
+SNAPSHOT_PATH = (
+    Path(__file__).resolve().parents[2] / "var" / "state" / "cli_flag_snapshot.txt"
+)
 
 
 def _collect_cli_flags(parser: argparse.ArgumentParser) -> list[str]:

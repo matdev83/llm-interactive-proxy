@@ -16,7 +16,7 @@ from src.core.domain.openrouter_usage import OpenRouterUsage
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.interfaces.usage_recording_interface import IUsageRecordingService
-from src.core.services.in_memory_usage_store import InMemoryUsageStore
+from src.core.interfaces.usage_store_interface import IUsageStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,11 @@ class UsageRecordingService(IUsageRecordingService):
         _turn_counters: Dictionary tracking turn numbers per session
     """
 
-    def __init__(self, store: InMemoryUsageStore):
+    def __init__(self, store: IUsageStore):
         """Initialize the usage recording service.
 
         Args:
-            store: In-memory storage for usage records
+            store: Usage store for recording usage records
         """
         self._store = store
         self._turn_counters: dict[str, int] = {}

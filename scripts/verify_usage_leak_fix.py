@@ -89,7 +89,9 @@ class UsageLeakVerificationReport:
 
         # Usage at top level check
         top_level_passes = [r for r in self.usage_at_top_level_results if r.passed]
-        top_level_failures = [r for r in self.usage_at_top_level_results if not r.passed]
+        top_level_failures = [
+            r for r in self.usage_at_top_level_results if not r.passed
+        ]
 
         if top_level_failures:
             lines.append(
@@ -177,8 +179,10 @@ class UsageLeakVerifier:
         usage_at_top_level_results = self._verify_usage_at_top_level(client_entries)
 
         # Determine overall result
-        usage_in_content_failures = [r for r in usage_in_content_results if not r.passed]
-        usage_at_top_level_failures = [
+        usage_in_content_failures = [
+            r for r in usage_in_content_results if not r.passed
+        ]
+        [
             r for r in usage_at_top_level_results if not r.passed
         ]
 
@@ -295,7 +299,7 @@ class UsageLeakVerifier:
                 # Check if there's also an "id" or "choices" field nearby
                 # indicating this is a full chunk, not just coincidental text
                 json_like_section = content[brace_pos:]
-                if ('"id":' in json_like_section or '"choices":' in json_like_section):
+                if '"id":' in json_like_section or '"choices":' in json_like_section:
                     return True
 
         # Pattern 2: Check for chatcmpl ID followed by usage (very specific)
@@ -304,13 +308,7 @@ class UsageLeakVerifier:
 
         # Pattern 3: Check for the exact structure of a leaked stop chunk
         # This catches cases where the entire chunk is in content
-        if (
-            '"object": "chat.completion.chunk"' in content
-            and '"usage":' in content
-        ):
-            return True
-
-        return False
+        return bool('"object": "chat.completion.chunk"' in content and '"usage":' in content)
 
     def _verify_usage_at_top_level(
         self, entries: list[CaptureEntry]
