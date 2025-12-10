@@ -218,6 +218,25 @@ class ResourceIdentityExtractor:
     - Directory paths: DirectoryPath, SearchDirectory
     """
 
+    # Parameter names for offset/limit (for partial file reads - Req 1.1.1)
+    OFFSET_LIMIT_PARAMS: tuple[str, ...] = (
+        "offset",
+        "start_line",
+        "StartLine",
+        "line_offset",
+        "from_line",
+    )
+
+    LIMIT_PARAMS: tuple[str, ...] = (
+        "limit",
+        "max_lines",
+        "MaxLines",
+        "end_line",
+        "EndLine",
+        "num_lines",
+        "count",
+    )
+
     # Parameter names for different resource types
     PATH_PARAMS: tuple[str, ...] = (
         "file_path",
@@ -289,9 +308,16 @@ class ResourceIdentityExtractor:
         # Try path parameters first
         primary_key = self._extract_param(args_dict, self.PATH_PARAMS)
         if primary_key:
+            # For file read operations, include offset/limit as secondary keys
+            # to distinguish reads of different file portions (Req 1.1.1)
+            secondary_keys = ()
+            if categorize_tool(tool_name) == ToolCategory.FILE_READ:
+                secondary_keys = self._extract_offset_limit_keys(args_dict)
+
             return ResourceIdentity(
                 tool_name=tool_name,
                 primary_key=self._normalize_path(primary_key),
+                secondary_keys=secondary_keys,
             )
 
         # Try directory parameters
@@ -345,6 +371,45 @@ class ResourceIdentityExtractor:
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return None
+
+    def _extract_numeric_param(
+        self,
+        args: dict[str, Any],
+        param_names: tuple[str, ...],
+    ) -> int | None:
+        """Extract a numeric parameter value from arguments by trying multiple names."""
+        for name in param_names:
+            value = args.get(name)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                try:
+                    return int(value.strip())
+                except ValueError:
+                    continue
+        return None
+
+    def _extract_offset_limit_keys(
+        self,
+        args: dict[str, Any],
+    ) -> tuple[str, ...]:
+        """Extract offset and limit parameters as secondary keys for partial file reads.
+
+        Returns a tuple of string representations of offset and limit values,
+        which are used to distinguish reads of different file portions (Req 1.1.1).
+        Only non-None values are included in the tuple.
+        """
+        secondary: list[str] = []
+
+        offset = self._extract_numeric_param(args, self.OFFSET_LIMIT_PARAMS)
+        if offset is not None:
+            secondary.append(f"offset:{offset}")
+
+        limit = self._extract_numeric_param(args, self.LIMIT_PARAMS)
+        if limit is not None:
+            secondary.append(f"limit:{limit}")
+
+        return tuple(secondary)
 
     def _normalize_path(self, path: str) -> str:
         """Normalize path for consistent comparison.

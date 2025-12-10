@@ -161,10 +161,14 @@ def anthropic_to_openai_request(
     # Build tools list if present
     tools = None
     if anthropic_request.tools:
+        # Track logged tools to reduce log noise (log once per batch)
+        _logged_tools: set[int] = set()
         converted_tools = [
             tool_def
             for tool_def in (
-                _convert_anthropic_tool_definition(tool)
+                _convert_anthropic_tool_definition(
+                    tool, _logged_flat_format=_logged_tools
+                )
                 for tool in anthropic_request.tools
                 if tool is not None
             )
@@ -287,6 +291,17 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     # Map finish_reason to stop_reason
     finish_reason = choice.get("finish_reason")
     stop_reason = _map_finish_reason(finish_reason)
+
+    # Infer stop_reason from tool_calls when finish_reason is None
+    # Some backends (like Gemini) return finish_reason=None for tool call responses
+    # but Claude Code requires stop_reason="tool_use" to properly handle the response
+    if stop_reason is None:
+        tool_calls = message.get("tool_calls")
+        if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+            stop_reason = "tool_use"
+            logger.debug(
+                "Inferred stop_reason='tool_use' from tool_calls (finish_reason was None)"
+            )
 
     # Extract stop_sequence if present (used when finish_reason is "stop")
     stop_sequence = None
@@ -490,9 +505,13 @@ def _convert_anthropic_image_to_openai(block: dict[str, Any]) -> dict[str, Any] 
     return None
 
 
-def _convert_anthropic_tool_definition(tool: Any) -> dict[str, Any]:
+def _convert_anthropic_tool_definition(
+    tool: Any, *, _logged_flat_format: set[int] | None = None
+) -> dict[str, Any]:
     """Convert Anthropic tool definition to OpenAI format using Pydantic models."""
-    openai_tool = convert_anthropic_tool_to_openai(tool)
+    openai_tool = convert_anthropic_tool_to_openai(
+        tool, _logged_flat_format=_logged_flat_format
+    )
     return openai_tool.model_dump()
 
 

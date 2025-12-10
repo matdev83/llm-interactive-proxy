@@ -205,6 +205,124 @@ class TestResourceIdentityExtractor:
         # Only drive letter is lowercased
         assert result.primary_key == "c:/Users/Test/file.py"
 
+    def test_extract_file_with_offset_limit(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Extracts offset and limit as secondary keys for partial file reads (Req 1.1.1)."""
+        args = {"file_path": "/path/to/file.py", "offset": 100, "limit": 50}
+        result = extractor.extract("read_file", args)
+
+        assert result is not None
+        assert result.primary_key == "/path/to/file.py"
+        assert result.secondary_keys == ("offset:100", "limit:50")
+
+    def test_extract_file_with_offset_only(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Extracts only offset when limit is not present."""
+        args = {"file_path": "/path/to/file.py", "offset": 985}
+        result = extractor.extract("read_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("offset:985",)
+
+    def test_extract_file_with_limit_only(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Extracts only limit when offset is not present."""
+        args = {"file_path": "/path/to/file.py", "limit": 40}
+        result = extractor.extract("read_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("limit:40",)
+
+    def test_different_offsets_create_different_identities(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Different offset/limit combinations create different resource identities (Req 1.1.1)."""
+        args1 = {"file_path": "/path/to/file.py", "offset": 985, "limit": 40}
+        args2 = {"file_path": "/path/to/file.py", "offset": 905, "limit": 40}
+        args3 = {"file_path": "/path/to/file.py", "offset": 1080, "limit": 50}
+
+        result1 = extractor.extract("read_file", args1)
+        result2 = extractor.extract("read_file", args2)
+        result3 = extractor.extract("read_file", args3)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result3 is not None
+
+        # All three should be different identities
+        assert result1 != result2
+        assert result2 != result3
+        assert result1 != result3
+
+    def test_same_offset_limit_create_same_identity(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Same offset/limit combinations create same resource identity."""
+        args1 = {"file_path": "/path/to/file.py", "offset": 100, "limit": 50}
+        args2 = {"file_path": "/path/to/file.py", "offset": 100, "limit": 50}
+
+        result1 = extractor.extract("read_file", args1)
+        result2 = extractor.extract("read_file", args2)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1 == result2
+
+    def test_extract_file_no_offset_limit(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Files without offset/limit have empty secondary keys."""
+        args = {"file_path": "/path/to/file.py"}
+        result = extractor.extract("view_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ()
+
+    def test_extract_offset_limit_from_string_values(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Handles offset/limit as string values (JSON parsing)."""
+        args = {"file_path": "/path/to/file.py", "offset": "100", "limit": "50"}
+        result = extractor.extract("read_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("offset:100", "limit:50")
+
+    def test_extract_start_line_end_line_params(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Handles alternative param names like start_line/end_line."""
+        args = {"file_path": "/path/to/file.py", "start_line": 10, "end_line": 20}
+        result = extractor.extract("read_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("offset:10", "limit:20")
+
+    def test_extract_ignores_offset_limit_for_non_read_tools(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Offset/limit ignored for non-read tools (e.g. edit_file)."""
+        # Edit file often has start_line/end_line but should be same resource identity
+        args1 = {"file_path": "/path/to/file.py", "start_line": 10, "end_line": 20}
+        args2 = {"file_path": "/path/to/file.py", "start_line": 30, "end_line": 40}
+        
+        # Using a FILE_WRITE category tool
+        result1 = extractor.extract("edit_file", args1)
+        result2 = extractor.extract("edit_file", args2)
+
+        assert result1 is not None
+        assert result2 is not None
+        
+        # Should be SAME identity despite different lines
+        assert result1.primary_key == "/path/to/file.py"
+        assert result2.primary_key == "/path/to/file.py"
+        assert result1.secondary_keys == ()
+        assert result2.secondary_keys == ()
+        assert result1 == result2
+
 
 class TestCompactionStub:
     """Tests for CompactionStub creation."""

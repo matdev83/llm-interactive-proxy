@@ -151,14 +151,15 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         standard OpenAI format that the rest of the pipeline expects.
         """
         data_val = response_json.get("data")
-        if isinstance(data_val, dict):
-            # Only unwrap if the inner dict looks like a valid OpenAI response
-            if "choices" in data_val or "id" in data_val or "model" in data_val:
-                logger.debug(
-                    "Unwrapping Cline 'data' envelope - found keys: %s",
-                    list(data_val.keys())[:5],
-                )
-                return data_val
+        # Only unwrap if data_val is a dict that looks like a valid OpenAI response
+        if isinstance(data_val, dict) and (
+            "choices" in data_val or "id" in data_val or "model" in data_val
+        ):
+            logger.debug(
+                "Unwrapping Cline 'data' envelope - found keys: %s",
+                list(data_val.keys())[:5],
+            )
+            return data_val
         return response_json
 
     async def _handle_non_streaming_response(

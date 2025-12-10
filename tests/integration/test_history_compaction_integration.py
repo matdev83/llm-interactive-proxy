@@ -28,6 +28,7 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.history_compaction_interface import CompactionResult
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.history_compaction_service import HistoryCompactionService
+from src.core.config.app_config import AppConfig
 
 from tests.helpers.angel_factory_stub import AngelFactoryStub
 
@@ -113,11 +114,16 @@ class TestHistoryCompactionPipelineIntegration:
             )
         )
 
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
         manager = BackendRequestManager(
             backend_processor,
             response_processor,
             AngelFactoryStub(),
             history_compaction_service=compaction_service,
+            config=app_config,
         )
 
         original_request = ChatRequest(
@@ -200,11 +206,16 @@ class TestHistoryCompactionPipelineIntegration:
             )
         )
 
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
         manager = BackendRequestManager(
             backend_processor,
             response_processor,
             AngelFactoryStub(),
             history_compaction_service=compaction_service,
+            config=app_config,
         )
 
         original_request = ChatRequest(
@@ -296,11 +307,16 @@ class TestHistoryCompactionObservability:
         )
         compaction_service.compact_history = AsyncMock(return_value=compaction_result)
 
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
         manager = BackendRequestManager(
             backend_processor,
             response_processor,
             AngelFactoryStub(),
             history_compaction_service=compaction_service,
+            config=app_config,
         )
 
         original_request = ChatRequest(
@@ -315,10 +331,17 @@ class TestHistoryCompactionObservability:
             )
 
         # Check log message contains expected information
-        log_messages = [r.message for r in caplog.records]
-        assert any("History compaction applied" in msg for msg in log_messages)
-        assert any("compacted=2" in msg for msg in log_messages)
-        assert any("bytes_saved=1000" in msg for msg in log_messages)
+        assert any(
+            "Compacted conversation history" in r.message for r in caplog.records
+        )
+        
+        # Verify structured data
+        record = next(
+            r for r in caplog.records if "Compacted conversation history" in r.message
+        )
+        assert getattr(record, "compacted_messages", None) == 2
+        assert getattr(record, "bytes_saved", None) == 1000
+
 
     @pytest.mark.asyncio
     async def test_warning_log_emitted_on_compaction_failure(
@@ -333,11 +356,16 @@ class TestHistoryCompactionObservability:
             side_effect=ValueError("Test compaction error")
         )
 
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
         manager = BackendRequestManager(
             backend_processor,
             response_processor,
             AngelFactoryStub(),
             history_compaction_service=compaction_service,
+            config=app_config,
         )
 
         original_request = ChatRequest(
@@ -624,11 +652,17 @@ class TestHistoryCompactionRealService:
 
         compaction_service = HistoryCompactionService()
 
+        # Mock config with compaction enabled and appropriate threshold
+        app_config = MagicMock(spec=AppConfig)
+        # Low threshold to ensure compaction runs on this request
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=100)
+
         manager = BackendRequestManager(
             backend_processor,
             response_processor,
             AngelFactoryStub(),
             history_compaction_service=compaction_service,
+            config=app_config,
         )
 
         # Build a request with stale tool outputs (proper structure)

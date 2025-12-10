@@ -2547,10 +2547,51 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 message_val = detail_error.get("message")
                                 if isinstance(message_val, str) and message_val.strip():
                                     if error_type == "quota_exceeded":
-                                        error_message = (
-                                            "Service temporarily unavailable due to rate limiting. "
-                                            f"Details: {message_val}"
-                                        )
+                                        # Extract actual retry delay for user-friendly message
+                                        # instead of showing confusing "quota will reset after 0s"
+                                        retry_delay_for_msg = None
+                                        details_list = detail_error.get("details", [])
+                                        if isinstance(details_list, list):
+                                            for detail in details_list:
+                                                if isinstance(detail, dict):
+                                                    if "RetryInfo" in detail.get(
+                                                        "@type", ""
+                                                    ):
+                                                        delay_str = detail.get(
+                                                            "retryDelay"
+                                                        )
+                                                        if isinstance(delay_str, str):
+                                                            retry_delay_for_msg = self._parse_duration_string(
+                                                                delay_str
+                                                            )
+                                                            break
+                                                    elif "ErrorInfo" in detail.get(
+                                                        "@type", ""
+                                                    ):
+                                                        metadata = detail.get(
+                                                            "metadata", {}
+                                                        )
+                                                        if isinstance(metadata, dict):
+                                                            delay_str = metadata.get(
+                                                                "quotaResetDelay"
+                                                            )
+                                                            if isinstance(
+                                                                delay_str, str
+                                                            ):
+                                                                retry_delay_for_msg = self._parse_duration_string(
+                                                                    delay_str
+                                                                )
+                                                                break
+                                        if retry_delay_for_msg is not None:
+                                            error_message = (
+                                                "Service temporarily unavailable due to rate limiting. "
+                                                f"Retry after {retry_delay_for_msg:.2f}s."
+                                            )
+                                        else:
+                                            error_message = (
+                                                "Service temporarily unavailable due to rate limiting. "
+                                                f"Details: {message_val}"
+                                            )
                                     else:
                                         error_message = message_val
 

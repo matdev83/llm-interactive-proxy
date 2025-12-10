@@ -11,7 +11,7 @@ import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -21,6 +21,9 @@ from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.request_deduplication_interface import (
+    IRequestDeduplicationService,
+)
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
@@ -103,6 +106,7 @@ class BackendRequestManager(IBackendRequestManager):
         wire_capture: Any | None = None,
         history_compaction_service: HistoryCompactionService | None = None,
         config: IConfig | None = None,
+        dedup_service: IRequestDeduplicationService | None = None,
     ) -> None:
         """Initialize the backend request manager.
 
@@ -113,6 +117,7 @@ class BackendRequestManager(IBackendRequestManager):
             wire_capture: Optional wire capture service
             history_compaction_service: Optional service for compacting history
             config: Optional application configuration
+            dedup_service: Optional request deduplication service
         """
         self._backend_processor = backend_processor
         if angel_service_factory is None:
@@ -121,6 +126,7 @@ class BackendRequestManager(IBackendRequestManager):
         self._angel_service_factory = angel_service_factory
         self._history_compaction_service = history_compaction_service
         self._config = config
+        self._dedup_service = dedup_service
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
@@ -255,8 +261,9 @@ class BackendRequestManager(IBackendRequestManager):
                             extra={
                                 "original_messages": compaction_result.original_message_count,
                                 "compacted_messages": compaction_result.compacted_count,
-                                "removed_messages": compaction_result.compacted_count,
-                                "original_tokens": token_estimate,  # Approx
+                                "bytes_saved": compaction_result.bytes_saved,
+                                "tokens_saved_estimate": compaction_result.tokens_saved_estimate,
+                                "original_tokens_estimate": token_estimate,
                             },
                         )
                     if compaction_result.was_compacted:
@@ -289,6 +296,23 @@ class BackendRequestManager(IBackendRequestManager):
         context: RequestContext,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process backend request with retry handling."""
+        # Deduplication check FIRST (before any processing)
+        if self._dedup_service:
+            is_duplicate, content_hash = await self._dedup_service.check_and_register(
+                backend_request, session_id
+            )
+            if is_duplicate:
+                # Use debug level to avoid log spam during tight retry loops
+                # Only warn once per session/hash pair if needed, but debug is safer for high throughput
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Duplicate request swallowed: hash=%s session=%s model=%s",
+                        content_hash[:8],
+                        session_id,
+                        backend_request.model,
+                    )
+                raise DuplicateRequestError(content_hash, session_id)
+
         return await self._process_backend_request_with_retry(
             backend_request, session_id, context
         )

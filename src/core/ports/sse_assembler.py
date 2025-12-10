@@ -258,6 +258,9 @@ class SSEAssembler(IStreamAssembler):
                 # Yield control to event loop for responsiveness
                 await asyncio.sleep(0)
 
+        except GeneratorExit:
+            # Client disconnected - this is expected, let cleanup run in finally
+            raise
         finally:
             # Ensure [DONE] is always emitted, even if stream ends unexpectedly
             if not done_emitted:

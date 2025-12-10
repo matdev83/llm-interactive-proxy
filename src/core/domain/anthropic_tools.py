@@ -104,6 +104,8 @@ def _is_flat_anthropic_format(tool: dict[str, Any]) -> bool:
 
 def convert_anthropic_tool_to_openai(
     anthropic_tool: dict[str, Any] | AnthropicToolDefinition,
+    *,
+    _logged_flat_format: set[int] | None = None,
 ) -> OpenAIToolDefinition:
     """
     Convert an Anthropic tool definition to OpenAI format using Pydantic models.
@@ -116,6 +118,7 @@ def convert_anthropic_tool_to_openai(
 
     Args:
         anthropic_tool: Anthropic tool definition (dict or Pydantic model)
+        _logged_flat_format: Internal set to track logged tool IDs within a batch
 
     Returns:
         OpenAI tool definition as Pydantic model
@@ -123,7 +126,12 @@ def convert_anthropic_tool_to_openai(
     if isinstance(anthropic_tool, dict):
         # Check if this is the flat Anthropic API format
         if _is_flat_anthropic_format(anthropic_tool):
-            logger.debug("Identified as flat Anthropic tool format.")
+            # Log only once per unique tool within a batch to reduce noise
+            tool_id = id(anthropic_tool)
+            if _logged_flat_format is None or tool_id not in _logged_flat_format:
+                logger.debug("Identified as flat Anthropic tool format.")
+                if _logged_flat_format is not None:
+                    _logged_flat_format.add(tool_id)
             # Flat Anthropic format: {"name": "...", "description": "...", "input_schema": {...}}
             name = anthropic_tool.get("name", "")
             description = anthropic_tool.get("description")
