@@ -18,10 +18,11 @@ else:
     for line in stripped.splitlines():
         if line.startswith("data:"):
             data_lines.append(line[5:].lstrip())
-
+    
     data_body = "\n".join(data_lines).strip()
     print(f"data_body: {data_body}")
-
+    
     decoded = json.loads(data_body)
     print(f"decoded: {decoded}")
-    print(f"delta content: {decoded['choices'][0]['delta']['content']!r}")
+    print(f"delta content: {repr(decoded['choices'][0]['delta']['content'])}")
+

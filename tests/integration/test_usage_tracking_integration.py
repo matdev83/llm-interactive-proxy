@@ -8,7 +8,7 @@ import pytest
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.statistics_service_interface import IStatisticsService
 from src.core.interfaces.usage_recording_interface import IUsageRecordingService
-from src.core.services.sql_usage_store import SqlUsageStore
+from src.core.services.in_memory_usage_store import InMemoryUsageStore
 
 
 @pytest.mark.asyncio
@@ -25,9 +25,9 @@ async def test_usage_tracking_services_registered():
     # Verify services are registered
     service_provider = app.state.service_provider
 
-    # Check SqlUsageStore
-    store = service_provider.get_service(SqlUsageStore)
-    assert store is not None, "SqlUsageStore should be registered"
+    # Check InMemoryUsageStore
+    store = service_provider.get_service(InMemoryUsageStore)
+    assert store is not None, "InMemoryUsageStore should be registered"
 
     # Check IUsageRecordingService
     usage_service = service_provider.get_service(IUsageRecordingService)
@@ -58,8 +58,8 @@ async def test_usage_tracking_disabled():
     service_provider = app.state.service_provider
 
     # Check that services are not available
-    store = service_provider.get_service(SqlUsageStore)
-    assert store is None, "SqlUsageStore should not be registered when disabled"
+    store = service_provider.get_service(InMemoryUsageStore)
+    assert store is None, "InMemoryUsageStore should not be registered when disabled"
 
     usage_service = service_provider.get_service(IUsageRecordingService)
     assert (

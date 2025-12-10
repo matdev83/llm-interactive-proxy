@@ -47,9 +47,6 @@ class InfrastructureStage(InitializationStage):
         if logger.isEnabledFor(logging.INFO):
             logger.info("Initializing infrastructure services...")
 
-        # Initialize and register database
-        await self._initialize_database(services, config)
-
         # Register shared HTTP client
         self._register_http_client(services)
 
@@ -64,31 +61,6 @@ class InfrastructureStage(InitializationStage):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info("Infrastructure services initialized successfully")
-
-    async def _initialize_database(
-        self, services: ServiceCollection, config: AppConfig
-    ) -> None:
-        """Initialize and register database engine."""
-        try:
-            from src.core.database.engine import DatabaseEngine
-
-            # Create database engine
-            db_engine = DatabaseEngine(config.database)
-
-            # Initialize database (create tables)
-            await db_engine.initialize()
-
-            # Register as singleton instance
-            services.add_instance(DatabaseEngine, db_engine)
-
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Database initialized successfully: %s", config.database.url
-                )
-        except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to initialize database: {e}", exc_info=True)
-            raise
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""

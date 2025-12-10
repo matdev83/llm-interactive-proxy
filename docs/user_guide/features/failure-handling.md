@@ -14,7 +14,7 @@ When a backend request fails, the failure handling strategy decides whether to:
 
 This happens transparently to the client, so agentic workflows continue without interruption from transient errors.
 
-## Configuration
+## Configuration Options
 
 ### CLI Parameters
 
@@ -186,7 +186,7 @@ INFO Failure strategy: waiting 10.0s before retrying backend-1/gpt-4o
 INFO Failure strategy: failing over from backend-1 to backend-2 for model gpt-4o
 ```
 
-## Usage Examples
+## Examples
 
 ### Conservative Settings (More Patient)
 

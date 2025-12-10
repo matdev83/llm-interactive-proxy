@@ -67,20 +67,12 @@ def print_endpoint_health(endpoint: dict) -> None:
     print()
 
     if endpoint.get("consecutive_ping_failures", 0) > 0:
-        print(
-            f"      Consecutive ping failures: {endpoint['consecutive_ping_failures']}"
-        )
+        print(f"      Consecutive ping failures: {endpoint['consecutive_ping_failures']}")
     if endpoint.get("consecutive_http_failures", 0) > 0:
-        print(
-            f"      Consecutive HTTP failures: {endpoint['consecutive_http_failures']}"
-        )
+        print(f"      Consecutive HTTP failures: {endpoint['consecutive_http_failures']}")
 
-    print(
-        f"      Last ping check: {format_timestamp(endpoint.get('last_ping_check_timestamp'))}"
-    )
-    print(
-        f"      Last HTTP check: {format_timestamp(endpoint.get('last_http_check_timestamp'))}"
-    )
+    print(f"      Last ping check: {format_timestamp(endpoint.get('last_ping_check_timestamp'))}")
+    print(f"      Last HTTP check: {format_timestamp(endpoint.get('last_http_check_timestamp'))}")
     print(f"      Backends using URL: {', '.join(backends) if backends else 'none'}")
 
 
@@ -168,15 +160,9 @@ def main() -> int:
         return 1
 
     print_header("Service Status")
-    print(
-        f"  Service Provider: {'OK' if data.get('service_provider_present') else 'NOT PRESENT'}"
-    )
-    print(
-        f"  IRequestProcessor: {'OK' if data.get('IRequestProcessor_resolvable') else 'ERROR'}"
-    )
-    print(
-        f"  ChatController: {'OK' if data.get('ChatController_resolvable') else 'ERROR'}"
-    )
+    print(f"  Service Provider: {'OK' if data.get('service_provider_present') else 'NOT PRESENT'}")
+    print(f"  IRequestProcessor: {'OK' if data.get('IRequestProcessor_resolvable') else 'ERROR'}")
+    print(f"  ChatController: {'OK' if data.get('ChatController_resolvable') else 'ERROR'}")
 
     # Get endpoint health info
     endpoint_health = data.get("endpoint_health", {})
@@ -213,3 +199,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

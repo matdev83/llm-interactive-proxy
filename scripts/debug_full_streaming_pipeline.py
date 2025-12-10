@@ -1,13 +1,11 @@
 """Debug script to trace the full streaming pipeline from backend to client."""
 
 import sys
-
 sys.path.insert(0, ".")
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import AsyncIterator, Any
 
 from src.core.domain.chat import (
     CanonicalStreamChunk,
@@ -89,32 +87,32 @@ async def simulate_convert_to_streaming_content(
     async for chunk in source:
         chunk_count += 1
         print(f"[_convert_to_streaming_content] Chunk #{chunk_count}")
-
+        
         payload = chunk.content
         metadata = chunk.metadata or {}
-
+        
         decoded_payload, sse_metadata, forced_done = _decode_sse_payload(payload)
         print(f"  decoded_payload type: {type(decoded_payload)}")
-
+        
         if isinstance(decoded_payload, dict):
             choices = decoded_payload.get("choices", [])
             if choices:
                 delta = choices[0].get("delta", {})
                 content = delta.get("content")
                 print(f"  delta.content: {content!r}")
-
+        
         # Simplified: just use decoded_payload as enriched
         enriched = decoded_payload
-
+        
         streaming_content = StreamingContent(
             content=enriched,
             metadata=metadata,
             is_done=False,
         )
-
+        
         print(f"  is_empty: {streaming_content.is_empty}")
         print(f"  content truthy: {bool(streaming_content.content)}")
-
+        
         yield streaming_content
 
 
@@ -123,39 +121,37 @@ async def simulate_assemble_stream(
 ) -> AsyncIterator[bytes]:
     """Simulate assemble_stream - simplified."""
     async for chunk in stream:
-        print("[assemble_stream] Processing chunk")
+        print(f"[assemble_stream] Processing chunk")
         print(f"  is_empty: {chunk.is_empty}")
         print(f"  is_done: {chunk.is_done}")
         print(f"  content: {bool(chunk.content)}")
-
+        
         # The skip condition
         if chunk.is_empty and not chunk.is_done and not chunk.content:
-            print("  SKIPPING - empty chunk")
+            print(f"  SKIPPING - empty chunk")
             continue
-
+        
         chunk_bytes = chunk.to_bytes()
-
+        
         has_content = bool(
             chunk_bytes
             and chunk_bytes.strip()
             and chunk_bytes.strip() != b"data: [DONE]"
         )
-
+        
         print(f"  has_content: {has_content}")
-
+        
         if has_content:
             print(f"  YIELDING: {chunk_bytes[:100]}...")
             yield chunk_bytes
         else:
-            print("  NOT YIELDING - no content")
+            print(f"  NOT YIELDING - no content")
 
 
 async def main():
     # Create two chunks: newline and dash
     delta_newline = StreamingChatCompletionChoiceDelta(role="assistant", content="\n")
-    choice_newline = StreamingChatCompletionChoice(
-        index=0, delta=delta_newline, finish_reason=None
-    )
+    choice_newline = StreamingChatCompletionChoice(index=0, delta=delta_newline, finish_reason=None)
     chunk_newline = CanonicalStreamChunk(
         id="gen-123",
         object="chat.completion.chunk",
@@ -165,9 +161,7 @@ async def main():
     )
 
     delta_dash = StreamingChatCompletionChoiceDelta(role="assistant", content="-")
-    choice_dash = StreamingChatCompletionChoice(
-        index=0, delta=delta_dash, finish_reason=None
-    )
+    choice_dash = StreamingChatCompletionChoice(index=0, delta=delta_dash, finish_reason=None)
     chunk_dash = CanonicalStreamChunk(
         id="gen-123",
         object="chat.completion.chunk",
@@ -177,32 +171,31 @@ async def main():
     )
 
     chunks = [chunk_newline, chunk_dash]
-
+    
     print("=" * 60)
     print("Simulating full pipeline")
     print("=" * 60)
-
+    
     # Run through the pipeline
     sse_bytes_stream = simulate_stream_as_sse_bytes(chunks)
-    processed_stream = simulate_to_processed_with_capture(
-        sse_bytes_stream, "test-session"
-    )
+    processed_stream = simulate_to_processed_with_capture(sse_bytes_stream, "test-session")
     streaming_content_stream = simulate_convert_to_streaming_content(processed_stream)
     output_stream = simulate_assemble_stream(streaming_content_stream)
-
+    
     print("\n=== Output bytes (P->C) ===")
     outputs = []
     async for output in output_stream:
         outputs.append(output)
         print(f"Output: {output[:100]}...")
-
-    print("\n=== Summary ===")
+    
+    print(f"\n=== Summary ===")
     print(f"Input chunks: {len(chunks)}")
     print(f"Output chunks: {len(outputs)}")
-
+    
     if len(outputs) != len(chunks):
         print("ERROR: Chunk count mismatch!")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

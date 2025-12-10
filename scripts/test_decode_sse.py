@@ -42,11 +42,12 @@ decoded2, meta2, done2 = decode_sse_payload(sse_data_dash)
 print("Newline chunk:")
 print(f"  decoded: {decoded1}")
 print(
-    f"  delta.content: {decoded1.get('choices', [{}])[0].get('delta', {}).get('content')!r}"
+    f"  delta.content: {repr(decoded1.get('choices', [{}])[0].get('delta', {}).get('content'))}"
 )
 
 print("\nDash chunk:")
 print(f"  decoded: {decoded2}")
 print(
-    f"  delta.content: {decoded2.get('choices', [{}])[0].get('delta', {}).get('content')!r}"
+    f"  delta.content: {repr(decoded2.get('choices', [{}])[0].get('delta', {}).get('content'))}"
 )
+

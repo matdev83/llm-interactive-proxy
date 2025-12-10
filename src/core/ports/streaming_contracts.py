@@ -725,26 +725,11 @@ class StreamingContent:
                     raise UsageChunkLeakError(chunk_id=working_content.get("id"))
                 delta["content"] = json.dumps(working_content)
             elif isinstance(working_content, str):
-                # Check for empty string and fallback to metadata if available
-                if working_content:
-                    delta["content"] = working_content
-                else:
-                    # Fallback: check metadata for content (preserved from original payload)
-                    meta_content = self.metadata.get("content")
-                    if isinstance(meta_content, str) and meta_content:
-                        delta["content"] = meta_content
-                    else:
-                        delta["content"] = ""
+                delta["content"] = working_content
             else:
                 delta["content"] = str(working_content)
         else:
-            # Fallback: check metadata for content (preserved from original payload)
-            # This handles cases where content was lost during pipeline processing
-            meta_content = self.metadata.get("content")
-            if isinstance(meta_content, str) and meta_content:
-                delta["content"] = meta_content
-            else:
-                delta["content"] = ""
+            delta["content"] = ""
 
         # Build response data
         response_data: dict[str, Any] = {"choices": [{"delta": delta}]}

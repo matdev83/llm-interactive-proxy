@@ -26,10 +26,7 @@ async def main():
         response = await client.chat.completions.create(
             model="gemini-oauth-antigravity:google/gemini-3-pro-high",
             messages=[
-                {
-                    "role": "user",
-                    "content": "Say 'Hello from Antigravity!' and nothing else.",
-                }
+                {"role": "user", "content": "Say 'Hello from Antigravity!' and nothing else."}
             ],
             stream=True,
         )
@@ -54,3 +51,4 @@ async def main():
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+

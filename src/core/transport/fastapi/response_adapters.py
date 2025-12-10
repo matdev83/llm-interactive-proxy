@@ -1132,22 +1132,6 @@ def to_fastapi_streaming_response(
                     if key not in merged and key in payload:
                         merged[key] = payload[key]
 
-                # CRITICAL: Preserve delta.content and delta.role in metadata
-                # This ensures content is available for fallback serialization
-                # in StreamingContent.to_bytes() when the primary path fails
-                choices = payload.get("choices")
-                if isinstance(choices, list) and choices:
-                    first_choice = choices[0]
-                    if isinstance(first_choice, dict):
-                        delta = first_choice.get("delta") or first_choice.get("message")
-                        if isinstance(delta, dict):
-                            # Preserve content if not already in metadata
-                            if "content" not in merged and delta.get("content"):
-                                merged["content"] = delta["content"]
-                            # Preserve role if not already in metadata
-                            if "role" not in merged and delta.get("role"):
-                                merged["role"] = delta["role"]
-
             return merged
 
         def _decode_sse_payload(

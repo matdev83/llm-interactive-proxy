@@ -1,3 +1,4 @@
+
 import asyncio
 
 import httpx
@@ -11,7 +12,7 @@ async def check_redirects():
         print(f"Status: {resp.status_code}")
         if resp.is_redirect:
             print(f"Redirect location: {resp.headers.get('location')}")
-
+        
         # Also check POST endpoint
         url_post = "https://opencode.ai/zen/v1/chat/completions"
         print(f"Checking POST URL: {url_post}")
@@ -19,7 +20,6 @@ async def check_redirects():
         print(f"Status: {resp_post.status_code}")
         if resp_post.is_redirect:
             print(f"Redirect location: {resp_post.headers.get('location')}")
-
 
 if __name__ == "__main__":
     asyncio.run(check_redirects())

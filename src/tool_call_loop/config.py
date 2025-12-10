@@ -7,17 +7,21 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import Any
 
-# Import ToolLoopMode from the standalone module to avoid circular imports
-from src.tool_call_loop.mode import ToolLoopMode
+from src.core.interfaces.model_bases import InternalDTO
 
-# Re-export for backwards compatibility
-__all__ = ["ToolLoopMode", "ToolCallLoopConfig"]
+
+class ToolLoopMode(str, Enum):
+    """Mode of operation for tool call loop detection."""
+
+    BREAK = "break"
+    CHANCE_THEN_BREAK = "chance_then_break"
 
 
 @dataclass
-class ToolCallLoopConfig:
+class ToolCallLoopConfig(InternalDTO):
     """Configuration for tool call loop detection."""
 
     # Whether tool call loop detection is enabled

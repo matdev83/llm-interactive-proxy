@@ -22,14 +22,6 @@
   - **Stream Cleanup**: Added `GeneratorExit` handling in `continue_from_prefetch` to ensure upstream generators are closed properly
   - **Empty Message Handling**: Allowed empty assistant messages in translation validation (needed for error scenarios) and updated message conversion to skip empty text parts
 
-### Added: SQL-based Usage Tracking
-
-- **Persistent Usage Storage**: Added SQL-based storage backend for usage tracking
-  - **SqlUsageStore**: Implementation using SQLAlchemy for robust data persistence
-  - **Abstractions**: Introduced `IUsageStore` interface to decouple recording from storage
-  - **Documentation**: Added database schema and usage tracking guides
-  - **Cleanup**: Removed obsolete reproduction scripts and updated tests
-
 ## [2025-12-09]
 
 ### Fixed: Anthropic Tool Validation and DI Improvements

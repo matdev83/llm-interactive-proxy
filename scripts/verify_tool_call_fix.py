@@ -66,6 +66,7 @@ SEPARATOR_MARKERS = [
 ]
 
 
+
 @dataclass
 class ToolCallVerificationReport:
     """Report summarizing the tool call verification results."""
@@ -118,7 +119,7 @@ class ToolCallVerificationReport:
                 lines.append(f"  - Entry {failure.entry_index}: {failure.message}")
                 if failure.details.get("corrupted_content"):
                     preview = failure.details["corrupted_content"][:100]
-                    lines.append(f'    Content: "{preview}..."')
+                    lines.append(f"    Content: \"{preview}...\"")
         elif marker_passes:
             lines.append(
                 f"[PASS] Marker preservation: {len(marker_passes)} tool calls verified"
@@ -130,9 +131,7 @@ class ToolCallVerificationReport:
                         f"Found markers: {result.details['markers_found']}"
                     )
         else:
-            lines.append(
-                "[INFO] Marker preservation: No tool calls with diff markers found"
-            )
+            lines.append("[INFO] Marker preservation: No tool calls with diff markers found")
 
         lines.append("")
 
@@ -170,6 +169,7 @@ class ToolCallVerificationReport:
         lines.append("=" * 70)
 
         return "\n".join(lines)
+
 
 
 class ToolCallVerifier:
@@ -231,7 +231,10 @@ class ToolCallVerifier:
         # The fix is verified if:
         # 1. All markers are preserved (if any tool calls with markers exist)
         # 2. No double-escaping occurs
-        overall_passed = len(marker_failures) == 0 and len(escape_failures) == 0
+        overall_passed = (
+            len(marker_failures) == 0
+            and len(escape_failures) == 0
+        )
 
         # Generate summary message
         if overall_passed:
@@ -372,6 +375,8 @@ class ToolCallVerifier:
 
         return found
 
+
+
     def _verify_marker_preservation(
         self, entries: list[CaptureEntry]
     ) -> list[VerificationResult]:
@@ -397,10 +402,7 @@ class ToolCallVerifier:
                 # (based on function name or content patterns)
                 function_name = tool_call.get("function", {}).get("name", "")
                 is_file_edit = function_name in (
-                    "patch_file",
-                    "edit_file",
-                    "apply_diff",
-                    "str_replace_editor",
+                    "patch_file", "edit_file", "apply_diff", "str_replace_editor"
                 )
 
                 if self._contains_diff_markers(arguments):
@@ -474,10 +476,12 @@ class ToolCallVerifier:
         # Pattern 5: Markers truncated or partial
         # Check if we have partial markers without complete ones
         has_partial_search = any(
-            m[:4] in content and m not in content for m in SEARCH_MARKERS
+            m[:4] in content and m not in content
+            for m in SEARCH_MARKERS
         )
         has_partial_replace = any(
-            m[:4] in content and m not in content for m in REPLACE_MARKERS
+            m[:4] in content and m not in content
+            for m in REPLACE_MARKERS
         )
         if has_partial_search or has_partial_replace:
             return "Markers appear to be truncated"
@@ -576,6 +580,7 @@ class ToolCallVerifier:
             issues.append("Possible nested JSON escaping (may need review)")
 
         return issues
+
 
 
 def create_synthetic_tool_call_capture() -> dict[str, Any]:

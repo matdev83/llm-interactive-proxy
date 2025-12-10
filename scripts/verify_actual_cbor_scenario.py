@@ -26,18 +26,16 @@ from src.core.services.project_directory_resolution_service import (
 
 async def test_actual_cbor_scenario():
     """Test with the actual scenario from CBOR capture."""
-
+    
     print("=" * 80)
     print("ACTUAL CBOR SCENARIO VERIFICATION")
     print("=" * 80)
     print()
     print("Scenario: Agent working on proxy project itself")
     print(r"Expected: C:\Users\Mateusz\source\repos\llm-interactive-proxy")
-    print(
-        r"NOT:      C:\Users\Mateusz\source\repos\llm-interactive-proxy\.venv\Scripts"
-    )
+    print(r"NOT:      C:\Users\Mateusz\source\repos\llm-interactive-proxy\.venv\Scripts")
     print()
-
+    
     # Simulated prompt that would contain references to files in the proxy project
     # including .venv paths
     prompt = r"""
@@ -50,7 +48,7 @@ async def test_actual_cbor_scenario():
     
     Please help me analyze the project directory resolution logic.
     """
-
+    
     # Setup
     config = AppConfig(
         session=SessionConfig(
@@ -61,32 +59,33 @@ async def test_actual_cbor_scenario():
     mock_backend = AsyncMock()
     mock_session = AsyncMock()
     session = Session(session_id="actual-cbor-test", state=SessionState())
-
+    
     service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
-
+    
     # Run detection
     request = ChatRequest(
-        model="test-model", messages=[ChatMessage(role="user", content=prompt)]
+        model="test-model",
+        messages=[ChatMessage(role="user", content=prompt)]
     )
-
+    
     print("🔍 Running project directory detection...")
     await service.maybe_resolve_project_directory(session, request)
-
+    
     detected = session.state.project_dir
-
+    
     print()
     print("=" * 80)
     print("RESULTS")
     print("=" * 80)
     print()
-
+    
     expected = "C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy"
     wrong = "C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\.venv\\Scripts"
-
+    
     print(f"Expected: {expected}")
     print(f"Detected: {detected}")
     print()
-
+    
     # Verification
     if detected == expected:
         print("✅ SUCCESS! Correctly detected project root!")
@@ -111,9 +110,9 @@ async def main():
     print()
     print("🚀 Testing fix with ACTUAL CBOR scenario...")
     print()
-
+    
     result = await test_actual_cbor_scenario()
-
+    
     print()
     print("=" * 80)
     if result:

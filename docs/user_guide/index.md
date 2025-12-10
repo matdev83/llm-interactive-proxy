@@ -61,7 +61,6 @@ Advanced features that enhance the proxy's capabilities:
 - **[Session Management](features/session-management.md)** - Intelligent session handling and state management
 - **[Context Window Enforcement](features/context-window-enforcement.md)** - Enforce context window limits and prevent overruns
 - **[Windows Double-Ampersand Fixer](features/windows-double-ampersand-fixer.md)** - Automatically fix `&&` command separators for Windows clients
-- **[Unified Steering Telemetry Migration](features/unified-steering-telemetry-migration.md)** - Migration guide for the unified steering framework telemetry changes
 
 ### Monitoring and Analytics
 

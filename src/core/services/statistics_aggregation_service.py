@@ -16,7 +16,7 @@ from src.core.domain.statistics_filter import StatisticsFilter
 from src.core.domain.timing_stats import TimingStats
 from src.core.domain.usage_record import UsageRecord
 from src.core.interfaces.statistics_service_interface import IStatisticsService
-from src.core.interfaces.usage_store_interface import IUsageStore
+from src.core.services.in_memory_usage_store import InMemoryUsageStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,11 @@ class StatisticsAggregationService(IStatisticsService):
         _store: In-memory usage store containing usage records
     """
 
-    def __init__(self, store: IUsageStore):
+    def __init__(self, store: InMemoryUsageStore):
         """Initialize the statistics aggregation service.
 
         Args:
-            store: Usage store to query for records
+            store: In-memory usage store to query for records
         """
         self._store = store
 

@@ -11,7 +11,7 @@ import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -306,20 +306,12 @@ class BackendRequestManager(IBackendRequestManager):
                 # Only warn once per session/hash pair if needed, but debug is safer for high throughput
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Duplicate request detected: hash=%s session=%s model=%s",
+                        "Duplicate request swallowed: hash=%s session=%s model=%s",
                         content_hash[:8],
                         session_id,
                         backend_request.model,
                     )
-                # We do NOT raise DuplicateRequestError anymore to prevent "falsy 429"
-                # when clients retry requests that timed out or were dropped.
-                # The backend should handle idempotency or rate limiting if needed.
-                logger.warning(
-                    "Duplicate request detected but bypassed (falsy 429 prevention): hash=%s session=%s",
-                    content_hash[:8],
-                    session_id,
-                )
-                # raise DuplicateRequestError(content_hash, session_id)
+                raise DuplicateRequestError(content_hash, session_id)
 
         return await self._process_backend_request_with_retry(
             backend_request, session_id, context

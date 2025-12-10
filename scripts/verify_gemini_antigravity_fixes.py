@@ -165,11 +165,7 @@ async def main():
         chunk_count = 0
 
         async for bytes_chunk in fastapi_response.body_iterator:
-            chunk_str = (
-                bytes_chunk.decode("utf-8")
-                if isinstance(bytes_chunk, bytes)
-                else str(bytes_chunk)
-            )
+            chunk_str = bytes_chunk.decode("utf-8") if isinstance(bytes_chunk, bytes) else str(bytes_chunk)
             # Parse SSE
             lines = chunk_str.strip().split("\n")
             for line in lines:

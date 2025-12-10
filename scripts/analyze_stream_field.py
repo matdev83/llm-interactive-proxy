@@ -1,12 +1,10 @@
 """
 Analyze CBOR wire capture to examine PROXY_TO_BACKEND request payloads in detail.
 """
-
+import cbor2
 import json
 import zlib
 from pathlib import Path
-
-import cbor2
 
 # Direction constants
 DIRECTION_PROXY_TO_BACKEND = 2
@@ -32,29 +30,27 @@ def main() -> None:
                 entries.append(entry)
             except (EOFError, cbor2.CBORDecodeEOF):
                 break
-
+    
     print(f"Session ID: {header.get('session_id', 'N/A')}")
     print(f"Total entries: {len(entries)}")
     print()
-
+    
     # Look at all PROXY_TO_BACKEND entries
-    proxy_to_backend = [
-        e for e in entries if e.get("dir") == DIRECTION_PROXY_TO_BACKEND
-    ]
+    proxy_to_backend = [e for e in entries if e.get("dir") == DIRECTION_PROXY_TO_BACKEND]
     print(f"Found {len(proxy_to_backend)} PROXY_TO_BACKEND entries")
     print("=" * 100)
-
+    
     for i, entry in enumerate(proxy_to_backend):
         seq = entry.get("seq", i)
         meta = entry.get("meta", {})
         data = entry.get("data", b"")
         backend = meta.get("be", "N/A")
         session_id = meta.get("sid", "N/A")[:16] if meta.get("sid") else "N/A"
-
+        
         print(f"\n[{seq}] Backend: {backend} | Session: {session_id}")
         print(f"Data size: {len(data)} bytes")
-
-        if isinstance(data, bytes | bytearray):
+        
+        if isinstance(data, (bytes, bytearray)):
             try:
                 text = data.decode("utf-8", errors="ignore")
             except Exception:
@@ -65,7 +61,7 @@ def main() -> None:
         else:
             print(f"  (Unexpected data type: {type(data)})")
             continue
-
+        
         # Try to parse as JSON
         text = text.strip()
         if text.startswith("{"):
@@ -75,7 +71,7 @@ def main() -> None:
                 print(f"  model: {obj.get('model', 'N/A')}")
                 print(f"  stream: {obj.get('stream', '(NOT PRESENT)')}")
                 print(f"  messages count: {len(obj.get('messages', []))}")
-
+                
                 # Show first 200 chars of the text
                 preview = text[:300]
                 if len(text) > 300:
@@ -86,7 +82,7 @@ def main() -> None:
                 print(f"  First 200 chars: {text[:200]}")
         else:
             print(f"  Not JSON. First 200 chars: {text[:200]}")
-
+        
         print()
 
 

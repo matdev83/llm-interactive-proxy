@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.common.exceptions import DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
@@ -92,13 +93,13 @@ class TestBackendRequestManagerDeduplication:
         mock_backend_processor.process_backend_request.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_process_backend_request_allows_duplicate_with_warning(
+    async def test_process_backend_request_raises_on_duplicate(
         self,
         backend_request_manager: BackendRequestManager,
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
     ) -> None:
-        """Verify that duplicate requests are allowed to proceed (logged but not blocked)."""
+        """Verify that DuplicateRequestError is raised when duplicate detected."""
         # Setup
         request = ChatRequest(
             model="gpt-4", messages=[ChatMessage(role="user", content="test")]
@@ -111,15 +112,12 @@ class TestBackendRequestManagerDeduplication:
         # Mock dedup service to return "IS a duplicate"
         mock_dedup_service.check_and_register.return_value = (True, "hash123")
 
-        # Mock backend processing to ensure it IS called
-        mock_backend_processor.process_backend_request = AsyncMock(
-            return_value=MagicMock()
-        )
+        # Execute & Verify
+        with pytest.raises(DuplicateRequestError) as exc_info:
+            await backend_request_manager.process_backend_request(
+                request, session_id, context
+            )
 
-        # Execute
-        await backend_request_manager.process_backend_request(
-            request, session_id, context
-        )
-
-        # Verify backend processor WAS called (behavior change: no longer raises)
-        mock_backend_processor.process_backend_request.assert_awaited_once()
+        assert exc_info.value.status_code == 429
+        # Verify backend processor was NOT called
+        mock_backend_processor.process_backend_request.assert_not_called()

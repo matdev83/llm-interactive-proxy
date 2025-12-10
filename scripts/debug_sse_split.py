@@ -1,11 +1,11 @@
 """Debug script to verify SSE message splitting."""
 
 # Simulate two SSE messages in a single HTTP chunk
-http_chunk = """data: {"choices": [{"delta": {"content": "\\n"}}]}
+http_chunk = '''data: {"choices": [{"delta": {"content": "\\n"}}]}
 
 data: {"choices": [{"delta": {"content": "-"}}]}
 
-"""
+'''
 
 print(f"Input HTTP chunk (repr): {http_chunk!r}")
 print(f"Input HTTP chunk length: {len(http_chunk)}")
@@ -29,3 +29,4 @@ while True:
 print(f"\nTotal events: {len(events)}")
 for i, event in enumerate(events):
     print(f"Event {i}: {event!r}")
+
