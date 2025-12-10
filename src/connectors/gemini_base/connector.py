@@ -2625,16 +2625,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     self._set_cooldown(effective_model)
 
                             # Raise BackendError so BackendService failure handling strategy
-                            # can catch it and decide on retry/failover
+                            # can catch it and decide on retry/failover.
+                            # Include retry_after in details so the strategy can extract it.
+                            error_details_for_raise: dict[str, Any] = (
+                                dict(error_detail)
+                                if isinstance(error_detail, dict)
+                                else {"raw": error_detail}
+                            )
+                            if retry_delay is not None:
+                                error_details_for_raise["retry_after"] = retry_delay
                             raise BackendError(
                                 message=error_message,
                                 code=error_type,
                                 status_code=429,
-                                details=(
-                                    error_detail
-                                    if isinstance(error_detail, dict)
-                                    else {"raw": error_detail}
-                                ),
+                                details=error_details_for_raise,
                                 backend_name=self.backend_type,
                             )
 
@@ -3744,39 +3748,107 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error details.
 
-        Handles both 'retryDelay' (Google RPC RetryInfo) and 'quotaResetDelay'
-        (Google RPC ErrorInfo metadata).
+        Handles:
+        1. 'retryDelay' (Google RPC RetryInfo)
+        2. 'quotaResetDelay' (Google RPC ErrorInfo metadata)
+        3. Natural language in error message (e.g., "quota will reset after 46s")
         """
         if not error.details:
-            return None
+            # Try parsing from error message as last resort
+            return self._parse_retry_from_message(str(error.message or ""))
 
         # Get the inner error object if present (from _extract_generated_text_from_response)
         error_data = error.details.get("error", error.details)
 
         # Check details list
         details_list = error_data.get("details")
-        if not isinstance(details_list, list):
+        if isinstance(details_list, list):
+            for detail in details_list:
+                if not isinstance(detail, dict):
+                    continue
+
+                type_url = detail.get("@type", "")
+
+                # Case 1: RetryInfo with retryDelay
+                if "RetryInfo" in type_url:
+                    delay_str = detail.get("retryDelay")
+                    if isinstance(delay_str, str):
+                        parsed = self._parse_duration_string(delay_str)
+                        if parsed is not None:
+                            return parsed
+
+                # Case 2: ErrorInfo with quotaResetDelay in metadata
+                if "ErrorInfo" in type_url:
+                    metadata = detail.get("metadata")
+                    if isinstance(metadata, dict):
+                        reset_delay = metadata.get("quotaResetDelay")
+                        if isinstance(reset_delay, str):
+                            parsed = self._parse_duration_string(reset_delay)
+                            if parsed is not None:
+                                return parsed
+
+        # Case 3: Try parsing from the error message text
+        # For messages like "Your quota will reset after 46s."
+        message_text = ""
+        if isinstance(error_data, dict):
+            message_text = error_data.get("message", "")
+        if not message_text and error.message:
+            message_text = str(error.message)
+        if message_text:
+            parsed = self._parse_retry_from_message(message_text)
+            if parsed is not None:
+                return parsed
+
+        return None
+
+    def _parse_retry_from_message(self, message: str) -> float | None:
+        """Parse retry delay from natural language message.
+
+        Patterns handled:
+        - "quota will reset after 46s"
+        - "try again in 30 seconds"
+        - "wait 1m30s"
+        """
+        import re
+
+        if not message:
             return None
 
-        for detail in details_list:
-            if not isinstance(detail, dict):
-                continue
+        # Pattern 1: "after Xs" or "after X seconds" or "in Xs" or "in X seconds"
+        # Matches: "reset after 46s", "try again in 30 seconds"
+        pattern1 = re.search(
+            r"(?:after|in)\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)\b",
+            message,
+            re.IGNORECASE,
+        )
+        if pattern1:
+            try:
+                return float(pattern1.group(1))
+            except ValueError:
+                pass
 
-            type_url = detail.get("@type", "")
+        # Pattern 2: "wait X seconds" or "wait Xs"
+        pattern2 = re.search(
+            r"wait\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)?\b",
+            message,
+            re.IGNORECASE,
+        )
+        if pattern2:
+            try:
+                return float(pattern2.group(1))
+            except ValueError:
+                pass
 
-            # Case 1: RetryInfo with retryDelay
-            if "RetryInfo" in type_url:
-                delay_str = detail.get("retryDelay")
-                if isinstance(delay_str, str):
-                    return self._parse_duration_string(delay_str)
-
-            # Case 2: ErrorInfo with quotaResetDelay in metadata
-            if "ErrorInfo" in type_url:
-                metadata = detail.get("metadata")
-                if isinstance(metadata, dict):
-                    reset_delay = metadata.get("quotaResetDelay")
-                    if isinstance(reset_delay, str):
-                        return self._parse_duration_string(reset_delay)
+        # Pattern 3: Duration format like "1m30s" or "2m" in the message
+        pattern3 = re.search(
+            r"\b(\d+m(?:\d+s)?|\d+h(?:\d+m)?(?:\d+s)?)\b",
+            message,
+            re.IGNORECASE,
+        )
+        if pattern3:
+            parsed = self._parse_duration_string(pattern3.group(1))
+            if parsed is not None:
+                return parsed
 
         return None
 
@@ -4006,24 +4078,42 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     # Set cooldown with the exact duration provided by the API
                     self._set_cooldown(model, duration=retry_delay)
 
-                    # For very short delays (< 30s which is max_silent_wait in failure handling),
-                    # let BackendService handle via transparent wait-and-retry instead of
-                    # doing internal graceful degradation retries that would add latency
-                    if retry_delay <= 30.0:
+                    # For delays within max_silent_wait, let BackendService handle via
+                    # transparent wait-and-retry with keepalive SSE comments instead of
+                    # doing internal graceful degradation retries
+                    max_silent_wait = getattr(
+                        getattr(self.config, "failure_handling", None),
+                        "max_silent_wait",
+                        60.0,  # Fallback to default if config not available
+                    )
+                    if retry_delay <= max_silent_wait:
                         logger.info(
-                            "Model %s returned 429 with short retry delay (%.2fs); "
-                            "letting BackendService handle transparent retry.",
+                            "Model %s returned 429 with short retry delay (%.2fs <= %.0fs max_silent_wait); "
+                            "letting BackendService handle transparent retry with keepalives.",
                             model,
                             retry_delay,
+                            max_silent_wait,
                         )
-                        # Re-raise the error for BackendService failure handling strategy
-                        raise error
+                        # Create a new BackendError with retry_after in details
+                        # so BackendService failure handling strategy can extract it
+                        error_details: dict[str, Any] = (
+                            dict(error.details) if error.details else {}
+                        )
+                        error_details["retry_after"] = retry_delay
+                        raise BackendError(
+                            message=error.message or "Rate limit exceeded",
+                            code=error.code or "rate_limit_exceeded",
+                            status_code=429,
+                            details=error_details,
+                            backend_name=self.backend_type,
+                        )
                     else:
                         logger.warning(
-                            "Model %s returned 429 with long retry delay (%.2fs); "
+                            "Model %s returned 429 with long retry delay (%.2fs > %.0fs max_silent_wait); "
                             "skipping retries and checking fallback options.",
                             model,
                             retry_delay,
+                            max_silent_wait,
                         )
                         # For long delays, skip internal retries but continue to fallback models
                         continue

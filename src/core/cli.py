@@ -1063,7 +1063,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         dest="max_silent_wait",
         type=float,
         metavar="SECONDS",
-        help="Max seconds to wait before failover (default: 30.0). "
+        help="Max seconds to wait before failover (default: 60.0). "
         "If retry-after <= this, proxy waits silently. If > this, it fails over.",
     )
     failure_group.add_argument(

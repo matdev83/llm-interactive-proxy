@@ -485,44 +485,71 @@ class StreamingContent:
                     is_virtual = self.metadata.get("_virtual_tool_calls", False)
 
                     # Make a copy of content to potentially modify
+                    # CRITICAL: We must avoid modifying self.content deeply/in-place,
+                    # as it might be used elsewhere (e.g. history storage).
+                    # Shallow copy of the top object is not enough if we modify nested lists/dicts.
                     content_copy = dict(self.content)
 
                     # Sanitize any existing tool_calls in delta/message (remove extra_content)
                     # This is critical for Gemini responses where extra_content contains
-                    # a thought_signature that CLI agents like Factory Droid cannot parse
-                    for choice_item in content_copy.get("choices", []):
-                        if not isinstance(choice_item, dict):
-                            continue
-                        for container_key in ("delta", "message"):
-                            container = choice_item.get(container_key)
-                            if isinstance(container, dict):
-                                tc_list = container.get("tool_calls")
-                                if isinstance(tc_list, list) and tc_list:
-                                    container["tool_calls"] = [
-                                        {
-                                            k: v
-                                            for k, v in tc.items()
-                                            if not k.startswith("_")
-                                            and k != "extra_content"
-                                        }
-                                        for tc in tc_list
-                                        if isinstance(tc, dict)
-                                    ]
+                    # a thought_signature that CLI agents like Factory Droid cannot parse.
+                    # We must structurally copy the hierarchy we modify.
+                    existing_choices = content_copy.get("choices", [])
+                    if isinstance(existing_choices, list) and existing_choices:
+                        new_choices = []
+                        choices_modified = False
 
-                    # If virtual, STRIP tool_calls from the delta (they're already there)
+                        for choice_item in existing_choices:
+                            if not isinstance(choice_item, dict):
+                                new_choices.append(choice_item)
+                                continue
+
+                            # Copy the choice dict so we can safely modify it
+                            # (we only modify if we find tool_calls)
+                            new_choice = dict(choice_item)
+                            choice_modified = False
+
+                            for container_key in ("delta", "message"):
+                                container = new_choice.get(container_key)
+                                if isinstance(container, dict):
+                                    tc_list = container.get("tool_calls")
+                                    # If virtual, we want to remove tool_calls entirely
+                                    if is_virtual:
+                                        if "tool_calls" in container:
+                                            # Copy container to modify
+                                            new_container = dict(container)
+                                            del new_container["tool_calls"]
+                                            new_choice[container_key] = new_container
+                                            choice_modified = True
+                                    # If not virtual, we want to sanitize tool_calls
+                                    elif isinstance(tc_list, list) and tc_list:
+                                        # Sanitize internal markers
+                                        sanitized_calls = [
+                                            {
+                                                k: v
+                                                for k, v in tc.items()
+                                                if not k.startswith("_")
+                                                and k != "extra_content"
+                                            }
+                                            for tc in tc_list
+                                            if isinstance(tc, dict)
+                                        ]
+                                        # Copy container to modify
+                                        new_container = dict(container)
+                                        new_container["tool_calls"] = sanitized_calls
+                                        new_choice[container_key] = new_container
+                                        choice_modified = True
+
+                            if choice_modified:
+                                choices_modified = True
+                            new_choices.append(new_choice)
+
+                        if choices_modified:
+                            content_copy["choices"] = new_choices
+
+                    # If is_virtual was handled above within the loop (by removing tool_calls),
+                    # content_copy is already ready.
                     if is_virtual:
-                        choices = content_copy.get("choices", [])
-                        if choices and isinstance(choices[0], dict):
-                            inner_delta = choices[0].get("delta", {})
-                            if (
-                                isinstance(inner_delta, dict)
-                                and "tool_calls" in inner_delta
-                            ):
-                                inner_delta = dict(inner_delta)
-                                del inner_delta["tool_calls"]
-                                choices[0] = dict(choices[0])
-                                choices[0]["delta"] = inner_delta
-                                content_copy["choices"] = choices
                         return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
 
                     # Non-virtual: Inject tool_calls from metadata into the delta if present

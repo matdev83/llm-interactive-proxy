@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from src.core.cli import build_cli_parser
 
-SNAPSHOT_PATH = Path(__file__).resolve().parents[2] / "data" / "cli_flag_snapshot.txt"
+SNAPSHOT_PATH = Path(__file__).resolve().parents[2] / "var" / "state" / "cli_flag_snapshot.txt"
 
 
 def _collect_cli_flags(parser: argparse.ArgumentParser) -> list[str]:
@@ -31,7 +31,7 @@ def test_cli_flag_snapshot() -> None:
     if not snapshot_path.exists():
         snapshot_path.write_text("\n".join(current_flags) + "\n", encoding="utf-8")
         pytest.fail(
-            "CLI flag snapshot created at data/cli_flag_snapshot.txt. "
+            "CLI flag snapshot created at var/state/cli_flag_snapshot.txt. "
             "Review the file and commit it to the repository."
         )
 

@@ -41,7 +41,7 @@ class FailureHandlingConfig(DomainModel):
         description="Enable failure handling strategy for automatic retry/failover",
     )
     max_silent_wait: float = Field(
-        default=30.0,
+        default=60.0,
         ge=0.0,
         le=300.0,
         description="Max seconds to wait before attempting failover (0-300)",

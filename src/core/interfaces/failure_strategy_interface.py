@@ -59,7 +59,7 @@ class FailureHandlingConfig:
         min_retry_wait: Minimum wait time even for sub-second retry-after.
     """
 
-    max_silent_wait: float = 30.0
+    max_silent_wait: float = 60.0
     total_timeout_budget: float = 90.0
     keepalive_interval: float = 8.0
     max_failover_hops: int = 5

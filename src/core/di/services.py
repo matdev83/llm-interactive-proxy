@@ -2499,7 +2499,7 @@ def register_core_services(
         else:
             # Fallback to defaults if config not available
             config = FailureHandlingConfig(
-                max_silent_wait=30.0,
+                max_silent_wait=60.0,
                 total_timeout_budget=90.0,
                 keepalive_interval=8.0,
                 max_failover_hops=5,
