@@ -5,10 +5,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.common.exceptions import DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor

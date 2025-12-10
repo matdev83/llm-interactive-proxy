@@ -259,10 +259,13 @@ class SSEAssembler(IStreamAssembler):
                 await asyncio.sleep(0)
 
         except GeneratorExit:
-            # Client disconnected - this is expected, let cleanup run in finally
+            # Client disconnected - this is expected
+            # Mark done_emitted=True to prevent finally block from trying to yield to a closed generator
+            done_emitted = True
             raise
         finally:
             # Ensure [DONE] is always emitted, even if stream ends unexpectedly
+            # But NOT if the client disconnected (GeneratorExit)
             if not done_emitted:
                 yield SentinelManager.format_sse_done()
                 sentinel_stream_id = last_stream_id or generated_stream_id
