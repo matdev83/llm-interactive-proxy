@@ -339,6 +339,14 @@ def _inject_reasoning_metadata(
             normalized_content, metadata, None, streaming=streaming
         )
 
+    # For non-streaming responses with tool_calls in metadata but simple content,
+    # we need to build an OpenAI-style payload to include the tool_calls
+    tool_calls = metadata.get("tool_calls")
+    if not streaming and isinstance(tool_calls, list) and tool_calls:
+        return _build_streaming_payload(
+            normalized_content, metadata, None, streaming=False
+        )
+
     return normalized_content
 
 
@@ -1011,12 +1019,19 @@ def to_fastapi_streaming_response(
         async def _ensure_async_iterator(
             source: AsyncIterator[Any] | Iterable[Any],
         ) -> AsyncIterator[Any]:
-            if hasattr(source, "__aiter__"):
-                async for item in source:  # type: ignore[async-for]
-                    yield item
-            else:
-                for item in source:  # type: ignore[union-attr]
-                    yield item
+            try:
+                if hasattr(source, "__aiter__"):
+                    async for item in source:  # type: ignore[async-for]
+                        yield item
+                else:
+                    for item in source:  # type: ignore[union-attr]
+                        yield item
+            except GeneratorExit:
+                # Close the source iterator if it supports aclose
+                if hasattr(source, "aclose"):
+                    with contextlib.suppress(Exception):
+                        await source.aclose()  # type: ignore[union-attr]
+                raise
 
         def _extract_payload_and_metadata(
             chunk: Any,
@@ -1624,9 +1639,16 @@ def to_fastapi_streaming_response(
                 stream=sse_bytes_iter,
             )
 
-        async for sse_chunk in sse_bytes_iter:
-            yield sse_chunk
-            await asyncio.sleep(0)
+        try:
+            async for sse_chunk in sse_bytes_iter:
+                yield sse_chunk
+                await asyncio.sleep(0)
+        except GeneratorExit:
+            # Client disconnected - clean up the SSE iterator
+            if hasattr(sse_bytes_iter, "aclose"):
+                with contextlib.suppress(Exception):
+                    await sse_bytes_iter.aclose()
+            raise
 
     content_iter = domain_response.content
     if content_iter is None:

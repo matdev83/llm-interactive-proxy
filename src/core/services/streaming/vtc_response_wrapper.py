@@ -107,22 +107,31 @@ class VTCResponseStreamWrapper:
         Yields:
             ProcessedResponse objects with VTC transformations applied.
         """
-        if not self._vtc_enabled:
-            # Pass through unchanged
+        import contextlib
+
+        try:
+            if not self._vtc_enabled:
+                # Pass through unchanged
+                async for chunk in stream:
+                    yield chunk
+                return
+
             async for chunk in stream:
-                yield chunk
-            return
+                processed = await self._process_chunk_async(chunk)
+                if processed is not None:
+                    yield processed
 
-        async for chunk in stream:
-            processed = await self._process_chunk_async(chunk)
-            if processed is not None:
-                yield processed
-
-        # Flush any remaining buffer at end of stream
-        if self._buffer:
-            final_chunk = await self._flush_buffer_async()
-            if final_chunk is not None:
-                yield final_chunk
+            # Flush any remaining buffer at end of stream
+            if self._buffer:
+                final_chunk = await self._flush_buffer_async()
+                if final_chunk is not None:
+                    yield final_chunk
+        except GeneratorExit:
+            # Consumer cancelled - clean up the source stream
+            if hasattr(stream, "aclose"):
+                with contextlib.suppress(Exception):
+                    await stream.aclose()
+            raise
 
     async def _process_chunk_async(
         self, chunk: ProcessedResponse
@@ -603,6 +612,8 @@ async def wrap_processed_response_stream_with_vtc(
             yield chunk
         ```
     """
+    import contextlib
+
     wrapper = VTCResponseStreamWrapper(
         vtc_enabled=vtc_enabled,
         config=config,
@@ -610,5 +621,12 @@ async def wrap_processed_response_stream_with_vtc(
         session_id=session_id,
         context=context,
     )
-    async for chunk in wrapper.wrap(stream):
-        yield chunk
+    try:
+        async for chunk in wrapper.wrap(stream):
+            yield chunk
+    except GeneratorExit:
+        # Consumer cancelled - close the wrapper's stream
+        if hasattr(stream, "aclose"):
+            with contextlib.suppress(Exception):
+                await stream.aclose()
+        raise
