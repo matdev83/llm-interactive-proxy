@@ -950,6 +950,7 @@ class BackendRequestManager(IBackendRequestManager):
         # to middleware (like ToolCallReactor) even during streaming.
         middleware_context = {
             "original_request": original_request,
+            "session_id": session_id,
         }
         if hasattr(context, "processing_context") and context.processing_context:
             # Add processing context values (like client_os)
@@ -957,6 +958,14 @@ class BackendRequestManager(IBackendRequestManager):
                 middleware_context.update(context.processing_context.values)
             elif isinstance(context.processing_context, dict):
                 middleware_context.update(context.processing_context)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Prepared middleware context for streaming session %s: keys=%s, client_os=%s",
+                session_id,
+                list(middleware_context.keys()),
+                middleware_context.get("client_os"),
+            )
 
         # Wrap the stream with response processor to ensure middleware (like ToolCallReactor) is applied
         middleware_processed_stream = (

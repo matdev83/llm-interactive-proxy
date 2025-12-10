@@ -1186,7 +1186,7 @@ class RequestProcessor(IRequestProcessor):
                 if text_parts:
                     content = "\n".join(text_parts)
 
-            if role == "user" and isinstance(content, str):
+            if role in ("user", "system") and isinstance(content, str):
                 # Look for "User system info (win32 10.0.19045)"
                 # The regex captures the content inside parentheses
                 match = re.search(r"User system info \((.*?)\)", content)
