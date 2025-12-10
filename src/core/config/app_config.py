@@ -1168,6 +1168,14 @@ class AppConfig(DomainModel, IConfig):
     disable_health_checks: bool = False
     enable_activity_tracking: bool = False  # Disabled by default for performance
 
+    # Request deduplication settings
+    # Window in seconds for duplicate detection. Set to 0 to disable.
+    # Priority: CLI > ENV (LLM_REQUEST_DEDUP_WINDOW) > config > default (3.0)
+    request_dedup_window: float = 3.0
+    # Maximum number of entries in the deduplication cache
+    # Priority: ENV (LLM_REQUEST_DEDUP_MAX_CACHE) > config > default (10000)
+    request_dedup_max_cache: int = 10000
+
     # Rate limit settings
     default_rate_limit: int = 60
     default_rate_window: int = 60
@@ -1385,6 +1393,20 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="enable_activity_tracking",
+                resolution=resolution,
+            ),
+            "request_dedup_window": _env_to_float(
+                "LLM_REQUEST_DEDUP_WINDOW",
+                3.0,
+                env,
+                path="request_dedup_window",
+                resolution=resolution,
+            ),
+            "request_dedup_max_cache": _env_to_int(
+                "LLM_REQUEST_DEDUP_MAX_CACHE",
+                10000,
+                env,
+                path="request_dedup_max_cache",
                 resolution=resolution,
             ),
             "host": _get_env_value(

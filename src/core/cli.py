@@ -568,6 +568,23 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable real-time connection activity tracking (RX/TX counters per session)",
     )
 
+    # Request deduplication options
+    parser.add_argument(
+        "--request-dedup-window",
+        dest="request_dedup_window",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Request deduplication window in seconds (0 to disable, default: 3.0, env: LLM_REQUEST_DEDUP_WINDOW)",
+    )
+    parser.add_argument(
+        "--disable-request-dedup",
+        dest="disable_request_dedup",
+        action="store_true",
+        default=None,
+        help="Disable request deduplication entirely",
+    )
+
     # Backend Debugging Overrides
     debugging_overrides_group = parser.add_argument_group(
         "Backend Debugging Overrides",
@@ -1214,6 +1231,19 @@ def apply_cli_args(
             True,
             "--enable-activity-tracking",
         )
+
+    # Request deduplication configuration
+    # Priority: CLI > ENV > config > default (3.0 seconds)
+    dedup_window = getattr(args, "request_dedup_window", None)
+    disable_dedup = getattr(args, "disable_request_dedup", None)
+    if disable_dedup:
+        cli_overrides["request_dedup_window"] = 0.0
+        os.environ["LLM_REQUEST_DEDUP_WINDOW"] = "0"
+        record_cli("request_dedup_window", 0.0, "--disable-request-dedup")
+    elif dedup_window is not None:
+        cli_overrides["request_dedup_window"] = dedup_window
+        os.environ["LLM_REQUEST_DEDUP_WINDOW"] = str(dedup_window)
+        record_cli("request_dedup_window", dedup_window, "--request-dedup-window")
 
     # Thinking budget override (for reasoning/thinking tokens)
     if args.thinking_budget is not None:

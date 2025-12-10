@@ -305,3 +305,33 @@ class RoutingError(LLMProxyError):
         **kwargs,
     ):
         super().__init__(message, details, status_code=403, **kwargs)
+
+
+class DuplicateRequestError(BackendError):
+    """Raised when a duplicate request is detected and swallowed.
+
+    This error is raised by the request deduplication service when it detects
+    that an identical request was sent within the configured dedup window.
+    """
+
+    def __init__(
+        self,
+        content_hash: str,
+        session_id: str,
+        message: str | None = None,
+        details: dict | None = None,
+        **kwargs,
+    ):
+        self.content_hash = content_hash
+        self.session_id = session_id
+        if message is None:
+            message = (
+                f"Duplicate request detected (hash={content_hash[:8]}..., "
+                f"session={session_id})"
+            )
+        det = details.copy() if details else {}
+        det["content_hash"] = content_hash
+        det["session_id"] = session_id
+        super().__init__(
+            message, backend_name=None, details=det, status_code=429, **kwargs
+        )

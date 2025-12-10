@@ -229,6 +229,7 @@ export DISABLE_FAILURE_HANDLING=1
 
 ## Related Features
 
+- [Request Deduplication](request-deduplication.md) - Prevent duplicate requests from exhausting rate limits
 - [Health Checks](health-checks.md) - Proactive backend health monitoring
 - [Backends Overview](../backends/overview.md) - Available backend configurations
 - [Troubleshooting](../debugging/troubleshooting.md) - Debugging common issues

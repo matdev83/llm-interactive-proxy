@@ -2,6 +2,15 @@
 
 ## [2025-12-10]
 
+### Added: Request Deduplication Service
+
+- **Request Deduplication**: Universal request deduplication to prevent rate limit exhaustion from client retries
+  - **Core Service**: Thread-safe `RequestDeduplicationService` with TTL-based caching and efficient garbage collection
+  - **Hot Path Integration**: Integrated into `BackendRequestManager` to deduplicate requests before backend processing
+  - **Configuration**: Configurable dedup window via CLI (`--request-dedup-window`), Env (`LLM_REQUEST_DEDUP_WINDOW`), and YAML
+  - **Performance**: Optimized cleanup logic (10% buffer) to avoid O(N log N) sorting on every request
+  - **Observability**: Debug-level logging for swallowed duplicates to avoid log spam during high-throughput retries
+
 ### Fixed: Anthropic and Gemini Connector Resilience
 
 - **Anthropic Converter Improvements**:

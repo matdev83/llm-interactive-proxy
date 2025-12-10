@@ -1214,6 +1214,10 @@ def register_core_services(
     def _backend_request_manager_factory(
         provider: IServiceProvider,
     ) -> BackendRequestManager:
+        from src.core.services.request_deduplication_service import (
+            RequestDeduplicationService,
+        )
+
         backend_processor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
         response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
         angel_service_factory = provider.get_required_service(IAngelServiceFactory)  # type: ignore[type-abstract]
@@ -1221,6 +1225,25 @@ def register_core_services(
         # Optional: history compaction service for context compaction feature
         history_compaction_service = provider.get_service(HistoryCompactionService)
         config = provider.get_required_service(AppConfig)
+
+        # Request deduplication service (configurable via config.request_dedup_window)
+        dedup_window = getattr(config, "request_dedup_window", 3.0)
+        dedup_max_cache = getattr(config, "request_dedup_max_cache", 10000)
+        dedup_enabled = dedup_window > 0
+        dedup_service: RequestDeduplicationService | None = None
+        if dedup_enabled:
+            dedup_service = RequestDeduplicationService(
+                window_seconds=dedup_window,
+                enabled=True,
+                max_cache_size=dedup_max_cache,
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Request deduplication enabled with window=%.1fs, max_cache=%d",
+                    dedup_window,
+                    dedup_max_cache,
+                )
+
         return BackendRequestManager(
             backend_processor,
             response_processor,
@@ -1228,6 +1251,7 @@ def register_core_services(
             wire_capture,
             history_compaction_service=history_compaction_service,
             config=config,
+            dedup_service=dedup_service,
         )
 
     _add_singleton(

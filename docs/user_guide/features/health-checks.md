@@ -387,6 +387,8 @@ health_check:
 ## See Also
 
 - [Failover Configuration](../backends/overview.md#failover-routes) - Configure failover routes
+- [Request Deduplication](request-deduplication.md) - Prevent duplicate requests from exhausting rate limits
+- [Failure Handling](failure-handling.md) - Automatic retry and failover behavior
 - [Usage Tracking](usage-tracking.md) - Monitor request metrics
 - [Wire Capture](../debugging/wire-capture.md) - Debug request/response issues
 

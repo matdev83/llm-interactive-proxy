@@ -330,15 +330,28 @@ class VTCResponseStreamWrapper:
             metadata=dict(chunk.metadata) if chunk.metadata else {},
         )
 
-    async def _invoke_reactor(self, tool_calls: list[dict[str, Any]]) -> None:
+    async def _invoke_reactor(
+        self, tool_calls: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], str | None]:
         """
         Invoke the tool call reactor for detected tool calls.
 
+        This method processes tool calls through registered reactor handlers and
+        collects any swallowed tool calls along with their replacement messages.
+
         Args:
             tool_calls: List of detected tool calls in internal format.
+
+        Returns:
+            Tuple of (non_swallowed_tool_calls, replacement_message).
+            - non_swallowed_tool_calls: Tool calls that were NOT swallowed by handlers
+            - replacement_message: Combined replacement message for swallowed calls, or None
         """
         if not self._tool_call_reactor or not tool_calls:
-            return
+            return tool_calls, None
+
+        non_swallowed: list[dict[str, Any]] = []
+        replacement_messages: list[str] = []
 
         try:
             import json as json_module
@@ -380,9 +393,21 @@ class VTCResponseStreamWrapper:
                     self._session_id,
                 )
 
-                # Invoke reactor - we don't need to handle the result since
-                # VTC clients handle tool calls themselves
-                await self._tool_call_reactor.process_tool_call(context)
+                # Invoke reactor and handle the result
+                result = await self._tool_call_reactor.process_tool_call(context)
+
+                if result and result.should_swallow:
+                    # Tool call was swallowed by a handler
+                    logger.info(
+                        "VTC tool call '%s' swallowed by reactor (session: %s)",
+                        tool_name,
+                        self._session_id,
+                    )
+                    if result.replacement_response:
+                        replacement_messages.append(result.replacement_response)
+                else:
+                    # Tool call was not swallowed, keep it
+                    non_swallowed.append(tool_call)
 
         except Exception as e:
             logger.warning(
@@ -390,17 +415,24 @@ class VTCResponseStreamWrapper:
                 e,
                 exc_info=True,
             )
+            # On error, return original tool calls unchanged
+            return tool_calls, None
+
+        # Combine replacement messages if any
+        combined_replacement = (
+            "\n\n".join(replacement_messages) if replacement_messages else None
+        )
+
+        return non_swallowed, combined_replacement
 
     async def _process_complete_pattern_async(self) -> ProcessedResponse:
         """
         Process a complete XML tool call pattern from the buffer (async version).
 
-        For VTC clients like KiloCode that use simple format (e.g., <execute_command>),
-        we extract tool calls for internal processing (reactors, logging) but
-        DO NOT modify the content - pass it through as-is.
-
-        The extracted tool calls are added to response metadata and the reactor
-        is invoked to process them through registered handlers.
+        For VTC clients, we extract tool calls and process them through the reactor.
+        If any tool calls are swallowed (e.g., blocked by access control), we:
+        1. Strip the XML for swallowed tool calls from the content
+        2. Insert the replacement message from the handler
 
         Returns:
             ProcessedResponse with VTC-processed content and tool calls in metadata.
@@ -410,8 +442,8 @@ class VTCResponseStreamWrapper:
         self._buffer = ""
 
         # Parse XML tool calls from buffer for internal use (reactors, logging, metrics)
-        # But we will NOT modify the content - pass through as-is for VTC clients
-        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
+        # We get both the parsed tool calls AND the cleaned content (XML stripped)
+        tool_calls, cleaned_content = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
             logger.info(
@@ -419,13 +451,40 @@ class VTCResponseStreamWrapper:
                 len(tool_calls),
                 [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
             )
-            # Invoke reactor for detected tool calls
-            await self._invoke_reactor(tool_calls)
+            # Invoke reactor for detected tool calls and handle swallowing
+            non_swallowed, replacement_msg = await self._invoke_reactor(tool_calls)
+
+            # If any tool calls were swallowed, we need to modify the content
+            if replacement_msg:
+                # Some tool calls were swallowed - use cleaned content + replacement
+                # This ensures VTC clients see the steering message instead of blocked tool XML
+                output_content = cleaned_content.strip()
+                if output_content:
+                    output_content = f"{output_content}\n\n{replacement_msg}"
+                else:
+                    output_content = replacement_msg
+
+                logger.info(
+                    "VTC wrapper: %d tool call(s) swallowed, %d passed through",
+                    len(tool_calls) - len(non_swallowed),
+                    len(non_swallowed),
+                )
+
+                # Build metadata indicating swallowing occurred
+                metadata_calls = non_swallowed if non_swallowed else None
+                return self._create_chunk_with_text(
+                    output_content,
+                    tool_calls=metadata_calls,
+                    swallowed=True,
+                    swallowed_count=len(tool_calls) - len(non_swallowed),
+                )
+
+            # No tool calls were swallowed - return original content unchanged
+            return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
         else:
             logger.debug("VTC wrapper found no tool calls in complete pattern")
 
-        # Return original content unchanged - VTC clients expect their original format
-        # Tool calls are added to metadata for reactor processing
+        # No tool calls found - return original content unchanged
         return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
 
     def _process_complete_pattern(self) -> ProcessedResponse:
@@ -463,8 +522,8 @@ class VTCResponseStreamWrapper:
         """
         Flush the buffer and return its content as a ProcessedResponse (async version).
 
-        For VTC clients, content is passed through unchanged - we extract
-        tool calls, add them to metadata, and invoke the reactor.
+        For VTC clients, we extract tool calls and process them through the reactor.
+        If any tool calls are swallowed, we modify the content accordingly.
 
         Returns:
             ProcessedResponse with buffered content and any detected tool calls,
@@ -478,7 +537,7 @@ class VTCResponseStreamWrapper:
         self._buffer = ""
 
         # Try to extract any tool calls for reactor processing
-        tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
+        tool_calls, cleaned_content = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
             logger.info(
@@ -486,11 +545,36 @@ class VTCResponseStreamWrapper:
                 len(tool_calls),
                 [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
             )
-            # Invoke reactor for detected tool calls
-            await self._invoke_reactor(tool_calls)
+            # Invoke reactor for detected tool calls and handle swallowing
+            non_swallowed, replacement_msg = await self._invoke_reactor(tool_calls)
 
-        # Return original content unchanged - VTC clients expect their original format
-        # Tool calls are added to metadata for reactor processing
+            # If any tool calls were swallowed, we need to modify the content
+            if replacement_msg:
+                # Some tool calls were swallowed - use cleaned content + replacement
+                output_content = cleaned_content.strip()
+                if output_content:
+                    output_content = f"{output_content}\n\n{replacement_msg}"
+                else:
+                    output_content = replacement_msg
+
+                logger.info(
+                    "VTC wrapper flush: %d tool call(s) swallowed, %d passed through",
+                    len(tool_calls) - len(non_swallowed),
+                    len(non_swallowed),
+                )
+
+                metadata_calls = non_swallowed if non_swallowed else None
+                return self._create_chunk_with_text(
+                    output_content,
+                    tool_calls=metadata_calls,
+                    swallowed=True,
+                    swallowed_count=len(tool_calls) - len(non_swallowed),
+                )
+
+            # No tool calls were swallowed - return original content unchanged
+            return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+
+        # No tool calls found - return original content unchanged
         return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
 
     def _flush_buffer(self) -> ProcessedResponse | None:
@@ -525,7 +609,11 @@ class VTCResponseStreamWrapper:
         return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
 
     def _create_chunk_with_text(
-        self, text: str, tool_calls: list[dict[str, Any]] | None = None
+        self,
+        text: str,
+        tool_calls: list[dict[str, Any]] | None = None,
+        swallowed: bool = False,
+        swallowed_count: int = 0,
     ) -> ProcessedResponse:
         """
         Create a ProcessedResponse chunk with the given text and optional tool calls.
@@ -533,6 +621,8 @@ class VTCResponseStreamWrapper:
         Args:
             text: The text content for the chunk.
             tool_calls: Optional list of detected tool calls to add to metadata.
+            swallowed: Whether any tool calls were swallowed by handlers.
+            swallowed_count: Number of tool calls that were swallowed.
 
         Returns:
             A new ProcessedResponse with the text content and tool calls in metadata.
@@ -543,6 +633,11 @@ class VTCResponseStreamWrapper:
             metadata["tool_calls"] = tool_calls
             # Mark as VTC-sourced so reactors know these came from XML parsing
             metadata["vtc_tool_calls"] = True
+
+        # Track swallowing for downstream processors
+        if swallowed:
+            metadata["vtc_tool_calls_swallowed"] = True
+            metadata["vtc_swallowed_count"] = swallowed_count
 
         if self._last_chunk_template is not None:
             chunk = self._inject_text(self._last_chunk_template, text)

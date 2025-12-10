@@ -69,6 +69,11 @@ Advanced features that enhance the proxy's capabilities:
 - **[Connection Activity Monitoring](features/activity-monitoring.md)** - Real-time visibility into active connections with RX/TX byte counters
 - **[Usage Tracking and Statistics](features/usage-tracking.md)** - Comprehensive monitoring of token consumption, costs, performance metrics, and request patterns across all backends
 
+### Reliability and Resilience
+
+- **[Failure Handling](features/failure-handling.md)** - Automatic retry and failover for backend errors
+- **[Request Deduplication](features/request-deduplication.md)** - Prevent duplicate requests from exhausting rate limits
+
 ### Client Integration
 
 - **[Codebuff Quick Start](features/codebuff-quick-start.md)** - Get started with Codebuff in 5 minutes

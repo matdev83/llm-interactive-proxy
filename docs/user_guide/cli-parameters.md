@@ -331,6 +331,15 @@ Configure automatic retry and failover behavior for backend errors. See [Failure
 | `--max-failover-hops N` | `FAILURE_HANDLING_MAX_FAILOVER_HOPS` | Max backend instances to try (default: 5). |
 | `--min-retry-wait SECONDS` | `FAILURE_HANDLING_MIN_RETRY_WAIT` | Minimum retry wait time (default: 1). |
 
+### Request Deduplication
+
+Prevent duplicate requests from exhausting rate limits. See [Request Deduplication](features/request-deduplication.md) for detailed documentation.
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--request-dedup-window SECONDS` | `LLM_REQUEST_DEDUP_WINDOW` | Time window for duplicate detection (default: 3.0, set to 0 to disable). |
+| `--disable-request-dedup` | N/A | Disable request deduplication entirely. |
+
 ### Other Features
 
 | CLI Argument | Environment Variable | Description |
