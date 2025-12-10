@@ -106,6 +106,17 @@ class ResponseParser(IResponseParser):
                 metadata["created"] = created_timestamp
 
             choices = raw_response.get("choices", [])
+            # Log when we see empty choices - this could indicate unusual backend behavior
+            if (
+                not choices
+                and "choices" in raw_response
+                and logger.isEnabledFor(logging.DEBUG)
+            ):
+                logger.debug(
+                    "Response has empty choices array - model=%s id=%s",
+                    raw_response.get("model", "unknown"),
+                    raw_response.get("id", "unknown"),
+                )
             if choices and isinstance(choices, list) and len(choices) > 0:
                 choice = choices[0]
                 if isinstance(choice, dict) and "message" in choice:
@@ -124,9 +135,12 @@ class ResponseParser(IResponseParser):
                                 )
             usage = raw_response.get("usage")
 
-            # If content is still empty and there are no choices, serialize the entire response
-            # This handles edge cases like non-chat completion responses
-            if not content and not choices:
+            # If content is still empty and choices key is completely missing (not just empty),
+            # serialize the entire response. This handles edge cases like non-chat completion
+            # responses (e.g., embeddings API).
+            # Note: Empty choices array (choices: []) is a valid response indicating no output
+            # was generated - we should NOT serialize the entire response in that case.
+            if not content and "choices" not in raw_response:
                 content = json.dumps(raw_response)
 
         elif raw_response is None:

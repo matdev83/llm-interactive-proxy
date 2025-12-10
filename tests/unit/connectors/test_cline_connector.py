@@ -770,3 +770,105 @@ async def test_debug_override_configuration_from_kwargs(
 
         # Should succeed without validation error
         # Note: result.ok assertion removed as result is not used
+
+
+class TestClineDataEnvelopeUnwrapping:
+    """Tests for Cline's non-standard response format handling."""
+
+    def test_unwraps_data_envelope_with_choices(self, config, translation_service):
+        """Test that a response wrapped in 'data' envelope is properly unwrapped."""
+        http_client = AsyncMock()
+        connector = ClineConnector(http_client, config, translation_service)
+
+        wrapped_response = {
+            "data": {
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1234567890,
+                "model": "x-ai/grok-code-fast-1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Hello! I'm ready to help.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                },
+            }
+        }
+
+        unwrapped = connector._unwrap_cline_data_envelope(wrapped_response)
+
+        assert unwrapped["id"] == "chatcmpl-123"
+        assert unwrapped["model"] == "x-ai/grok-code-fast-1"
+        assert len(unwrapped["choices"]) == 1
+        assert (
+            unwrapped["choices"][0]["message"]["content"] == "Hello! I'm ready to help."
+        )
+        assert unwrapped["usage"]["total_tokens"] == 30
+
+    def test_does_not_unwrap_non_openai_data_envelope(
+        self, config, translation_service
+    ):
+        """Test that unrelated 'data' keys are not mistakenly unwrapped."""
+        http_client = AsyncMock()
+        connector = ClineConnector(http_client, config, translation_service)
+
+        # If the 'data' value doesn't look like an OpenAI response, don't unwrap
+        non_openai_data = {
+            "data": {"some_field": "value"},  # No 'choices', 'id', or 'model'
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Direct response"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        unwrapped = connector._unwrap_cline_data_envelope(non_openai_data)
+
+        # Should not unwrap since 'data' doesn't look like OpenAI response
+        assert "choices" in unwrapped
+        assert unwrapped["choices"][0]["message"]["content"] == "Direct response"
+
+    def test_does_not_modify_standard_openai_response(
+        self, config, translation_service
+    ):
+        """Test that standard OpenAI responses (without 'data' envelope) pass through unchanged."""
+        http_client = AsyncMock()
+        connector = ClineConnector(http_client, config, translation_service)
+
+        standard_response = {
+            "id": "chatcmpl-456",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Standard response",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 10,
+                "total_tokens": 15,
+            },
+        }
+
+        unwrapped = connector._unwrap_cline_data_envelope(standard_response)
+
+        assert unwrapped is standard_response  # Should be the same object
+        assert unwrapped["id"] == "chatcmpl-456"

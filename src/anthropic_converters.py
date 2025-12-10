@@ -256,7 +256,7 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
         # No choices and no explicit error - produce a message indicating
         # empty response. Use a clear message instead of empty string to
         # help debugging and prevent silent failures.
-        usage = oai_dict.get("usage", {})
+        usage = oai_dict.get("usage") or {}
         response = {
             "id": oai_dict.get("id", "msg_unk"),
             "type": "message",
@@ -282,7 +282,7 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     choice = choices[0]
     message = choice.get("message", {})
     content_blocks = _build_content_blocks(choice, message)
-    usage = oai_dict.get("usage", {})
+    usage = oai_dict.get("usage") or {}
 
     # Map finish_reason to stop_reason
     finish_reason = choice.get("finish_reason")

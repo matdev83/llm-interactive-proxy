@@ -334,3 +334,44 @@ class TestResponseParser:
         content = parser.extract_content(parsed_data)
         assert content == raw_response_str
         assert isinstance(content, str)
+
+    def test_empty_choices_array_not_serialized(self, parser: ResponseParser) -> None:
+        """Test that empty choices array doesn't cause the entire response to be JSON-dumped.
+
+        This tests a bug fix where responses with empty choices (choices: []) were
+        incorrectly having their entire body serialized as the content string.
+        Empty choices is a valid response indicating no output was generated.
+        """
+        raw_response = {
+            "id": "chatcmpl-test123",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [],  # Empty choices array
+            "usage": {"prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10},
+        }
+        parsed_data = parser.parse_response(raw_response)
+        content = parser.extract_content(parsed_data)
+
+        # Content should be empty string, NOT a JSON serialization of the response
+        assert content == ""
+        # Verify it's not the serialized response
+        assert content != json.dumps(raw_response)
+
+    def test_missing_choices_key_serializes_response(
+        self, parser: ResponseParser
+    ) -> None:
+        """Test that responses without a 'choices' key are JSON-serialized.
+
+        This ensures that non-chat-completion responses (like embeddings) are
+        still handled by serializing the entire response.
+        """
+        raw_response = {
+            "data": [{"embedding": [0.1, 0.2, 0.3], "index": 0}],
+            "model": "text-embedding-ada-002",
+        }
+        parsed_data = parser.parse_response(raw_response)
+        content = parser.extract_content(parsed_data)
+
+        # When 'choices' key is missing, the entire response should be serialized
+        assert content == json.dumps(raw_response)

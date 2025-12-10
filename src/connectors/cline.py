@@ -140,6 +140,98 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
 
         await super().initialize(**passthrough)
 
+    def _unwrap_cline_data_envelope(
+        self, response_json: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Unwrap Cline's non-standard 'data' envelope from responses.
+
+        Cline API wraps OpenAI-format responses in a 'data' key for non-streaming
+        requests. This method extracts the inner response to normalize it to
+        standard OpenAI format that the rest of the pipeline expects.
+        """
+        data_val = response_json.get("data")
+        if isinstance(data_val, dict):
+            # Only unwrap if the inner dict looks like a valid OpenAI response
+            if "choices" in data_val or "id" in data_val or "model" in data_val:
+                logger.debug(
+                    "Unwrapping Cline 'data' envelope - found keys: %s",
+                    list(data_val.keys())[:5],
+                )
+                return data_val
+        return response_json
+
+    async def _handle_non_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        """
+        Override to handle Cline's non-standard response format.
+
+        Cline wraps responses in a 'data' envelope for non-streaming requests.
+        We unwrap this before passing to the parent handler.
+        """
+        from src.core.common.exceptions import ServiceUnavailableError
+        from src.core.security.loop_prevention import ensure_loop_guard_header
+
+        if not headers or not headers.get("Authorization"):
+            raise AuthenticationError(message="No auth credentials found")
+
+        guarded_headers = ensure_loop_guard_header(headers)
+
+        try:
+            response = await self.client.post(
+                url, json=payload, headers=guarded_headers
+            )
+        except httpx.RequestError as e:
+            logger.error(f"Cline request failed to {url}. Error: {e}")
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Cline backend ({e})"
+            )
+
+        if int(response.status_code) >= 400:
+            try:
+                err = response.json()
+            except Exception:
+                err = response.text
+            raise HTTPException(status_code=response.status_code, detail=err)
+
+        response_json = response.json()
+
+        # Unwrap Cline's non-standard 'data' envelope
+        response_json = self._unwrap_cline_data_envelope(response_json)
+
+        # Debug log for troubleshooting
+        if logger.isEnabledFor(logging.DEBUG):
+            choices_count = len(response_json.get("choices", []))
+            response_id = response_json.get("id", "unknown")
+            response_model = response_json.get("model", "unknown")
+            logger.debug(
+                "Cline non-streaming response: id=%s model=%s choices_count=%d",
+                response_id,
+                response_model,
+                choices_count,
+            )
+
+        domain_response = self.translation_service.to_domain_response(
+            response_json, "openai"
+        )
+
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            response_headers = {}
+
+        return ResponseEnvelope(
+            content=domain_response.model_dump(),
+            status_code=response.status_code,
+            headers=response_headers,
+            usage=domain_response.usage,
+        )
+
     async def chat_completions(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],

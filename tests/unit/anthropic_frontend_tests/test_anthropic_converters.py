@@ -564,6 +564,53 @@ class TestAnthropicConverters:
         assert usage["output_tokens"] == 0
         assert usage["total_tokens"] == 0
 
+    def test_openai_to_anthropic_response_with_none_usage(self) -> None:
+        """Test OpenAI to Anthropic response conversion when usage is None.
+
+        This tests a bug fix where usage=None caused AttributeError because
+        the code tried to call .get() on None.
+        """
+        openai_response = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": None,  # This is the bug trigger - usage is explicitly None
+        }
+
+        # Should not raise AttributeError: 'NoneType' object has no attribute 'get'
+        result = openai_to_anthropic_response(openai_response)
+
+        assert result["type"] == "message"
+        assert result["content"][0]["text"] == "Hello!"
+        # Usage should be zeroed out when None
+        assert result["usage"]["input_tokens"] == 0
+        assert result["usage"]["output_tokens"] == 0
+
+    def test_openai_to_anthropic_response_empty_choices_with_none_usage(self) -> None:
+        """Test empty choices with None usage doesn't crash."""
+        openai_response = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "choices": [],
+            "usage": None,
+        }
+
+        # Should not raise AttributeError
+        result = openai_to_anthropic_response(openai_response)
+
+        # Should return empty response message format
+        assert result["type"] == "message"
+        assert result["usage"]["input_tokens"] == 0
+        assert result["usage"]["output_tokens"] == 0
+
     def test_conversation_flow(self) -> None:
         """Test a complete conversation flow conversion."""
         # Multi-turn conversation

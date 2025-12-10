@@ -632,8 +632,27 @@ class OpenAIConnector(LLMBackend):
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
+        response_json = response.json()
+        # Debug log raw response for non-streaming requests to help diagnose
+        # translation issues (e.g., Claude Code via Anthropic frontend)
+        if logger.isEnabledFor(logging.DEBUG):
+            choices_count = len(response_json.get("choices", []))
+            response_id = response_json.get("id", "unknown")
+            response_model = response_json.get("model", "unknown")
+            logger.debug(
+                "Non-streaming response from backend: id=%s model=%s choices_count=%d",
+                response_id,
+                response_model,
+                choices_count,
+            )
+            if choices_count == 0:
+                logger.debug(
+                    "Empty choices in non-streaming response - raw response: %s",
+                    str(response_json)[:500],
+                )
+
         domain_response = self.translation_service.to_domain_response(
-            response.json(), "openai"
+            response_json, "openai"
         )
         # Some tests use mocks that set response.headers to AsyncMock or
         # other non-dict types; defensively coerce to a dict and fall back

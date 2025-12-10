@@ -1719,10 +1719,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         finish_reason: str | None = None
         usage_data: dict[str, int] | None = None
         accumulated_reasoning: str = ""
+        error_data: dict[str, Any] | None = None
 
         def _process_openai_chunk(data: dict[str, Any]) -> None:
             """Process an OpenAI-style chunk and accumulate content."""
-            nonlocal accumulated_content, finish_reason, usage_data, accumulated_reasoning
+            nonlocal accumulated_content, finish_reason, usage_data, accumulated_reasoning, error_data
+
+            # Check for error in the chunk - this is critical for non-streaming
+            # requests where backend errors need to be properly propagated
+            if data.get("error"):
+                error_data = data.get("error")
+                # Also capture the finish_reason if present (usually "error")
+                choices = data.get("choices", [])
+                if choices and choices[0].get("finish_reason"):
+                    finish_reason = choices[0]["finish_reason"]
+                return
 
             choices = data.get("choices", [])
             if choices:
@@ -1830,6 +1841,42 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         except Exception as e:
             logger.warning(f"Error accumulating streaming response: {e}", exc_info=True)
+            # Capture the exception as an error to propagate to the client
+            if error_data is None:
+                error_data = {
+                    "message": f"Error processing response: {e}",
+                    "type": "internal_error",
+                    "code": 500,
+                }
+
+        # If an error was encountered during streaming, return an error response
+        # This is critical for non-streaming requests where the client waits for
+        # a complete response and needs to know about backend failures
+        if error_data:
+            error_status_code = error_data.get("code", 500)
+            if isinstance(error_status_code, str):
+                try:
+                    error_status_code = int(error_status_code)
+                except ValueError:
+                    error_status_code = 500
+
+            error_response: dict[str, Any] = {
+                "id": f"chatcmpl-error-{uuid.uuid4().hex[:8]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": getattr(self, "backend_type", "gemini"),
+                "choices": [],
+                "error": error_data,
+            }
+            logger.warning(
+                f"Returning error response for non-streaming request: {error_data.get('message', 'Unknown error')}"
+            )
+            return ResponseEnvelope(
+                content=error_response,
+                headers=streaming_response.headers or {},
+                status_code=error_status_code,
+                usage=None,
+            )
 
         # Build OpenAI-style response
         message_content: dict[str, Any] = {
