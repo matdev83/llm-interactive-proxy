@@ -7,7 +7,6 @@ It detects tool calls in LLM responses and passes them through registered handle
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import re
@@ -95,15 +94,6 @@ class ToolCallReactorFeature(IResponseFeature):
 
         stream_key = self._resolve_stream_key(session_id, context, response)
         buffer_state = self._resolve_buffer_state(context, stream_key)
-
-        if logger.is_enabled_for(logging.DEBUG):
-            logger.debug(
-                "ToolCallReactor: session=%s stream_key=%s backend=%s model=%s",
-                session_id,
-                stream_key,
-                context.get("backend_name", "unknown"),
-                context.get("model_name", "unknown"),
-            )
 
         # Clear lifecycle state for non-streaming to ensure fresh detection
         if not is_streaming:
@@ -629,15 +619,22 @@ class ToolCallReactorFeature(IResponseFeature):
                     "swallowed_original_content": (
                         original_content if isinstance(original_content, str) else None
                     ),
+                    # CRITICAL: Mark as steering replacement so downstream processors
+                    # clear accumulated content instead of appending
+                    "_steering_replacement": True,
                 }
             )
 
             import time
 
-            model_name = merged_metadata.get("model", "steering-agent")
+            model_name = merged_metadata.get("model", "proxy-assistant")
 
+            # Build an OpenAI-compatible response structure for client consumption.
+            # CRITICAL FIX: Use 'chatcmpl-proxy-*' ID instead of 'chatcmpl-steering-*'
+            # to avoid exposing internal steering markers to clients. The steering-*
+            # pattern is flagged as an internal leak by SteeringLeakProtector.
             replacement_struct = {
-                "id": f"chatcmpl-steering-{int(time.time())}",
+                "id": f"chatcmpl-proxy-{int(time.time())}",
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": model_name,
@@ -654,13 +651,14 @@ class ToolCallReactorFeature(IResponseFeature):
                 "usage": getattr(original_response, "usage", None),
             }
 
-            content: str | dict[str, Any] = replacement_struct
-            if isinstance(original_content, str):
-                with contextlib.suppress(Exception):
-                    content = json.dumps(replacement_struct)
-
+            # CRITICAL ROOT CAUSE FIX: Do NOT convert the struct to a JSON string!
+            # When content is a JSON string, it gets treated as raw text by the
+            # ContentAccumulationProcessor and is APPENDED to previously-sent content,
+            # causing the leak bug where internal JSON appears after legitimate text.
+            # Always use the dict struct - the SSE assembler will properly format it
+            # as `data: {...}\n\n` for the client.
             new_response = ProcessedResponse(
-                content=content,
+                content=replacement_struct,
                 usage=getattr(original_response, "usage", None),
                 metadata=merged_metadata,
             )
@@ -1427,17 +1425,22 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     "swallowed_original_content": (
                         original_content if isinstance(original_content, str) else None
                     ),
+                    # CRITICAL: Mark as steering replacement so downstream processors
+                    # clear accumulated content instead of appending
+                    "_steering_replacement": True,
                 }
             )
 
-            # Construct OpenAI-compatible response structure
             import time
 
-            # Try to preserve model name from metadata or context
-            model_name = merged_metadata.get("model", "steering-agent")
+            model_name = merged_metadata.get("model", "proxy-assistant")
 
+            # Build an OpenAI-compatible response structure for client consumption.
+            # CRITICAL FIX: Use 'chatcmpl-proxy-*' ID instead of 'chatcmpl-steering-*'
+            # to avoid exposing internal steering markers to clients. The steering-*
+            # pattern is flagged as an internal leak by SteeringLeakProtector.
             replacement_struct = {
-                "id": f"chatcmpl-steering-{int(time.time())}",
+                "id": f"chatcmpl-proxy-{int(time.time())}",
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": model_name,
@@ -1454,14 +1457,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 "usage": getattr(original_response, "usage", None),
             }
 
-            # Ensure content type consistency with original response
-            content: str | dict[str, Any] = replacement_struct
-            if isinstance(original_content, str):
-                with contextlib.suppress(Exception):
-                    content = json.dumps(replacement_struct)
-
+            # CRITICAL ROOT CAUSE FIX: Do NOT convert the struct to a JSON string!
+            # When content is a JSON string, it gets treated as raw text by the
+            # ContentAccumulationProcessor and is APPENDED to previously-sent content,
+            # causing the leak bug where internal JSON appears after legitimate text.
+            # Always use the dict struct - the SSE assembler will properly format it
+            # as `data: {...}\n\n` for the client.
             new_response = ProcessedResponse(
-                content=content,
+                content=replacement_struct,
                 usage=getattr(original_response, "usage", None),
                 metadata=merged_metadata,
             )

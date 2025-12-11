@@ -476,9 +476,10 @@ async def test_process_with_tool_calls_swallowed_empty_string(
     )
 
     assert isinstance(result, ProcessedResponse)
-    # The content is now a full OpenAI-compatible response structure as JSON string
-    assert isinstance(result.content, str)
-    result_data = json.loads(result.content)
+    # The content is now a full OpenAI-compatible response structure as a dict
+    # (NOT a JSON string - strings get treated as raw text and cause the leak bug)
+    assert isinstance(result.content, dict)
+    result_data = result.content
     assert result_data["choices"][0]["message"]["content"] == ""
 
     # Simulate streaming chunk scenario

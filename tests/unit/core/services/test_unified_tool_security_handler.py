@@ -90,6 +90,34 @@ class TestCommandExtractionService:
         paths = service.extract_paths_from_command("rm -rf /tmp/dangerous")
         assert "/tmp/dangerous" in paths
 
+    def test_extract_paths_from_windows_cd_command(self) -> None:
+        """Should extract Windows paths from cd command (single backslashes)."""
+        service = CommandExtractionService()
+        # Windows paths use single backslashes
+        paths = service.extract_paths_from_command(
+            r"cd C:\Users\Test\project ; git diff"
+        )
+        # The cd pattern should extract the path
+        assert r"C:\Users\Test\project" in paths
+
+    def test_extract_paths_does_not_match_relative_paths(self) -> None:
+        """Should NOT extract Unix-style relative paths like ./.venv/..."""
+        service = CommandExtractionService()
+        # Relative path starting with ./ should not be treated as absolute
+        paths = service.extract_paths_from_command(
+            r"./.venv/Scripts/python.exe -m pytest"
+        )
+        assert "/.venv/Scripts/python.exe" not in paths
+        # Only explicit rm -rf etc patterns should extract paths
+        assert len(paths) == 0
+
+    def test_extract_paths_handles_unc_paths(self) -> None:
+        """Should extract UNC paths from commands."""
+        service = CommandExtractionService()
+        paths = service.extract_paths_from_command(r"cd \\server\share\folder")
+        # UNC paths should be extracted
+        assert any("server" in p for p in paths)
+
     def test_truncates_long_commands(self) -> None:
         """Should truncate commands exceeding max length."""
         service = CommandExtractionService(max_command_length=10)

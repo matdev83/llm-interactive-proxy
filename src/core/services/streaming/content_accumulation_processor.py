@@ -61,6 +61,28 @@ class ContentAccumulationProcessor(IStreamProcessor):
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
 
+        # CRITICAL: Handle steering replacement - clear accumulated content
+        # This prevents steering responses from being appended to previous content
+        if (
+            content.metadata
+            and content.metadata.get("_steering_replacement")
+            and (state.chunks or state.reasoning_chunks)
+        ):
+            logger.debug(
+                "ContentAccumulationProcessor: Clearing %d accumulated chunks "
+                "for steering replacement, stream_id=%s",
+                len(state.chunks),
+                stream_id,
+            )
+            state.chunks.clear()
+            state.encoded_chunks.clear()
+            state.chunk_lengths.clear()
+            state.byte_length = 0
+            state.reasoning_chunks.clear()
+            state.metadata_snapshot.clear()
+            state.completed = False
+            state.has_sent_content = False
+
         # Handle OpenAI-format dict chunks specially - pass through for SSE output
         # while accumulating the extracted text content for metadata
         if isinstance(content.content, dict) and "choices" in content.content:
