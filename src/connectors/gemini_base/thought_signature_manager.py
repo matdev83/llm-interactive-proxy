@@ -25,6 +25,8 @@ class ThoughtSignatureManager:
 
     def __init__(self) -> None:
         self._cache: dict[str, str] = {}
+        # Secondary index by tool_call_id to survive session-id changes
+        self._by_tool_call: dict[str, str] = {}
 
     @property
     def cache(self) -> dict[str, str]:
@@ -86,6 +88,9 @@ class ThoughtSignatureManager:
             # Try anonymous cache if session_id was missing at store time
             sig = self._cache.get(f"anon:{tc_id}")
         if not sig:
+            # Fallback to global index by tool_call_id (handles session re-keying)
+            sig = self._by_tool_call.get(tc_id)
+        if not sig:
             # No cached signature available; avoid injecting placeholders that
             # can trigger "corrupted thought signature" errors.
             return
@@ -136,6 +141,7 @@ class ThoughtSignatureManager:
             )
             if cache_key:
                 self._cache[cache_key] = sig
+                self._by_tool_call[tc_id] = sig
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Stored thought_signature for tool_call_id=%s (key=%s)",

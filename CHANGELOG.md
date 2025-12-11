@@ -13,11 +13,15 @@
   - **Unit Tests**: 18 new unit tests in `test_gemini_oauth_auth_retry.py`
   - **Behavioral Tests**: 12 new behavioral tests in `test_gemini_oauth_auth_retry_behavior.py`
 
+- **CBOR Documentation**: Comprehensive guide for CBOR wire capture in `docs/user_guide/debugging/cbor-capture.md`
+
 - New Gemini connector modules: `generation_config_builder.py`, `model_validation.py`, `response_accumulator.py`, `response_text_extractor.py`, `retry_delay_parser.py`, `thought_signature_manager.py`, `user_prompt_id_generator.py`
 - Database schema and usage tracking documentation in `docs/database-*.md`
 
 ### Fixed
 
+- **Gemini Rate Limits**: Implemented automatic retry for rate limit errors with `retry-after` header support in `GeminiOAuthBaseConnector`
+- **Thought Signatures**: Added secondary index by tool call ID to `ThoughtSignatureManager` to persist signatures across session ID changes
 - Extensive fixes in debugging scripts for streaming, tool calls, CBOR, and Gemini issues
 - Gemini connector refactoring for improved reliability and error handling
 - Core services enhancements for backend request management, response processing, tool call reactor middleware, and translation

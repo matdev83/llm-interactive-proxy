@@ -1432,6 +1432,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         effective_model: str,
         _in_graceful_degradation: bool = False,
         _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using the Code Assist API.
@@ -1521,6 +1522,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except BackendError as e:
             if self._is_rate_limit_like_error(e):
                 logger.info("Backend rate limited during API call: %s", e)
+                retry_after = self._extract_retry_delay(e)
+                if retry_after and retry_after > 0 and not _rate_limit_retry_attempted:
+                    logger.info(
+                        "Retrying after rate limit in %.2fs (non-streaming)",
+                        retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                    return await self._chat_completions_code_assist(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=effective_model,
+                        _in_graceful_degradation=_in_graceful_degradation,
+                        _auth_retry_attempted=_auth_retry_attempted,
+                        _rate_limit_retry_attempted=True,
+                        **kwargs,
+                    )
             else:
                 logger.error(f"Backend error during API call: {e}", exc_info=True)
             raise
@@ -1536,6 +1553,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions using the Code Assist API.
@@ -1707,6 +1725,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except BackendError as e:
             if self._is_rate_limit_like_error(e):
                 logger.info("Backend rate limited during streaming API call: %s", e)
+                retry_after = self._extract_retry_delay(e)
+                if retry_after and retry_after > 0 and not _rate_limit_retry_attempted:
+                    logger.info(
+                        "Retrying streaming call after %.2fs due to rate limit",
+                        retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                    return await self._chat_completions_code_assist_streaming(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=effective_model,
+                        _rate_limit_retry_attempted=True,
+                        **kwargs,
+                    )
             else:
                 logger.error(
                     f"Backend error during streaming API call: {e}", exc_info=True
