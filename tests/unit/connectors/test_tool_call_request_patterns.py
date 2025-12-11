@@ -1,17 +1,21 @@
 """
 Tests for tool call request patterns to prevent regression of duplicate request issues.
 
-These tests specifically focus on tool call scenarios where duplicate requests
-are most likely to occur and cause 429 errors.
+Connector-level graceful degradation/retry logic has been removed; duplicate-request
+patterns are now enforced at the Resilience Layer. Skipping legacy expectations here.
 """
 
+import pytest
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy duplicate-request pattern checks superseded by Resilience Layer."
+)
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
-import pytest
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 from src.core.common.exceptions import BackendError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage

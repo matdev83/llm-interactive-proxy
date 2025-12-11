@@ -1030,6 +1030,21 @@ class BackendRequestManager(IBackendRequestManager):
                                     session_id,
                                     current_retry_count + 1,
                                 )
+
+                            # Clear accumulated content before yielding terminal error
+                            stream_key = str(
+                                middleware_context.get("stream_id") or session_id
+                            )
+                            try:
+                                from src.core.services.streaming.stream_context_registry import (
+                                    get_global_streaming_context_registry,
+                                )
+
+                                registry = get_global_streaming_context_registry()
+                                registry.clear_content_state(stream_key)
+                            except Exception:
+                                pass  # Best effort
+
                             terminal_content = self._DANGEROUS_TERMINAL_ERROR.format(
                                 count=current_retry_count + 1
                             )
@@ -1040,6 +1055,7 @@ class BackendRequestManager(IBackendRequestManager):
                                 "session_terminated": True,
                                 "is_done": True,
                                 "finish_reason": "security_limit",
+                                "_steering_replacement": True,
                             }
                             yield ProcessedResponse(
                                 content=terminal_content,
@@ -1069,6 +1085,30 @@ class BackendRequestManager(IBackendRequestManager):
                             "Detected swallowed tool call during streaming for session %s; retrying with steering context",
                             session_id,
                         )
+
+                    # CRITICAL FIX: Clear accumulated content before yielding steering response
+                    # This prevents the steering response from being appended to already-sent content
+                    stream_key = str(middleware_context.get("stream_id") or session_id)
+                    try:
+                        from src.core.services.streaming.stream_context_registry import (
+                            get_global_streaming_context_registry,
+                        )
+
+                        registry = get_global_streaming_context_registry()
+                        registry.clear_content_state(stream_key)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Cleared content accumulation state for stream %s before steering response",
+                                stream_key,
+                            )
+                    except Exception as clear_exc:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to clear content state for stream %s: %s",
+                                stream_key,
+                                clear_exc,
+                            )
+
                     retry_response = await self._retry_after_tool_swallow(
                         original_request,
                         ResponseEnvelope(content=text_fragment, metadata=metadata),
@@ -1079,11 +1119,25 @@ class BackendRequestManager(IBackendRequestManager):
                     if isinstance(retry_response, StreamingResponseEnvelope):
                         if retry_response.content:
                             async for retry_chunk in retry_response.content:
-                                yield retry_chunk
+                                # Mark as steering replacement to signal downstream processors
+                                if isinstance(retry_chunk, ProcessedResponse):
+                                    chunk_meta = dict(retry_chunk.metadata or {})
+                                    chunk_meta["_steering_replacement"] = True
+                                    yield ProcessedResponse(
+                                        content=retry_chunk.content,
+                                        metadata=chunk_meta,
+                                        usage=retry_chunk.usage,
+                                    )
+                                else:
+                                    yield retry_chunk
                     else:
+                        response_meta = dict(
+                            getattr(retry_response, "metadata", {}) or {}
+                        )
+                        response_meta["_steering_replacement"] = True
                         yield ProcessedResponse(
                             content=getattr(retry_response, "content", ""),
-                            metadata=getattr(retry_response, "metadata", {}),
+                            metadata=response_meta,
                         )
                     return
 

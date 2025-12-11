@@ -36,7 +36,6 @@ from src.connectors.gemini_base.config import (
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
     DEFAULT_READ_TIMEOUT,
     GracefulDegradationConfig,
-    ModelRetryState,
 )
 from src.connectors.gemini_base.credential_loader import CredentialLoader
 from src.connectors.gemini_base.credentials import (
@@ -111,7 +110,6 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     InvalidRequestError,
-    RateLimitExceededError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -1282,50 +1280,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # Map public alias to internal model name if exists
             model_name = self._public_to_internal_model_map.get(model_name, model_name)
 
-            # Check if model is in cooldown - prevent spamming rate-limited models
-            if self._is_in_cooldown(model_name):
-                state = self._graceful_degradation.model_retry_states.get(model_name)
-                cooldown_remaining = state.cooldown_until - time.time() if state else 0
-
-                logger.info(
-                    "Model %s is in cooldown for %.1fs more; checking fallback options",
-                    model_name,
-                    cooldown_remaining,
-                )
-
-                # Try fallback model if available and not in cooldown
-                fallback = self._get_fallback_model(model_name)
-                original_model = model_name
-                fallback_found = False
-
-                if fallback:
-                    fallback_models = (
-                        fallback if isinstance(fallback, list) else [fallback]
-                    )
-                    for fb_model in fallback_models:
-                        if not self._is_in_cooldown(fb_model):
-                            logger.info(
-                                "Using fallback model %s (original %s in cooldown)",
-                                fb_model,
-                                original_model,
-                            )
-                            model_name = fb_model
-                            fallback_found = True
-                            break
-
-                if not fallback_found:
-                    # All models (original + fallbacks) are in cooldown
-                    raise RateLimitExceededError(
-                        message=(
-                            f"Model {original_model} is rate-limited. "
-                            f"Available again in {cooldown_remaining:.0f}s."
-                        ),
-                        details={
-                            "retry_after": cooldown_remaining,
-                            "model": original_model,
-                        },
-                    )
-
             # Check if streaming is requested
             is_streaming = getattr(request_data, "stream", False)
 
@@ -1354,24 +1308,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
                     # Accumulate streaming response into a ResponseEnvelope
                     return await self._accumulate_streaming_response(streaming_response)
-            except BackendError as e:
-                # Handle 429 errors with graceful degradation
-                if getattr(e, "status_code", None) == 429:
-                    if self._graceful_degradation.config.enabled:
-                        return await self._handle_429_with_graceful_degradation(
-                            original_model=model_name,
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            error=e,
-                            **kwargs,
-                        )
-                    else:
-                        # Graceful degradation disabled in favor of Resilience Layer.
-                        # Do NOT mark backend as non-functional; let BackendService handle retries.
-                        raise
-                else:
-                    # Re-raise non-429 BackendErrors
-                    raise
+            except BackendError:
+                # Propagate backend errors to be handled by the Resilience Layer.
+                raise
 
         except HTTPException:
             # Re-raise HTTP exceptions directly
@@ -1384,10 +1323,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             raise
         except InvalidRequestError:
             # Let context window overflows bubble up for clients to handle
-            raise
-        except RateLimitExceededError:
-            # Re-raise rate limit errors so they can be handled by the specialized middleware/controller
-            # without triggering the generic exception handler that logs stack traces
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
@@ -1765,339 +1700,60 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         return
 
                     if response.status_code != 200:
-                        # Capture and log error response body for debugging
                         try:
-                            error_body = response.json()
-                            logger.warning(
-                                f"Gemini streaming error response: {response.status_code}, "
-                                f"error: {error_body}"
-                            )
+                            error_detail = response.json()
                         except Exception:
-                            error_body_text = response.text
-                            logger.warning(
-                                f"Gemini streaming error response: {response.status_code}, "
-                                f"body: {error_body_text[:500]}"
-                            )
-                        # Handle 429 with graceful degradation
-                        if response.status_code == 429:
-                            if self._graceful_degradation.config.enabled:
-                                try:
-                                    # Parse error details for retry delay extraction
-                                    try:
-                                        quota_error_detail = response.json()
-                                    except Exception:
-                                        quota_error_detail = response.text
+                            error_detail = response.text
 
-                                    # Create a temporary error object to pass details
-                                    quota_error = BackendError(
-                                        message="Rate limit exceeded",
-                                        code="rate_limit_exceeded",
-                                        status_code=429,
-                                        details=(
-                                            quota_error_detail
-                                            if isinstance(quota_error_detail, dict)
-                                            else {"raw": quota_error_detail}
-                                        ),
-                                    )
-
-                                    fallback_response = await self._handle_429_with_graceful_degradation(
-                                        original_model=effective_model,
-                                        request_data=request_data,
-                                        processed_messages=processed_messages,
-                                        error=quota_error,
-                                        **kwargs,
-                                    )
-                                except BackendError as graceful_error:
-                                    # Re-raise the error with full details so BackendService
-                                    # failure handling strategy can extract retry-after
-                                    raise graceful_error
-                                else:
-                                    if isinstance(
-                                        fallback_response, StreamingResponseEnvelope
-                                    ):
-                                        if fallback_response.content is not None:
-                                            async for (
-                                                fallback_chunk
-                                            ) in fallback_response.content:
-                                                yield fallback_chunk
-                                    elif isinstance(
-                                        fallback_response, ResponseEnvelope
-                                    ):
-                                        yield self._response_envelope_to_stream_chunk(
-                                            fallback_response, effective_model
-                                        )
-                                    return
-
-                            # After internal graceful degradation failed, raise BackendError
-                            # so that BackendService's failure handling strategy can decide
-                            # whether to wait-and-retry or failover to another backend
-                            error_detail: Any
-                            try:
-                                error_detail = response.json()
-                            except Exception:
-                                error_detail = response.text
-
-                            error_message = (
-                                "Service temporarily unavailable due to rate limiting."
-                            )
-                            error_type = "rate_limit_exceeded"
-
-                            if isinstance(error_detail, dict):
-                                detail_error = error_detail.get("error") or {}
-                                status_val = str(detail_error.get("status", "")).upper()
-                                if status_val == "RESOURCE_EXHAUSTED":
-                                    error_type = "quota_exceeded"
-
-                                message_val = detail_error.get("message")
-                                if isinstance(message_val, str) and message_val.strip():
-                                    if error_type == "quota_exceeded":
-                                        # Extract actual retry delay for user-friendly message
-                                        # instead of showing confusing "quota will reset after 0s"
-                                        retry_delay_for_msg = None
-                                        details_list = detail_error.get("details", [])
-                                        if isinstance(details_list, list):
-                                            for detail in details_list:
-                                                if isinstance(detail, dict):
-                                                    if "RetryInfo" in detail.get(
-                                                        "@type", ""
-                                                    ):
-                                                        delay_str = detail.get(
-                                                            "retryDelay"
-                                                        )
-                                                        if isinstance(delay_str, str):
-                                                            retry_delay_for_msg = self._parse_duration_string(
-                                                                delay_str
-                                                            )
-                                                            break
-                                                    elif "ErrorInfo" in detail.get(
-                                                        "@type", ""
-                                                    ):
-                                                        metadata = detail.get(
-                                                            "metadata", {}
-                                                        )
-                                                        if isinstance(metadata, dict):
-                                                            delay_str = metadata.get(
-                                                                "quotaResetDelay"
-                                                            )
-                                                            if isinstance(
-                                                                delay_str, str
-                                                            ):
-                                                                retry_delay_for_msg = self._parse_duration_string(
-                                                                    delay_str
-                                                                )
-                                                                break
-                                        if retry_delay_for_msg is not None:
-                                            error_message = (
-                                                "Service temporarily unavailable due to rate limiting. "
-                                                f"Retry after {retry_delay_for_msg:.2f}s."
-                                            )
-                                        else:
-                                            error_message = (
-                                                "Service temporarily unavailable due to rate limiting. "
-                                                f"Details: {message_val}"
-                                            )
-                                    else:
-                                        error_message = message_val
-
-                            # Set quota flag for tracking
-                            self._quota_exceeded = True
-                            if error_type == "quota_exceeded":
-                                # Extract retry delay from error details to avoid
-                                # using the default 600s cooldown for short rate limits
-                                quota_error = BackendError(
-                                    message=error_message,
-                                    code=error_type,
-                                    status_code=429,
-                                    details=(
-                                        error_detail
-                                        if isinstance(error_detail, dict)
-                                        else {"raw": error_detail}
-                                    ),
-                                )
-                                retry_delay = self._extract_retry_delay(quota_error)
-                                if retry_delay is not None:
-                                    self._set_cooldown(
-                                        effective_model, duration=retry_delay
-                                    )
-                                    logger.debug(
-                                        "Set cooldown for model %s with retry delay %.2fs from error response",
-                                        effective_model,
-                                        retry_delay,
-                                    )
-                                else:
-                                    # Only set default cooldown if no retry-after was provided
-                                    self._set_cooldown(effective_model)
-
-                            # Raise BackendError so BackendService failure handling strategy
-                            # can catch it and decide on retry/failover.
-                            # Include retry_after in details so the strategy can extract it.
-                            error_details_for_raise: dict[str, Any] = (
-                                dict(error_detail)
-                                if isinstance(error_detail, dict)
-                                else {"raw": error_detail}
-                            )
-                            if retry_delay is not None:
-                                error_details_for_raise["retry_after"] = retry_delay
-                            raise BackendError(
-                                message=error_message,
-                                code=error_type,
-                                status_code=429,
-                                details=error_details_for_raise,
-                                backend_name=self.backend_type,
-                            )
-
-                        # For non-429 errors, yield error chunk (with optional retry sans tools)
-                        # Graceful error handling - yield error chunk instead of raising exception
-                        try:
-                            general_error_detail = response.json()
-                        except Exception:
-                            general_error_detail = response.text
-
-                        error_message = ""
-                        raw_message = ""
-                        if isinstance(general_error_detail, dict):
-                            error_message = general_error_detail.get("error", {}).get(
-                                "message", ""
-                            )
-                            raw_message = general_error_detail.get("error", {}).get(
-                                "message", ""
-                            )
-
-                        message_lower = error_message.lower()
-                        is_quota_error = (
-                            response.status_code == 429
-                            and isinstance(general_error_detail, dict)
-                            and (
-                                "quota exceeded" in message_lower
-                                or "resource exhausted" in message_lower
-                                or "allowance" in message_lower
-                            )
+                        detail_payload: dict[str, Any] = (
+                            error_detail
+                            if isinstance(error_detail, dict)
+                            else {"raw": error_detail}
                         )
 
-                        if is_quota_error:
-                            # Put specific model in cooldown, keep backend functional
-                            # Extract retry delay from error details to avoid using default 600s cooldown
-                            temp_error = BackendError(
-                                message=error_message or "Rate limit exceeded",
-                                code="quota_exceeded",
-                                status_code=429,
-                                details=(
-                                    general_error_detail
-                                    if isinstance(general_error_detail, dict)
-                                    else {"raw": general_error_detail}
-                                ),
-                            )
-                            retry_delay = self._extract_retry_delay(temp_error)
-                            if retry_delay is not None:
-                                self._set_cooldown(
-                                    effective_model, duration=retry_delay
-                                )
-                                logger.debug(
-                                    "Set cooldown for model %s with retry delay %.2fs",
-                                    effective_model,
-                                    retry_delay,
-                                )
-                            else:
-                                self._set_cooldown(effective_model)
-                            # Extract user-friendly error message
-                            user_message = (
-                                "Service temporarily unavailable due to rate limiting."
-                            )
-                            if isinstance(general_error_detail, dict):
-                                detail_msg = general_error_detail.get("error", {}).get(
-                                    "message"
-                                )
-                                if isinstance(detail_msg, str) and detail_msg.strip():
-                                    if is_quota_error:
-                                        user_message = (
-                                            "Service temporarily unavailable due to rate limiting. "
-                                            f"Details: {detail_msg}"
-                                        )
-                                    else:
-                                        user_message = detail_msg
-                            # Yield quota error chunk instead of raising exception
-                            quota_code = 503
-                            error_chunk = {
-                                "id": f"chatcmpl-error-{int(time.time())}",
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": effective_model,
-                                "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "error"}
-                                ],
-                                "error": {
-                                    "message": user_message,
-                                    "type": "quota_exceeded",
-                                    "code": quota_code,
-                                },
-                            }
-                            yield ProcessedResponse(
-                                content=error_chunk,
-                                metadata={
-                                    "finish_reason": "error",
-                                    "error": error_chunk["error"],
-                                    "id": error_chunk["id"],
-                                    "model": error_chunk["model"],
-                                    "created": error_chunk["created"],
-                                },
-                            )
-                            return
-                        else:
-                            # Detect schema/tool validation errors and retry once without tools/toolConfig
-                            schema_error = False
-                            if response.status_code == 400 and isinstance(
-                                general_error_detail, dict
+                        error_message = "Service temporarily unavailable."
+                        code = "api_error"
+
+                        if isinstance(error_detail, dict):
+                            detail_error = error_detail.get("error") or {}
+                            status_val = str(detail_error.get("status", "")).upper()
+                            message_val = detail_error.get("message")
+                            if isinstance(message_val, str) and message_val.strip():
+                                error_message = message_val
+                            if (
+                                response.status_code == 429
+                                and status_val == "RESOURCE_EXHAUSTED"
                             ):
-                                lower_msg = (raw_message or error_message or "").lower()
-                                schema_error = (
-                                    "input_schema" in lower_msg or "custom" in lower_msg
-                                )
+                                code = "quota_exceeded"
+                            elif response.status_code == 429:
+                                code = "rate_limit_exceeded"
+                        elif isinstance(error_detail, str) and error_detail.strip():
+                            error_message = error_detail
 
-                            if schema_error:
-                                logger.info(
-                                    "Retrying Code Assist request without tools due to schema error: %s",
-                                    raw_message or error_message,
+                        # Attach retry-after hint when available
+                        retry_delay = None
+                        if response.status_code == 429:
+                            retry_delay = self._extract_retry_delay(
+                                BackendError(
+                                    message=error_message,
+                                    code=code,
+                                    status_code=response.status_code,
+                                    details=detail_payload,
                                 )
-                                response.close()
-                                # Retry once without tools/toolConfig
-                                async for retry_chunk in stream_generator(
-                                    _allow_tool_retry=False, without_tools=True
-                                ):
-                                    yield retry_chunk
-                                return
-
-                            # Extract user-friendly error message
-                            user_message = "An API error occurred. Please try again."
-                            if isinstance(general_error_detail, dict):
-                                user_message = general_error_detail.get(
-                                    "error", {}
-                                ).get("message", user_message)
-                            # Yield general error chunk instead of raising exception
-                            error_chunk = {
-                                "id": f"chatcmpl-error-{int(time.time())}",
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": effective_model,
-                                "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "error"}
-                                ],
-                                "error": {
-                                    "message": user_message,
-                                    "type": "api_error",
-                                    "code": response.status_code,
-                                },
-                            }
-                            yield ProcessedResponse(
-                                content=error_chunk,
-                                metadata={
-                                    "finish_reason": "error",
-                                    "error": error_chunk["error"],
-                                    "id": error_chunk["id"],
-                                    "model": error_chunk["model"],
-                                    "created": error_chunk["created"],
-                                },
                             )
-                            return
+                            if retry_delay is not None:
+                                detail_payload["retry_after"] = retry_delay
+
+                        with contextlib.suppress(Exception):
+                            response.close()
+
+                        raise BackendError(
+                            message=error_message,
+                            code=code,
+                            status_code=response.status_code,
+                            details=detail_payload,
+                            backend_name=self.backend_type,
+                        )
 
                     line_buffer = ""
                     done = False
@@ -2126,18 +1782,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     retry_delay = self._extract_retry_delay(
                                         rate_limit_error
                                     )
-                                    if retry_delay:
-                                        self._set_cooldown(
-                                            effective_model, duration=retry_delay
-                                        )
-                                    elif (
-                                        getattr(rate_limit_error, "code", None)
-                                        == "quota_exceeded"
-                                    ):
-                                        self._set_cooldown(effective_model)
+                                    details = (
+                                        rate_limit_error.details
+                                        if isinstance(rate_limit_error.details, dict)
+                                        else {"raw": rate_limit_error.details}
+                                    )
+                                    if retry_delay is not None:
+                                        details["retry_after"] = retry_delay
                                     with contextlib.suppress(Exception):
                                         response.close()
-                                    raise rate_limit_error
+                                    raise BackendError(
+                                        message=rate_limit_error.message,
+                                        code=rate_limit_error.code,
+                                        status_code=getattr(
+                                            rate_limit_error, "status_code", 429
+                                        ),
+                                        details=details,
+                                        backend_name=self.backend_type,
+                                    )
                             except json.JSONDecodeError as e:
                                 logger.warning(
                                     "Received malformed JSON chunk in streaming response: %s (error: %s)",
@@ -2268,25 +1930,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                             rate_limit_error
                                                         )
                                                     )
-                                                    if retry_delay:
-                                                        self._set_cooldown(
-                                                            effective_model,
-                                                            duration=retry_delay,
+                                                    details = (
+                                                        rate_limit_error.details
+                                                        if isinstance(
+                                                            rate_limit_error.details,
+                                                            dict,
                                                         )
-                                                    elif (
-                                                        getattr(
-                                                            rate_limit_error,
-                                                            "code",
-                                                            None,
-                                                        )
-                                                        == "quota_exceeded"
-                                                    ):
-                                                        self._set_cooldown(
-                                                            effective_model
+                                                        else {
+                                                            "raw": rate_limit_error.details
+                                                        }
+                                                    )
+                                                    if retry_delay is not None:
+                                                        details["retry_after"] = (
+                                                            retry_delay
                                                         )
                                                     with contextlib.suppress(Exception):
                                                         response.close()
-                                                    raise rate_limit_error
+                                                    raise BackendError(
+                                                        message=rate_limit_error.message,
+                                                        code=rate_limit_error.code,
+                                                        status_code=getattr(
+                                                            rate_limit_error,
+                                                            "status_code",
+                                                            429,
+                                                        ),
+                                                        details=details,
+                                                        backend_name=self.backend_type,
+                                                    )
 
                                                 error_info = (
                                                     parsed_error.get("error") or {}
@@ -2304,37 +1974,41 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                 if error_code == 429 or (
                                                     error_status == "RESOURCE_EXHAUSTED"
                                                 ):
-                                                    error_chunk = _build_error_chunk(
-                                                        error_message
-                                                        or "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
-                                                        code=int(error_code or 429),
-                                                        error_type=(
+                                                    with contextlib.suppress(Exception):
+                                                        response.close()
+                                                    raise BackendError(
+                                                        message=error_message
+                                                        or "Service temporarily unavailable due to rate limiting. Please try again later.",
+                                                        code=(
                                                             "quota_exceeded"
                                                             if error_status
                                                             == "RESOURCE_EXHAUSTED"
                                                             else "rate_limit_exceeded"
                                                         ),
-                                                    )
-                                                    with contextlib.suppress(Exception):
-                                                        response.close()
-                                                    yield ProcessedResponse(
-                                                        content=error_chunk,
-                                                        metadata={
-                                                            "finish_reason": "error",
-                                                            "error": error_chunk[
-                                                                "error"
-                                                            ],
-                                                            "id": error_chunk["id"],
-                                                            "model": error_chunk[
-                                                                "model"
-                                                            ],
-                                                            "created": error_chunk[
-                                                                "created"
-                                                            ],
+                                                        status_code=int(
+                                                            error_code or 429
+                                                        ),
+                                                        details={
+                                                            "raw": parsed_error,
+                                                            "retry_after": self._extract_retry_delay(
+                                                                BackendError(
+                                                                    message=error_message,
+                                                                    code=(
+                                                                        "quota_exceeded"
+                                                                        if error_status
+                                                                        == "RESOURCE_EXHAUSTED"
+                                                                        else "rate_limit_exceeded"
+                                                                    ),
+                                                                    status_code=int(
+                                                                        error_code
+                                                                        or 429
+                                                                    ),
+                                                                    details=parsed_error,
+                                                                )
+                                                            ),
                                                         },
+                                                        backend_name=self.backend_type,
                                                     )
-                                                    done = True
-                                                    return
 
                                                 error_message = (
                                                     error_message
@@ -2345,41 +2019,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                     if isinstance(error_code, int)
                                                     else 500
                                                 )
-                                                error_chunk = {
-                                                    "id": f"chatcmpl-error-{int(time.time())}",
-                                                    "object": "chat.completion.chunk",
-                                                    "created": int(time.time()),
-                                                    "model": effective_model,
-                                                    "choices": [
-                                                        {
-                                                            "index": 0,
-                                                            "delta": {},
-                                                            "finish_reason": "error",
-                                                        }
-                                                    ],
-                                                    "error": {
-                                                        "message": error_message,
-                                                        "type": "api_error",
-                                                        "code": error_code_value,
-                                                        "status": error_status or None,
-                                                    },
-                                                }
                                                 with contextlib.suppress(Exception):
                                                     response.close()
-                                                yield ProcessedResponse(
-                                                    content=error_chunk,
-                                                    metadata={
-                                                        "finish_reason": "error",
-                                                        "error": error_chunk["error"],
-                                                        "id": error_chunk["id"],
-                                                        "model": error_chunk["model"],
-                                                        "created": error_chunk[
-                                                            "created"
-                                                        ],
-                                                    },
+                                                raise BackendError(
+                                                    message=error_message,
+                                                    code="api_error",
+                                                    status_code=error_code_value,
+                                                    details={"raw": parsed_error},
+                                                    backend_name=self.backend_type,
                                                 )
-                                                done = True
-                                                return
                                             else:
                                                 error_json_buffer = None
 
@@ -2777,7 +2425,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     await prefetch_gen.aclose()
                     raise
 
-            return StreamingResponseEnvelope(
+            envelope = StreamingResponseEnvelope(
                 content=wrap_processed_response_stream_with_vtc(
                     continue_from_prefetch(),
                     vtc_enabled=vtc_enabled,
@@ -2787,6 +2435,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 ),
                 media_type="text/event-stream",
                 headers={},
+            )
+            return await self._response_post_processor.process_streaming(
+                envelope, effective_model
             )
 
         except AuthenticationError as e:
@@ -3088,18 +2739,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         _in_graceful_degradation: bool = False,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Handle 429 errors with graceful degradation.
-
-        This method implements retry with exponential backoff for rate-limited models.
-        Automatic model fallbacks (e.g., Pro -> Flash) are disabled; the Resilience
-        Layer at the BackendService level handles cross-backend failover instead.
-
-        Behavior:
-        1. Retry the original model with configured delays (exponential backoff with jitter)
-        2. If all retries are exhausted, mark the backend as unusable and raise an error
-        3. Recovery probing may restore the backend if enabled in configuration
-        """
-        # Prevent recursive graceful degradation calls
+        """Propagate 429s to the Resilience Layer; no connector-level retries/fallbacks."""
         if _in_graceful_degradation:
             raise BackendError(
                 message="Recursive graceful degradation detected",
@@ -3107,331 +2747,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 status_code=429,
             )
 
-        # Track attempts per request (not globally) to prevent premature exhaustion
-        request_attempts = 0
-
-        if not self._graceful_degradation.config.enabled:
-            # If graceful degradation is disabled, use original behavior
-            # Mark backend as completely unusable (not just quota exceeded)
-            self._quota_exceeded = True
-            self.is_functional = False
-            logger.error(
-                "Backend %s marked as unusable due to rate limit and graceful degradation disabled. "
-                "Manual intervention may be required to restore functionality.",
-                self.name,
+        retry_after = self._extract_retry_delay(error) if error else None
+        details: dict[str, Any] = {}
+        if error and error.details:
+            details = (
+                dict(error.details)
+                if isinstance(error.details, dict)
+                else {"raw": error.details}
             )
-            raise BackendError(
-                message="Rate limit exceeded and graceful degradation is disabled",
-                code="rate_limit_exceeded",
-                status_code=429,
-            )
+        if retry_after is not None:
+            details["retry_after"] = retry_after
 
-        # Check if fallback is disabled in config
-        disable_fallback = False
-        try:
-            disable_fallback = bool(self.config.backends.disable_gemini_oauth_fallback)
-        except AttributeError:  # pragma: no cover - defensive for legacy configs
-            disable_fallback = False
-
-        # Use manager to get the list of models to try (handles fallback logic)
-        models_to_try = self._graceful_degradation.get_models_to_try(
-            original_model, disable_fallback=disable_fallback
-        )
-        fallback_model = self._graceful_degradation.get_fallback_model(original_model)
-        if disable_fallback:
-            fallback_model = None
-
-        # Start tracking this invocation
-        start_time = self._graceful_degradation.start_invocation()
-
-        for _, model in enumerate(models_to_try):
-            # Get or create retry state for this model
-            state = self._graceful_degradation.get_or_create_state(model)
-
-            # Check if the initial error dictates a cooldown for the original model
-            # This prevents "spamming" the API when it has already told us to wait
-            if (
-                model == original_model
-                and error
-                and self._is_rate_limit_like_error(error)
-            ):
-                retry_delay = self._extract_retry_delay(error)
-                if retry_delay is not None:
-                    # Set cooldown with the exact duration provided by the API
-                    self._set_cooldown(model, duration=retry_delay)
-
-                    # For delays within max_silent_wait, let BackendService handle via
-                    # transparent wait-and-retry with keepalive SSE comments instead of
-                    # doing internal graceful degradation retries
-                    max_silent_wait = getattr(
-                        getattr(self.config, "failure_handling", None),
-                        "max_silent_wait",
-                        60.0,  # Fallback to default if config not available
-                    )
-                    if retry_delay <= max_silent_wait:
-                        logger.info(
-                            "Model %s returned 429 with short retry delay (%.2fs <= %.0fs max_silent_wait); "
-                            "letting BackendService handle transparent retry with keepalives.",
-                            model,
-                            retry_delay,
-                            max_silent_wait,
-                        )
-                        # Create a new BackendError with retry_after in details
-                        # so BackendService failure handling strategy can extract it
-                        error_details: dict[str, Any] = (
-                            dict(error.details) if error.details else {}
-                        )
-                        error_details["retry_after"] = retry_delay
-                        raise BackendError(
-                            message=error.message or "Rate limit exceeded",
-                            code=error.code or "rate_limit_exceeded",
-                            status_code=429,
-                            details=error_details,
-                            backend_name=self.backend_type,
-                        )
-                    else:
-                        logger.warning(
-                            "Model %s returned 429 with long retry delay (%.2fs > %.0fs max_silent_wait); "
-                            "skipping retries and checking fallback options.",
-                            model,
-                            retry_delay,
-                            max_silent_wait,
-                        )
-                        # For long delays, skip internal retries but continue to fallback models
-                        continue
-
-            # If model is in cooldown, try to recover it first
-            if self._is_in_cooldown(model):
-                # For inline recovery, we need to fully recover the model (2 successful probes)
-                # Keep trying until either recovery succeeds or we give up
-                recovered = False
-                max_inline_probes = 4  # Prevent infinite loops
-                for _ in range(max_inline_probes):
-                    # Store probe success count before the call to detect partial progress
-                    current_state: ModelRetryState | None = (
-                        self._graceful_degradation.model_retry_states.get(model)
-                    )
-                    old_probe_count = (
-                        current_state.probe_success_count if current_state else 0
-                    )
-
-                    if await self._probe_model_recovery(
-                        model, bypass_interval_check=True
-                    ):
-                        # Check if fully recovered
-                        if not self._is_in_cooldown(model):
-                            recovered = True
-                            break
-                        # Partial success, continue probing
-                        continue
-                    else:
-                        # Check if we made progress (probe succeeded but didn't fully recover yet)
-                        new_probe_count = (
-                            current_state.probe_success_count if current_state else 0
-                        )
-                        if new_probe_count > old_probe_count:
-                            # Partial progress made, continue probing
-                            continue
-                        else:
-                            # Actual probe failed, stop trying
-                            break
-
-                if recovered:
-                    # Model recovered, we can use it
-                    pass
-                else:
-                    # Still in cooldown, skip to next model
-                    continue
-
-            # Try the model with retries
-            is_fallback_model = False
-            if fallback_model:
-                if isinstance(fallback_model, list):
-                    is_fallback_model = model in fallback_model
-                else:
-                    is_fallback_model = model == fallback_model
-
-            fallback_recorded = False
-            max_attempts_for_model = (
-                len(self._graceful_degradation.config.retry_delays) + 1
-            )
-            if model == original_model and fallback_model:
-                max_attempts_for_model = 1
-
-            last_error = None
-            for attempt in range(max_attempts_for_model):
-                # Check per-request attempt limit (not global) to prevent premature exhaustion
-                if (
-                    request_attempts
-                    >= self._graceful_degradation.config.max_total_attempts
-                ):
-                    self._graceful_degradation.record_duration(time.time() - start_time)
-                    raise BackendError(
-                        message="Maximum total attempts exceeded in graceful degradation",
-                        code="max_attempts_exceeded",
-                        status_code=429,
-                    )
-
-                request_attempts += 1
-                self._graceful_degradation.record_attempt()
-                if hasattr(self, "_total_attempts"):
-                    with contextlib.suppress(Exception):
-                        self._total_attempts += 1  # type: ignore[operator]
-
-                state.attempts = attempt
-
-                try:
-                    # Calculate delay for this attempt with jitter
-                    delay = self._graceful_degradation.calculate_delay(attempt)
-
-                    logger.info(
-                        f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt})"
-                    )
-                    self._graceful_degradation.record_wait(delay)
-                    await asyncio.sleep(delay)
-
-                    if is_fallback_model and not fallback_recorded:
-                        self._graceful_degradation.record_fallback()
-                        fallback_recorded = True
-
-                    # Make the API call
-                    # IMPORTANT: Always use non-streaming method for graceful degradation
-                    # to prevent recursive 429 loops from streaming SSE processing
-                    result = await self._chat_completions_code_assist(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model,
-                        _in_graceful_degradation=True,
-                        **kwargs,
-                    )
-                    self._graceful_degradation.record_duration(time.time() - start_time)
-                    return result
-
-                except BackendError as e:
-                    last_error = e
-                    if not self._is_rate_limit_like_error(e):
-                        self._graceful_degradation.record_duration(
-                            time.time() - start_time
-                        )
-                        raise
-
-                    if logger.isEnabledFor(logging.INFO):
-                        if getattr(e, "code", None) == "empty_response":
-                            logger.info(
-                                "Model %s returned empty response on attempt %s",
-                                model,
-                                attempt + 1,
-                            )
-                        else:
-                            logger.info(
-                                f"Model {model} returned 429 on attempt {attempt + 1}"
-                            )
-
-                    # If this was our last attempt for this model, move to next model
-                    if attempt >= max_attempts_for_model - 1:
-                        logger.info(
-                            f"Model {model} exhausted after {attempt + 1} attempts"
-                        )
-                        break
-
-            # If we get here, all attempts for this model failed
-            if model == original_model:
-                # Original model failed, put it in cooldown
-                retry_delay = (
-                    self._extract_retry_delay(last_error) if last_error else None
-                )
-
-                # For empty responses without explicit retry delay, use a minimal cooldown
-                # (5s instead of default 10min) since empty responses indicate transient
-                # issues (content filtering, safety blocks) not quota exhaustion
-                if retry_delay is None and last_error:
-                    is_empty_response = (
-                        getattr(last_error, "code", None) == "empty_response"
-                    )
-                    if is_empty_response:
-                        retry_delay = 5.0  # Minimal cooldown for empty responses
-                        logger.info(
-                            "Model %s returned empty response, using minimal cooldown of %.1fs",
-                            model,
-                            retry_delay,
-                        )
-
-                self._set_cooldown(model, duration=retry_delay)
-
-                if retry_delay and not (
-                    last_error and getattr(last_error, "code", None) == "empty_response"
-                ):
-                    logger.info(
-                        "Model %s put in cooldown for %.1fs based on API response",
-                        model,
-                        retry_delay,
-                    )
-
-                # Start recovery probing task if enabled
-                if self._graceful_degradation.config.enable_recovery_probing and (
-                    self._recovery_probe_task is None
-                    or self._recovery_probe_task.done()
-                ):
-                    self._recovery_probe_task = asyncio.create_task(
-                        self._recovery_probing_loop()
-                    )
-            elif is_fallback_model:
-                # Fallback model failed - put it in cooldown too
-                retry_delay = (
-                    self._extract_retry_delay(last_error) if last_error else None
-                )
-
-                # For empty responses without explicit retry delay, use a minimal cooldown
-                if retry_delay is None and last_error:
-                    is_empty_response = (
-                        getattr(last_error, "code", None) == "empty_response"
-                    )
-                    if is_empty_response:
-                        retry_delay = 5.0  # Minimal cooldown for empty responses
-                        logger.info(
-                            "Fallback model %s returned empty response, using minimal cooldown of %.1fs",
-                            model,
-                            retry_delay,
-                        )
-
-                self._set_cooldown(model, duration=retry_delay)
-
-                if retry_delay and not (
-                    last_error and getattr(last_error, "code", None) == "empty_response"
-                ):
-                    logger.info(
-                        "Fallback model %s put in cooldown for %.1fs based on API response",
-                        model,
-                        retry_delay,
-                    )
-                elif not (
-                    last_error and getattr(last_error, "code", None) == "empty_response"
-                ):
-                    logger.info("Fallback model %s exhausted, put in cooldown", model)
-
-        # If we get here, all requested models failed
-        # Mark quota exceeded but keep backend functional for other models
-        self._graceful_degradation.record_duration(time.time() - start_time)
-        self._mark_backend_unusable(reason="quota_exceeded")
-        self._graceful_degradation.mark_permanently_failed()
-        self.is_functional = False
-
-        # If fallback is disabled, the error should reflect that all models are
-        # considered exhausted because no fallback was attempted.
-        if disable_fallback:
-            error_code = "all_models_exhausted"
-            error_message = "all models exhausted; fallback is disabled."
-        else:
-            error_code = "models_rate_limited"
-            error_message = (
-                "All models exhausted including fallbacks. Please try again later."
-            )
-
-        # Raise error to inform client about rate limiting
         raise BackendError(
-            message=error_message,
-            code=error_code,
-            status_code=429,
+            message=(error.message if error else "Rate limit exceeded"),
+            code=(error.code if error else "rate_limit_exceeded"),
+            status_code=getattr(error, "status_code", 429) if error else 429,
+            details=details or None,
+            backend_name=self.backend_type,
         )
 
     async def _recovery_probing_loop(self) -> None:

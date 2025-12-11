@@ -235,9 +235,10 @@ class CommandExtractionService:
         ]
 
         # Fallback pattern for absolute paths
-        absolute_path_fallback = re.compile(
-            r"(?P<path>(?:[A-Za-z]:\\\\|/|\\\\)[^\s'\";]+)"
-        )
+        # On Windows: match drive letters with single backslash (C:\...) OR UNC paths
+        # (\\server\...). We don't match Unix-style / paths on Windows since they may
+        # incorrectly catch relative paths like ./.venv/... that get misinterpreted.
+        absolute_path_fallback = re.compile(r"(?P<path>(?:[A-Za-z]:|\\\\)[^\s'\";]+)")
 
         for pattern in patterns:
             for match in pattern.finditer(command):

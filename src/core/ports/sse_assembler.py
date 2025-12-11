@@ -24,6 +24,7 @@ from src.core.ports.streaming_metrics import (
     get_metrics_instance,
     get_sampler_instance,
 )
+from src.core.services.steering_leak_protection import get_steering_leak_protector
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,16 @@ class SSEAssembler(IStreamAssembler):
                             chunk.content or chunk.metadata,
                             stream_id_for_metrics,
                         )
+                    # CRITICAL: Final safety check for steering message leaks
+                    protector = get_steering_leak_protector()
+                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
+                    if had_leak:
+                        logger.warning(
+                            "[STREAMING][SSE] Steering leak detected in terminal chunk "
+                            "for stream %s - sanitized before sending to client",
+                            stream_id_for_metrics,
+                        )
+
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
                             TRACE_LEVEL,
@@ -184,6 +195,19 @@ class SSEAssembler(IStreamAssembler):
 
                 # Convert chunk to bytes using StreamingContent's to_bytes method
                 chunk_bytes = chunk.to_bytes()
+
+                # CRITICAL: Apply steering leak protection as final safety net
+                # This ensures internal steering data NEVER reaches clients, even if
+                # upstream code fails to properly sanitize responses
+                protector = get_steering_leak_protector()
+                if protector.enabled:
+                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
+                    if had_leak:
+                        logger.warning(
+                            "[STREAMING][SSE] SECURITY: Sanitized leaked steering data "
+                            "from outbound chunk for stream %s",
+                            stream_id_for_metrics,
+                        )
 
                 # Log SSE output format at DEBUG level for diagnostic tracking
                 from src.core.ports.streaming_contracts import StopChunkWithUsage
@@ -226,6 +250,17 @@ class SSEAssembler(IStreamAssembler):
                     if not sample_emitted:
                         _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
                         sample_emitted = True
+
+                    # CRITICAL: Final safety check for steering message leaks
+                    # This is the last line of defense before bytes reach the client
+                    protector = get_steering_leak_protector()
+                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
+                    if had_leak:
+                        logger.warning(
+                            "[STREAMING][SSE] Steering leak detected and sanitized "
+                            "for stream %s - this indicates a bug in upstream processing",
+                            stream_id_for_metrics,
+                        )
 
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(

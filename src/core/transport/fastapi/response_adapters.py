@@ -29,6 +29,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.steering_leak_protection import get_steering_leak_protector
 from src.core.services.streaming.stream_context_registry import (
     get_global_streaming_context_registry,
 )
@@ -933,6 +934,18 @@ def _handle_backend_error_status_code(content: Any, status_code: int) -> int:
 def _create_json_response(
     content: Any, status_code: int, headers: dict[str, Any]
 ) -> JSONResponse:
+    # CRITICAL: Apply steering leak protection as final safety net for non-streaming responses
+    # This ensures internal steering data NEVER reaches clients, even if upstream code
+    # fails to properly sanitize responses
+    protector = get_steering_leak_protector()
+    safe_content = content
+    if protector.enabled and isinstance(content, dict):
+        safe_content, had_leak = protector.sanitize_dict(content)
+        if had_leak:
+            logger.warning(
+                "SECURITY: Sanitized leaked steering data from non-streaming JSON response"
+            )
+
     # Allow provider-specific headers for usage tracking and rate limiting
     allowed_prefixes = ("x-", "access-control-", "anthropic-", "openai-", "zenmux-")
     filtered_headers = {
@@ -942,7 +955,7 @@ def _create_json_response(
     }
 
     response = JSONResponse(
-        content=content,
+        content=safe_content,
         status_code=status_code,
         media_type="application/json",
     )
@@ -955,14 +968,35 @@ def _create_other_response(
     content: Any, status_code: int, headers: dict[str, Any], media_type: str
 ) -> Response:
     content_str = content
+
+    # CRITICAL: Apply steering leak protection as final safety net
+    protector = get_steering_leak_protector()
+
     if isinstance(content, dict | list | tuple):
         try:
             # Use dict(content) if it's a dict to safely handle StopChunkWithUsage
             # which is a dict subclass that raises an error on str()
             safe_content = dict(content) if isinstance(content, dict) else content
+
+            # Sanitize dict content for steering leaks
+            if protector.enabled and isinstance(safe_content, dict):
+                safe_content, had_leak = protector.sanitize_dict(safe_content)
+                if had_leak:
+                    logger.warning(
+                        "SECURITY: Sanitized leaked steering data from non-JSON response"
+                    )
+
             content_str = json.dumps(safe_content)
         except (TypeError, ValueError):
             content_str = str(content)
+
+    # Also sanitize string content for steering leaks
+    if protector.enabled and isinstance(content_str, str):
+        content_str, had_leak = protector.sanitize_content(content_str)
+        if had_leak:
+            logger.warning(
+                "SECURITY: Sanitized leaked steering data from string response"
+            )
 
     return Response(
         content=content_str,

@@ -1,5 +1,14 @@
 """Tests for disable_gemini_oauth_fallback behavior in graceful degradation."""
 
+import pytest
+
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Connector-level graceful degradation/fallback logic removed; "
+        "handled by Resilience Layer instead."
+    )
+)
+
 import asyncio
 import contextlib
 import time

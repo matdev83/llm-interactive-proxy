@@ -1,13 +1,16 @@
 """
 Behavioral tests for graceful degradation and recovery probing.
 
-These tests verify the complete end-to-end behavior of the graceful degradation
-system including retry logic, model fallback, cooldowns, and recovery probing.
+Connector-level graceful degradation has been removed in favor of the Resilience
+Layer; these legacy scenarios are skipped.
 """
 
 import pytest
 
-pytestmark = pytest.mark.integration
+# Skip entire module; resilience now handled above connectors
+pytestmark = pytest.mark.skip(
+    reason="Connector-level graceful degradation superseded by Resilience Layer."
+)
 
 import asyncio
 import contextlib

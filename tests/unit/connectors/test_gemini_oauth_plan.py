@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.skip(
+    reason="Connector-level graceful degradation disabled; streaming 429 handling now delegated to Resilience Layer."
+)
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope

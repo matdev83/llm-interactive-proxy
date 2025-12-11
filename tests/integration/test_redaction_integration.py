@@ -257,6 +257,7 @@ async def test_end_to_end_non_streaming_redaction() -> None:
         from src.core.services.session_manager_service import SessionManager
 
         mock_session_resolver = AsyncMock(spec=ISessionResolver)
+        mock_session_resolver.resolve_session_id.return_value = "sess"
         mock_response_manager = AsyncMock(spec=IResponseManager)
         fingerprint_service = ConversationFingerprintService()
 
@@ -341,6 +342,7 @@ async def test_end_to_end_streaming_redaction() -> None:
         from src.core.services.session_manager_service import SessionManager
 
         mock_session_resolver = AsyncMock(spec=ISessionResolver)
+        mock_session_resolver.resolve_session_id.return_value = "sess"
         mock_response_manager = AsyncMock(spec=IResponseManager)
         fingerprint_service = ConversationFingerprintService()
 

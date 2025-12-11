@@ -339,10 +339,21 @@ def test_invalid_command_prefix_cli(
     for i in range(1, 21):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    args = parse_cli_args(["--command-prefix", prefix])
-    with pytest.raises(ValueError):
-        apply_cli_args(args)
-    monkeypatch.delenv("COMMAND_PREFIX", raising=False)
+
+    # apply_cli_args modifies os.environ["COMMAND_PREFIX"] directly, so we need to manually cleanup
+    original_prefix = os.environ.get("COMMAND_PREFIX")
+
+    try:
+        args = parse_cli_args(["--command-prefix", prefix])
+        with pytest.raises(ValueError):
+            apply_cli_args(args)
+    finally:
+        # Restore environment
+        if original_prefix is None:
+            if "COMMAND_PREFIX" in os.environ:
+                del os.environ["COMMAND_PREFIX"]
+        else:
+            os.environ["COMMAND_PREFIX"] = original_prefix
 
 
 def test_check_privileges_root(monkeypatch: pytest.MonkeyPatch) -> None:

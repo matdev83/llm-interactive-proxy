@@ -211,7 +211,7 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
 
     def mock_iter_content(*args, **kwargs):
         # Simulate character-by-character streaming as the real API does
-        data = b'data: {"choices": [{"delta": {"content": "Streamed "}}], "finish_reason": "stop"}\ndata: {"choices": [{"delta": {"content": "World"}}], "finish_reason": "stop"}\ndata: [DONE]\n'
+        data = b'data: {"choices": [{"delta": {"content": "Streamed "}}]}\ndata: {"choices": [{"delta": {"content": "World"}}]}\ndata: {"choices": [{"delta": {}, "finish_reason": "stop"}]}\ndata: [DONE]\n'
         for byte in data:
             yield bytes([byte])
 
