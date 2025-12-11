@@ -46,6 +46,11 @@ class TestDroidAntigravityPathFixHandler:
             calling_agent=calling_agent,
         )
 
+    def _expected_path(self, relative_path: str) -> str:
+        """Helper to get expected absolute path."""
+        import os
+        return os.path.abspath(os.path.join(os.getcwd(), relative_path.lstrip("/\\")))
+
     # ==================== can_handle tests ====================
 
     @pytest.mark.asyncio
@@ -140,11 +145,14 @@ class TestDroidAntigravityPathFixHandler:
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Handler should not match when path is already absolute."""
+        # Note: on Windows, r"\src\..." is NOT fully absolute (lacks drive letter)
+        # so it SHOULD be handled.
+        # We test with a real absolute path (with drive letter)
         context = self._create_context(
-            tool_arguments={"file_path": r"\src\core\config\app_config.py"},
+            tool_arguments={"file_path": r"C:\src\core\config\app_config.py"},
         )
         result = await enabled_handler.can_handle(context)
-        assert result is False, "Should not match already-absolute path"
+        assert result is False, "Should not match already-absolute path with drive letter"
 
     # ==================== handle tests ====================
 
@@ -153,37 +161,40 @@ class TestDroidAntigravityPathFixHandler:
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Handler should fix relative paths by prepending backslash and converting slashes."""
+        rel_path = "src/core/config/app_config.py"
         context = self._create_context(
-            tool_arguments={"file_path": "src/core/config/app_config.py"},
+            tool_arguments={"file_path": rel_path},
         )
         result = await enabled_handler.handle(context)
 
         assert result.should_swallow is False, "Should not swallow the tool call"
-        assert context.tool_arguments["file_path"] == r"\src\core\config\app_config.py"
+        assert context.tool_arguments["file_path"] == self._expected_path(rel_path)
 
     @pytest.mark.asyncio
     async def test_handle_converts_forward_slashes(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Handler should convert forward slashes to backslashes."""
+        rel_path = "src/connectors/base.py"
         context = self._create_context(
-            tool_arguments={"file_path": "src/connectors/base.py"},
+            tool_arguments={"file_path": rel_path},
         )
         await enabled_handler.handle(context)
 
-        assert context.tool_arguments["file_path"] == r"\src\connectors\base.py"
+        assert context.tool_arguments["file_path"] == self._expected_path(rel_path)
 
     @pytest.mark.asyncio
     async def test_handle_fixes_root_file_path(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Handler should fix paths without separators (files in root)."""
+        rel_path = "README.md"
         context = self._create_context(
-            tool_arguments={"file_path": "README.md"},
+            tool_arguments={"file_path": rel_path},
         )
         await enabled_handler.handle(context)
 
-        assert context.tool_arguments["file_path"] == r"\README.md"
+        assert context.tool_arguments["file_path"] == self._expected_path(rel_path)
 
     @pytest.mark.asyncio
     async def test_handle_real_scenario_from_cbor(
@@ -191,12 +202,13 @@ class TestDroidAntigravityPathFixHandler:
     ) -> None:
         """Test the exact scenario from CBOR capture: READ (src/core/config/app_config.py)."""
         # This is the exact scenario that fails in production
+        rel_path = "src/core/config/app_config.py"
         context = self._create_context(
             calling_agent="Droid",
             backend_name="gemini-oauth-antigravity",
             model_name="gemini-3-pro-high",
             tool_name="Read",
-            tool_arguments={"file_path": "src/core/config/app_config.py"},
+            tool_arguments={"file_path": rel_path},
         )
 
         # First verify can_handle returns True
@@ -206,7 +218,7 @@ class TestDroidAntigravityPathFixHandler:
         # Then verify handle fixes the path
         result = await enabled_handler.handle(context)
         assert result.should_swallow is False
-        assert context.tool_arguments["file_path"] == r"\src\core\config\app_config.py"
+        assert context.tool_arguments["file_path"] == self._expected_path(rel_path)
 
     @pytest.mark.asyncio
     async def test_handle_factory_cli_scenario_from_production(
@@ -217,18 +229,16 @@ class TestDroidAntigravityPathFixHandler:
         From production logs:
         - User-Agent: factory-cli/0.35.0
         - Path: tests/unit/services/test_steering_leak_protection.py (relative)
-        - Expected: Should be fixed to \\tests\\unit\\services\\test_steering_leak_protection.py
-
-        This test verifies the fix for the bug where Droid's actual User-Agent
-        (factory-cli/X.Y.Z) wasn't being recognized.
+        - Expected: Should be fixed to full absolute path
         """
+        rel_path = "tests/unit/services/test_steering_leak_protection.py"
         context = self._create_context(
             calling_agent="factory-cli/0.35.0",  # Actual User-Agent from production
             backend_name="gemini-oauth-antigravity",
             model_name="gemini-3-pro-high",
             tool_name="Read",
             tool_arguments={
-                "file_path": "tests/unit/services/test_steering_leak_protection.py"
+                "file_path": rel_path
             },
         )
 
@@ -241,7 +251,7 @@ class TestDroidAntigravityPathFixHandler:
         assert result.should_swallow is False
         assert (
             context.tool_arguments["file_path"]
-            == r"\tests\unit\services\test_steering_leak_protection.py"
+            == self._expected_path(rel_path)
         )
 
     # ==================== Internal method tests ====================
@@ -259,18 +269,24 @@ class TestDroidAntigravityPathFixHandler:
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Absolute paths don't need fixing."""
-        assert enabled_handler._needs_path_fix(r"\src\file.py") is False
-        assert enabled_handler._needs_path_fix("/src/file.py") is False
+        # Drive letter paths are absolute
         assert enabled_handler._needs_path_fix("C:\\Users\\file.py") is False
+        assert enabled_handler._needs_path_fix("d:/src/file.py") is False
+        
+        # Paths starting with \ or / lacking drive letter DO need fixing on Windows
+        # because we want to anchor them to CWD
+        assert enabled_handler._needs_path_fix(r"\src\file.py") is True
+        assert enabled_handler._needs_path_fix("/src/file.py") is True
 
     def test_fix_path_transforms_correctly(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Path fix should prepend backslash and convert slashes."""
-        assert enabled_handler._fix_path("src/file.py") == r"\src\file.py"
-        assert enabled_handler._fix_path("src/core/config.py") == r"\src\core\config.py"
-        assert enabled_handler._fix_path("README.md") == r"\README.md"
-        assert enabled_handler._fix_path("pyproject.toml") == r"\pyproject.toml"
+        assert enabled_handler._fix_path("src/file.py") == self._expected_path("src/file.py")
+        assert enabled_handler._fix_path("src/core/config.py") == self._expected_path("src/core/config.py")
+        assert enabled_handler._fix_path("README.md") == self._expected_path("README.md")
+        assert enabled_handler._fix_path("pyproject.toml") == self._expected_path("pyproject.toml")
+
 
     def test_extract_path_from_dict(
         self, enabled_handler: DroidAntigravityPathFixHandler

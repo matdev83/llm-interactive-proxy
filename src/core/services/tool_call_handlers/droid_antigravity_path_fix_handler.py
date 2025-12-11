@@ -175,8 +175,9 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
     def _needs_path_fix(self, path: str) -> bool:
         """Check if a path needs fixing.
 
-        A path needs fixing if it's a relative path (doesn't start with
-        backslash or forward slash).
+        A path needs fixing if:
+        1. It is relative (e.g. "src/file.py")
+        2. It is absolute but lacks drive letter on Windows (e.g. "/src/file.py")
 
         Args:
             path: The path to check
@@ -187,36 +188,43 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         if not path:
             return False
 
-        # Path is already absolute if it starts with \ or /
-        if path.startswith(("\\", "/")):
+        # If it has a drive letter, it's a full Windows path
+        if re.match(r"^[a-zA-Z]:", path):
+            return False
+            
+        # If it's a UNC path (starts with \\), assume it's valid
+        if path.startswith("\\\\"):
             return False
 
-        # Check if it starts with a drive letter (C:, D:, etc.)
-        # These are already absolute and don't need fixing
-        # If it's a relative path (e.g., "src/file.py"), it needs fixing
-        return not re.match(r"^[a-zA-Z]:", path)
+        # Everything else (relative, or starting with single / or \)
+        # needs to be anchored to the project root (CWD)
+        return True
 
     def _fix_path(self, path: str) -> str:
-        """Fix a relative path to an absolute Windows path.
+        """Fix a path to be an absolute Windows path relative to CWD.
 
         Transformation:
-        1. Replace forward slashes with backslashes
-        2. Prepend backslash if not present
+        1. Strip leading slashes/backslashes
+        2. Join with current working directory
+        3. Normalize separators
 
         Args:
-            path: The relative path to fix
+            path: The path to fix
 
         Returns:
-            Fixed absolute path
+            Fixed absolute path including drive letter
         """
-        # Convert forward slashes to backslashes
-        fixed = path.replace("/", "\\")
+        import os
 
-        # Prepend backslash if not present
-        if not fixed.startswith("\\"):
-            fixed = "\\" + fixed
-
-        return fixed
+        # Strip potential leading separators to ensure we append to CWD
+        # instead of resolving to drive root
+        cleaned_path = path.lstrip("/\\")
+        
+        # Join with CWD to get full path
+        full_path = os.path.join(os.getcwd(), cleaned_path)
+        
+        # Normalize (resolves .. and separators)
+        return os.path.abspath(full_path)
 
     def _update_path(self, arguments: Any, fixed_path: str) -> None:
         """Update the path in tool arguments.

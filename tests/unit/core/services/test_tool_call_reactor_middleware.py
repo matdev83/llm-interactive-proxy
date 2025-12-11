@@ -551,12 +551,17 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
     assert outcome in {"success", "recovered"}
 
 
+def _expected_path(relative_path: str) -> str:
+    """Helper to get expected absolute path."""
+    import os
+    return os.path.abspath(os.path.join(os.getcwd(), relative_path.lstrip("/\\")))
+
 def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
     """Single-segment relative paths should be normalized with leading forward slash."""
     fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         ".gitignore", "gemini-oauth-antigravity", "droid"
     )
-    assert fixed == "/.gitignore"
+    assert fixed == _expected_path(".gitignore")
     assert modified is True
 
 
@@ -567,7 +572,7 @@ def test_maybe_fix_droid_antigravity_path_handles_single_filename_dict() -> None
         args, "gemini-oauth-antigravity", "droid"
     )
     assert isinstance(fixed, dict)
-    assert fixed.get("file_path") == "/foo.txt"
+    assert fixed.get("file_path") == _expected_path("foo.txt")
     assert modified is True
 
 
@@ -578,27 +583,31 @@ def test_maybe_fix_droid_antigravity_path_handles_nested_path() -> None:
         args, "gemini-oauth-antigravity", "droid"
     )
     assert isinstance(fixed, dict)
-    assert fixed.get("file_path") == "/tests/behavior/some_file.py"
+    assert fixed.get("file_path") == _expected_path("tests/behavior/some_file.py")
     assert modified is True
 
 
 def test_maybe_fix_droid_antigravity_path_not_modified_for_absolute_path() -> None:
     """Paths that are already absolute should not be modified."""
-    # Test with forward slash prefix
+    # Test with forward slash prefix - on Windows this NEEDS fixing to be anchored to CWD
+    # unless it has a drive letter.
     args: dict[str, str] = {"file_path": "/src/test.py"}
     fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         args, "gemini-oauth-antigravity", "droid"
     )
-    assert fixed is args  # Same reference, unchanged
-    assert modified is False
+    
+    # On Windows, /src/test.py is not fully absolute, so it gets fixed
+    assert fixed["file_path"] == _expected_path("src/test.py")
+    assert modified is True
 
     # Test with backslash prefix
     args2: dict[str, str] = {"file_path": "\\src\\test.py"}
     fixed2, modified2 = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         args2, "gemini-oauth-antigravity", "droid"
     )
-    assert fixed2 is args2  # Same reference, unchanged
-    assert modified2 is False
+    # On Windows, \src\test.py is not fully absolute (drive relative), so it gets fixed
+    assert fixed2["file_path"] == _expected_path("src/test.py")
+    assert modified2 is True
 
 
 def test_maybe_fix_droid_antigravity_path_not_modified_for_drive_letter() -> None:
@@ -639,7 +648,7 @@ def test_maybe_fix_droid_antigravity_path_handles_factory_cli_agent() -> None:
     assert isinstance(fixed, dict)
     assert (
         fixed.get("file_path")
-        == "/tests/unit/services/test_steering_leak_protection.py"
+        == _expected_path("tests/unit/services/test_steering_leak_protection.py")
     )
     assert modified is True
 
@@ -660,7 +669,7 @@ def test_maybe_fix_droid_antigravity_path_handles_factory_variations() -> None:
         )
         assert isinstance(fixed, dict), f"Should return dict for agent: {agent_name}"
         assert (
-            fixed.get("file_path") == "/src/test.py"
+            fixed.get("file_path") == _expected_path("src/test.py")
         ), f"Should fix path for agent: {agent_name}"
         assert modified is True, f"Should mark as modified for agent: {agent_name}"
 

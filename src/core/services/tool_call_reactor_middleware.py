@@ -787,14 +787,19 @@ class ToolCallReactorFeature(IResponseFeature):
         if not path:
             return tool_arguments, False
 
-        if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
+        # If it has a drive letter, it's a full Windows path
+        if re.match(r"^[a-zA-Z]:", path):
             return tool_arguments, False
 
-        # Use Unix-style forward slashes for chroot-style absolute paths
-        # The path is treated as absolute within the project root (chroot model)
-        fixed = path.replace("\\", "/")
-        if not fixed.startswith("/"):
-            fixed = "/" + fixed
+        # If it's a UNC path (starts with \\), assume it's valid
+        if path.startswith("\\\\"):
+            return tool_arguments, False
+
+        # Fix the path to be absolute relative to CWD
+        # Strip potential leading separators to ensure we append to CWD
+        import os
+        cleaned_path = path.lstrip("/\\")
+        fixed = os.path.abspath(os.path.join(os.getcwd(), cleaned_path))
 
         if isinstance(args, str):
             return fixed, True
@@ -1553,14 +1558,19 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not path:
             return tool_arguments, False
 
-        if path.startswith(("\\", "/")) or re.match(r"^[a-zA-Z]:", path):
+        # If it has a drive letter, it's a full Windows path
+        if re.match(r"^[a-zA-Z]:", path):
             return tool_arguments, False
 
-        # Use Unix-style forward slashes for chroot-style absolute paths
-        # The path is treated as absolute within the project root (chroot model)
-        fixed = path.replace("\\", "/")
-        if not fixed.startswith("/"):
-            fixed = "/" + fixed
+        # If it's a UNC path (starts with \\), assume it's valid
+        if path.startswith("\\\\"):
+            return tool_arguments, False
+
+        # Fix the path to be absolute relative to CWD
+        # Strip potential leading separators to ensure we append to CWD
+        import os
+        cleaned_path = path.lstrip("/\\")
+        fixed = os.path.abspath(os.path.join(os.getcwd(), cleaned_path))
 
         if isinstance(args, str):
             return fixed, True
