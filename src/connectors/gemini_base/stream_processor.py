@@ -217,6 +217,62 @@ def is_quota_error_message(message: str) -> bool:
     )
 
 
+def coerce_chunk_to_dict(chunk: Any) -> dict[str, Any] | None:
+    """Coerce a chunk to a dict, handling Pydantic models.
+
+    Args:
+        chunk: The chunk to coerce (dict, Pydantic model, or other).
+
+    Returns:
+        The chunk as a dict, or None if coercion failed.
+    """
+    if isinstance(chunk, dict):
+        return chunk
+
+    # Handle Pydantic models
+    dump = getattr(chunk, "model_dump", lambda **_: None)(exclude_none=True)
+    if isinstance(dump, dict):
+        return dump
+
+    return None
+
+
+def normalize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a streaming chunk in place.
+
+    This handles:
+    - Lowercasing finish_reason for consistency
+    - Setting finish_reason='tool_calls' when tools are present without explicit finish
+
+    Modifies the chunk in place and returns it for chaining.
+
+    Args:
+        chunk: The chunk to normalize.
+
+    Returns:
+        The modified chunk.
+    """
+    choices = chunk.get("choices") or []
+    if not choices:
+        return chunk
+
+    choice = choices[0] or {}
+    delta = choice.get("delta") or {}
+    finish_reason = choice.get("finish_reason")
+
+    # Normalize finish_reason to lowercase for consistency
+    if isinstance(finish_reason, str):
+        finish_reason = finish_reason.lower()
+        choice["finish_reason"] = finish_reason
+
+    # Set finish_reason for tool calls if not already set
+    has_tools = bool(delta.get("tool_calls"))
+    if has_tools and not finish_reason:
+        choice["finish_reason"] = "tool_calls"
+
+    return chunk
+
+
 def should_skip_chunk(chunk: dict[str, Any]) -> bool:
     """Determine if a streaming chunk should be skipped.
 
@@ -224,9 +280,14 @@ def should_skip_chunk(chunk: dict[str, Any]) -> bool:
     - Chunks with actual content
     - Usage-only chunks (important for token counting)
     - Stop chunks (needed for proper stream termination)
+    - Tool call chunks
+    - Reasoning chunks
+
+    NOTE: This function assumes the chunk has already been normalized
+    via normalize_chunk(). Call normalize_chunk() first if needed.
 
     Args:
-        chunk: The chunk to evaluate.
+        chunk: The chunk to evaluate (must be a dict).
 
     Returns:
         True if the chunk should be skipped, False otherwise.
@@ -249,8 +310,43 @@ def should_skip_chunk(chunk: dict[str, Any]) -> bool:
     has_tools = bool(delta.get("tool_calls"))
     has_reasoning = bool(delta.get("reasoning_content") or delta.get("reasoning"))
 
-    # Skip empty delta chunks, keep chunks with content or stop/termination
-    return not (has_content or has_tools or has_reasoning or finish_reason)
+    # Keep chunks with content
+    if has_content or has_tools or has_reasoning:
+        return False
+
+    # Preserve explicit terminal states even without content
+    # Stop chunks are needed for usage data merging
+    if finish_reason in {"error", "tool_calls", "stop", "stop_sequence"}:
+        return False
+
+    # Skip length/cancelled without content
+    if finish_reason in {"length", "cancelled"}:
+        return True
+
+    # Skip empty chunks without meaningful content or finish reason
+    return True
+
+
+def process_chunk_for_streaming(chunk: Any) -> tuple[dict[str, Any] | None, bool]:
+    """Process a chunk for streaming: coerce, normalize, and check if should skip.
+
+    This is a convenience function that combines coerce_chunk_to_dict,
+    normalize_chunk, and should_skip_chunk.
+
+    Args:
+        chunk: The raw chunk (dict, Pydantic model, or other).
+
+    Returns:
+        Tuple of (processed_chunk, should_skip). If coercion fails,
+        returns (None, True).
+    """
+    chunk_dict = coerce_chunk_to_dict(chunk)
+    if chunk_dict is None:
+        return None, True
+
+    normalize_chunk(chunk_dict)
+    skip = should_skip_chunk(chunk_dict)
+    return chunk_dict, skip
 
 
 def normalize_finish_reason(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -344,10 +440,13 @@ __all__ = [
     "build_rate_limit_backend_error",
     "build_rate_limit_chunk",
     "build_timeout_error_chunk",
+    "coerce_chunk_to_dict",
     "extract_429_error_details",
     "extract_usage_from_response",
     "is_quota_error_message",
+    "normalize_chunk",
     "normalize_finish_reason",
     "parse_sse_line",
+    "process_chunk_for_streaming",
     "should_skip_chunk",
 ]

@@ -27,6 +27,10 @@ The main connector class is broken down into focused, composable modules:
 - user_prompt_id_generator: User prompt ID generation
 """
 
+from .chat_request_preparer import (
+    ChatRequestPreparer,
+    PreparedChatRequest,
+)
 from .connector import GeminiOAuthBaseConnector
 from .credential_loader import CredentialLoader
 from .credential_providers import (
@@ -91,7 +95,10 @@ from .retry_delay_parser import (
 )
 from .stream_processor import (
     build_error_chunk,
+    coerce_chunk_to_dict,
     extract_usage_from_response,
+    normalize_chunk,
+    process_chunk_for_streaming,
     should_skip_chunk,
 )
 from .thought_signature_manager import (
@@ -145,13 +152,19 @@ __all__ = [
     "build_client_metadata",
     "build_error_chunk",
     "calculate_tier_score",
+    "coerce_chunk_to_dict",
     "enforce_prompt_limit",
     "estimate_prompt_tokens",
     "extract_project_id_from_response",
     "extract_usage_from_response",
+    "normalize_chunk",
+    "process_chunk_for_streaming",
     "sanitize_code_assist_tools",
     "select_best_tier",
     "should_skip_chunk",
+    # Chat request preparation
+    "ChatRequestPreparer",
+    "PreparedChatRequest",
     # New extracted modules
     "GenerationConfigBuilder",
     "GOOGLE_VENDOR_PREFIX",

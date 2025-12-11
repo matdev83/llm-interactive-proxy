@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.gemini import GeminiBackend
+from src.connectors.gemini_base.chat_request_preparer import (
+    ChatRequestPreparer,
+)
 from src.connectors.gemini_base.config import (
     CODE_ASSIST_ENDPOINT,
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
@@ -41,7 +44,6 @@ from src.connectors.gemini_base.config import (
 from src.connectors.gemini_base.credential_loader import CredentialLoader
 from src.connectors.gemini_base.credentials import (
     TOKEN_EXPIRY_BUFFER_SECONDS,
-    _StaticTokenCreds,
 )
 
 # Strategy interfaces and implementations
@@ -52,6 +54,7 @@ from src.connectors.gemini_base.generation_config_builder import (
     convert_from_code_assist_format,
 )
 from src.connectors.gemini_base.graceful_degradation import (
+    GracefulDegradationManager,
     calculate_retry_delay,
     is_model_in_cooldown,
     is_rate_limit_like_error,
@@ -94,7 +97,11 @@ from src.connectors.gemini_base.retry_delay_parser import (
     parse_retry_from_message as _parse_retry_from_message_impl,
 )
 from src.connectors.gemini_base.stream_processor import (
+    build_error_chunk,
     build_rate_limit_backend_error,
+    coerce_chunk_to_dict,
+    normalize_chunk,
+    should_skip_chunk,
 )
 from src.connectors.gemini_base.thought_signature_manager import (
     get_global_thought_signature_manager,
@@ -122,7 +129,6 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -283,6 +289,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # Token management (composed)
         self._token_manager = TokenManager()
+        # Chat request preparation (composed)
+        self._chat_preparer = ChatRequestPreparer(self, translation_service)
         # File watching (composed)
         self._file_watcher_state = FileWatcherState()
         # Store reference to the main event loop for thread-safe operations
@@ -301,14 +309,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             limit=1000,
         )
 
-        # Initialize graceful degradation
-        self._graceful_metrics = GracefulDegradationMetrics()
+        # Initialize graceful degradation via manager
         # Force disabled by default to comply with new Resilience Layer architecture
         # Fallbacks/Retries are handled by BackendService + ResilienceCoordinator
-        self._degradation_config = GracefulDegradationConfig.from_config(self.config)
-        self._degradation_config.enabled = False
-        self._model_retry_states: dict[str, ModelRetryState] = {}
-        self._permanently_failed = False
+        degradation_config = GracefulDegradationConfig.from_config(self.config)
+        degradation_config.enabled = False
+        self._graceful_degradation = GracefulDegradationManager(
+            config=degradation_config
+        )
         self._recovery_probe_task: asyncio.Task[Any] | None = None
 
         # Cache for fast model validation lookups
@@ -369,10 +377,29 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             and len(self._credential_validation_errors) == 0
         )
 
-    # Backward-compatible properties for TokenManager internals
+    # ==========================================================================
+    # DEPRECATED: Backward-compatible properties for internal component access
+    # ==========================================================================
+    # These properties expose internal state from composed components (TokenManager,
+    # FileWatcherState, GracefulDegradationManager) for backward compatibility.
+    #
+    # NEW CODE SHOULD NOT USE THESE PROPERTIES. Instead:
+    # - Use self._token_manager directly for token operations
+    # - Use self._file_watcher_state directly for file watching
+    # - Use self._graceful_degradation directly for degradation logic
+    #
+    # These shims will be removed in a future version once all dependent code
+    # has been migrated to use the composed objects directly.
+    # ==========================================================================
+
+    # TokenManager shims (deprecated)
     @property
     def _refresh_token(self) -> str | None:
-        """Backward-compatible access to cached refresh token."""
+        """Backward-compatible access to cached refresh token.
+
+        .. deprecated::
+            Access self._token_manager._refresh_token directly instead.
+        """
         return self._token_manager._refresh_token
 
     @_refresh_token.setter
@@ -405,10 +432,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Backward-compatible access to token refresh lock."""
         return self._token_manager._token_refresh_lock
 
-    # Backward-compatible properties for FileWatcherState internals
+    # FileWatcherState shims (deprecated)
     @property
     def _file_observer(self) -> "BaseObserver | None":
-        """Backward-compatible access to file observer."""
+        """Backward-compatible access to file observer.
+
+        .. deprecated::
+            Access self._file_watcher_state.file_observer directly instead.
+        """
         return self._file_watcher_state.file_observer
 
     @_file_observer.setter
@@ -451,9 +482,103 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Backward-compatible setter for last reload event timestamp."""
         self._file_watcher_state.last_reload_event_ts = value
 
+    # GracefulDegradationManager shims (deprecated)
+    @property
+    def _graceful_metrics(self) -> GracefulDegradationMetrics:
+        """Backward-compatible access to graceful degradation metrics.
+
+        .. deprecated::
+            Access self._graceful_degradation.metrics directly instead.
+        """
+        return self._graceful_degradation.metrics
+
+    @_graceful_metrics.setter
+    def _graceful_metrics(self, value: GracefulDegradationMetrics) -> None:
+        """Backward-compatible setter for graceful degradation metrics.
+
+        .. deprecated::
+            Access self._graceful_degradation.metrics directly instead.
+        """
+        # Handle case where mock objects set this before _graceful_degradation exists
+        if (
+            not hasattr(self, "_graceful_degradation")
+            or self._graceful_degradation is None
+        ):
+            from src.connectors.gemini_base.config import GracefulDegradationConfig
+
+            self._graceful_degradation = GracefulDegradationManager(
+                config=GracefulDegradationConfig(), metrics=value
+            )
+        else:
+            self._graceful_degradation.metrics = value
+
+    @property
+    def _degradation_config(self) -> GracefulDegradationConfig:
+        """Backward-compatible access to graceful degradation config.
+
+        .. deprecated::
+            Access self._graceful_degradation.config directly instead.
+        """
+        return self._graceful_degradation.config
+
+    @_degradation_config.setter
+    def _degradation_config(self, value: GracefulDegradationConfig) -> None:
+        """Backward-compatible setter for graceful degradation config.
+
+        .. deprecated::
+            Access self._graceful_degradation.config directly instead.
+        """
+        # Handle case where mock objects set this before _graceful_degradation exists
+        if (
+            not hasattr(self, "_graceful_degradation")
+            or self._graceful_degradation is None
+        ):
+            self._graceful_degradation = GracefulDegradationManager(config=value)
+        else:
+            self._graceful_degradation.config = value
+
+    @property
+    def _model_retry_states(self) -> dict[str, ModelRetryState]:
+        """Backward-compatible access to model retry states.
+
+        .. deprecated::
+            Access self._graceful_degradation.model_retry_states directly instead.
+        """
+        return self._graceful_degradation.model_retry_states
+
+    @_model_retry_states.setter
+    def _model_retry_states(self, value: dict[str, ModelRetryState]) -> None:
+        """Backward-compatible setter for model retry states.
+
+        .. deprecated::
+            Access self._graceful_degradation.model_retry_states directly instead.
+        """
+        # Handle case where mock objects set this before _graceful_degradation exists
+        if (
+            not hasattr(self, "_graceful_degradation")
+            or self._graceful_degradation is None
+        ):
+            # Create a minimal manager with default config
+            from src.connectors.gemini_base.config import GracefulDegradationConfig
+
+            self._graceful_degradation = GracefulDegradationManager(
+                config=GracefulDegradationConfig()
+            )
+        self._graceful_degradation.model_retry_states = value
+
+    @property
+    def _permanently_failed(self) -> bool:
+        """Backward-compatible access to permanently failed flag."""
+        return self._graceful_degradation.permanently_failed
+
+    @_permanently_failed.setter
+    def _permanently_failed(self, value: bool) -> None:
+        """Backward-compatible setter for permanently failed flag."""
+        self._graceful_degradation.permanently_failed = value
+
     def get_graceful_degradation_metrics(self) -> dict[str, float | int]:
         """Expose graceful degradation telemetry for diagnostics."""
-        return self._graceful_metrics.as_dict()
+        return self._graceful_degradation.get_metrics()
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
@@ -1352,7 +1477,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Check if model is in cooldown - prevent spamming rate-limited models
             if self._is_in_cooldown(model_name):
-                state = self._model_retry_states.get(model_name)
+                state = self._graceful_degradation.model_retry_states.get(model_name)
                 cooldown_remaining = state.cooldown_until - time.time() if state else 0
 
                 logger.info(
@@ -1425,7 +1550,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             except BackendError as e:
                 # Handle 429 errors with graceful degradation
                 if getattr(e, "status_code", None) == 429:
-                    if self._degradation_config.enabled:
+                    if self._graceful_degradation.config.enabled:
                         return await self._handle_429_with_graceful_degradation(
                             original_model=model_name,
                             request_data=request_data,
@@ -1539,131 +1664,28 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         approach, while converting to/from OpenAI-compatible formats.
         """
         try:
-            # Ensure token is refreshed before making the API call
-            if not await self._refresh_token_if_needed():
-                raise AuthenticationError("Failed to refresh OAuth token for API call")
-
-            if self._request_counter:
-                self._request_counter.increment()
-
-            # Create an authorized session using the access token directly
-            if not self._oauth_credentials:
-                raise AuthenticationError("No OAuth credentials available for API call")
-
-            access_token = self._oauth_credentials.get("access_token")
-            if not access_token:
-                raise AuthenticationError("Missing access_token in OAuth credentials")
-
-            # Build a simple authorized session wrapper using Requests
-            # We use AuthorizedSession with a bare Credentials-like shim
-            transport_requests = _get_google_transport_requests()
-            auth_session = transport_requests.AuthorizedSession(
-                _StaticTokenCreds(access_token)
+            # Use ChatRequestPreparer for all common setup (token refresh, auth session,
+            # project discovery, request translation, tool sanitization, prompt limits)
+            prepared = await self._chat_preparer.prepare(
+                request_data=request_data,
+                effective_model=effective_model,
+                is_streaming=False,
             )
-            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
-            # Apply custom headers (e.g., User-Agent for Antigravity)
-            for key, value in self._get_session_headers().items():
-                auth_session.headers[key] = value
-
-            # Discover project ID (required for Code Assist API)
-            project_id = await self._discover_project_id(auth_session)
-
-            # request_data is expected to be a CanonicalChatRequest already
-            # (the frontend controller converts from frontend-specific format to domain format)
-            # Backends should ONLY convert FROM domain TO backend-specific format
-            canonical_request = request_data
-
-            # Debug logging to trace message flow
-            if logger.isEnabledFor(logging.DEBUG):
-                message_count = (
-                    len(canonical_request.messages)
-                    if hasattr(canonical_request, "messages")
-                    else 0
-                )
-                logger.debug(
-                    f"Processing {message_count} messages for Gemini Code Assist API"
-                )
-                if message_count > 0 and hasattr(canonical_request, "messages"):
-                    last_msg = canonical_request.messages[-1]
-                    logger.debug(
-                        f"Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
-                    )
-
-            # Inject stored thought_signatures for clients that don't preserve extra_content
-            session_id = getattr(request_data, "session_id", None) or ""
-            # Only inject cached signatures when we have a real session identifier.
-            # Using an empty key risks cross-session leakage and "corrupted thought signature" errors.
-            if session_id:
-                self._inject_thought_signatures(canonical_request, session_id)
-            self._log_tool_call_signature_state(
-                canonical_request, session_id, effective_model
-            )
-
-            # Convert from canonical/domain format to Gemini API format
-            gemini_request = self.translation_service.from_domain_to_gemini_request(
-                canonical_request
-            )
-
-            # Use mixin method to convert system messages (KiloCode's approach)
-            # This avoids the 64K token limit on the separate systemInstruction field
-            final_contents = self._convert_system_messages_for_code_assist(
-                gemini_request
-            )
-
-            # Use mixin method to build Code Assist API request
-            code_assist_request = self._build_code_assist_request(
-                gemini_request, final_contents
-            )
-
-            # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
-            self._sanitize_code_assist_tools(canonical_request, code_assist_request)
-
-            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
-            self._enforce_prompt_limit(
-                prompt_tokens_estimate,
-                effective_model,
-                request_id=getattr(request_data, "id", None),
-            )
-
-            # Prepare request body for Code Assist API
-            # Using hook method to allow subclasses to customize the wrapper format
-            def _build_request_body() -> dict[str, Any]:
-                return self._build_code_assist_request_body(
-                    effective_model=effective_model,
-                    project_id=project_id,
-                    request_data=request_data,
-                    code_assist_request=code_assist_request,
-                )
-
-            # Log request details for debugging token issues
-            if logger.isEnabledFor(logging.DEBUG):
-                first_msg_size = 0
-                contents_list = code_assist_request.get("contents", [])
-                if contents_list and len(contents_list) > 0:
-                    first_msg_parts = contents_list[0].get("parts", [])
-                    for part in first_msg_parts:
-                        if "text" in part:
-                            first_msg_size += len(part["text"])
-                logger.debug(
-                    f"Code Assist request: first message size={first_msg_size} chars, "
-                    f"contents count={len(contents_list)}, "
-                    f"estimated tokens={prompt_tokens_estimate}"
-                )
 
             # Use the Code Assist API exactly like KiloCode does
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call to: {url}")
 
-            # Build the request body (must be called after sanitization)
-            request_body = _build_request_body()
+            # Build the request body
+            request_body = prepared.build_request_body()
 
             # Make the actual API call
             # NOTE: params={"alt": "sse"} is required for this API to work correctly
             # Without it, we get 403 PERMISSION_DENIED errors
             try:
                 response = await asyncio.to_thread(
-                    auth_session.request,
+                    prepared.auth_session.request,
                     method="POST",
                     url=url,
                     params={"alt": "sse"},
@@ -1702,12 +1724,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Calculate usage (best effort)
             encoding = _get_tiktoken_encoding()
-            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            prompt_tokens = prepared.prompt_tokens_estimate or 0
             completion_tokens = len(encoding.encode(openai_response))
             usage = {
-                "prompt_tokens": prompt_tokens_estimate or 0,
+                "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
-                "total_tokens": (prompt_tokens_estimate or 0) + completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             }
 
             logger.info(
@@ -1750,125 +1772,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         from src.core.ports.streaming_contracts import handle_streaming_error
 
         try:
-            # Ensure token is refreshed before making the API call
-            if not await self._refresh_token_if_needed():
-                raise AuthenticationError(
-                    "Failed to refresh OAuth token for streaming API call"
-                )
-
-            if self._request_counter:
-                self._request_counter.increment()
-
-            # Create an authorized session using the access token directly
-            if not self._oauth_credentials:
-                raise AuthenticationError(
-                    "No OAuth credentials available for streaming API call"
-                )
-
-            access_token = self._oauth_credentials.get("access_token")
-            if not access_token:
-                raise AuthenticationError("Missing access_token in OAuth credentials")
-
-            transport_requests = _get_google_transport_requests()
-            auth_session = transport_requests.AuthorizedSession(
-                _StaticTokenCreds(access_token)
-            )
-            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
-            # Apply custom headers (e.g., User-Agent for Antigravity)
-            for key, value in self._get_session_headers().items():
-                auth_session.headers[key] = value
-
-            # Discover project ID (required for Code Assist API)
-            project_id = await self._discover_project_id(auth_session)
-
-            # request_data is expected to be a CanonicalChatRequest already
-            # (the frontend controller converts from frontend-specific format to domain format)
-            # Backends should ONLY convert FROM domain TO backend-specific format
-            canonical_request = request_data
-
-            # Debug logging to trace message flow (streaming)
-            if logger.isEnabledFor(logging.DEBUG):
-                message_count = (
-                    len(canonical_request.messages)
-                    if hasattr(canonical_request, "messages")
-                    else 0
-                )
-                logger.debug(
-                    f"[STREAMING] Processing {message_count} messages for Gemini Code Assist API"
-                )
-                if message_count > 0 and hasattr(canonical_request, "messages"):
-                    last_msg = canonical_request.messages[-1]
-                    logger.debug(
-                        f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
-                    )
-
-            # Inject stored thought_signatures for clients that don't preserve extra_content
-            session_id = getattr(request_data, "session_id", None) or ""
-            self._inject_thought_signatures(canonical_request, session_id)
-            self._log_tool_call_signature_state(
-                canonical_request, session_id, effective_model
+            # Use ChatRequestPreparer for all common setup (token refresh, auth session,
+            # project discovery, request translation, tool sanitization, prompt limits)
+            prepared = await self._chat_preparer.prepare(
+                request_data=request_data,
+                effective_model=effective_model,
+                is_streaming=True,
             )
 
-            # Convert from canonical/domain format to Gemini API format
-            gemini_request = self.translation_service.from_domain_to_gemini_request(
-                canonical_request
-            )
-
-            # Use mixin method to convert system messages (KiloCode's approach)
-            # This avoids the 64K token limit on the separate systemInstruction field
-            final_contents = self._convert_system_messages_for_code_assist(
-                gemini_request
-            )
-
-            # Use mixin method to build Code Assist API request
-            code_assist_request = self._build_code_assist_request(
-                gemini_request, final_contents
-            )
-
-            # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
-            # This is critical for Droid/Factory CLI compatibility which sends tools
-            # with type: "custom" and input_schema instead of function parameters
-            self._sanitize_code_assist_tools(canonical_request, code_assist_request)
-
-            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
-            self._enforce_prompt_limit(
-                prompt_tokens_estimate,
-                effective_model,
-                request_id=getattr(request_data, "id", None),
-            )
-
-            # Define request body builder as closure for use in stream_generator
-            # This allows retry logic to rebuild request body with modified tools
-            def _build_request_body() -> dict[str, Any]:
-                return self._build_code_assist_request_body(
-                    effective_model=effective_model,
-                    project_id=project_id,
-                    request_data=request_data,
-                    code_assist_request=code_assist_request,
-                )
-
-            # Log request details for debugging token issues
-            if logger.isEnabledFor(logging.DEBUG):
-                first_msg_size = 0
-                contents_list = code_assist_request.get("contents", [])
-                if contents_list and len(contents_list) > 0:
-                    first_msg_parts = contents_list[0].get("parts", [])
-                    for part in first_msg_parts:
-                        if "text" in part:
-                            first_msg_size += len(part["text"])
-                logger.debug(
-                    f"Code Assist request: first message size={first_msg_size} chars, "
-                    f"contents count={len(contents_list)}, "
-                    f"estimated tokens={prompt_tokens_estimate}"
-                )
-
-            prompt_tokens = prompt_tokens_estimate
+            # Extract values for use in closures
+            code_assist_request = prepared.code_assist_request
+            prompt_tokens = prepared.prompt_tokens_estimate
 
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
-            # For token calculation
+            # For token calculation (fallback if estimate not available)
             encoding = _get_tiktoken_encoding()
             if prompt_tokens is None:
                 try:
@@ -1906,86 +1826,37 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 def _should_skip_chunk(chunk: dict[str, Any] | Any) -> bool:
                     """Filter out empty deltas so clients don't receive blank messages.
 
-                    NOTE: Usage-only chunks (with empty choices but usage data) should
-                    NOT be skipped - they contain important token count information.
-                    NOTE: Stop chunks (finish_reason=stop) should NOT be skipped -
-                    they are needed to merge usage data per OpenRouter API spec.
+                    Delegates to module-level functions from stream_processor.py
+                    for coercion, normalization, and skip logic.
                     """
-                    if not isinstance(chunk, dict):
-                        dump = getattr(chunk, "model_dump", lambda **_: None)(
-                            exclude_none=True
-                        )
-                        if isinstance(dump, dict):
-                            chunk = dump
-                        else:
-                            return True
-
-                    if not chunk:
+                    # Coerce to dict (handles Pydantic models)
+                    chunk_dict = coerce_chunk_to_dict(chunk)
+                    if chunk_dict is None:
                         return True
-                    choices = chunk.get("choices") or []
 
-                    # Preserve usage-only chunks even if choices is empty
-                    if not choices:
-                        # Don't skip if chunk has usage data; skip otherwise
-                        return not chunk.get("usage")
+                    # Normalize finish_reason and set tool_calls finish reason
+                    normalize_chunk(chunk_dict)
 
-                    choice = choices[0] or {}
-                    delta = choice.get("delta") or {}
-                    finish_reason = choice.get("finish_reason")
-
-                    # Normalize finish_reason to lowercase for consistency
-                    if isinstance(finish_reason, str):
-                        finish_reason = finish_reason.lower()
-                        choice["finish_reason"] = finish_reason
-
-                    has_content = bool(delta.get("content"))
-                    has_tools = bool(delta.get("tool_calls"))
-                    has_reasoning = bool(
-                        delta.get("reasoning_content") or delta.get("reasoning")
-                    )
-
-                    if has_tools and not finish_reason:
-                        choice["finish_reason"] = "tool_calls"
-                        return False
-
-                    if has_content or has_tools or has_reasoning:
-                        return False
-
-                    # Preserve explicit terminal states even without content
-                    # Stop chunks are needed for usage data merging
-                    if finish_reason in {
-                        "error",
-                        "tool_calls",
-                        "stop",
-                        "stop_sequence",
-                    }:
-                        return False
-                    # Skip length/cancelled without content
-                    if finish_reason in {"length", "cancelled"}:
-                        return True
-                    return True
+                    # Check if should skip
+                    return should_skip_chunk(chunk_dict)
 
                 def _build_error_chunk(
                     message: str, *, code: int = 500, error_type: str = "api_error"
                 ) -> dict[str, Any]:
-                    now = int(time.time())
-                    return {
-                        "id": f"chatcmpl-error-{now}",
-                        "object": "chat.completion.chunk",
-                        "created": now,
-                        "model": effective_model,
-                        "choices": [
-                            {"index": 0, "delta": {}, "finish_reason": "error"}
-                        ],
-                        "error": {"message": message, "type": error_type, "code": code},
-                    }
+                    """Build error chunk using module-level helper."""
+                    return build_error_chunk(
+                        message=message,
+                        code=code,
+                        model=effective_model,
+                        error_type=error_type,
+                    )
 
                 try:
                     try:
                         if without_tools:
                             code_assist_request.pop("tools", None)
                             code_assist_request.pop("toolConfig", None)
-                        request_body = _build_request_body()
+                        request_body = prepared.build_request_body()
                         if logger.isEnabledFor(TRACE_LEVEL):
                             tools_snapshot = request_body.get("request", {}).get(
                                 "tools"
@@ -2003,7 +1874,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         "Code Assist sanitized tools payload present (non-serializable)",
                                     )
                         response = await asyncio.to_thread(
-                            auth_session.request,
+                            prepared.auth_session.request,
                             method="POST",
                             url=url,
                             params={"alt": "sse"},
@@ -2098,7 +1969,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             )
                         # Handle 429 with graceful degradation
                         if response.status_code == 429:
-                            if self._degradation_config.enabled:
+                            if self._graceful_degradation.config.enabled:
                                 try:
                                     # Parse error details for retry delay extraction
                                     try:
@@ -2724,51 +2595,52 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                             # Store thought_signatures server-side for clients that don't preserve extra_content
                             # (e.g., Droid). This allows us to inject signatures in subsequent requests.
-                        if raw_tool_calls and isinstance(raw_tool_calls, list):
-                            session_id = getattr(request_data, "session_id", None)
-                            anonymous_key = None
-                            if not session_id:
-                                # Fall back to an anonymous cache key so we still preserve signatures
-                                anonymous_key = "anon"
-                            manager = get_global_thought_signature_manager()
-                            manager.store_signatures_from_tool_calls(
-                                raw_tool_calls, session_id
-                            )
-                            # Keep legacy cache in sync for backward compatibility
-                            GeminiOAuthBaseConnector._thought_signature_cache.update(
-                                manager.cache
-                            )
+                            if raw_tool_calls and isinstance(raw_tool_calls, list):
+                                session_id = getattr(request_data, "session_id", None)
+                                anonymous_key = None
+                                if not session_id:
+                                    # Fall back to an anonymous cache key so we still preserve signatures
+                                    anonymous_key = "anon"
+                                manager = get_global_thought_signature_manager()
+                                manager.store_signatures_from_tool_calls(
+                                    raw_tool_calls, session_id
+                                )
+                                # Keep legacy cache in sync for backward compatibility
+                                GeminiOAuthBaseConnector._thought_signature_cache.update(
+                                    manager.cache
+                                )
 
-                            for tc in raw_tool_calls:
-                                if not isinstance(tc, dict):
-                                    continue
-                                tc_id = tc.get("id", "")
-                                extra = tc.get("extra_content")
-                                if isinstance(extra, dict):
-                                    google_extra = extra.get("google", {})
-                                    sig = google_extra.get("thought_signature")
-                                    if sig and tc_id:
-                                        cache_key = (
-                                            f"{session_id}:{tc_id}"
-                                            if session_id
-                                            else f"{anonymous_key}:{tc_id}"
-                                        )
-                                        if cache_key:
-                                            GeminiOAuthBaseConnector._thought_signature_cache[
-                                                cache_key
-                                            ] = sig
-                                            if logger.isEnabledFor(logging.DEBUG):
-                                                logger.debug(
-                                                    "Stored thought_signature for tool_call_id=%s (key=%s)",
-                                                    tc_id,
-                                                    cache_key[:16],
-                                                )
+                                for tc in raw_tool_calls:
+                                    if not isinstance(tc, dict):
+                                        continue
+                                    tc_id = tc.get("id", "")
+                                    extra = tc.get("extra_content")
+                                    if isinstance(extra, dict):
+                                        google_extra = extra.get("google", {})
+                                        sig = google_extra.get("thought_signature")
+                                        if sig and tc_id:
+                                            cache_key = (
+                                                f"{session_id}:{tc_id}"
+                                                if session_id
+                                                else f"{anonymous_key}:{tc_id}"
+                                            )
+                                            if cache_key:
+                                                GeminiOAuthBaseConnector._thought_signature_cache[
+                                                    cache_key
+                                                ] = sig
+                                                if logger.isEnabledFor(logging.DEBUG):
+                                                    logger.debug(
+                                                        "Stored thought_signature for tool_call_id=%s (key=%s)",
+                                                        tc_id,
+                                                        cache_key[:16],
+                                                    )
 
-                                        yield ProcessedResponse(
-                                            content=domain_chunk,
-                                            metadata=metadata,
-                                        )
-                                        return
+                                # Yield the processed chunk
+                            yield ProcessedResponse(
+                                content=domain_chunk,
+                                metadata=metadata,
+                            )
+                            return
 
                         # Do not forward raw backend lines; skip to avoid leaking internal payloads.
                         return
@@ -3246,7 +3118,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def _is_in_cooldown(self, model: str) -> bool:
         """Check if a model is currently in cooldown."""
-        return is_model_in_cooldown(model, self._model_retry_states)
+        return is_model_in_cooldown(
+            model, self._graceful_degradation.model_retry_states
+        )
 
     def _extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error details.
@@ -3280,9 +3154,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         cooldown = (
             duration
             if duration is not None
-            else self._degradation_config.cooldown_duration
+            else self._graceful_degradation.config.cooldown_duration
         )
-        set_model_cooldown(model, self._model_retry_states, cooldown)
+        set_model_cooldown(
+            model, self._graceful_degradation.model_retry_states, cooldown
+        )
 
     @staticmethod
     def _is_rate_limit_like_error(error: BackendError) -> bool:
@@ -3301,10 +3177,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Returns:
             True if model has recovered, False otherwise
         """
-        if not self._degradation_config.enable_recovery_probing:
+        if not self._graceful_degradation.config.enable_recovery_probing:
             return False
 
-        state = self._model_retry_states.get(model)
+        state = self._graceful_degradation.model_retry_states.get(model)
         if not state or not self._is_in_cooldown(model):
             return True
 
@@ -3313,7 +3189,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if (
             not bypass_interval_check
             and now - state.last_probe_attempt
-            < self._degradation_config.recovery_probe_interval
+            < self._graceful_degradation.config.recovery_probe_interval
         ):
             return False
 
@@ -3413,7 +3289,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Track attempts per request (not globally) to prevent premature exhaustion
         request_attempts = 0
 
-        if not self._degradation_config.enabled:
+        if not self._graceful_degradation.config.enabled:
             # If graceful degradation is disabled, use original behavior
             # Mark backend as completely unusable (not just quota exceeded)
             self._quota_exceeded = True
@@ -3446,14 +3322,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 models_to_try.append(fallback_model)
 
         start_time = time.time()
-        self._graceful_metrics.total_invocations += 1
+        self._graceful_degradation.metrics.total_invocations += 1
 
         for _, model in enumerate(models_to_try):
             # Reset attempts for this model if needed
-            if model not in self._model_retry_states:
-                self._model_retry_states[model] = ModelRetryState()
+            if model not in self._graceful_degradation.model_retry_states:
+                self._graceful_degradation.model_retry_states[model] = ModelRetryState()
 
-            state = self._model_retry_states[model]
+            state = self._graceful_degradation.model_retry_states[model]
 
             # Check if the initial error dictates a cooldown for the original model
             # This prevents "spamming" the API when it has already told us to wait
@@ -3516,7 +3392,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 for _ in range(max_inline_probes):
                     # Store probe success count before the call to detect partial progress
                     current_state: ModelRetryState | None = (
-                        self._model_retry_states.get(model)
+                        self._graceful_degradation.model_retry_states.get(model)
                     )
                     old_probe_count = (
                         current_state.probe_success_count if current_state else 0
@@ -3559,15 +3435,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     is_fallback_model = model == fallback_model
 
             fallback_recorded = False
-            max_attempts_for_model = len(self._degradation_config.retry_delays) + 1
+            max_attempts_for_model = (
+                len(self._graceful_degradation.config.retry_delays) + 1
+            )
             if model == original_model and fallback_model:
                 max_attempts_for_model = 1
 
             last_error = None
             for attempt in range(max_attempts_for_model):
                 # Check per-request attempt limit (not global) to prevent premature exhaustion
-                if request_attempts >= self._degradation_config.max_total_attempts:
-                    self._graceful_metrics.record_duration(time.time() - start_time)
+                if (
+                    request_attempts
+                    >= self._graceful_degradation.config.max_total_attempts
+                ):
+                    self._graceful_degradation.metrics.record_duration(
+                        time.time() - start_time
+                    )
                     raise BackendError(
                         message="Maximum total attempts exceeded in graceful degradation",
                         code="max_attempts_exceeded",
@@ -3575,7 +3458,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
 
                 request_attempts += 1
-                self._graceful_metrics.record_attempt()
+                self._graceful_degradation.metrics.record_attempt()
                 if hasattr(self, "_total_attempts"):
                     with contextlib.suppress(Exception):
                         self._total_attempts += 1  # type: ignore[operator]
@@ -3585,17 +3468,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 try:
                     # Calculate delay for this attempt with jitter
                     delay = calculate_retry_delay(
-                        attempt, self._degradation_config.retry_delays
+                        attempt, self._graceful_degradation.config.retry_delays
                     )
 
                     logger.info(
                         f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt})"
                     )
-                    self._graceful_metrics.record_wait(delay)
+                    self._graceful_degradation.metrics.record_wait(delay)
                     await asyncio.sleep(delay)
 
                     if is_fallback_model and not fallback_recorded:
-                        self._graceful_metrics.record_fallback()
+                        self._graceful_degradation.metrics.record_fallback()
                         fallback_recorded = True
 
                     # Make the API call
@@ -3608,13 +3491,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         _in_graceful_degradation=True,
                         **kwargs,
                     )
-                    self._graceful_metrics.record_duration(time.time() - start_time)
+                    self._graceful_degradation.metrics.record_duration(
+                        time.time() - start_time
+                    )
                     return result
 
                 except BackendError as e:
                     last_error = e
                     if not self._is_rate_limit_like_error(e):
-                        self._graceful_metrics.record_duration(time.time() - start_time)
+                        self._graceful_degradation.metrics.record_duration(
+                            time.time() - start_time
+                        )
                         raise
 
                     if logger.isEnabledFor(logging.INFO):
@@ -3670,7 +3557,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
 
                 # Start recovery probing task if enabled
-                if self._degradation_config.enable_recovery_probing and (
+                if self._graceful_degradation.config.enable_recovery_probing and (
                     self._recovery_probe_task is None
                     or self._recovery_probe_task.done()
                 ):
@@ -3713,9 +3600,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # If we get here, all requested models failed
         # Mark quota exceeded but keep backend functional for other models
-        self._graceful_metrics.record_duration(time.time() - start_time)
+        self._graceful_degradation.metrics.record_duration(time.time() - start_time)
         self._mark_backend_unusable(reason="quota_exceeded")
-        self._permanently_failed = True
+        self._graceful_degradation.permanently_failed = True
         self.is_functional = False
 
         # If fallback is disabled, the error should reflect that all models are
@@ -3738,7 +3625,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     async def _recovery_probing_loop(self) -> None:
         """Background task to probe for model recovery."""
-        if not self._degradation_config.enable_recovery_probing:
+        if not self._graceful_degradation.config.enable_recovery_probing:
             return
 
         sleep_fn = getattr(asyncio, "sleep", None)
@@ -3749,12 +3636,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         while True:
             try:
-                await asyncio.sleep(self._degradation_config.recovery_probe_interval)
+                await asyncio.sleep(
+                    self._graceful_degradation.config.recovery_probe_interval
+                )
 
                 # Check each model in cooldown
                 models_in_cooldown = [
                     model
-                    for model in self._model_retry_states
+                    for model in self._graceful_degradation.model_retry_states
                     if self._is_in_cooldown(model)
                 ]
 

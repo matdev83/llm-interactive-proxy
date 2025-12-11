@@ -3,16 +3,19 @@
 ## [2025-12-11]
 
 ### Added
+
 - New Gemini connector modules: `generation_config_builder.py`, `model_validation.py`, `response_accumulator.py`, `response_text_extractor.py`, `retry_delay_parser.py`, `thought_signature_manager.py`, `user_prompt_id_generator.py`
 - Database schema and usage tracking documentation in `docs/database-*.md`
 
 ### Fixed
+
 - Extensive fixes in debugging scripts for streaming, tool calls, CBOR, and Gemini issues
 - Gemini connector refactoring for improved reliability and error handling
 - Core services enhancements for backend request management, response processing, tool call reactor middleware, and translation
 - Tool call buffering and XML parsing fixes
 
 ### Changed
+
 - Updated user guide features documentation
 - Refactored Anthropic converters and other core components
 
