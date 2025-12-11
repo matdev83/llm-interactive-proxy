@@ -56,7 +56,7 @@ class IRetryDelayExtractor(Protocol):
 class ITokenRefresher(Protocol):
     """Interface for token refresh operations."""
 
-    async def refresh_token_if_needed(self) -> bool:
+    async def refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Refresh the OAuth token if needed."""
         ...
 
@@ -793,7 +793,7 @@ class StreamingExecutor:
                 AUTH_RETRY_TIMEOUT = 30.0
                 try:
                     refreshed = await asyncio.wait_for(
-                        token_refresher.refresh_token_if_needed(),
+                        token_refresher.refresh_token_if_needed(force_reload=True),
                         timeout=AUTH_RETRY_TIMEOUT,
                     )
                     if refreshed:

@@ -28,7 +28,7 @@ class IConnectorContext(Protocol):
         """Get current OAuth credentials."""
         ...
 
-    async def _refresh_token_if_needed(self) -> bool:
+    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Ensure a valid access token is available."""
         ...
 

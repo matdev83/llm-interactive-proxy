@@ -243,7 +243,10 @@ class TokenManager:
         return None
 
     async def refresh_token_if_needed(
-        self, credential_provider: CredentialProvider
+        self,
+        credential_provider: CredentialProvider,
+        *,
+        force_reload: bool = False,
     ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 
@@ -259,8 +262,8 @@ class TokenManager:
             True if a valid token is available, False otherwise.
         """
         credentials = credential_provider._oauth_credentials
-        if not credentials:
-            await credential_provider._load_oauth_credentials()
+        if not credentials or force_reload:
+            await credential_provider._load_oauth_credentials(force_reload=force_reload)
             credentials = credential_provider._oauth_credentials
 
         if not credentials:

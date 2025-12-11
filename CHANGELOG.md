@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- **Gemini Auth Retry**: Force credential reload on 401 retry to ensure fresh tokens are used
 - **Gemini Rate Limits**: Implemented automatic retry for rate limit errors with `retry-after` header support in `GeminiOAuthBaseConnector`
 - **Thought Signatures**: Added secondary index by tool call ID to `ThoughtSignatureManager` to persist signatures across session ID changes
 - Extensive fixes in debugging scripts for streaming, tool calls, CBOR, and Gemini issues

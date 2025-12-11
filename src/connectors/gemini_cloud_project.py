@@ -670,7 +670,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         return None
 
-    async def _refresh_token_if_needed(self) -> bool:
+    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Refresh the access token if it's expired or close to expiring."""
         if not self._oauth_credentials:
             await self._load_oauth_credentials()

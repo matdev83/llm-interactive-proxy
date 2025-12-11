@@ -137,6 +137,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
         effective_model: str,
         _in_graceful_degradation: bool = False,
         _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ):
         # Delegates to the real implementation; kept for legacy static checks.
@@ -146,6 +147,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
             effective_model=effective_model,
             _in_graceful_degradation=_in_graceful_degradation,
             _auth_retry_attempted=_auth_retry_attempted,
+            _rate_limit_retry_attempted=_rate_limit_retry_attempted,
             **kwargs,
         )
 
@@ -154,6 +156,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         # Delegate to the real implementation
@@ -161,6 +164,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
             request_data=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
+            _rate_limit_retry_attempted=_rate_limit_retry_attempted,
             **kwargs,
         )
 

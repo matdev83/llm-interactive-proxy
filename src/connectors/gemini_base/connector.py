@@ -396,9 +396,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Extract retry delay from error - implements IRetryDelayExtractor."""
         return self._extract_retry_delay(error)
 
-    async def refresh_token_if_needed(self) -> bool:
+    async def refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Refresh token if needed - implements ITokenRefresher."""
-        return await self._refresh_token_if_needed()
+        return await self._refresh_token_if_needed(force_reload=force_reload)
 
     # ==========================================================================
     # DEPRECATED: Backward-compatible properties for internal component access
@@ -711,9 +711,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Get refresh token, either from credentials or cached value."""
         return self._token_manager.get_refresh_token(self._oauth_credentials)
 
-    async def _refresh_token_if_needed(self) -> bool:
+    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Ensure a valid access token is available, refreshing when necessary."""
-        return await self._token_manager.refresh_token_if_needed(self)
+        return await self._token_manager.refresh_token_if_needed(
+            self, force_reload=force_reload
+        )
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
@@ -1490,7 +1492,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 try:
                     AUTH_RETRY_TIMEOUT = 30.0
                     refreshed = await asyncio.wait_for(
-                        self._refresh_token_if_needed(),
+                        self._refresh_token_if_needed(force_reload=True),
                         timeout=AUTH_RETRY_TIMEOUT,
                     )
                     if refreshed:
@@ -1536,6 +1538,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         _in_graceful_degradation=_in_graceful_degradation,
                         _auth_retry_attempted=_auth_retry_attempted,
                         _rate_limit_retry_attempted=True,
+                        **kwargs,
+                    )
+            elif e.status_code == 401 and not _auth_retry_attempted:
+                logger.info(
+                    "Backend returned 401; forcing credential reload and retry (non-streaming)"
+                )
+                refreshed = await self._refresh_token_if_needed(force_reload=True)
+                if refreshed:
+                    return await self._chat_completions_code_assist(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=effective_model,
+                        _in_graceful_degradation=_in_graceful_degradation,
+                        _auth_retry_attempted=True,
+                        _rate_limit_retry_attempted=_rate_limit_retry_attempted,
                         **kwargs,
                     )
             else:

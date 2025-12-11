@@ -562,7 +562,7 @@ class QwenOAuthConnector(OpenAIConnector):
         # Credentials are present and not expired; allow proceeding
         return True
 
-    async def _refresh_token_if_needed(self) -> bool:
+    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
         """Ensure a valid access token is available, refreshing when necessary."""
         if not self._oauth_credentials:
             await self._load_oauth_credentials()
