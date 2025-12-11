@@ -1398,6 +1398,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         processed_messages: list[Any],
         effective_model: str,
         _in_graceful_degradation: bool = False,
+        _auth_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using the Code Assist API.
@@ -1486,6 +1487,44 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
 
         except AuthenticationError as e:
+            # Handle 401 authentication errors with token refresh and retry
+            if not _auth_retry_attempted:
+                logger.info(
+                    "Received 401 Unauthorized in non-streaming request, attempting token refresh and retry..."
+                )
+                try:
+                    # Use 30s timeout for refresh, leaving room for retry request
+                    AUTH_RETRY_TIMEOUT = 30.0
+                    refreshed = await asyncio.wait_for(
+                        self._refresh_token_if_needed(),
+                        timeout=AUTH_RETRY_TIMEOUT,
+                    )
+                    if refreshed:
+                        logger.info(
+                            "Token refresh successful, retrying non-streaming request..."
+                        )
+                        return await self._chat_completions_code_assist(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=effective_model,
+                            _in_graceful_degradation=_in_graceful_degradation,
+                            _auth_retry_attempted=True,  # Prevent infinite retry loops
+                            **kwargs,
+                        )
+                    else:
+                        logger.warning(
+                            "Token refresh failed; will raise 401 error to caller"
+                        )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; raising 401 to caller"
+                    )
+                except Exception as refresh_error:
+                    logger.error(
+                        f"Error during token refresh attempt: {refresh_error}",
+                        exc_info=True,
+                    )
+            # If we reach here, refresh failed or already retried - raise original error
             logger.error(f"Authentication error during API call: {e}", exc_info=True)
             raise
         except BackendError as e:
@@ -1561,6 +1600,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 *,
                 _allow_tool_retry: bool = True,
                 without_tools: bool = False,
+                _auth_retry_attempted: bool = False,
             ) -> AsyncGenerator[ProcessedResponse, None]:
                 import json
 
@@ -1727,8 +1767,53 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 code = "quota_exceeded"
                             elif response.status_code == 429:
                                 code = "rate_limit_exceeded"
+                            elif response.status_code == 401:
+                                code = "auth_error"
                         elif isinstance(error_detail, str) and error_detail.strip():
                             error_message = error_detail
+
+                        # Handle 401 authentication errors with token refresh and retry
+                        if response.status_code == 401 and not _auth_retry_attempted:
+                            logger.info(
+                                "Received 401 Unauthorized from backend, attempting token refresh and retry..."
+                            )
+                            with contextlib.suppress(Exception):
+                                response.close()
+
+                            # Trigger proactive token refresh with timeout
+                            # Use 30s timeout for refresh, leaving room for retry request
+                            AUTH_RETRY_TIMEOUT = 30.0
+                            try:
+                                refreshed = await asyncio.wait_for(
+                                    self._refresh_token_if_needed(),
+                                    timeout=AUTH_RETRY_TIMEOUT,
+                                )
+                                if refreshed:
+                                    logger.info(
+                                        "Token refresh successful, retrying streaming request..."
+                                    )
+                                    # Recursively call stream_generator with retry flag set
+                                    async for retry_chunk in stream_generator(
+                                        _allow_tool_retry=_allow_tool_retry,
+                                        without_tools=without_tools,
+                                        _auth_retry_attempted=True,  # Prevent infinite retry loops
+                                    ):
+                                        yield retry_chunk
+                                    return  # Successfully handled via retry
+                                else:
+                                    logger.warning(
+                                        "Token refresh failed; will return 401 error to client"
+                                    )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; returning 401 to client"
+                                )
+                            except Exception as refresh_error:
+                                logger.error(
+                                    f"Error during token refresh attempt: {refresh_error}",
+                                    exc_info=True,
+                                )
+                            # If we reach here, refresh failed - continue to raise error below
 
                         # Attach retry-after hint when available
                         retry_delay = None

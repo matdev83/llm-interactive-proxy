@@ -163,8 +163,21 @@ class GracefulDegradationManager:
             self.model_retry_states[model] = ModelRetryState()
         return self.model_retry_states[model]
 
-    def get_models_to_try(self, original_model: str, disable_fallback: bool = False) -> list[str]:
-        """Return only the original model; fallbacks are handled upstream."""
+    def get_models_to_try(
+        self, original_model: str, disable_fallback: bool = False
+    ) -> list[str]:
+        """Return only the original model; fallbacks are handled upstream.
+
+        Args:
+            original_model: The model to use.
+            disable_fallback: Reserved for API compatibility; fallbacks handled upstream.
+
+        Returns:
+            List containing only the original model.
+        """
+        # disable_fallback is intentionally unused - fallbacks are handled upstream
+        # by the connector layer. This parameter is kept for API compatibility.
+        _ = disable_fallback  # Explicitly acknowledge the parameter
         return [original_model]
 
     def record_attempt(self) -> None:
