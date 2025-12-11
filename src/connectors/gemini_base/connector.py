@@ -55,9 +55,6 @@ from src.connectors.gemini_base.generation_config_builder import (
 )
 from src.connectors.gemini_base.graceful_degradation import (
     GracefulDegradationManager,
-    calculate_retry_delay,
-    is_model_in_cooldown,
-    is_rate_limit_like_error,
     set_model_cooldown,
 )
 from src.connectors.gemini_base.interfaces import (
@@ -1735,8 +1732,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             logger.info(
                 "Successfully received and processed response from Code Assist API"
             )
-            return ResponseEnvelope(
+            response = ResponseEnvelope(
                 content=openai_response, headers={}, status_code=200, usage=usage
+            )
+            # Apply post-processing (e.g., XML tool call parsing for Antigravity)
+            return self._response_post_processor.process(
+                response, prepared.effective_model
             )
 
         except AuthenticationError as e:
@@ -3117,10 +3118,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return None
 
     def _is_in_cooldown(self, model: str) -> bool:
-        """Check if a model is currently in cooldown."""
-        return is_model_in_cooldown(
-            model, self._graceful_degradation.model_retry_states
-        )
+        """Check if a model is currently in cooldown.
+
+        Delegates to GracefulDegradationManager.
+        """
+        return self._graceful_degradation.is_in_cooldown(model)
 
     def _extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error details.
@@ -3150,20 +3152,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Args:
             model: The model to put in cooldown
             duration: Optional custom duration in seconds. If None, uses default config.
-        """
-        cooldown = (
-            duration
-            if duration is not None
-            else self._graceful_degradation.config.cooldown_duration
-        )
-        set_model_cooldown(
-            model, self._graceful_degradation.model_retry_states, cooldown
-        )
 
-    @staticmethod
-    def _is_rate_limit_like_error(error: BackendError) -> bool:
-        """Determine whether an error should trigger graceful degradation retries."""
-        return is_rate_limit_like_error(error)
+        Delegates to GracefulDegradationManager.
+        """
+        if duration is not None:
+            # Custom duration - use module function with manager's state
+            set_model_cooldown(
+                model, self._graceful_degradation.model_retry_states, duration
+            )
+        else:
+            # Default duration - use manager method
+            self._graceful_degradation.set_cooldown(model)
+
+    def _is_rate_limit_like_error(self, error: BackendError) -> bool:
+        """Determine whether an error should trigger graceful degradation retries.
+
+        Delegates to GracefulDegradationManager.
+        """
+        return self._graceful_degradation.is_rate_limit_like_error(error)
 
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
@@ -3274,9 +3280,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle 429 errors with graceful degradation.
 
-        This method implements the expected behavior:
-        1. For gemini-2.5-pro: retry with delays, then fallback to gemini-2.5-flash
-        2. For gemini-2.5-flash: retry with delays, then mark backend as unusable
+        This method implements retry with exponential backoff for rate-limited models.
+        Automatic model fallbacks (e.g., Pro -> Flash) are disabled; the Resilience
+        Layer at the BackendService level handles cross-backend failover instead.
+
+        Behavior:
+        1. Retry the original model with configured delays (exponential backoff with jitter)
+        2. If all retries are exhausted, mark the backend as unusable and raise an error
+        3. Recovery probing may restore the backend if enabled in configuration
         """
         # Prevent recursive graceful degradation calls
         if _in_graceful_degradation:
@@ -3305,31 +3316,27 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 status_code=429,
             )
 
-        models_to_try = [original_model]
+        # Check if fallback is disabled in config
         disable_fallback = False
         try:
             disable_fallback = bool(self.config.backends.disable_gemini_oauth_fallback)
         except AttributeError:  # pragma: no cover - defensive for legacy configs
             disable_fallback = False
 
-        fallback_model = (
-            None if disable_fallback else self._get_fallback_model(original_model)
+        # Use manager to get the list of models to try (handles fallback logic)
+        models_to_try = self._graceful_degradation.get_models_to_try(
+            original_model, disable_fallback=disable_fallback
         )
-        if fallback_model:
-            if isinstance(fallback_model, list):
-                models_to_try.extend(fallback_model)
-            else:
-                models_to_try.append(fallback_model)
+        fallback_model = self._graceful_degradation.get_fallback_model(original_model)
+        if disable_fallback:
+            fallback_model = None
 
-        start_time = time.time()
-        self._graceful_degradation.metrics.total_invocations += 1
+        # Start tracking this invocation
+        start_time = self._graceful_degradation.start_invocation()
 
         for _, model in enumerate(models_to_try):
-            # Reset attempts for this model if needed
-            if model not in self._graceful_degradation.model_retry_states:
-                self._graceful_degradation.model_retry_states[model] = ModelRetryState()
-
-            state = self._graceful_degradation.model_retry_states[model]
+            # Get or create retry state for this model
+            state = self._graceful_degradation.get_or_create_state(model)
 
             # Check if the initial error dictates a cooldown for the original model
             # This prevents "spamming" the API when it has already told us to wait
@@ -3448,9 +3455,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     request_attempts
                     >= self._graceful_degradation.config.max_total_attempts
                 ):
-                    self._graceful_degradation.metrics.record_duration(
-                        time.time() - start_time
-                    )
+                    self._graceful_degradation.record_duration(time.time() - start_time)
                     raise BackendError(
                         message="Maximum total attempts exceeded in graceful degradation",
                         code="max_attempts_exceeded",
@@ -3458,7 +3463,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
 
                 request_attempts += 1
-                self._graceful_degradation.metrics.record_attempt()
+                self._graceful_degradation.record_attempt()
                 if hasattr(self, "_total_attempts"):
                     with contextlib.suppress(Exception):
                         self._total_attempts += 1  # type: ignore[operator]
@@ -3467,18 +3472,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                 try:
                     # Calculate delay for this attempt with jitter
-                    delay = calculate_retry_delay(
-                        attempt, self._graceful_degradation.config.retry_delays
-                    )
+                    delay = self._graceful_degradation.calculate_delay(attempt)
 
                     logger.info(
                         f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt})"
                     )
-                    self._graceful_degradation.metrics.record_wait(delay)
+                    self._graceful_degradation.record_wait(delay)
                     await asyncio.sleep(delay)
 
                     if is_fallback_model and not fallback_recorded:
-                        self._graceful_degradation.metrics.record_fallback()
+                        self._graceful_degradation.record_fallback()
                         fallback_recorded = True
 
                     # Make the API call
@@ -3491,15 +3494,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         _in_graceful_degradation=True,
                         **kwargs,
                     )
-                    self._graceful_degradation.metrics.record_duration(
-                        time.time() - start_time
-                    )
+                    self._graceful_degradation.record_duration(time.time() - start_time)
                     return result
 
                 except BackendError as e:
                     last_error = e
                     if not self._is_rate_limit_like_error(e):
-                        self._graceful_degradation.metrics.record_duration(
+                        self._graceful_degradation.record_duration(
                             time.time() - start_time
                         )
                         raise
@@ -3600,9 +3601,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # If we get here, all requested models failed
         # Mark quota exceeded but keep backend functional for other models
-        self._graceful_degradation.metrics.record_duration(time.time() - start_time)
+        self._graceful_degradation.record_duration(time.time() - start_time)
         self._mark_backend_unusable(reason="quota_exceeded")
-        self._graceful_degradation.permanently_failed = True
+        self._graceful_degradation.mark_permanently_failed()
         self.is_functional = False
 
         # If fallback is disabled, the error should reflect that all models are

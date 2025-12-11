@@ -1,6 +1,7 @@
 """Unit tests for Gemini Code Assist response parsing helpers."""
 
 import pytest
+from src.connectors.gemini_base.graceful_degradation import is_rate_limit_like_error
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.common.exceptions import BackendError
 
@@ -100,27 +101,33 @@ def test_extract_generated_text_empty_candidates_without_error() -> None:
 
 
 def test_is_rate_limit_like_error_handles_empty_response() -> None:
+    """Test that empty_response code triggers rate limit handling."""
     err = BackendError(
         message="Empty response",
         code="empty_response",
         status_code=502,
     )
-    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is True
+    # Use module-level function directly for testing
+    assert is_rate_limit_like_error(err) is True
 
 
 def test_is_rate_limit_like_error_handles_429() -> None:
+    """Test that 429 status code triggers rate limit handling."""
     err = BackendError(
         message="Rate limited",
         code="rate_limit_exceeded",
         status_code=429,
     )
-    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is True
+    # Use module-level function directly for testing
+    assert is_rate_limit_like_error(err) is True
 
 
 def test_is_rate_limit_like_error_other_errors_false() -> None:
+    """Test that other error types don't trigger rate limit handling."""
     err = BackendError(
         message="Other failure",
         code="other",
         status_code=500,
     )
-    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is False
+    # Use module-level function directly for testing
+    assert is_rate_limit_like_error(err) is False

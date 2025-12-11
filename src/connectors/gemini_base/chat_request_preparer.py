@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.connectors.gemini_base.credentials import _StaticTokenCreds
-from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.core.common.exceptions import AuthenticationError
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 
@@ -164,9 +163,10 @@ class ChatRequestPreparer:
 
         # Inject stored thought_signatures for clients that don't preserve extra_content
         session_id = getattr(request_data, "session_id", None) or ""
-        # Only inject cached signatures when we have a real session identifier
-        # (non-streaming path) or always for streaming path
-        if session_id or is_streaming:
+        # Only inject cached signatures when we have a real session identifier.
+        # Using an empty key risks cross-session leakage and "corrupted thought signature" errors.
+        # This applies to both streaming and non-streaming paths for consistency.
+        if session_id:
             connector._inject_thought_signatures(canonical_request, session_id)
         connector._log_tool_call_signature_state(
             canonical_request, session_id, effective_model
@@ -189,7 +189,8 @@ class ChatRequestPreparer:
         )
 
         # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
-        sanitize_code_assist_tools(canonical_request, code_assist_request)
+        # Use connector method to allow subclass overrides (extension point)
+        connector._sanitize_code_assist_tools(canonical_request, code_assist_request)
 
         prompt_tokens_estimate = connector._estimate_prompt_tokens(code_assist_request)
         connector._enforce_prompt_limit(
