@@ -621,6 +621,50 @@ def test_maybe_fix_droid_antigravity_path_not_modified_for_non_droid_agent() -> 
     assert modified is False
 
 
+def test_maybe_fix_droid_antigravity_path_handles_factory_cli_agent() -> None:
+    """factory-cli user agent (Droid's actual User-Agent) should have paths fixed.
+
+    Droid agent sends User-Agent: factory-cli/X.Y.Z, so the fix should trigger
+    for both 'droid' and 'factory' in the agent name.
+
+    This test verifies the fix for the production bug where Droid sent relative
+    paths with User-Agent: factory-cli/0.35.0, but the proxy didn't fix them.
+    """
+    args: dict[str, str] = {
+        "file_path": "tests/unit/services/test_steering_leak_protection.py"
+    }
+    fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+        args, "gemini-oauth-antigravity", "factory-cli/0.35.0"
+    )
+    assert isinstance(fixed, dict)
+    assert (
+        fixed.get("file_path")
+        == "/tests/unit/services/test_steering_leak_protection.py"
+    )
+    assert modified is True
+
+
+def test_maybe_fix_droid_antigravity_path_handles_factory_variations() -> None:
+    """Various factory-related agent names should trigger the path fix."""
+    factory_agents = [
+        "factory-cli/0.35.0",
+        "factory-cli/1.0.0",
+        "Factory",
+        "FACTORY",
+        "MyFactoryAgent",
+    ]
+    for agent_name in factory_agents:
+        args: dict[str, str] = {"file_path": "src/test.py"}
+        fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
+            args, "gemini-oauth-antigravity", agent_name
+        )
+        assert isinstance(fixed, dict), f"Should return dict for agent: {agent_name}"
+        assert (
+            fixed.get("file_path") == "/src/test.py"
+        ), f"Should fix path for agent: {agent_name}"
+        assert modified is True, f"Should mark as modified for agent: {agent_name}"
+
+
 class TestVTCToolCallBypass:
     """Tests for VTC (Virtual Tool Calling) tool call bypass in ToolCallReactorFeature."""
 

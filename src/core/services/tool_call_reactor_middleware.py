@@ -761,14 +761,16 @@ class ToolCallReactorFeature(IResponseFeature):
         isn't registered, we still want to avoid the "absolute path required" errors
         by normalizing obvious relative paths emitted by the backend.
 
-        This fix applies to any backend when the calling agent is "droid".
+        This fix applies to any backend when the calling agent is "droid" or "factory"
+        (Droid sends User-Agent: factory-cli/X.Y.Z).
 
         Returns:
             Tuple of (possibly modified arguments, was_modified flag).
         """
-        # Check agent name - must contain "droid" to activate
+        # Check agent name - must contain "droid" or "factory" to activate
+        # Droid is built by Factory and uses "factory-cli" as user agent
         agent = (calling_agent or "").lower()
-        if "droid" not in agent:
+        if "droid" not in agent and "factory" not in agent:
             return tool_arguments, False
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:
@@ -1525,14 +1527,16 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         isn't registered, we still want to avoid the "absolute path required" errors
         by normalizing obvious relative paths emitted by the backend.
 
-        This fix applies to any backend when the calling agent is "droid".
+        This fix applies to any backend when the calling agent is "droid" or "factory"
+        (Droid sends User-Agent: factory-cli/X.Y.Z).
 
         Returns:
             Tuple of (possibly modified arguments, was_modified flag).
         """
-        # Check agent name - must contain "droid" to activate
+        # Check agent name - must contain "droid" or "factory" to activate
+        # Droid is built by Factory and uses "factory-cli" as user agent
         agent = (calling_agent or "").lower()
-        if "droid" not in agent:
+        if "droid" not in agent and "factory" not in agent:
             return tool_arguments, False
 
         def _extract_path(args: Any) -> tuple[Any, str | None, str | None]:

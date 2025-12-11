@@ -58,7 +58,9 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
 
         Returns True only if:
         1. Handler is enabled
-        2. Agent contains "droid" (case-insensitive)
+        2. Agent contains "droid" or "factory" (case-insensitive)
+           - "droid" is the agent name
+           - "factory" is the company that builds Droid (factory-cli user agent)
         3. Tool arguments contain a path that needs fixing
 
         Args:
@@ -71,11 +73,13 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
             return False
 
         # Check agent name (from calling_agent or context)
+        # Droid sends User-Agent: factory-cli/X.Y.Z so we also check for "factory"
         agent_name = context.calling_agent or ""
-        if "droid" not in agent_name.lower():
+        agent_lower = agent_name.lower()
+        if "droid" not in agent_lower and "factory" not in agent_lower:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "DroidAntigravityPathFix: agent '%s' doesn't contain 'droid'",
+                    "DroidAntigravityPathFix: agent '%s' doesn't contain 'droid' or 'factory'",
                     agent_name,
                 )
             return False

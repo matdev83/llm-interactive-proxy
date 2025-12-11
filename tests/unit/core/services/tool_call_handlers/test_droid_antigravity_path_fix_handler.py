@@ -86,6 +86,32 @@ class TestDroidAntigravityPathFixHandler:
             assert result is True, f"Should match agent name: {agent_name}"
 
     @pytest.mark.asyncio
+    async def test_can_handle_factory_cli_user_agent(
+        self, enabled_handler: DroidAntigravityPathFixHandler
+    ) -> None:
+        """Handler should match factory-cli user agent (Droid's actual User-Agent).
+
+        Droid agent sends User-Agent: factory-cli/X.Y.Z, so we need to detect
+        both 'droid' and 'factory' in the agent name.
+        """
+        factory_agents = [
+            "factory-cli/0.35.0",
+            "factory-cli/1.0.0",
+            "Factory",
+            "FACTORY",
+            "MyFactoryAgent",
+        ]
+        for agent_name in factory_agents:
+            context = self._create_context(
+                calling_agent=agent_name,
+                tool_arguments={"file_path": "src/file.py"},
+            )
+            result = await enabled_handler.can_handle(context)
+            assert (
+                result is True
+            ), f"Should match factory-based agent name: {agent_name}"
+
+    @pytest.mark.asyncio
     async def test_can_handle_non_matching_agent(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
@@ -181,6 +207,42 @@ class TestDroidAntigravityPathFixHandler:
         result = await enabled_handler.handle(context)
         assert result.should_swallow is False
         assert context.tool_arguments["file_path"] == r"\src\core\config\app_config.py"
+
+    @pytest.mark.asyncio
+    async def test_handle_factory_cli_scenario_from_production(
+        self, enabled_handler: DroidAntigravityPathFixHandler
+    ) -> None:
+        """Test the exact scenario that failed in production with factory-cli User-Agent.
+
+        From production logs:
+        - User-Agent: factory-cli/0.35.0
+        - Path: tests/unit/services/test_steering_leak_protection.py (relative)
+        - Expected: Should be fixed to \\tests\\unit\\services\\test_steering_leak_protection.py
+
+        This test verifies the fix for the bug where Droid's actual User-Agent
+        (factory-cli/X.Y.Z) wasn't being recognized.
+        """
+        context = self._create_context(
+            calling_agent="factory-cli/0.35.0",  # Actual User-Agent from production
+            backend_name="gemini-oauth-antigravity",
+            model_name="gemini-3-pro-high",
+            tool_name="Read",
+            tool_arguments={
+                "file_path": "tests/unit/services/test_steering_leak_protection.py"
+            },
+        )
+
+        # Verify can_handle returns True for factory-cli
+        can_handle = await enabled_handler.can_handle(context)
+        assert can_handle is True, "Handler should match factory-cli/0.35.0 agent"
+
+        # Verify handle fixes the path
+        result = await enabled_handler.handle(context)
+        assert result.should_swallow is False
+        assert (
+            context.tool_arguments["file_path"]
+            == r"\tests\unit\services\test_steering_leak_protection.py"
+        )
 
     # ==================== Internal method tests ====================
 
