@@ -422,7 +422,23 @@ class ServiceCollection(IServiceCollection):
         # container. Creating a new BackendRegistry here would yield an empty
         # registry in scoped providers and break backend resolution.
         self.add_instance(BackendRegistry, backend_registry)
-        self.add_singleton(IUsageTrackingService, UsageTrackingService)
+
+        def _usage_tracking_service_factory(
+            provider: IServiceProvider,
+        ) -> UsageTrackingService:
+            from src.core.database.repositories.usage_repository import (
+                SessionMetricsRepository,
+                UsageRecordRepository,
+            )
+
+            usage_repo = provider.get_required_service(UsageRecordRepository)
+            session_repo = provider.get_required_service(SessionMetricsRepository)
+            return UsageTrackingService(usage_repo, session_repo)
+
+        self.add_singleton(
+            IUsageTrackingService,
+            implementation_factory=_usage_tracking_service_factory,
+        )
         self.add_singleton(ISessionService, SessionService)
 
         # ICommandService registered in register_core_services()

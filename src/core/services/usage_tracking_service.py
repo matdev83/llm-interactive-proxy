@@ -1,46 +1,28 @@
 """
-Usage tracking service that integrates with the existing llm_accounting_utils functionality.
+Usage tracking service implementation.
 
-This service integrates usage tracking with the new SOLID architecture.
+This service provides the implementation for the IUsageTrackingService interface,
+using UsageRecordRepository for persistence and SessionMetricsRepository for
+session-level aggregation.
 """
 
 from __future__ import annotations
 
 import logging
-import math
-import time
 import uuid
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from datetime import datetime, timezone
+from typing import Any
 
-
-# Define a protocol for objects that behave like StreamingResponse
-class StreamingResponseLike(Protocol):
-    """Protocol for objects that behave like StreamingResponse."""
-
-    @property
-    def body_iterator(self) -> AsyncGenerator[bytes, None]: ...
-
-    @property
-    def headers(self) -> dict[str, str]: ...
-
-    @property
-    def media_type(self) -> str: ...
-
-
-from src.constants import MAX_RECENT_USAGE_RECORDS
-from src.core.common.usage_limits import normalize_recent_usage_limit
-from src.core.domain.usage_data import UsageData
-from src.core.domain.usage_stats import ModelUsageStats, UsageStatsResponse
-from src.core.interfaces.repositories_interface import IUsageRepository
-from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
-from src.llm_accounting_utils import (
-    extract_billing_info_from_headers,
-    extract_billing_info_from_response,
-    is_accounting_disabled,
+from src.core.database.repositories.usage_repository import (
+    SessionMetricsRepository,
+    UsageRecordRepository,
 )
+from src.core.domain.aggregated_stats import AggregatedStats
+from src.core.domain.openrouter_usage import OpenRouterUsage
+from src.core.domain.statistics_filter import StatisticsFilter
+from src.core.domain.traffic_leg import TrafficLeg
+from src.core.domain.usage_record import UsageRecord
+from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
 logger = logging.getLogger(__name__)
 
@@ -48,339 +30,419 @@ logger = logging.getLogger(__name__)
 class UsageTrackingService(IUsageTrackingService):
     """Service for tracking LLM usage across the application.
 
-    This service integrates with the existing llm_accounting_utils functionality
-    while also storing usage data in the new repository structure.
+    This service implements the detailed usage tracking specification, recording
+    metrics at four key points (legs) of the traffic flow:
+    1. Client to Proxy (CTP) - Verbatim request
+    2. Proxy to Backend (PTB) - Mutated request
+    3. Backend to Proxy (BTP) - Verbatim response
+    4. Proxy to Client (PTC) - Mutated response
     """
 
-    def __init__(self, usage_repository: IUsageRepository) -> None:
+    def __init__(
+        self,
+        usage_repository: UsageRecordRepository,
+        session_repository: SessionMetricsRepository,
+    ) -> None:
         """Initialize the usage tracking service.
 
         Args:
-            usage_repository: Repository for storing usage data
+            usage_repository: Repository for storing usage records
+            session_repository: Repository for storing session metrics
         """
-        self._repository = usage_repository
+        self._usage_repo = usage_repository
+        self._session_repo = session_repository
 
-    async def track_usage(
+    async def record_request(
         self,
+        session_id: str,
+        backend_type: str,
         model: str,
-        prompt_tokens: int | None = None,
-        completion_tokens: int | None = None,
-        total_tokens: int | None = None,
-        cost: float = 0.0,
-        execution_time: float = 0.0,
-        backend: str | None = None,
-        username: str | None = None,
-        project: str | None = None,
-        session_id: str | None = None,
-    ) -> UsageData:
-        """Track usage metrics for an LLM request.
+        frontend_type: str,
+        leg: TrafficLeg,
+        prompt_tokens: int,
+        user_agent: str | None = None,
+        proxy_user: str | None = None,
+        turn_number: int = 1,
+    ) -> str:
+        """Record an incoming request (or leg start), returns record_id.
 
-        Args:
-            model: The model name
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
-            total_tokens: Total number of tokens
-            cost: Estimated cost
-            execution_time: Execution time in seconds
-            backend: Backend provider name
-            username: Username
-            project: Project name
-            session_id: Session ID
-
-        Returns:
-            The created usage data entity
+        This method is called when a traffic leg starts (e.g. request received,
+        request sent to backend). It records the initial metrics like prompt tokens.
         """
-        # Compute totals if missing
-        if (
-            total_tokens is None
-            and prompt_tokens is not None
-            and completion_tokens is not None
-        ):
-            total_tokens = prompt_tokens + completion_tokens
+        record_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc)
 
-        # Create usage data entity
-        usage_data = UsageData(
-            id=str(uuid.uuid4()),
-            session_id=session_id or "unknown",
-            project=project,
-            model=f"{backend}:{model}" if backend else model,
-            prompt_tokens=prompt_tokens or 0,
-            completion_tokens=completion_tokens or 0,
-            total_tokens=total_tokens or 0,
-            cost=cost,
-            timestamp=datetime.now(timezone.utc),
+        # Determine which prompt_tokens field to populate based on leg
+        verbatim_prompt = 0
+        mutated_prompt = 0
+
+        if leg in (TrafficLeg.CLIENT_TO_PROXY, TrafficLeg.BACKEND_TO_PROXY):
+            # Ingress points (from client or from backend) - typically "verbatim" relative to proxy processing
+            # Note: BTP is a response, but record_request might be used to init the record if we treat it as a new event
+            # However, usually BTP is recorded via record_response of the PTB record, OR as a new record if we track distinct legs.
+            # The spec implies 4 separate measurements. If we store them as separate records, each has its own ID.
+            # If we store them as fields in one record, we need to correlate.
+            # The Requirement 1 says: "Usage_Tracking_System SHALL record verbatim_inbound_tokens... mutated_outbound_tokens..."
+            # The Design says: UsageRecord has fields for both verbatim and mutated.
+            # But the interaction diagram shows:
+            # Frontend->UsageService: record_request(CTP) -> Create UsageRecord
+            # UsageService->UsageService: record_request(PTB) -> Update UsageRecord? Or Create new?
+            #
+            # Design doc: "UsageRecord... The core data structure for tracking individual request/response cycles"
+            # It seems one UsageRecord represents one Turn (CTP -> PTB -> BTP -> PTC).
+            # But `leg` is a field in `UsageRecord`.
+            #
+            # Let's look at `UsageRecord` definition in `src/core/domain/usage_record.py`
+            # and `src/core/database/models/usage.py`.
+            # `leg` is a field. This suggests separate records for each leg.
+            #
+            # IF `leg` is a field, then each "leg" creates a new `UsageRecord`.
+            # So:
+            # 1. CTP: Record created.
+            # 2. PTB: Record created.
+            # 3. BTP: Record created.
+            # 4. PTC: Record created.
+            #
+            # This seems redundant if we want to compare verbatim vs mutated in one view.
+            # BUT, the design doc says:
+            # "UsageRecord... leg: TrafficLeg # CTP, PTC, PTB, BTP"
+            # AND "verbatim_prompt_tokens", "mutated_prompt_tokens" fields exist.
+            #
+            # If we have one record per leg, then for CTP:
+            # verbatim_prompt_tokens = X, mutated = 0 (or X?).
+            #
+            # Let's re-read Requirement 7: "support filtering by traffic leg".
+            # This confirms separate records per leg.
+            #
+            # So, for CTP:
+            # - verbatim_prompt_tokens = input tokens
+            # - mutated_prompt_tokens = 0 (or same as verbatim?)
+            #
+            # Actually, `verbatim` usually means "before proxy mutations". `mutated` means "after".
+            # CTP is "before". PTB is "after".
+            # If we have separate records, CTP record tracks what came in. PTB tracks what went out.
+            #
+            # So:
+            # CTP Record: leg=CTP, verbatim_prompt=X, mutated_prompt=0
+            # PTB Record: leg=PTB, verbatim_prompt=0, mutated_prompt=Y
+            #
+            # This allows full tracing.
+
+            verbatim_prompt = prompt_tokens
+        else:
+            # Egress points (to backend or to client)
+            # PTB: Proxy to Backend. This is "mutated" prompt.
+            # PTC: Proxy to Client. This is response flow, but if record_request is called for it...
+            # actually record_request is usually for PROMPTS. record_response is for COMPLETIONS.
+            #
+            # CTP (Request): Verbatim Prompt.
+            # PTB (Request): Mutated Prompt.
+            # BTP (Response): Verbatim Completion.
+            # PTC (Response): Mutated Completion.
+
+            mutated_prompt = prompt_tokens
+
+        record = UsageRecord(
+            id=record_id,
+            timestamp=timestamp,
+            session_id=session_id,
+            turn_number=turn_number,
+            backend_type=backend_type,
+            model=model,
+            frontend_type=frontend_type,
+            leg=leg,
+            verbatim_prompt_tokens=verbatim_prompt,
+            verbatim_completion_tokens=0,
+            mutated_prompt_tokens=mutated_prompt,
+            mutated_completion_tokens=0,
+            total_tokens=verbatim_prompt + mutated_prompt,
+            backend_reported_usage=None,
+            http_status_code=None,
+            tool_call_count=0,
+            tool_names=[],
+            ttft_ms=None,
+            proxy_processing_ms=0.0,
+            total_duration_ms=0.0,
+            user_agent=user_agent,
+            app_title=None,
+            proxy_user=proxy_user,
         )
 
-        # Store in repository
-        await self._repository.add(usage_data)
+        try:
+            # Add single record (using batch_insert for list of 1)
+            await self._usage_repo.batch_insert([record])
+        except Exception as e:
+            logger.error(f"Failed to record request usage: {e}", exc_info=True)
+            # We don't raise here to avoid blocking the main flow, but we log error
 
-        return usage_data
+        return record_id
 
-    @asynccontextmanager
-    async def track_request(
+    async def record_response(
         self,
-        model: str,
-        backend: str,
-        messages: list[dict[str, Any]],
-        username: str | None = None,
-        project: str | None = None,
-        session_id: str | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[Any, None]:
-        """Context manager to track both usage metrics and audit logs for LLM requests.
+        record_id: str,
+        completion_tokens: int,
+        http_status_code: int | None = None,
+        tool_call_count: int = 0,
+        tool_names: list[str] | None = None,
+        ttft_ms: float | None = None,
+        proxy_processing_ms: float = 0,
+        total_duration_ms: float = 0,
+        backend_reported_prompt_tokens: int | None = None,
+        backend_reported_completion_tokens: int | None = None,
+        backend_reported_cost: float | None = None,
+        backend_reported_usage: dict[str, Any] | None = None,
+    ) -> None:
+        """Complete a usage record with response data."""
 
-        This method wraps the legacy track_llm_request context manager while also
-        storing usage data in the new repository structure.
-
-        Args:
-            model: The model name
-            backend: Backend provider name
-            messages: The request messages
-            username: Username
-            project: Project name
-            session_id: Session ID
-            **kwargs: Additional arguments
-
-        Yields:
-            A request tracker object
-        """
-
-        class RequestTracker:
-            def __init__(self) -> None:
-                self.response: dict[str, Any] | StreamingResponseLike | None = None
-                self.response_headers: dict[str, str] = {}
-                self.cost = 0.0
-                self.remote_completion_id: str | None = None
-                self.usage_data: UsageData | None = None
-                self.cost_overridden = False
-
-            def set_response(
-                self, response: dict[str, Any] | StreamingResponseLike
-            ) -> None:
-                """Set the response and extract information."""
-                self.response = response
-
-            def set_response_headers(self, headers: dict[str, str]) -> None:
-                """Set the response headers for billing extraction."""
-                self.response_headers = headers
-
-            def set_cost(self, cost: float) -> None:
-                """Set the cost for this request."""
-                self.cost = cost
-                self.cost_overridden = True
-
-            def set_completion_id(self, completion_id: str) -> None:
-                """Set the remote completion ID."""
-                self.remote_completion_id = completion_id
-
-            def set_usage_data(self, usage_data: UsageData) -> None:
-                """Set the usage data entity."""
-                self.usage_data = usage_data
-
-        tracker = RequestTracker()
-        start_time = time.time()
-
-        # If accounting is disabled, just yield the tracker
-        if is_accounting_disabled():
-            try:
-                yield tracker
-            finally:
-                pass
-            return
-
-        # DI-managed accounting (no legacy context manager)
         try:
-            # Yield our tracker to allow the caller to set response info
-            yield tracker
-        finally:
-            # Calculate execution time
-            execution_time = time.time() - start_time
+            # Get existing record domain object
+            record = await self._usage_repo.get_by_id_domain(record_id)
+            if not record:
+                logger.warning(f"Usage record not found for update: {record_id}")
+                return
 
-            prompt_tokens = None
-            completion_tokens = None
-            total_tokens = None
-            derived_cost: float | None = (
-                tracker.cost if tracker.cost_overridden else None
+            # Determine fields to update
+            # If leg is BTP (Backend to Proxy), we have Verbatim Completion.
+            # If leg is PTC (Proxy to Client), we have Mutated Completion.
+            # If leg is CTP or PTB, we usually don't have completion tokens unless it's an error or short-circuit?
+            # Actually CTP/PTB are request legs, but they might be associated with the response of that leg?
+            #
+            # Wait, the interaction diagram:
+            # Frontend->UsageService: record_request(CTP) -> Create
+            # ...
+            # Frontend-->>Client: Response
+            # UsageService->UsageService: record_response(PTC) -> Update UsageRecord
+            #
+            # The diagram implies record_response updates the SAME record?
+            # "UsageService->Storage: Update UsageRecord"
+            #
+            # If I returned `record_id` from `record_request`, the caller uses it to call `record_response`.
+            # So `record_response` updates the record created by `record_request`.
+            #
+            # So:
+            # CTP Request -> record_request(CTP) -> ID1.
+            # Response to Client (corresponding to CTP) -> record_response(ID1, completion_tokens=...)
+            #
+            # But earlier I reasoned that CTP is "Verbatim Prompt".
+            # The response to CTP is "Mutated Completion" (sent to client).
+            #
+            # Let's check the TrafficLeg Enum again.
+            # CTP = Client To Proxy. (Request)
+            # PTC = Proxy To Client. (Response)
+            #
+            # If we reuse the record ID from CTP for the response, then we are mixing CTP and PTC in one record?
+            # "UsageRecord... leg: TrafficLeg". UsageRecord has ONE leg field.
+            #
+            # If I call record_request(CTP), the record has leg=CTP.
+            # If I call record_response(ID_of_CTP), I am adding completion tokens to a CTP record.
+            # Does CTP record represent the "Client-side Turn"? Yes.
+            #
+            # So:
+            # - CTP Record: Represents the Client <-> Proxy interaction.
+            #   - verbatim_prompt (what client sent)
+            #   - mutated_completion (what client received)
+            #
+            # - PTB Record: Represents the Proxy <-> Backend interaction.
+            #   - mutated_prompt (what backend received)
+            #   - verbatim_completion (what backend returned)
+            #
+            # This makes sense and aligns with "Four Measurement Points" diagram if we group them into 2 records per turn (Client-side and Backend-side).
+            #
+            # Or maybe 4 records?
+            # The diagram says:
+            # Frontend->UsageService: record_request(CTP) ... UsageService->Storage: Create UsageRecord
+            # Frontend->Backend: Forward Request ... UsageService->UsageService: record_request(PTB)
+            #
+            # This implies multiple calls to record_request.
+            #
+            # So:
+            # 1. record_request(CTP) -> ID1.
+            # 2. record_request(PTB) -> ID2.
+            # 3. record_response(ID2) -> Update ID2 (BTP data).
+            # 4. record_response(ID1) -> Update ID1 (PTC data).
+            #
+            # This implies ID2 has leg=PTB. And ID1 has leg=CTP.
+            #
+            # If ID2 (PTB) gets response data (BTP), then ID2 represents the Backend interaction.
+            # verbatim_completion should be set on ID2.
+            #
+            # If ID1 (CTP) gets response data (PTC), then ID1 represents the Client interaction.
+            # mutated_completion should be set on ID1.
+
+            # Update logic:
+            if record.leg == TrafficLeg.CLIENT_TO_PROXY:
+                # This is the Client-side record.
+                # Response is PTC (Mutated Completion).
+                record.mutated_completion_tokens = completion_tokens
+                # It might technically have verbatim_completion if we wanted to copy it, but strict separation suggests keeping it as "what client received".
+            elif record.leg == TrafficLeg.PROXY_TO_BACKEND:
+                # This is the Backend-side record.
+                # Response is BTP (Verbatim Completion).
+                record.verbatim_completion_tokens = completion_tokens
+            elif record.leg == TrafficLeg.BACKEND_TO_PROXY:
+                # Should not happen as request start? BTP is a response flow.
+                # Unless we treat BTP as a separate push? Unlikely for request/response model.
+                record.verbatim_completion_tokens = completion_tokens
+            elif record.leg == TrafficLeg.PROXY_TO_CLIENT:
+                # Should not happen as request start?
+                record.mutated_completion_tokens = completion_tokens
+
+            # Update totals
+            record.total_tokens = (
+                record.verbatim_prompt_tokens
+                + record.mutated_prompt_tokens
+                + record.verbatim_completion_tokens
+                + record.mutated_completion_tokens
             )
 
-            # Extract from headers first if available
-            if tracker.response_headers:
-                billing = extract_billing_info_from_headers(
-                    tracker.response_headers, backend
+            # Update other fields
+            if http_status_code is not None:
+                record.http_status_code = http_status_code
+
+            record.tool_call_count = tool_call_count
+            if tool_names:
+                record.tool_names = tool_names
+
+            if ttft_ms is not None:
+                record.ttft_ms = ttft_ms
+
+            record.proxy_processing_ms = proxy_processing_ms
+            record.total_duration_ms = total_duration_ms
+
+            # Parse backend reported usage
+            if backend_reported_usage:
+                record.backend_reported_usage = OpenRouterUsage.from_dict(
+                    backend_reported_usage
                 )
-                u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
-                if not tracker.cost_overridden:
-                    header_cost = self._parse_billing_cost(billing.get("cost"))
-                    if header_cost is not None:
-                        derived_cost = header_cost
-
-            # Extract from response body
-            if tracker.response is not None:
-                billing = extract_billing_info_from_response(tracker.response, backend)
-                u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
-                if not tracker.cost_overridden:
-                    response_cost = self._parse_billing_cost(billing.get("cost"))
-                    if response_cost is not None:
-                        derived_cost = response_cost
-
-            cost = (
-                tracker.cost
-                if tracker.cost_overridden
-                else derived_cost if derived_cost is not None else tracker.cost
-            )
-            if not tracker.cost_overridden and derived_cost is not None:
-                tracker.cost = cost
-
-            # Persist usage data
-            usage_data = await self.track_usage(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                cost=cost,
-                execution_time=execution_time,
-                backend=backend,
-                username=username,
-                project=project,
-                session_id=session_id,
-            )
-            tracker.set_usage_data(usage_data)
-
-    @staticmethod
-    def _parse_billing_cost(value: Any) -> float | None:
-        """Parse a billing cost value into a float if valid."""
-
-        if value is None:
-            return None
-        try:
-            candidate = float(value)
-        except (TypeError, ValueError):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Ignoring invalid billing cost value: %s", value, exc_info=True
+            elif (
+                backend_reported_prompt_tokens is not None
+                or backend_reported_completion_tokens is not None
+            ):
+                # Fallback to creating from individual fields if dict not provided
+                record.backend_reported_usage = OpenRouterUsage.from_basic_usage(
+                    prompt_tokens=backend_reported_prompt_tokens or 0,
+                    completion_tokens=backend_reported_completion_tokens or 0,
+                    total_tokens=None,
                 )
-            return None
-        if math.isnan(candidate) or math.isinf(candidate):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Ignoring non-finite billing cost value: %s", value, exc_info=True
-                )
-            return None
-        return candidate
+                if backend_reported_cost is not None:
+                    record.backend_reported_usage.cost = backend_reported_cost
+
+            # Persist update
+            await self._usage_repo.batch_update([record])
+
+        except Exception as e:
+            logger.error(f"Failed to record response usage: {e}", exc_info=True)
 
     async def get_usage_stats(
-        self, project: str | None = None, days: int = 30
-    ) -> UsageStatsResponse:
-        """Get usage statistics aggregated by model.
+        self,
+        filters: StatisticsFilter,
+    ) -> AggregatedStats:
+        """Get aggregated statistics with optional filters."""
+        try:
+            # Use repository aggregation
+            # The repository method returns a dict, we need to convert to AggregatedStats
+            stats_dict = await self._usage_repo.get_aggregated_stats(filters)
+            status_codes = await self._usage_repo.get_status_code_breakdown(filters)
 
-        Args:
-            project: Optional project filter
-            days: Number of days to include in stats
+            # Flatten status codes for AggregatedStats which expects dict[int, int]
+            # Repository returns dict[str, dict[int, int]] (backend:model -> {code: count})
+            # We need to aggregate across all backend/models for the top-level stats
+            flat_status_codes: dict[int, int] = {}
+            for model_codes in status_codes.values():
+                for code, count in model_codes.items():
+                    flat_status_codes[code] = flat_status_codes.get(code, 0) + count
 
-        Returns:
-            A :class:`UsageStatsResponse` with aggregated usage metrics.
-        """
-        if days <= 0:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Received non-positive days=%s when requesting usage stats; "
-                    "falling back to complete history.",
-                    days,
-                )
-            raw_stats = await self._repository.get_stats(project)
-            stats_response = UsageStatsResponse()
-            for model_name, payload in raw_stats.items():
-                stats_response[model_name] = payload
-            return stats_response
-
-        usage_records = await self._repository.get_all()
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
-        # Initialize stats response and prepare project filter
-        stats = UsageStatsResponse()
-        project_filter = project  # Store project filter for later use in filtering
-
-        for usage in usage_records:
-            if project_filter is not None and usage.project != project_filter:
-                continue
-
-            usage_timestamp = usage.timestamp
-            if usage_timestamp.tzinfo is None:
-                usage_timestamp = usage_timestamp.replace(tzinfo=timezone.utc)
-
-            if usage_timestamp < cutoff:
-                continue
-
-            if usage.model not in stats:
-                stats[usage.model] = ModelUsageStats(
-                    total_tokens=0,
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    cost=0.0,
-                    requests=0,
+            # Calculate derived metrics
+            # Avoid division by zero
+            tokens_per_session = 0.0
+            if stats_dict.get("unique_sessions", 0) > 0:
+                tokens_per_session = stats_dict.get("total_tokens", 0) / stats_dict.get(
+                    "unique_sessions"
                 )
 
-            current_stats = stats[usage.model]
-            stats[usage.model] = ModelUsageStats(
-                total_tokens=current_stats.total_tokens + usage.total_tokens,
-                prompt_tokens=current_stats.prompt_tokens + usage.prompt_tokens,
-                completion_tokens=current_stats.completion_tokens
-                + usage.completion_tokens,
-                cost=current_stats.cost + (usage.cost or 0.0),
-                requests=current_stats.requests + 1,
+            # For TPS, we need a time window. If not provided in filters (via date range),
+            # we might use first/last timestamp from stats.
+            time_window = 0.0
+            first_ts = stats_dict.get("first_timestamp")
+            last_ts = stats_dict.get("last_timestamp")
+            if first_ts and last_ts:
+                time_window = (last_ts - first_ts).total_seconds()
+
+            completion_tps = 0.0
+            total_tps = 0.0
+            if time_window > 0:
+                completion_tps = (
+                    stats_dict.get("total_completion_tokens", 0) / time_window
+                )
+                total_tps = stats_dict.get("total_tokens", 0) / time_window
+
+            # Map dict to AggregatedStats
+            # Note: AggregatedStats expects TimingStats objects for timing
+            from src.core.domain.timing_stats import TimingStats
+
+            def make_timing(prefix: str) -> TimingStats | None:
+                if (
+                    stats_dict.get(f"{prefix}_ttft") is None
+                    and stats_dict.get(f"avg_{prefix}") is None
+                ):
+                    # Check based on keys present in repo output: min_ttft, max_ttft, avg_ttft
+                    # For duration: min_duration, ...
+                    pass
+
+                # Check keys from repo get_aggregated_stats
+                # min_ttft, max_ttft, avg_ttft
+                # min_proxy_processing, ...
+                # min_duration, ...
+
+                # Using prefix to match repo keys
+                # prefix = "ttft" or "proxy_processing" or "duration"
+
+                count = stats_dict.get("response_count", 0)  # Approximation
+                if count == 0:
+                    return None
+
+                return TimingStats(
+                    count=count,
+                    min_ms=stats_dict.get(f"min_{prefix}", 0.0) or 0.0,
+                    max_ms=stats_dict.get(f"max_{prefix}", 0.0) or 0.0,
+                    avg_ms=stats_dict.get(f"avg_{prefix}", 0.0) or 0.0,
+                    p50_ms=0.0,  # Not calculated by repo yet
+                    p95_ms=0.0,
+                    p99_ms=0.0,
+                )
+
+            return AggregatedStats(
+                request_count=stats_dict.get("request_count", 0),
+                response_count=stats_dict.get("response_count", 0),
+                unique_sessions=stats_dict.get("unique_sessions", 0),
+                total_turns=stats_dict.get("total_turns", 0),
+                total_prompt_tokens=stats_dict.get("total_prompt_tokens", 0),
+                total_completion_tokens=stats_dict.get("total_completion_tokens", 0),
+                total_tokens=stats_dict.get("total_tokens", 0),
+                tokens_per_session=tokens_per_session,
+                completion_tokens_per_second=completion_tps,
+                total_tokens_per_second=total_tps,
+                total_tool_calls=stats_dict.get("total_tool_calls", 0),
+                ttft_stats=make_timing("ttft"),
+                proxy_processing_stats=make_timing("proxy_processing"),
+                duration_stats=make_timing("duration"),
+                status_code_counts=flat_status_codes,
+                filters=filters.__dict__ if hasattr(filters, "__dict__") else {},
+                time_window_seconds=time_window,
             )
 
-        return stats
+        except Exception as e:
+            logger.error(f"Failed to get usage stats: {e}", exc_info=True)
+            return AggregatedStats()
 
     async def get_recent_usage(
-        self, session_id: str | None = None, limit: int = 100
-    ) -> list[UsageData]:
-        """Get recent usage data.
-
-        Args:
-            session_id: Optional session ID filter
-            limit: Maximum number of records to return
-
-        Returns:
-            List of usage data entities
-        """
+        self,
+        filters: StatisticsFilter | None = None,
+        limit: int = 100,
+    ) -> list[UsageRecord]:
+        """Get recent usage records."""
         try:
-            requested_limit = int(limit)
-        except (TypeError, ValueError):
-            requested_limit = 0
-
-        normalized_limit = normalize_recent_usage_limit(requested_limit)
-
-        if normalized_limit == 0:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Recent usage requested with limit=%s; returning empty result",
-                    limit,
-                )
+            return await self._usage_repo.query_with_filter(filters, limit=limit)
+        except Exception as e:
+            logger.error(f"Failed to get recent usage: {e}", exc_info=True)
             return []
-
-        if normalized_limit < requested_limit and logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Recent usage limit clamped from %s to %s (max=%s)",
-                limit,
-                normalized_limit,
-                MAX_RECENT_USAGE_RECORDS,
-            )
-
-        if session_id:
-            data = await self._repository.get_by_session_id(session_id)
-        else:
-            data = await self._repository.get_all()
-
-        # Sort by timestamp (newest first) and limit
-        if not data:
-            return []
-
-        sorted_data = sorted(data, key=lambda x: x.timestamp, reverse=True)
-        return sorted_data[:normalized_limit]

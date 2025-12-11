@@ -25,6 +25,7 @@ from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.traffic_leg import TrafficLeg
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -42,6 +43,7 @@ from src.core.interfaces.resilience_interface import (
     IResilienceCoordinator,
 )
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
@@ -71,6 +73,7 @@ class BackendService(IBackendService):
         routing_service: BackendRoutingService | None = None,
         resilience_coordinator: IResilienceCoordinator | None = None,
         failure_handling_strategy: IFailureHandlingStrategy | None = None,
+        usage_tracking_service: IUsageTrackingService | None = None,
     ):
         """Initialize the backend service.
 
@@ -85,6 +88,7 @@ class BackendService(IBackendService):
             routing_service: Service for instance routing and discovery
             resilience_coordinator: Coordinator for rate limiting and error recovery
             failure_handling_strategy: Strategy for handling backend failures with retry/failover
+            usage_tracking_service: Service for tracking usage metrics
         """
         self._factory = factory
         self._rate_limiter = rate_limiter
@@ -102,6 +106,7 @@ class BackendService(IBackendService):
         self._failure_strategy: IFailureHandlingStrategy | None = (
             failure_handling_strategy
         )
+        self._usage_tracking_service = usage_tracking_service
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -399,6 +404,82 @@ class BackendService(IBackendService):
                 yield b"data: [DONE]\n\n"
 
         return _adapter()
+
+    def _wrap_stream_for_usage(
+        self,
+        stream: Any,
+        ctp_record_id: str | None,
+        ptb_record_id: str | None,
+        start_time: float,
+    ) -> Any:
+        """Wrap stream to track usage metrics on completion."""
+        # Capture service instance locally to satisfy mypy narrowing
+        usage_service = self._usage_tracking_service
+
+        if not usage_service or (not ctp_record_id and not ptb_record_id):
+            return stream
+
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        async def _usage_wrapper() -> Any:
+            accumulated_usage = None
+            first_token_time = None
+
+            try:
+                async for chunk in stream:
+                    if first_token_time is None:
+                        first_token_time = time.time()
+
+                    content = (
+                        chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                    )
+
+                    if isinstance(content, StopChunkWithUsage):
+                        accumulated_usage = content.get("usage")
+                    elif isinstance(content, dict) and "usage" in content:
+                        accumulated_usage = content["usage"]
+
+                    if isinstance(chunk, ProcessedResponse) and chunk.usage:
+                        accumulated_usage = chunk.usage
+
+                    yield chunk
+            finally:
+                if accumulated_usage:
+                    completion_tokens = accumulated_usage.get("completion_tokens", 0)
+                    ttft_ms = (
+                        (first_token_time - start_time) * 1000
+                        if first_token_time
+                        else None
+                    )
+                    duration_ms = (time.time() - start_time) * 1000
+
+                    try:
+                        if ptb_record_id:
+                            await usage_service.record_response(
+                                record_id=ptb_record_id,
+                                completion_tokens=completion_tokens,
+                                backend_reported_usage=accumulated_usage,
+                                http_status_code=200,
+                                ttft_ms=ttft_ms,
+                                total_duration_ms=duration_ms,
+                            )
+
+                        if ctp_record_id:
+                            await usage_service.record_response(
+                                record_id=ctp_record_id,
+                                completion_tokens=completion_tokens,
+                                backend_reported_usage=accumulated_usage,
+                                http_status_code=200,
+                                ttft_ms=ttft_ms,
+                                total_duration_ms=duration_ms,
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to record stream usage: {e}", exc_info=True
+                        )
+
+        return _usage_wrapper()
 
     def _normalize_provider_exception(
         self, exc: Exception, backend_type: str
@@ -1513,16 +1594,70 @@ class BackendService(IBackendService):
                     outbound_tokens = calculate_outbound_tokens(
                         domain_request, model=effective_model
                     )
+
+                    # Calculate verbatim tokens (from original request)
+                    verbatim_tokens = 0
+                    if self._usage_tracking_service:
+                        verbatim_tokens = calculate_outbound_tokens(
+                            request, model=effective_model
+                        )
+
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens}"
+                            f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens})"
                         )
+
+                    # Record request usage
+                    ctp_record_id = None
+                    ptb_record_id = None
+                    if self._usage_tracking_service:
+                        try:
+                            # Use session.state.proxy_user if available
+                            proxy_user = None
+                            if (
+                                session
+                                and hasattr(session, "state")
+                                and hasattr(session.state, "proxy_user")
+                            ):
+                                proxy_user = session.state.proxy_user
+
+                            sid = session_id_for_backend or "unknown"
+
+                            ctp_record_id = (
+                                await self._usage_tracking_service.record_request(
+                                    session_id=sid,
+                                    backend_type=backend_type,
+                                    model=effective_model,
+                                    frontend_type="openai",
+                                    leg=TrafficLeg.CLIENT_TO_PROXY,
+                                    prompt_tokens=verbatim_tokens,
+                                    proxy_user=proxy_user,
+                                )
+                            )
+
+                            ptb_record_id = (
+                                await self._usage_tracking_service.record_request(
+                                    session_id=sid,
+                                    backend_type=backend_type,
+                                    model=effective_model,
+                                    frontend_type="openai",
+                                    leg=TrafficLeg.PROXY_TO_BACKEND,
+                                    prompt_tokens=outbound_tokens,
+                                    proxy_user=proxy_user,
+                                )
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to record request usage: {e}")
+
                 except Exception:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Failed to calculate outbound tokens", exc_info=True
+                            "Failed to calculate outbound tokens or record usage",
+                            exc_info=True,
                         )
                     outbound_tokens = 0
+                    ctp_record_id = None
+                    ptb_record_id = None
 
                 try:
                     result: ResponseEnvelope | StreamingResponseEnvelope = (
@@ -1542,6 +1677,65 @@ class BackendService(IBackendService):
                         result.metadata, dict
                     ):
                         result.metadata["outbound_tokens"] = outbound_tokens
+
+                    # Wrap result content for usage tracking
+                    if (
+                        isinstance(result, StreamingResponseEnvelope)
+                        and self._usage_tracking_service
+                        and (ctp_record_id or ptb_record_id)
+                    ):
+                        result.content = self._wrap_stream_for_usage(
+                            result.content, ctp_record_id, ptb_record_id, start_time
+                        )
+                    elif (
+                        isinstance(result, ResponseEnvelope)
+                        and self._usage_tracking_service
+                        and (ctp_record_id or ptb_record_id)
+                    ):
+                        try:
+                            usage = getattr(result, "usage", None)
+                            if (
+                                usage is None
+                                and hasattr(result, "metadata")
+                                and isinstance(result.metadata, dict)
+                            ):
+                                usage = result.metadata.get("usage")
+
+                            if usage:
+                                if not isinstance(usage, dict) and hasattr(
+                                    usage, "model_dump"
+                                ):
+                                    usage = usage.model_dump()
+
+                                completion_tokens = usage.get("completion_tokens", 0)
+                                duration_ms = (time.time() - start_time) * 1000
+
+                                if ptb_record_id:
+                                    await self._usage_tracking_service.record_response(
+                                        record_id=ptb_record_id,
+                                        completion_tokens=completion_tokens,
+                                        backend_reported_usage=usage,
+                                        http_status_code=getattr(
+                                            result, "status_code", 200
+                                        ),
+                                        total_duration_ms=duration_ms,
+                                    )
+
+                                if ctp_record_id:
+                                    await self._usage_tracking_service.record_response(
+                                        record_id=ctp_record_id,
+                                        completion_tokens=completion_tokens,
+                                        backend_reported_usage=usage,
+                                        http_status_code=getattr(
+                                            result, "status_code", 200
+                                        ),
+                                        total_duration_ms=duration_ms,
+                                    )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to record response usage: {e}", exc_info=True
+                            )
+
                 except AttributeError:
                     # Result doesn't support metadata, skip
                     pass

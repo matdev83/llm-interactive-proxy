@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Detailed Usage Tracking System**: Replaced legacy implementation with a comprehensive tracking system
+  - **4-Leg Traffic Tracking**: Records token metrics at four distinct points (client-proxy request, proxy-backend request, backend-proxy response, proxy-client response)
+  - **Verbatim vs Mutated**: Tracks both original (verbatim) and modified (mutated) token counts to measure proxy impact
+  - **SQLModel Persistence**: Replaced in-memory repository with SQLModel-based `UsageRecordRepository` for reliable persistence
+  - **Hot Path Integration**: Deeply integrated into `BackendService` to capture metrics during request processing and streaming
+  - **API Updates**: Updated `UsageController` to return granular `UsageRecord` and `AggregatedStats` domain objects
+  - **Legacy Cleanup**: Removed outdated `UsageData` model and `InMemoryUsageRepository`
+
 - **401 Authentication Retry with Token Refresh**: Transparent recovery from expired OAuth tokens in Gemini OAuth connectors
   - **Automatic Retry**: When a 401 Unauthorized is received from the Gemini backend, the proxy now automatically attempts to refresh the OAuth token and retries the request
   - **Timeout Protection**: Token refresh has a 30-second timeout to prevent indefinite client waiting

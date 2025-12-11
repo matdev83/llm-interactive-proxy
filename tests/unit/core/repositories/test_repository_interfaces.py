@@ -8,12 +8,10 @@ from abc import ABC
 from typing import Generic
 
 import pytest
-from src.core.domain.usage_data import UsageData
 from src.core.interfaces.repositories_interface import (
     IConfigRepository,
     IRepository,
     ISessionRepository,
-    IUsageRepository,
 )
 
 
@@ -133,40 +131,6 @@ class TestIConfigRepositoryInterface:
         assert callable(IConfigRepository.delete_config)
 
 
-class TestIUsageRepositoryInterface:
-    """Tests for IUsageRepository interface."""
-
-    def test_usage_repository_extends_repository(self) -> None:
-        """Test that IUsageRepository extends IRepository."""
-        assert issubclass(IUsageRepository, IRepository)
-        assert issubclass(IUsageRepository, ABC)
-
-    def test_usage_repository_type_parameter(self) -> None:
-        """Test that IUsageRepository is parameterized with UsageData."""
-        # The interface should be bound to UsageData type
-        assert UsageData in IUsageRepository.__orig_bases__[0].__args__
-
-    def test_usage_repository_additional_methods(self) -> None:
-        """Test that IUsageRepository defines additional abstract methods."""
-        expected_methods = ["get_by_session_id", "get_stats"]
-
-        for method_name in expected_methods:
-            assert hasattr(IUsageRepository, method_name)
-
-            # Check that methods are abstract
-            method = getattr(IUsageRepository, method_name)
-            assert hasattr(method, "__isabstractmethod__")
-            assert method.__isabstractmethod__ is True
-
-    def test_usage_repository_method_signatures(self) -> None:
-        """Test that IUsageRepository methods have correct signatures."""
-        # get_by_session_id(session_id: str) -> list[UsageData]
-        assert callable(IUsageRepository.get_by_session_id)
-
-        # get_stats(project: str | None = None) -> dict[str, Any]
-        assert callable(IUsageRepository.get_stats)
-
-
 class TestRepositoryInterfaceCompliance:
     """Tests for repository interface compliance and contracts."""
 
@@ -176,7 +140,6 @@ class TestRepositoryInterfaceCompliance:
             IRepository,
             ISessionRepository,
             IConfigRepository,
-            IUsageRepository,
         ]
 
         for interface in interfaces:
@@ -193,7 +156,6 @@ class TestRepositoryInterfaceCompliance:
 
         # Specialized repositories extend IRepository
         assert IRepository in ISessionRepository.__mro__
-        assert IRepository in IUsageRepository.__mro__
 
         # IConfigRepository is standalone (doesn't extend IRepository)
         assert IRepository not in IConfigRepository.__mro__
@@ -214,6 +176,3 @@ class TestRepositoryInterfaceCompliance:
         assert hasattr(IConfigRepository, "get_config")
         assert hasattr(IConfigRepository, "set_config")
         assert hasattr(IConfigRepository, "delete_config")
-
-        assert hasattr(IUsageRepository, "get_by_session_id")
-        assert hasattr(IUsageRepository, "get_stats")

@@ -22,6 +22,10 @@ from src.core.database.repositories.sso_repository import (
     SQLModelRateLimitRepository,
     SQLModelTokenRepository,
 )
+from src.core.database.repositories.usage_repository import (
+    SessionMetricsRepository,
+    UsageRecordRepository,
+)
 from src.core.di.container import ServiceCollection
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
@@ -1336,6 +1340,30 @@ def register_core_services(
     _add_singleton(
         SQLModelAuthorizationRepository,
         implementation_factory=_sqlmodel_authorization_repository_factory,
+    )
+
+    # Register SQLModel usage record repository
+    def _sqlmodel_usage_record_repository_factory(
+        provider: IServiceProvider,
+    ) -> UsageRecordRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return UsageRecordRepository(engine)
+
+    _add_singleton(
+        UsageRecordRepository,
+        implementation_factory=_sqlmodel_usage_record_repository_factory,
+    )
+
+    # Register SQLModel session metrics repository
+    def _sqlmodel_session_metrics_repository_factory(
+        provider: IServiceProvider,
+    ) -> SessionMetricsRepository:
+        engine = provider.get_required_service(DatabaseEngine)
+        return SessionMetricsRepository(engine)
+
+    _add_singleton(
+        SessionMetricsRepository,
+        implementation_factory=_sqlmodel_session_metrics_repository_factory,
     )
 
     # =========================================================================

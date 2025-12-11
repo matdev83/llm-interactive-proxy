@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
 from src.core.domain.session import Session
-from src.core.domain.usage_data import UsageData
 from src.core.services.conversation_fingerprint_service import (
     ConversationFingerprintBundle,
 )
@@ -95,14 +94,4 @@ class IConfigRepository(ABC):
 
     @abstractmethod
     async def delete_config(self, key: str) -> bool:
-        pass
-
-
-class IUsageRepository(IRepository[UsageData], ABC):
-    @abstractmethod
-    async def get_by_session_id(self, session_id: str) -> list[UsageData]:
-        pass
-
-    @abstractmethod
-    async def get_stats(self, project: str | None = None) -> dict[str, Any]:
         pass
