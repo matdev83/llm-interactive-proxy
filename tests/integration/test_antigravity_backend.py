@@ -204,7 +204,7 @@ class TestAntigravityRecoveryProbes:
 
         assert connector._is_in_cooldown("gemini-2.5-pro")
         # Recovery probe will try to make an API call - we just verify the state
-        assert "gemini-2.5-pro" in connector._model_retry_states
+        assert "gemini-2.5-pro" in connector._graceful_degradation.model_retry_states
 
 
 if __name__ == "__main__":

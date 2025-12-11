@@ -44,8 +44,8 @@ def connector(
         translation_service=mock_translation_service,
         name="test-antigravity",
     )
-    # Enable graceful degradation
-    conn._degradation_config = GracefulDegradationConfig(
+    # Enable graceful degradation using the manager's config
+    conn._graceful_degradation.config = GracefulDegradationConfig(
         enabled=True,
         enable_recovery_probing=True,
         cooldown_duration=300,
@@ -75,7 +75,7 @@ class TestCooldownLogic:
         connector._set_cooldown(model)
 
         assert connector._is_in_cooldown(model)
-        assert model in connector._model_retry_states
+        assert model in connector._graceful_degradation.model_retry_states
 
     def test_cooldown_state_per_model(
         self, connector: GeminiOAuthAntigravityConnector
@@ -94,7 +94,7 @@ class TestCooldownLogic:
     ) -> None:
         """Cooldown should expire after the configured duration."""
         model = "gemini-2.5-pro"
-        connector._degradation_config.cooldown_duration = 1  # 1 second
+        connector._graceful_degradation.config.cooldown_duration = 1  # 1 second
 
         connector._set_cooldown(model)
         assert connector._is_in_cooldown(model)
@@ -137,7 +137,7 @@ class TestRecoveryProbeGuards:
     ) -> None:
         """Recovery probe should return True for models with no retry state."""
         model = "unknown-model"
-        assert model not in connector._model_retry_states
+        assert model not in connector._graceful_degradation.model_retry_states
 
         result = await connector._probe_model_recovery(model)
 
@@ -148,7 +148,7 @@ class TestRecoveryProbeGuards:
         self, connector: GeminiOAuthAntigravityConnector
     ) -> None:
         """Recovery probing should be skipped when disabled in config."""
-        connector._degradation_config.enable_recovery_probing = False
+        connector._graceful_degradation.config.enable_recovery_probing = False
         model = "gemini-2.5-pro"
         connector._set_cooldown(model)
 
@@ -162,11 +162,11 @@ class TestRecoveryProbeGuards:
     ) -> None:
         """Recovery probe should respect the probe interval."""
         model = "gemini-2.5-pro"
-        connector._degradation_config.recovery_probe_interval = 60
+        connector._graceful_degradation.config.recovery_probe_interval = 60
         connector._set_cooldown(model)
 
         # First probe updates last_probe_attempt
-        state = connector._model_retry_states[model]
+        state = connector._graceful_degradation.model_retry_states[model]
         state.last_probe_attempt = time.time()
 
         # Second probe within interval should return False
@@ -180,11 +180,11 @@ class TestRecoveryProbeGuards:
     ) -> None:
         """Recovery probe should bypass interval check when flag is set."""
         model = "gemini-2.5-pro"
-        connector._degradation_config.recovery_probe_interval = 60
+        connector._graceful_degradation.config.recovery_probe_interval = 60
         connector._set_cooldown(model)
 
         # Set recent probe time
-        state = connector._model_retry_states[model]
+        state = connector._graceful_degradation.model_retry_states[model]
         state.last_probe_attempt = time.time()
 
         # With bypass flag, probing should be allowed but will fail on API call
@@ -341,5 +341,5 @@ class TestBackendFunctionality:
         """Quota exhaustion should not permanently fail the backend."""
         connector._mark_backend_unusable(reason="quota_exceeded")
 
-        # _permanently_failed should not be set
-        assert connector._permanently_failed is False
+        # permanently_failed should not be set
+        assert connector._graceful_degradation.permanently_failed is False

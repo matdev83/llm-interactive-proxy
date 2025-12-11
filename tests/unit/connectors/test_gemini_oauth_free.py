@@ -43,10 +43,11 @@ class TestGeminiOAuthFreeConnector:
         assert connector._oauth_credentials is None
         assert connector._credentials_path is None
         assert connector._last_modified == 0
-        assert connector._refresh_token is None
-        assert isinstance(connector._token_refresh_lock, asyncio.Lock)
-        assert connector._last_cli_refresh_attempt == 0.0
-        assert connector._cli_refresh_process is None
+        # Token manager state accessed through composed object
+        assert connector._token_manager._refresh_token is None
+        assert isinstance(connector._token_manager._token_refresh_lock, asyncio.Lock)
+        assert connector._token_manager._last_cli_refresh_attempt == 0.0
+        assert connector._token_manager._cli_refresh_process is None
 
     @patch("asyncio.to_thread")
     async def test_discover_project_id_for_free_tier(self, mock_to_thread, connector):

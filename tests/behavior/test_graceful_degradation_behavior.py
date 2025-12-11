@@ -17,11 +17,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from src.connectors.gemini_base.graceful_degradation import GracefulDegradationManager
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
-    GracefulDegradationMetrics,
-    ModelRetryState,
 )
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
@@ -99,43 +98,59 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         # Set required API base URL for graceful degradation tests
         self.gemini_api_base_url = "https://mock-cloudcode-pa.googleapis.com"
 
-        # Initialize graceful degradation
-        self._degradation_config = GracefulDegradationConfig.from_config(self.config)
-        # Keep recovery probing enabled - the mock's _recovery_probing_loop is a no-op
-        self._model_retry_states: dict[str, ModelRetryState] = {}
+        # Initialize with minimal required components
+        self.config = AppConfig()
+        self.name = "test-connector"
+        self.is_functional = True
+        self._oauth_credentials = {"access_token": "test-token"}
+        self._credentials_path = None
+        self._last_modified = 0
+        self._refresh_token = None
+        self.translation_service = MagicMock()
+        self._credential_validation_errors = []
+        self._initialization_failed = False
+        self._last_validation_time = 0.0
+        self._main_loop = None
+        self._quota_exceeded = False
+        self._request_counter = None
+        self._health_checked = True
+
+        # Mock httpx client
+        self.client = MagicMock(spec=httpx.AsyncClient)
+
+        # Set required API base URL for graceful degradation tests
+        self.gemini_api_base_url = "https://mock-cloudcode-pa.googleapis.com"
+
+        # Initialize graceful degradation using manager
+        degradation_config = GracefulDegradationConfig.from_config(self.config)
+        self._graceful_degradation = GracefulDegradationManager(
+            config=degradation_config
+        )
         self._total_attempts = 0
-        self._permanently_failed = False
         self._recovery_probe_task = None
 
         # Mock API call behavior
         self._api_call_results = {}  # model -> list of results
         self._api_call_count = {}  # model -> call count
-        self._graceful_metrics = GracefulDegradationMetrics()
 
     def _set_cooldown(self, model: str, duration: float | None = None) -> None:
         """Put a model into cooldown state."""
         from src.connectors.gemini_base.graceful_degradation import set_model_cooldown
 
-        cooldown = (
-            duration
-            if duration is not None
-            else self._degradation_config.cooldown_duration
-        )
-        set_model_cooldown(model, self._model_retry_states, cooldown)
+        if duration is not None:
+            set_model_cooldown(
+                model, self._graceful_degradation.model_retry_states, duration
+            )
+        else:
+            self._graceful_degradation.set_cooldown(model)
 
     def _is_in_cooldown(self, model: str) -> bool:
         """Check if a model is currently in cooldown."""
-        from src.connectors.gemini_base.graceful_degradation import is_model_in_cooldown
-
-        return is_model_in_cooldown(model, self._model_retry_states)
+        return self._graceful_degradation.is_in_cooldown(model)
 
     def _is_rate_limit_like_error(self, error: BackendError) -> bool:
         """Determine whether an error should trigger graceful degradation retries."""
-        from src.connectors.gemini_base.graceful_degradation import (
-            is_rate_limit_like_error,
-        )
-
-        return is_rate_limit_like_error(error)
+        return self._graceful_degradation.is_rate_limit_like_error(error)
 
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
@@ -152,7 +167,7 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         if not self._is_in_cooldown(model):
             return True
 
-        state = self._model_retry_states.get(model)
+        state = self._graceful_degradation.model_retry_states.get(model)
         if not state:
             return True
 
@@ -356,8 +371,10 @@ class TestGracefulDegradationBehavior:
         # Verify: Request succeeded without degradation
         assert result is not None
         assert connector._api_call_count["gemini-2.5-pro"] == 1
-        assert len(connector._model_retry_states) == 0  # No retry state created
-        assert not connector._permanently_failed
+        assert (
+            len(connector._graceful_degradation.model_retry_states) == 0
+        )  # No retry state created
+        assert not connector._graceful_degradation.permanently_failed
 
     @pytest.mark.asyncio
     async def test_single_429_triggers_retry_with_no_fallback(
@@ -400,7 +417,10 @@ class TestGracefulDegradationBehavior:
             "gemini-2.5-pro", [error_429, error_429, error_429, {"success": True}]
         )
         connector.config.backends.disable_gemini_oauth_fallback = True
-        connector._degradation_config.retry_delays = [6, 12]  # Faster delays for test
+        connector._graceful_degradation.config.retry_delays = [
+            6,
+            12,
+        ]  # Faster delays for test
 
         # Execute: Make request and measure timing
         start_time = time.time()
@@ -476,7 +496,7 @@ class TestGracefulDegradationBehavior:
             )
 
         # Verify: Backend marked as permanently failed
-        assert connector._permanently_failed
+        assert connector._graceful_degradation.permanently_failed
         assert not connector.is_functional
 
     @pytest.mark.asyncio
@@ -497,7 +517,9 @@ class TestGracefulDegradationBehavior:
         # Verify: No retry attempted, error propagated immediately
         assert exc_info.value.status_code == 401
         assert connector._api_call_count["gemini-2.5-pro"] == 1  # No retries
-        assert len(connector._model_retry_states) == 0  # No retry state created
+        assert (
+            len(connector._graceful_degradation.model_retry_states) == 0
+        )  # No retry state created
 
 
 class TestRecoveryProbingBehavior:
@@ -558,7 +580,7 @@ class TestRecoveryProbingBehavior:
         assert not connector._is_in_cooldown("gemini-2.5-pro")  # Cooldown cleared
 
         # Verify: Success count tracking
-        state = connector._model_retry_states["gemini-2.5-pro"]
+        state = connector._graceful_degradation.model_retry_states["gemini-2.5-pro"]
         assert state.probe_success_count == 0  # Reset after clearing cooldown
 
     @pytest.mark.asyncio
@@ -575,7 +597,7 @@ class TestRecoveryProbingBehavior:
         await connector._probe_model_recovery(
             "gemini-2.5-pro", bypass_interval_check=True
         )  # Success
-        state = connector._model_retry_states["gemini-2.5-pro"]
+        state = connector._graceful_degradation.model_retry_states["gemini-2.5-pro"]
         assert state.probe_success_count == 1
 
         await connector._probe_model_recovery(
@@ -625,7 +647,7 @@ class TestConfigurationBehavior:
         """
         # Setup: Create connector with disabled graceful degradation
         connector = MockGeminiOAuthConnector()
-        connector._degradation_config.enabled = False
+        connector._graceful_degradation.config.enabled = False
 
         # Setup: Configure 429 error
         error_429 = BackendError("Rate limit exceeded", status_code=429)
@@ -654,7 +676,7 @@ class TestConfigurationBehavior:
         Note: With fallbacks disabled, the request will fail after retries are exhausted.
         """
         # Setup: Disable recovery probing
-        connector._degradation_config.enable_recovery_probing = False
+        connector._graceful_degradation.config.enable_recovery_probing = False
 
         # Setup: Trigger cooldown
         error_429 = BackendError("Rate limit exceeded", status_code=429)
@@ -679,7 +701,7 @@ class TestConfigurationBehavior:
         """Test that custom retry delays are respected."""
         # Setup: Create connector with custom delays
         connector = MockGeminiOAuthConnector()
-        connector._degradation_config.retry_delays = [
+        connector._graceful_degradation.config.retry_delays = [
             0.01,
             0.02,
         ]  # Very fast delays for testing
@@ -773,7 +795,7 @@ class TestEdgeCaseBehavior:
         If retries succeed, requests complete. Otherwise, they fail.
         """
         # Setup: Increase max total attempts to accommodate concurrent requests
-        connector._degradation_config.max_total_attempts = 15
+        connector._graceful_degradation.config.max_total_attempts = 15
 
         # Setup: Multiple concurrent requests
         requests = [
@@ -816,7 +838,7 @@ class TestEdgeCaseBehavior:
     async def test_jitter_prevents_thundering_herd(self, connector, mock_request):
         """Test that jitter is added to retry delays to prevent synchronized retries."""
         # Setup: Fast recovery config for testing jitter
-        connector._degradation_config.retry_delays = [
+        connector._graceful_degradation.config.retry_delays = [
             2,
             4,
             6,
@@ -854,7 +876,9 @@ class TestEdgeCaseBehavior:
     async def test_jitter_range_validation(self, connector, mock_request):
         """Test that jitter is within reasonable bounds (±25% of base delay)."""
         # Setup: Use longer delays to better observe jitter
-        connector._degradation_config.retry_delays = [10.0]  # 10 second base delay
+        connector._graceful_degradation.config.retry_delays = [
+            10.0
+        ]  # 10 second base delay
         connector.config.backends.disable_gemini_oauth_fallback = True
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)
@@ -890,7 +914,7 @@ class TestEdgeCaseBehavior:
     ):
         """Test that per-request attempt limits are properly enforced."""
         # Setup: Configure a low max attempt limit for testing
-        connector._degradation_config.max_total_attempts = 2
+        connector._graceful_degradation.config.max_total_attempts = 2
         connector.config.backends.disable_gemini_oauth_fallback = True
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)

@@ -6,7 +6,6 @@ import abc
 import asyncio
 import contextlib
 import logging
-import threading
 import time
 from collections.abc import AsyncGenerator, Iterable
 from functools import lru_cache
@@ -24,9 +23,8 @@ from src.core.domain.chat import (
 )
 
 if TYPE_CHECKING:
-    import subprocess
 
-    from watchdog.observers.api import BaseObserver
+    pass
 
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.gemini import GeminiBackend
@@ -38,7 +36,6 @@ from src.connectors.gemini_base.config import (
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
     DEFAULT_READ_TIMEOUT,
     GracefulDegradationConfig,
-    GracefulDegradationMetrics,
     ModelRetryState,
 )
 from src.connectors.gemini_base.credential_loader import CredentialLoader
@@ -380,198 +377,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     # These properties expose internal state from composed components (TokenManager,
     # FileWatcherState, GracefulDegradationManager) for backward compatibility.
     #
-    # NEW CODE SHOULD NOT USE THESE PROPERTIES. Instead:
-    # - Use self._token_manager directly for token operations
-    # - Use self._file_watcher_state directly for file watching
-    # - Use self._graceful_degradation directly for degradation logic
-    #
-    # These shims will be removed in a future version once all dependent code
-    # has been migrated to use the composed objects directly.
+    # Access composed objects directly:
+    # - self._token_manager for token operations
+    # - self._file_watcher_state for file watching
+    # - self._graceful_degradation for degradation logic
     # ==========================================================================
-
-    # TokenManager shims (deprecated)
-    @property
-    def _refresh_token(self) -> str | None:
-        """Backward-compatible access to cached refresh token.
-
-        .. deprecated::
-            Access self._token_manager._refresh_token directly instead.
-        """
-        return self._token_manager._refresh_token
-
-    @_refresh_token.setter
-    def _refresh_token(self, value: str | None) -> None:
-        """Backward-compatible setter for refresh token."""
-        self._token_manager._refresh_token = value
-
-    @property
-    def _cli_refresh_process(self) -> "subprocess.Popen[bytes] | None":
-        """Backward-compatible access to CLI refresh subprocess."""
-        return self._token_manager._cli_refresh_process
-
-    @_cli_refresh_process.setter
-    def _cli_refresh_process(self, value: "subprocess.Popen[bytes] | None") -> None:
-        """Backward-compatible setter for CLI refresh subprocess."""
-        self._token_manager._cli_refresh_process = value
-
-    @property
-    def _last_cli_refresh_attempt(self) -> float:
-        """Backward-compatible access to last CLI refresh timestamp."""
-        return self._token_manager._last_cli_refresh_attempt
-
-    @_last_cli_refresh_attempt.setter
-    def _last_cli_refresh_attempt(self, value: float) -> None:
-        """Backward-compatible setter for last CLI refresh timestamp."""
-        self._token_manager._last_cli_refresh_attempt = value
-
-    @property
-    def _token_refresh_lock(self) -> "asyncio.Lock":
-        """Backward-compatible access to token refresh lock."""
-        return self._token_manager._token_refresh_lock
-
-    # FileWatcherState shims (deprecated)
-    @property
-    def _file_observer(self) -> "BaseObserver | None":
-        """Backward-compatible access to file observer.
-
-        .. deprecated::
-            Access self._file_watcher_state.file_observer directly instead.
-        """
-        return self._file_watcher_state.file_observer
-
-    @_file_observer.setter
-    def _file_observer(self, value: "BaseObserver | None") -> None:
-        """Backward-compatible setter for file observer."""
-        self._file_watcher_state.file_observer = value
-
-    @property
-    def _pending_reload_task(self) -> asyncio.Future[Any] | None:
-        """Backward-compatible access to pending reload task."""
-        return self._file_watcher_state.pending_reload_task
-
-    @_pending_reload_task.setter
-    def _pending_reload_task(self, value: asyncio.Future[Any] | None) -> None:
-        """Backward-compatible setter for pending reload task."""
-        self._file_watcher_state.pending_reload_task = value
-
-    @property
-    def _reload_task_lock(self) -> threading.Lock:
-        """Backward-compatible access to reload task lock."""
-        return self._file_watcher_state.reload_task_lock
-
-    @property
-    def _reload_scheduling_in_progress(self) -> bool:
-        """Backward-compatible access to reload scheduling flag."""
-        return self._file_watcher_state.reload_scheduling_in_progress
-
-    @_reload_scheduling_in_progress.setter
-    def _reload_scheduling_in_progress(self, value: bool) -> None:
-        """Backward-compatible setter for reload scheduling flag."""
-        self._file_watcher_state.reload_scheduling_in_progress = value
-
-    @property
-    def _last_reload_event_ts(self) -> float:
-        """Backward-compatible access to last reload event timestamp."""
-        return self._file_watcher_state.last_reload_event_ts
-
-    @_last_reload_event_ts.setter
-    def _last_reload_event_ts(self, value: float) -> None:
-        """Backward-compatible setter for last reload event timestamp."""
-        self._file_watcher_state.last_reload_event_ts = value
-
-    # GracefulDegradationManager shims (deprecated)
-    @property
-    def _graceful_metrics(self) -> GracefulDegradationMetrics:
-        """Backward-compatible access to graceful degradation metrics.
-
-        .. deprecated::
-            Access self._graceful_degradation.metrics directly instead.
-        """
-        return self._graceful_degradation.metrics
-
-    @_graceful_metrics.setter
-    def _graceful_metrics(self, value: GracefulDegradationMetrics) -> None:
-        """Backward-compatible setter for graceful degradation metrics.
-
-        .. deprecated::
-            Access self._graceful_degradation.metrics directly instead.
-        """
-        # Handle case where mock objects set this before _graceful_degradation exists
-        if (
-            not hasattr(self, "_graceful_degradation")
-            or self._graceful_degradation is None
-        ):
-            from src.connectors.gemini_base.config import GracefulDegradationConfig
-
-            self._graceful_degradation = GracefulDegradationManager(
-                config=GracefulDegradationConfig(), metrics=value
-            )
-        else:
-            self._graceful_degradation.metrics = value
-
-    @property
-    def _degradation_config(self) -> GracefulDegradationConfig:
-        """Backward-compatible access to graceful degradation config.
-
-        .. deprecated::
-            Access self._graceful_degradation.config directly instead.
-        """
-        return self._graceful_degradation.config
-
-    @_degradation_config.setter
-    def _degradation_config(self, value: GracefulDegradationConfig) -> None:
-        """Backward-compatible setter for graceful degradation config.
-
-        .. deprecated::
-            Access self._graceful_degradation.config directly instead.
-        """
-        # Handle case where mock objects set this before _graceful_degradation exists
-        if (
-            not hasattr(self, "_graceful_degradation")
-            or self._graceful_degradation is None
-        ):
-            self._graceful_degradation = GracefulDegradationManager(config=value)
-        else:
-            self._graceful_degradation.config = value
-
-    @property
-    def _model_retry_states(self) -> dict[str, ModelRetryState]:
-        """Backward-compatible access to model retry states.
-
-        .. deprecated::
-            Access self._graceful_degradation.model_retry_states directly instead.
-        """
-        return self._graceful_degradation.model_retry_states
-
-    @_model_retry_states.setter
-    def _model_retry_states(self, value: dict[str, ModelRetryState]) -> None:
-        """Backward-compatible setter for model retry states.
-
-        .. deprecated::
-            Access self._graceful_degradation.model_retry_states directly instead.
-        """
-        # Handle case where mock objects set this before _graceful_degradation exists
-        if (
-            not hasattr(self, "_graceful_degradation")
-            or self._graceful_degradation is None
-        ):
-            # Create a minimal manager with default config
-            from src.connectors.gemini_base.config import GracefulDegradationConfig
-
-            self._graceful_degradation = GracefulDegradationManager(
-                config=GracefulDegradationConfig()
-            )
-        self._graceful_degradation.model_retry_states = value
-
-    @property
-    def _permanently_failed(self) -> bool:
-        """Backward-compatible access to permanently failed flag."""
-        return self._graceful_degradation.permanently_failed
-
-    @_permanently_failed.setter
-    def _permanently_failed(self, value: bool) -> None:
-        """Backward-compatible setter for permanently failed flag."""
-        self._graceful_degradation.permanently_failed = value
 
     def get_graceful_degradation_metrics(self) -> dict[str, float | int]:
         """Expose graceful degradation telemetry for diagnostics."""

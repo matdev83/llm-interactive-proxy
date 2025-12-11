@@ -20,7 +20,6 @@ import pytest
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
-    GracefulDegradationMetrics,
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -74,13 +73,13 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
 
         self.translation_service = translation  # tighten type for mypy
         self.gemini_api_base_url = "https://mocked.example.com"
-        self._graceful_metrics = GracefulDegradationMetrics()
 
         self._behavior: dict[str, list[Any]] = {}
         self._call_count: dict[str, int] = {}
 
         # Speed up retries for tests while still exercising delay logic.
-        self._degradation_config = GracefulDegradationConfig(
+        # Override the graceful degradation config using the manager
+        self._graceful_degradation.config = GracefulDegradationConfig(
             enabled=True,
             retry_delays=[0.1, 0.2, 0.3],
             max_total_attempts=9,
@@ -234,7 +233,7 @@ async def test_flash_failure_marks_backend_unusable(
         )
 
     assert exc.value.code == "models_rate_limited"
-    assert connector._permanently_failed
+    assert connector._graceful_degradation.permanently_failed
     assert not connector.is_backend_functional()
 
 
@@ -247,7 +246,7 @@ async def test_metrics_capture_wait_time_and_duration(
     Note: With fallbacks disabled, only the requested model is retried.
     """
     connector = ClientExperienceConnector()
-    connector._degradation_config.retry_delays = [0.05]
+    connector._graceful_degradation.config.retry_delays = [0.05]
     rate_limit = BackendError("Rate", status_code=429)
     # Retry on pro model eventually succeeds
     connector.set_behavior("gemini-2.5-pro", [rate_limit, "recovered"])

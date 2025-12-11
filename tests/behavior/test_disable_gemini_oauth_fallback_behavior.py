@@ -8,11 +8,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.connectors.gemini_base.graceful_degradation import GracefulDegradationManager
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
-    GracefulDegradationMetrics,
-    ModelRetryState,
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -61,17 +60,17 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self._request_counter = None
         self._health_checked = True
 
-        # Initialize graceful degradation
-        self._degradation_config = GracefulDegradationConfig.from_config(self.config)
-        self._model_retry_states: dict[str, ModelRetryState] = {}
+        # Initialize graceful degradation using manager
+        degradation_config = GracefulDegradationConfig.from_config(self.config)
+        self._graceful_degradation = GracefulDegradationManager(
+            config=degradation_config
+        )
         self._total_attempts = 0
-        self._permanently_failed = False
         self._recovery_probe_task = None
 
         # Mock API call behavior
         self._api_call_results: dict[str, list[Any]] = {}
         self._api_call_count: dict[str, int] = {}
-        self._graceful_metrics = GracefulDegradationMetrics()
 
     def set_api_behavior(self, model: str, results: list[Any]) -> None:
         """Configure mock API behavior for a model."""
@@ -140,7 +139,7 @@ class TestDisableGeminiOAuthFallbackBehavior:
         connector: MockGeminiOAuthConnector,
     ) -> MockGeminiOAuthConnector:
         """Configure connector to degrade quickly without background probing."""
-        connector._degradation_config = GracefulDegradationConfig(
+        connector._graceful_degradation.config = GracefulDegradationConfig(
             enabled=True,
             retry_delays=[0.0, 0.0],
             max_total_attempts=20,
@@ -220,7 +219,9 @@ class TestDisableGeminiOAuthFallbackBehavior:
         # Total attempts = 1 initial attempt + (len(retry_delays) + 1) graceful degradation attempts
         # With retry_delays=[0.0, 0.0], that's 1 + 3 = 4 total attempts
         pro_attempts = connector_fallback_disabled._api_call_count["gemini-2.5-pro"]
-        delay_count = len(connector_fallback_disabled._degradation_config.retry_delays)
+        delay_count = len(
+            connector_fallback_disabled._graceful_degradation.config.retry_delays
+        )
         expected_attempts = (
             1 + delay_count + 1
         )  # initial + graceful degradation retries
@@ -234,7 +235,9 @@ class TestDisableGeminiOAuthFallbackBehavior:
         error = exc_info.value
         assert getattr(error, "code", None) == "all_models_exhausted"
         assert "all models exhausted" in str(error).lower()
-        assert connector_fallback_disabled._permanently_failed is True
+        assert (
+            connector_fallback_disabled._graceful_degradation.permanently_failed is True
+        )
         assert connector_fallback_disabled.is_functional is False
 
         # Cleanup
