@@ -114,4 +114,3 @@ __all__ = [
     "IGoogleAuthProvider",
     "get_default_google_auth_provider",
 ]
-

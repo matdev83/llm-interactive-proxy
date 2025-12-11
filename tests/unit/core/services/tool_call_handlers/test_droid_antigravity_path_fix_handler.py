@@ -49,6 +49,7 @@ class TestDroidAntigravityPathFixHandler:
     def _expected_path(self, relative_path: str) -> str:
         """Helper to get expected absolute path."""
         import os
+
         return os.path.abspath(os.path.join(os.getcwd(), relative_path.lstrip("/\\")))
 
     # ==================== can_handle tests ====================
@@ -152,7 +153,9 @@ class TestDroidAntigravityPathFixHandler:
             tool_arguments={"file_path": r"C:\src\core\config\app_config.py"},
         )
         result = await enabled_handler.can_handle(context)
-        assert result is False, "Should not match already-absolute path with drive letter"
+        assert (
+            result is False
+        ), "Should not match already-absolute path with drive letter"
 
     # ==================== handle tests ====================
 
@@ -237,9 +240,7 @@ class TestDroidAntigravityPathFixHandler:
             backend_name="gemini-oauth-antigravity",
             model_name="gemini-3-pro-high",
             tool_name="Read",
-            tool_arguments={
-                "file_path": rel_path
-            },
+            tool_arguments={"file_path": rel_path},
         )
 
         # Verify can_handle returns True for factory-cli
@@ -249,10 +250,7 @@ class TestDroidAntigravityPathFixHandler:
         # Verify handle fixes the path
         result = await enabled_handler.handle(context)
         assert result.should_swallow is False
-        assert (
-            context.tool_arguments["file_path"]
-            == self._expected_path(rel_path)
-        )
+        assert context.tool_arguments["file_path"] == self._expected_path(rel_path)
 
     # ==================== Internal method tests ====================
 
@@ -272,7 +270,7 @@ class TestDroidAntigravityPathFixHandler:
         # Drive letter paths are absolute
         assert enabled_handler._needs_path_fix("C:\\Users\\file.py") is False
         assert enabled_handler._needs_path_fix("d:/src/file.py") is False
-        
+
         # Paths starting with \ or / lacking drive letter DO need fixing on Windows
         # because we want to anchor them to CWD
         assert enabled_handler._needs_path_fix(r"\src\file.py") is True
@@ -282,11 +280,18 @@ class TestDroidAntigravityPathFixHandler:
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:
         """Path fix should prepend backslash and convert slashes."""
-        assert enabled_handler._fix_path("src/file.py") == self._expected_path("src/file.py")
-        assert enabled_handler._fix_path("src/core/config.py") == self._expected_path("src/core/config.py")
-        assert enabled_handler._fix_path("README.md") == self._expected_path("README.md")
-        assert enabled_handler._fix_path("pyproject.toml") == self._expected_path("pyproject.toml")
-
+        assert enabled_handler._fix_path("src/file.py") == self._expected_path(
+            "src/file.py"
+        )
+        assert enabled_handler._fix_path("src/core/config.py") == self._expected_path(
+            "src/core/config.py"
+        )
+        assert enabled_handler._fix_path("README.md") == self._expected_path(
+            "README.md"
+        )
+        assert enabled_handler._fix_path("pyproject.toml") == self._expected_path(
+            "pyproject.toml"
+        )
 
     def test_extract_path_from_dict(
         self, enabled_handler: DroidAntigravityPathFixHandler

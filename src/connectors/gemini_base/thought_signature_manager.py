@@ -5,8 +5,6 @@ This module handles server-side storage and injection of thought_signatures
 for clients (like Droid) that don't preserve extra_content.
 """
 
-import base64
-import hashlib
 import logging
 from typing import Any
 
@@ -88,9 +86,9 @@ class ThoughtSignatureManager:
             # Try anonymous cache if session_id was missing at store time
             sig = self._cache.get(f"anon:{tc_id}")
         if not sig:
-            # Generate a deterministic placeholder signature
-            sig = self._generate_placeholder_signature(cache_key)
-            self._cache[cache_key] = sig
+            # No cached signature available; avoid injecting placeholders that
+            # can trigger "corrupted thought signature" errors.
+            return
 
         # Inject the signature
         if isinstance(tc, dict):
@@ -105,14 +103,6 @@ class ThoughtSignatureManager:
                 tc_id,
                 session_id[:8] if session_id else "none",
             )
-
-    def _generate_placeholder_signature(self, cache_key: str) -> str:
-        """Generate a deterministic placeholder signature.
-
-        Uses base64url-encoded bytes to match expected format.
-        """
-        sig_bytes = hashlib.sha256(cache_key.encode()).digest()[:16]
-        return base64.urlsafe_b64encode(sig_bytes).decode("ascii").rstrip("=")
 
     def store_signatures_from_tool_calls(
         self,

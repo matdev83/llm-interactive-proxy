@@ -191,14 +191,9 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         # If it has a drive letter, it's a full Windows path
         if re.match(r"^[a-zA-Z]:", path):
             return False
-            
-        # If it's a UNC path (starts with \\), assume it's valid
-        if path.startswith("\\\\"):
-            return False
 
-        # Everything else (relative, or starting with single / or \)
-        # needs to be anchored to the project root (CWD)
-        return True
+        # If it's a UNC path (starts with \\), assume it's valid
+        return not path.startswith("\\\\")
 
     def _fix_path(self, path: str) -> str:
         """Fix a path to be an absolute Windows path relative to CWD.
@@ -219,10 +214,10 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         # Strip potential leading separators to ensure we append to CWD
         # instead of resolving to drive root
         cleaned_path = path.lstrip("/\\")
-        
+
         # Join with CWD to get full path
         full_path = os.path.join(os.getcwd(), cleaned_path)
-        
+
         # Normalize (resolves .. and separators)
         return os.path.abspath(full_path)
 

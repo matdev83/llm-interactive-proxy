@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
+from src.connectors.gemini_base.streaming_executor import StreamingExecutor
 from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
 
 
@@ -64,6 +65,11 @@ def connector(
 def get_base_connector_source() -> str:
     """Get the source code of the base connector module for inspection."""
     return inspect.getsource(GeminiOAuthBaseConnector)
+
+
+def get_streaming_executor_source() -> str:
+    """Get the source code of the streaming executor for inspection."""
+    return inspect.getsource(StreamingExecutor)
 
 
 class TestAuthRetryNonStreaming:
@@ -160,9 +166,21 @@ class TestAuthCodeSetting:
     """Tests for auth_error code setting on 401."""
 
     def test_401_sets_auth_error_code(self) -> None:
-        """401 errors should set code to 'auth_error'."""
-        source = get_base_connector_source()
-        assert 'code = "auth_error"' in source
+        """401 errors should set code to 'auth_error'.
+
+        Note: Auth error handling has been moved to StreamingExecutor
+        as part of SOLID refactoring, so we check both sources.
+        """
+        connector_source = get_base_connector_source()
+        executor_source = get_streaming_executor_source()
+        # Check either connector or streaming executor has auth_error code setting
+        has_auth_error = (
+            'code = "auth_error"' in connector_source
+            or 'code = "auth_error"' in executor_source
+        )
+        assert (
+            has_auth_error
+        ), "Neither connector nor executor has auth_error code setting"
 
 
 class TestConnectorHasRequiredMethods:

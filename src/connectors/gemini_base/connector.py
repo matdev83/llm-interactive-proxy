@@ -7,8 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncGenerator, Iterable
-from functools import lru_cache
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -16,7 +15,6 @@ import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 
-from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import (
     CanonicalChatRequest,
     ChatMessage,
@@ -34,7 +32,6 @@ from src.connectors.gemini_base.chat_request_preparer import (
 from src.connectors.gemini_base.config import (
     CODE_ASSIST_ENDPOINT,
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
-    DEFAULT_READ_TIMEOUT,
     GracefulDegradationConfig,
 )
 from src.connectors.gemini_base.credential_loader import CredentialLoader
@@ -48,6 +45,10 @@ from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherStat
 from src.connectors.gemini_base.generation_config_builder import (
     GenerationConfigBuilder,
     convert_from_code_assist_format,
+)
+from src.connectors.gemini_base.google_auth_adapter import (
+    GoogleAuthProvider,
+    get_default_google_auth_provider,
 )
 from src.connectors.gemini_base.graceful_degradation import (
     GracefulDegradationManager,
@@ -67,7 +68,6 @@ from src.connectors.gemini_base.model_validation import (
 )
 from src.connectors.gemini_base.prompt_limiter import (
     enforce_prompt_limit,
-    estimate_prompt_tokens,
     get_prompt_limit,
     normalize_model_key,
 )
@@ -89,15 +89,16 @@ from src.connectors.gemini_base.retry_delay_parser import (
 from src.connectors.gemini_base.retry_delay_parser import (
     parse_retry_from_message as _parse_retry_from_message_impl,
 )
-from src.connectors.gemini_base.stream_processor import (
-    build_error_chunk,
-    build_rate_limit_backend_error,
-    coerce_chunk_to_dict,
-    normalize_chunk,
-    should_skip_chunk,
+from src.connectors.gemini_base.streaming_executor import (
+    StreamingExecutor,
 )
-from src.connectors.gemini_base.thought_signature_manager import (
-    get_global_thought_signature_manager,
+from src.connectors.gemini_base.thought_signature_service import (
+    ThoughtSignatureService,
+    get_default_thought_signature_service,
+)
+from src.connectors.gemini_base.token_estimator import (
+    TiktokenEstimator,
+    get_default_token_estimator,
 )
 from src.connectors.gemini_base.token_manager import TokenManager
 from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
@@ -113,9 +114,6 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.gemini_metadata import (
-    create_gemini_response_metadata,
-)
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
@@ -127,31 +125,6 @@ logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 __all__ = ["GeminiOAuthBaseConnector", "GOOGLE_VENDOR_PREFIX"]
-
-
-def _get_google_transport_requests():
-    """Lazily import google.auth transport to avoid heavy startup cost."""
-
-    import google.auth.transport.requests as transport_requests  # type: ignore[import-untyped]
-
-    return transport_requests
-
-
-def _get_google_auth_exceptions():
-    """Lazily import google.auth exceptions."""
-
-    import google.auth.exceptions as google_auth_exceptions  # type: ignore[import-untyped]
-
-    return google_auth_exceptions
-
-
-@lru_cache(maxsize=1)
-def _get_tiktoken_encoding():
-    """Return cached tiktoken encoding instance."""
-
-    import tiktoken  # type: ignore[import-untyped]
-
-    return tiktoken.get_encoding("cl100k_base")
 
 
 class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
@@ -178,9 +151,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     _project_id: str | None = None
 
-    # Server-side storage for Gemini thought_signatures.
-    # Kept as class variable for backward compatibility; new code uses ThoughtSignatureManager
-    _thought_signature_cache: dict[str, str] = {}
+    # NOTE: Class-level _thought_signature_cache has been removed to fix
+    # cross-session leakage risk. Thought signature management is now handled
+    # entirely by the injected ThoughtSignatureService (DI pattern).
 
     @staticmethod
     def _normalize_model_key(model_name: str) -> str:
@@ -197,39 +170,36 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             return "gemini-2.5-pro"  # Default fallback for code assist
         return model_name
 
-    @classmethod
     def _inject_thought_signatures(
-        cls, canonical_request: Any, session_id: str
+        self, canonical_request: Any, session_id: str
     ) -> None:
         """Inject stored thought_signatures into tool_calls that are missing them.
 
         Clients like Droid don't preserve extra_content when storing tool calls,
         so we need to look up and inject the thought_signature from our server-side cache.
 
-        Delegates to ThoughtSignatureManager for implementation.
+        Delegates to injected ThoughtSignatureService for implementation.
 
         Args:
             canonical_request: The canonical request with messages to process
             session_id: The session ID for cache key lookup
         """
-        manager = get_global_thought_signature_manager()
-        # Sync class cache TO manager before injection for backward compatibility
-        # (tests and legacy code may set signatures directly on class cache)
-        manager.cache.update(cls._thought_signature_cache)
-        manager.inject_signatures(canonical_request, session_id)
-        # Sync manager cache back TO class cache for backward compatibility
-        cls._thought_signature_cache.update(manager.cache)
+        # Use injected service for thought signature management
+        self._thought_signature_service.inject_signatures(
+            canonical_request,
+            session_id,
+        )
 
-    @classmethod
     def _log_tool_call_signature_state(
-        cls, canonical_request: Any, session_id: str, effective_model: str
+        self, canonical_request: Any, session_id: str, effective_model: str
     ) -> None:
         """Log presence/absence of thought signatures on assistant tool calls.
 
-        Delegates to ThoughtSignatureManager for implementation.
+        Delegates to injected ThoughtSignatureService for implementation.
         """
-        manager = get_global_thought_signature_manager()
-        manager.log_signature_state(canonical_request, session_id, effective_model)
+        self._thought_signature_service.log_signature_state(
+            canonical_request, session_id, effective_model
+        )
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
@@ -252,6 +222,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         project_discovery: IProjectDiscoveryStrategy | None = None,
         model_discovery: IModelDiscoveryStrategy | None = None,
         response_post_processor: IResponsePostProcessor | None = None,
+        # Injectable infrastructure services (new)
+        token_manager: TokenManager | None = None,
+        request_counter: DailyRequestCounter | None = None,
+        file_watcher_state: FileWatcherState | None = None,
+        graceful_degradation: GracefulDegradationManager | None = None,
+        # New injectable services for SOLID compliance
+        thought_signature_service: ThoughtSignatureService | None = None,
+        token_estimator: TiktokenEstimator | None = None,
+        google_auth_provider: GoogleAuthProvider | None = None,
+        streaming_executor: StreamingExecutor | None = None,
     ) -> None:
         super().__init__(
             client, config, translation_service
@@ -279,36 +259,62 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             response_post_processor or NoOpResponsePostProcessor()
         )
 
-        # Token management (composed)
-        self._token_manager = TokenManager()
-        # Chat request preparation (composed)
-        self._chat_preparer = ChatRequestPreparer(self, translation_service)
-        # File watching (composed)
-        self._file_watcher_state = FileWatcherState()
+        # Token management (composed or injected)
+        self._token_manager = token_manager or TokenManager()
+
+        # New injectable services for SOLID compliance
+        self._thought_signature_service = (
+            thought_signature_service or get_default_thought_signature_service()
+        )
+        self._token_estimator = token_estimator or get_default_token_estimator()
+        self._google_auth_provider = (
+            google_auth_provider or get_default_google_auth_provider()
+        )
+        # Request counter (injected or default)
+        self._request_counter: DailyRequestCounter | None = request_counter
+        if self._request_counter is None:
+            self._request_counter = DailyRequestCounter(
+                persistence_path=Path("var/state/gemini_oauth_request_count.json"),
+                limit=1000,
+            )
+
+        # Chat request preparation (composed, uses injected services)
+        # Uses narrow interfaces for SOLID compliance - connector implements
+        # IConnectorContext, IMessageConverter, IPromptLimiter, IRequestBodyBuilder
+        self._chat_preparer = ChatRequestPreparer(
+            connector=self,  # Backward compat: connector provides all interfaces
+            translation_service=translation_service,
+            google_auth_provider=self._google_auth_provider,
+            thought_signature_service=self._thought_signature_service,
+        )
+
+        # Streaming executor (injected or lazily created)
+        self._streaming_executor_instance = streaming_executor
+
+        # File watching (composed or injected)
+        self._file_watcher_state = file_watcher_state or FileWatcherState()
         # Store reference to the main event loop for thread-safe operations
         self._main_loop: asyncio.AbstractEventLoop | None = None
         # Flag to track if quota has been exceeded
         self._quota_exceeded = False
-        self._request_counter: DailyRequestCounter | None = None
 
         # Health checks are enabled by default and controlled by the AppConfig
         self._health_checked: bool = not self.config.get("disable_health_checks", False)
 
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
-        self._request_counter = DailyRequestCounter(
-            persistence_path=Path("var/state/gemini_oauth_request_count.json"),
-            limit=1000,
-        )
 
-        # Initialize graceful degradation via manager
+        # Initialize graceful degradation via manager (injected or default)
         # Force disabled by default to comply with new Resilience Layer architecture
         # Fallbacks/Retries are handled by BackendService + ResilienceCoordinator
-        degradation_config = GracefulDegradationConfig.from_config(self.config)
-        degradation_config.enabled = False
-        self._graceful_degradation = GracefulDegradationManager(
-            config=degradation_config
-        )
+        if graceful_degradation is not None:
+            self._graceful_degradation = graceful_degradation
+        else:
+            degradation_config = GracefulDegradationConfig.from_config(self.config)
+            degradation_config.enabled = False
+            self._graceful_degradation = GracefulDegradationManager(
+                config=degradation_config
+            )
         self._recovery_probe_task: asyncio.Task[Any] | None = None
 
         # Cache for fast model validation lookups
@@ -368,6 +374,31 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             and not self._initialization_failed
             and len(self._credential_validation_errors) == 0
         )
+
+    @property
+    def _streaming_executor(self) -> StreamingExecutor:
+        """Get or lazily create the streaming executor.
+
+        The executor is created lazily to allow the connector to fully
+        initialize before the executor is used.
+        """
+        if self._streaming_executor_instance is None:
+            self._streaming_executor_instance = StreamingExecutor(
+                translation_service=self.translation_service,
+                token_estimator=self._token_estimator,
+                google_auth_provider=self._google_auth_provider,
+                retry_delay_extractor=self,  # Connector implements IRetryDelayExtractor
+                backend_type=self.backend_type,
+            )
+        return self._streaming_executor_instance
+
+    def extract_retry_delay(self, error: BackendError) -> float | None:
+        """Extract retry delay from error - implements IRetryDelayExtractor."""
+        return self._extract_retry_delay(error)
+
+    async def refresh_token_if_needed(self) -> bool:
+        """Refresh token if needed - implements ITokenRefresher."""
+        return await self._refresh_token_if_needed()
 
     # ==========================================================================
     # DEPRECATED: Backward-compatible properties for internal component access
@@ -518,9 +549,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _estimate_prompt_tokens(
         self, code_assist_request: dict[str, Any]
     ) -> int | None:
-        """Best-effort estimate of prompt token usage for the current request."""
-        encoding = _get_tiktoken_encoding()
-        return estimate_prompt_tokens(code_assist_request, encoding)
+        """Best-effort estimate of prompt token usage for the current request.
+
+        Uses the injected TiktokenEstimator service for SOLID compliance.
+        """
+        return self._token_estimator.estimate_prompt_tokens(code_assist_request)
 
     def _get_prompt_limit(self, effective_model: str) -> int | None:
         """Resolve the prompt-size threshold for the given model."""
@@ -1407,93 +1440,53 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         approach, while converting to/from OpenAI-compatible formats.
         """
         try:
-            # Use ChatRequestPreparer for all common setup (token refresh, auth session,
-            # project discovery, request translation, tool sanitization, prompt limits)
             prepared = await self._chat_preparer.prepare(
                 request_data=request_data,
                 effective_model=effective_model,
                 is_streaming=False,
             )
 
-            # Use the Code Assist API exactly like KiloCode does
-            # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call to: {url}")
 
-            # Build the request body
-            request_body = prepared.build_request_body()
-
-            # Make the actual API call
-            # NOTE: params={"alt": "sse"} is required for this API to work correctly
-            # Without it, we get 403 PERMISSION_DENIED errors
-            try:
-                response = await asyncio.to_thread(
-                    prepared.auth_session.request,
-                    method="POST",
-                    url=url,
-                    params={"alt": "sse"},
-                    json=request_body,
-                    headers={"Content-Type": "application/json"},
-                    timeout=int(DEFAULT_READ_TIMEOUT),
+            def thought_signature_callback(
+                tool_calls: list[dict[str, Any]], session_id: str | None
+            ) -> None:
+                self._thought_signature_service.store_signatures_from_tool_calls(
+                    tool_calls,
+                    session_id,
                 )
-            except requests.exceptions.Timeout as te:
-                logger.error(f"Timeout calling {url}: {te}", exc_info=True)
-                raise BackendError(f"Request timeout: {te}")
-            except requests.exceptions.RequestException as rexc:
-                logger.error(f"Connection error calling {url}: {rexc}", exc_info=True)
-                raise BackendError(f"Connection failed: {rexc}")
 
-            if response.status_code >= 400:
-                self._handle_streaming_error(response)
+            executor = self._streaming_executor
+            stream_gen = executor.execute(
+                prepared=prepared,
+                url=url,
+                token_refresher=self,
+                thought_signature_callback=thought_signature_callback,
+                key_name=getattr(self, "_key_name", None),
+            )
 
-            # Extract and process the response
-            try:
-                response_json = response.json()
-                openai_response = self._extract_generated_text_from_response(
-                    response_json
-                )
-            except BackendError:
-                # Preserve backend-specific error codes/details for graceful handling
-                raise
-            except Exception as e:
-                message = f"Failed to process API response: {e}"
-                logger.error(message, exc_info=True)
-                raise BackendError(
-                    message=message,
-                    backend_name=self.backend_type,
-                    code="gemini_response_processing_failed",
-                    details={"inner_error": str(e)},
-                ) from e
+            streaming_envelope = StreamingResponseEnvelope(
+                content=stream_gen,
+                media_type="text/event-stream",
+                headers={},
+            )
 
-            # Calculate usage (best effort)
-            encoding = _get_tiktoken_encoding()
-            prompt_tokens = prepared.prompt_tokens_estimate or 0
-            completion_tokens = len(encoding.encode(openai_response))
-            usage = {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": prompt_tokens + completion_tokens,
-            }
+            response = await self._accumulate_streaming_response(streaming_envelope)
 
             logger.info(
                 "Successfully received and processed response from Code Assist API"
             )
-            response = ResponseEnvelope(
-                content=openai_response, headers={}, status_code=200, usage=usage
-            )
-            # Apply post-processing (e.g., XML tool call parsing for Antigravity)
             return self._response_post_processor.process(
                 response, prepared.effective_model
             )
 
         except AuthenticationError as e:
-            # Handle 401 authentication errors with token refresh and retry
             if not _auth_retry_attempted:
                 logger.info(
                     "Received 401 Unauthorized in non-streaming request, attempting token refresh and retry..."
                 )
                 try:
-                    # Use 30s timeout for refresh, leaving room for retry request
                     AUTH_RETRY_TIMEOUT = 30.0
                     refreshed = await asyncio.wait_for(
                         self._refresh_token_if_needed(),
@@ -1508,13 +1501,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             processed_messages=processed_messages,
                             effective_model=effective_model,
                             _in_graceful_degradation=_in_graceful_degradation,
-                            _auth_retry_attempted=True,  # Prevent infinite retry loops
+                            _auth_retry_attempted=True,
                             **kwargs,
                         )
-                    else:
-                        logger.warning(
-                            "Token refresh failed; will raise 401 error to caller"
-                        )
+                    logger.warning(
+                        "Token refresh failed; will raise 401 error to caller"
+                    )
                 except asyncio.TimeoutError:
                     logger.warning(
                         f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; raising 401 to caller"
@@ -1524,7 +1516,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         f"Error during token refresh attempt: {refresh_error}",
                         exc_info=True,
                     )
-            # If we reach here, refresh failed or already retried - raise original error
             logger.error(f"Authentication error during API call: {e}", exc_info=True)
             raise
         except BackendError as e:
@@ -1549,874 +1540,43 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions using the Code Assist API.
 
-        This method implements proper streaming support for the Code Assist API,
-        returning a StreamingResponseEnvelope that provides an async iterator
-        of SSE-formatted response chunks.
+        This method delegates to the StreamingExecutor for the actual
+        streaming HTTP handling, keeping this orchestration method focused
+        on setup, VTC wrapping, and error handling.
         """
-
         from src.core.ports.streaming_contracts import handle_streaming_error
 
         try:
-            # Use ChatRequestPreparer for all common setup (token refresh, auth session,
-            # project discovery, request translation, tool sanitization, prompt limits)
+            # Use ChatRequestPreparer for all common setup
             prepared = await self._chat_preparer.prepare(
                 request_data=request_data,
                 effective_model=effective_model,
                 is_streaming=True,
             )
 
-            # Extract values for use in closures
-            code_assist_request = prepared.code_assist_request
-            prompt_tokens = prepared.prompt_tokens_estimate
-
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
-            # For token calculation (fallback if estimate not available)
-            encoding = _get_tiktoken_encoding()
-            if prompt_tokens is None:
-                try:
-                    prompt_text_parts = []
-                    if code_assist_request.get("systemInstruction"):
-                        for part in code_assist_request["systemInstruction"].get(
-                            "parts", []
-                        ):
-                            if "text" in part:
-                                prompt_text_parts.append(part["text"])
-                    for content in code_assist_request.get("contents", []):
-                        for part in content.get("parts", []):
-                            if "text" in part:
-                                prompt_text_parts.append(part["text"])
-                    full_prompt = "\n".join(prompt_text_parts)
-                    prompt_tokens = len(encoding.encode(full_prompt))
-                except Exception as e:
-                    logger.warning(
-                        f"Could not calculate prompt tokens with tiktoken: {e}"
-                    )
-                    prompt_tokens = 0
+            # Create thought signature callback for the executor
+            def thought_signature_callback(
+                tool_calls: list[dict[str, Any]], session_id: str | None
+            ) -> None:
+                self._thought_signature_service.store_signatures_from_tool_calls(
+                    tool_calls,
+                    session_id,
+                )
 
-            async def stream_generator(
-                *,
-                _allow_tool_retry: bool = True,
-                without_tools: bool = False,
-                _auth_retry_attempted: bool = False,
-            ) -> AsyncGenerator[ProcessedResponse, None]:
-                import json
+            # Use the streaming executor for HTTP handling
+            base_generator = self._streaming_executor.execute(
+                prepared=prepared,
+                url=url,
+                token_refresher=self,  # Connector implements refresh_token_if_needed
+                thought_signature_callback=thought_signature_callback,
+                key_name=getattr(self, "_key_name", None),
+            )
 
-                response = None
-                generated_text = ""
-                error_json_buffer: str | None = None
-                google_auth_exceptions = _get_google_auth_exceptions()
-
-                def _should_skip_chunk(chunk: dict[str, Any] | Any) -> bool:
-                    """Filter out empty deltas so clients don't receive blank messages.
-
-                    Delegates to module-level functions from stream_processor.py
-                    for coercion, normalization, and skip logic.
-                    """
-                    # Coerce to dict (handles Pydantic models)
-                    chunk_dict = coerce_chunk_to_dict(chunk)
-                    if chunk_dict is None:
-                        return True
-
-                    # Normalize finish_reason and set tool_calls finish reason
-                    normalize_chunk(chunk_dict)
-
-                    # Check if should skip
-                    return should_skip_chunk(chunk_dict)
-
-                def _build_error_chunk(
-                    message: str, *, code: int = 500, error_type: str = "api_error"
-                ) -> dict[str, Any]:
-                    """Build error chunk using module-level helper."""
-                    return build_error_chunk(
-                        message=message,
-                        code=code,
-                        model=effective_model,
-                        error_type=error_type,
-                    )
-
-                try:
-                    try:
-                        if without_tools:
-                            code_assist_request.pop("tools", None)
-                            code_assist_request.pop("toolConfig", None)
-                        request_body = prepared.build_request_body()
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            tools_snapshot = request_body.get("request", {}).get(
-                                "tools"
-                            )
-                            if tools_snapshot:
-                                try:
-                                    logger.log(
-                                        TRACE_LEVEL,
-                                        "Code Assist sanitized tools payload: %s",
-                                        json.dumps(tools_snapshot)[:1000],
-                                    )
-                                except Exception:
-                                    logger.log(
-                                        TRACE_LEVEL,
-                                        "Code Assist sanitized tools payload present (non-serializable)",
-                                    )
-                        response = await asyncio.to_thread(
-                            prepared.auth_session.request,
-                            method="POST",
-                            url=url,
-                            params={"alt": "sse"},
-                            json=request_body,
-                            headers={"Content-Type": "application/json"},
-                            timeout=int(DEFAULT_READ_TIMEOUT),
-                            stream=True,
-                        )
-                    except requests.exceptions.Timeout as te:
-                        logger.error(
-                            f"Streaming timeout calling {url}: {te}", exc_info=True
-                        )
-                        error_chunk = _build_error_chunk(
-                            "Gateway timeout reaching Code Assist streaming endpoint.",
-                            code=504,
-                        )
-                        yield ProcessedResponse(
-                            content=error_chunk,
-                            metadata={
-                                "finish_reason": "error",
-                                "error": error_chunk["error"],
-                                "id": error_chunk["id"],
-                                "model": error_chunk["model"],
-                                "created": error_chunk["created"],
-                            },
-                        )
-                        return
-                    except requests.exceptions.RequestException as rexc:
-                        logger.error(
-                            f"Streaming connection error calling {url}: {rexc}",
-                            exc_info=True,
-                        )
-                        error_chunk = _build_error_chunk(
-                            "Connection error reaching Code Assist streaming endpoint.",
-                            code=503,
-                        )
-                        yield ProcessedResponse(
-                            content=error_chunk,
-                            metadata={
-                                "finish_reason": "error",
-                                "error": error_chunk["error"],
-                                "id": error_chunk["id"],
-                                "model": error_chunk["model"],
-                                "created": error_chunk["created"],
-                            },
-                        )
-                        return
-                    except google_auth_exceptions.GoogleAuthError as gae:
-                        logger.error(
-                            f"Streaming auth error calling {url}: {gae}",
-                            exc_info=True,
-                        )
-                        error_chunk = {
-                            "id": f"chatcmpl-error-{int(time.time())}",
-                            "object": "chat.completion.chunk",
-                            "created": int(time.time()),
-                            "model": effective_model,
-                            "choices": [
-                                {"index": 0, "delta": {}, "finish_reason": "error"}
-                            ],
-                            "error": {
-                                "message": "Authentication failed. Please check your credentials.",
-                                "type": "auth_error",
-                                "code": 401,
-                            },
-                        }
-                        yield ProcessedResponse(
-                            content=error_chunk,
-                            metadata={
-                                "finish_reason": "error",
-                                "error": error_chunk["error"],
-                                "id": error_chunk["id"],
-                                "model": error_chunk["model"],
-                                "created": error_chunk["created"],
-                            },
-                        )
-                        return
-
-                    if response.status_code != 200:
-                        try:
-                            error_detail = response.json()
-                        except Exception:
-                            error_detail = response.text
-
-                        detail_payload: dict[str, Any] = (
-                            error_detail
-                            if isinstance(error_detail, dict)
-                            else {"raw": error_detail}
-                        )
-
-                        error_message = "Service temporarily unavailable."
-                        code = "api_error"
-
-                        if isinstance(error_detail, dict):
-                            detail_error = error_detail.get("error") or {}
-                            status_val = str(detail_error.get("status", "")).upper()
-                            message_val = detail_error.get("message")
-                            if isinstance(message_val, str) and message_val.strip():
-                                error_message = message_val
-                            if (
-                                response.status_code == 429
-                                and status_val == "RESOURCE_EXHAUSTED"
-                            ):
-                                code = "quota_exceeded"
-                            elif response.status_code == 429:
-                                code = "rate_limit_exceeded"
-                            elif response.status_code == 401:
-                                code = "auth_error"
-                        elif isinstance(error_detail, str) and error_detail.strip():
-                            error_message = error_detail
-
-                        # Handle 401 authentication errors with token refresh and retry
-                        if response.status_code == 401 and not _auth_retry_attempted:
-                            logger.info(
-                                "Received 401 Unauthorized from backend, attempting token refresh and retry..."
-                            )
-                            with contextlib.suppress(Exception):
-                                response.close()
-
-                            # Trigger proactive token refresh with timeout
-                            # Use 30s timeout for refresh, leaving room for retry request
-                            AUTH_RETRY_TIMEOUT = 30.0
-                            try:
-                                refreshed = await asyncio.wait_for(
-                                    self._refresh_token_if_needed(),
-                                    timeout=AUTH_RETRY_TIMEOUT,
-                                )
-                                if refreshed:
-                                    logger.info(
-                                        "Token refresh successful, retrying streaming request..."
-                                    )
-                                    # Recursively call stream_generator with retry flag set
-                                    async for retry_chunk in stream_generator(
-                                        _allow_tool_retry=_allow_tool_retry,
-                                        without_tools=without_tools,
-                                        _auth_retry_attempted=True,  # Prevent infinite retry loops
-                                    ):
-                                        yield retry_chunk
-                                    return  # Successfully handled via retry
-                                else:
-                                    logger.warning(
-                                        "Token refresh failed; will return 401 error to client"
-                                    )
-                            except asyncio.TimeoutError:
-                                logger.warning(
-                                    f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; returning 401 to client"
-                                )
-                            except Exception as refresh_error:
-                                logger.error(
-                                    f"Error during token refresh attempt: {refresh_error}",
-                                    exc_info=True,
-                                )
-                            # If we reach here, refresh failed - continue to raise error below
-
-                        # Attach retry-after hint when available
-                        retry_delay = None
-                        if response.status_code == 429:
-                            retry_delay = self._extract_retry_delay(
-                                BackendError(
-                                    message=error_message,
-                                    code=code,
-                                    status_code=response.status_code,
-                                    details=detail_payload,
-                                )
-                            )
-                            if retry_delay is not None:
-                                detail_payload["retry_after"] = retry_delay
-
-                        with contextlib.suppress(Exception):
-                            response.close()
-
-                        raise BackendError(
-                            message=error_message,
-                            code=code,
-                            status_code=response.status_code,
-                            details=detail_payload,
-                            backend_name=self.backend_type,
-                        )
-
-                    line_buffer = ""
-                    done = False
-
-                    def _process_decoded_line(
-                        decoded_line: str,
-                    ) -> Iterable[ProcessedResponse]:
-                        nonlocal done, generated_text, error_json_buffer
-
-                        if not decoded_line:
-                            return
-
-                        if decoded_line.startswith("data: "):
-                            data_str = decoded_line[6:].strip()
-                            if data_str == "[DONE]":
-                                done = True
-                                return
-                            try:
-                                data = json.loads(data_str)
-
-                                rate_limit_error = build_rate_limit_backend_error(
-                                    data, effective_model
-                                )
-                                if rate_limit_error:
-                                    self._quota_exceeded = True
-                                    retry_delay = self._extract_retry_delay(
-                                        rate_limit_error
-                                    )
-                                    details = (
-                                        rate_limit_error.details
-                                        if isinstance(rate_limit_error.details, dict)
-                                        else {"raw": rate_limit_error.details}
-                                    )
-                                    if retry_delay is not None:
-                                        details["retry_after"] = retry_delay
-                                    with contextlib.suppress(Exception):
-                                        response.close()
-                                    raise BackendError(
-                                        message=rate_limit_error.message,
-                                        code=rate_limit_error.code,
-                                        status_code=getattr(
-                                            rate_limit_error, "status_code", 429
-                                        ),
-                                        details=details,
-                                        backend_name=self.backend_type,
-                                    )
-                            except json.JSONDecodeError as e:
-                                logger.warning(
-                                    "Received malformed JSON chunk in streaming response: %s (error: %s)",
-                                    (
-                                        data_str[:100] + "..."
-                                        if len(data_str) > 100
-                                        else data_str
-                                    ),
-                                    str(e),
-                                )
-                                if data_str and not data_str.strip().endswith("}"):
-                                    logger.error(
-                                        "Detected incomplete JSON chunk, yielding error response"
-                                    )
-                                    error_chunk = _build_error_chunk(
-                                        "Malformed streaming chunk from Code Assist.",
-                                        code=502,
-                                    )
-                                    yield ProcessedResponse(
-                                        content=error_chunk,
-                                        metadata={
-                                            "finish_reason": "error",
-                                            "error": error_chunk["error"],
-                                            "id": error_chunk["id"],
-                                            "model": error_chunk["model"],
-                                            "created": error_chunk["created"],
-                                        },
-                                    )
-                                    done = True
-                                return
-
-                            try:
-                                if logger.isEnabledFor(TRACE_LEVEL):
-                                    logger.log(
-                                        TRACE_LEVEL,
-                                        "[STREAMING] Received chunk from backend: choices_count=%s, has_usage=%s, has_id=%s",
-                                        len(data.get("choices", [])),
-                                        "usage" in data,
-                                        "id" in data,
-                                    )
-                                domain_chunk = (
-                                    self.translation_service.to_domain_stream_chunk(
-                                        chunk=data, source_format="code_assist"
-                                    )
-                                )
-                                if domain_chunk is not None and not isinstance(
-                                    domain_chunk, dict
-                                ):
-                                    dump = getattr(
-                                        domain_chunk, "model_dump", lambda **_: None
-                                    )(exclude_none=True)
-                                    if isinstance(dump, dict):
-                                        domain_chunk = dump
-                                    else:
-                                        domain_chunk = {}
-                                if domain_chunk is not None:
-                                    # Ensure we use the effective model name, not what the backend returns
-                                    # This prevents leaking internal model names like 'code-assist-model'
-                                    domain_chunk["model"] = effective_model
-                                    if logger.isEnabledFor(TRACE_LEVEL):
-                                        logger.log(
-                                            TRACE_LEVEL,
-                                            "[STREAMING] After translation: id=%s, model=%s, choices_count=%s",
-                                            (
-                                                domain_chunk.get("id", "none")[:20]
-                                                if domain_chunk.get("id")
-                                                else "none"
-                                            ),
-                                            domain_chunk.get("model", "none"),
-                                            len(domain_chunk.get("choices", [])),
-                                        )
-                            except Exception as e:
-                                logger.error(
-                                    "Failed to process streaming chunk: %s", str(e)
-                                )
-                                error_chunk = _build_error_chunk(
-                                    "Failed to parse streaming chunk from Code Assist.",
-                                    code=500,
-                                )
-                                yield ProcessedResponse(
-                                    content=error_chunk,
-                                    metadata={
-                                        "finish_reason": "error",
-                                        "error": error_chunk["error"],
-                                        "id": error_chunk["id"],
-                                        "model": error_chunk["model"],
-                                        "created": error_chunk["created"],
-                                    },
-                                )
-                                done = True
-                                return
-
-                            if domain_chunk and domain_chunk.get("choices"):
-                                if _should_skip_chunk(domain_chunk):
-                                    return
-                                choice = domain_chunk["choices"][0]
-                                delta = choice.get("delta", {}) or {}
-                                text_piece = delta.get("content")
-                                if text_piece:
-                                    generated_text += text_piece
-                                    if error_json_buffer is None:
-                                        stripped_piece = text_piece.lstrip()
-                                        if stripped_piece.startswith("{"):
-                                            error_json_buffer = stripped_piece
-                                    else:
-                                        error_json_buffer += text_piece
-
-                                    if error_json_buffer:
-                                        candidate_json = error_json_buffer.strip()
-                                        try:
-                                            parsed_error = json.loads(candidate_json)
-                                        except json.JSONDecodeError:
-                                            pass
-                                        else:
-                                            error_json_buffer = None
-                                            if isinstance(parsed_error, dict) and (
-                                                "error" in parsed_error
-                                            ):
-                                                rate_limit_error = (
-                                                    build_rate_limit_backend_error(
-                                                        parsed_error, effective_model
-                                                    )
-                                                )
-                                                if rate_limit_error:
-                                                    self._quota_exceeded = True
-                                                    retry_delay = (
-                                                        self._extract_retry_delay(
-                                                            rate_limit_error
-                                                        )
-                                                    )
-                                                    details = (
-                                                        rate_limit_error.details
-                                                        if isinstance(
-                                                            rate_limit_error.details,
-                                                            dict,
-                                                        )
-                                                        else {
-                                                            "raw": rate_limit_error.details
-                                                        }
-                                                    )
-                                                    if retry_delay is not None:
-                                                        details["retry_after"] = (
-                                                            retry_delay
-                                                        )
-                                                    with contextlib.suppress(Exception):
-                                                        response.close()
-                                                    raise BackendError(
-                                                        message=rate_limit_error.message,
-                                                        code=rate_limit_error.code,
-                                                        status_code=getattr(
-                                                            rate_limit_error,
-                                                            "status_code",
-                                                            429,
-                                                        ),
-                                                        details=details,
-                                                        backend_name=self.backend_type,
-                                                    )
-
-                                                error_info = (
-                                                    parsed_error.get("error") or {}
-                                                )
-                                                error_code = cast(
-                                                    int | None, error_info.get("code")
-                                                )
-                                                error_status = str(
-                                                    error_info.get("status", "")
-                                                ).upper()
-                                                error_message = error_info.get(
-                                                    "message", ""
-                                                )
-
-                                                if error_code == 429 or (
-                                                    error_status == "RESOURCE_EXHAUSTED"
-                                                ):
-                                                    with contextlib.suppress(Exception):
-                                                        response.close()
-                                                    raise BackendError(
-                                                        message=error_message
-                                                        or "Service temporarily unavailable due to rate limiting. Please try again later.",
-                                                        code=(
-                                                            "quota_exceeded"
-                                                            if error_status
-                                                            == "RESOURCE_EXHAUSTED"
-                                                            else "rate_limit_exceeded"
-                                                        ),
-                                                        status_code=int(
-                                                            error_code or 429
-                                                        ),
-                                                        details={
-                                                            "raw": parsed_error,
-                                                            "retry_after": self._extract_retry_delay(
-                                                                BackendError(
-                                                                    message=error_message,
-                                                                    code=(
-                                                                        "quota_exceeded"
-                                                                        if error_status
-                                                                        == "RESOURCE_EXHAUSTED"
-                                                                        else "rate_limit_exceeded"
-                                                                    ),
-                                                                    status_code=int(
-                                                                        error_code
-                                                                        or 429
-                                                                    ),
-                                                                    details=parsed_error,
-                                                                )
-                                                            ),
-                                                        },
-                                                        backend_name=self.backend_type,
-                                                    )
-
-                                                error_message = (
-                                                    error_message
-                                                    or "API error received from Gemini Code Assist"
-                                                )
-                                                error_code_value = (
-                                                    error_code
-                                                    if isinstance(error_code, int)
-                                                    else 500
-                                                )
-                                                with contextlib.suppress(Exception):
-                                                    response.close()
-                                                raise BackendError(
-                                                    message=error_message,
-                                                    code="api_error",
-                                                    status_code=error_code_value,
-                                                    details={"raw": parsed_error},
-                                                    backend_name=self.backend_type,
-                                                )
-                                            else:
-                                                error_json_buffer = None
-
-                            metadata = create_gemini_response_metadata(
-                                model=effective_model,
-                                usage=None,
-                                key_name=getattr(self, "_key_name", None),
-                            ).model_dump()
-
-                            raw_tool_calls = (
-                                domain_chunk.get("choices", [{}])[0]
-                                .get("delta", {})
-                                .get("tool_calls")
-                            )
-                            metadata.update(
-                                {
-                                    "raw_tool_calls": raw_tool_calls,
-                                    "raw_finish_reason": domain_chunk.get(
-                                        "choices", [{}]
-                                    )[0].get("finish_reason"),
-                                    "model": effective_model,
-                                }
-                            )
-
-                            # Store thought_signatures server-side for clients that don't preserve extra_content
-                            # (e.g., Droid). This allows us to inject signatures in subsequent requests.
-                            if raw_tool_calls and isinstance(raw_tool_calls, list):
-                                session_id = getattr(request_data, "session_id", None)
-                                anonymous_key = None
-                                if not session_id:
-                                    # Fall back to an anonymous cache key so we still preserve signatures
-                                    anonymous_key = "anon"
-                                manager = get_global_thought_signature_manager()
-                                manager.store_signatures_from_tool_calls(
-                                    raw_tool_calls, session_id
-                                )
-                                # Keep legacy cache in sync for backward compatibility
-                                GeminiOAuthBaseConnector._thought_signature_cache.update(
-                                    manager.cache
-                                )
-
-                                for tc in raw_tool_calls:
-                                    if not isinstance(tc, dict):
-                                        continue
-                                    tc_id = tc.get("id", "")
-                                    extra = tc.get("extra_content")
-                                    if isinstance(extra, dict):
-                                        google_extra = extra.get("google", {})
-                                        sig = google_extra.get("thought_signature")
-                                        if sig and tc_id:
-                                            cache_key = (
-                                                f"{session_id}:{tc_id}"
-                                                if session_id
-                                                else f"{anonymous_key}:{tc_id}"
-                                            )
-                                            if cache_key:
-                                                GeminiOAuthBaseConnector._thought_signature_cache[
-                                                    cache_key
-                                                ] = sig
-                                                if logger.isEnabledFor(logging.DEBUG):
-                                                    logger.debug(
-                                                        "Stored thought_signature for tool_call_id=%s (key=%s)",
-                                                        tc_id,
-                                                        cache_key[:16],
-                                                    )
-
-                                # Yield the processed chunk
-                            yield ProcessedResponse(
-                                content=domain_chunk,
-                                metadata=metadata,
-                            )
-                            return
-
-                        # Do not forward raw backend lines; skip to avoid leaking internal payloads.
-                        return
-
-                    # Buffer for the final chunk that contains the stop reason
-                    final_stop_chunk = None
-
-                    try:
-                        for chunk in response.iter_content(
-                            chunk_size=4096, decode_unicode=False
-                        ):
-                            if done:
-                                break
-
-                            try:
-                                chunk_str = (
-                                    chunk
-                                    if isinstance(chunk, bytes)
-                                    else str(chunk).encode()
-                                ).decode(
-                                    "utf-8"
-                                )  # type: ignore[union-attr]
-                            except (UnicodeDecodeError, AttributeError):
-                                continue
-
-                            line_buffer += chunk_str
-                            lines = line_buffer.splitlines(keepends=True)
-
-                            # If the last line is incomplete (no newline), keep it buffered
-                            if lines and not lines[-1].endswith(("\n", "\r")):
-                                line_buffer = lines.pop()  # keep partial
-                            else:
-                                line_buffer = ""
-
-                            for line in lines:
-                                decoded_line = line.rstrip("\r\n")
-
-                                for processed_chunk in _process_decoded_line(
-                                    decoded_line
-                                ):
-                                    # Check if this chunk signals the end of the stream
-                                    # If so, buffer it and yield it AFTER usage
-                                    content = processed_chunk.content
-                                    is_stop_chunk = False
-
-                                    if isinstance(content, dict):
-                                        choices = content.get("choices", [])
-                                        if choices and isinstance(choices[0], dict):
-                                            finish_reason = choices[0].get(
-                                                "finish_reason"
-                                            )
-                                            if finish_reason:
-                                                logger.debug(
-                                                    f"[STREAMING] Found chunk with finish_reason: {finish_reason}"
-                                                )
-
-                                            if finish_reason in (
-                                                "stop",
-                                                "stop_sequence",
-                                            ):
-                                                is_stop_chunk = True
-
-                                    if is_stop_chunk:
-                                        if logger.isEnabledFor(TRACE_LEVEL):
-                                            logger.log(
-                                                TRACE_LEVEL,
-                                                "[STREAMING] Buffering stop chunk",
-                                            )
-                                        final_stop_chunk = processed_chunk
-                                        # Do not yield yet - wait for usage
-                                        continue
-
-                                    yield processed_chunk
-                                    # Yield control to the event loop to allow sending
-                                    # chunks to the client immediately
-                                    await asyncio.sleep(0)
-                                if done:
-                                    break
-
-                        if not done and line_buffer:
-                            for processed_chunk in _process_decoded_line(
-                                line_buffer.rstrip("\r\n")
-                            ):
-                                # Same check for buffered lines
-                                content = processed_chunk.content
-                                is_stop_chunk = False
-                                if isinstance(content, dict):
-                                    choices = content.get("choices", [])
-                                    if choices and isinstance(choices[0], dict):
-                                        finish_reason = choices[0].get("finish_reason")
-                                        if finish_reason in ("stop", "stop_sequence"):
-                                            is_stop_chunk = True
-
-                                if is_stop_chunk:
-                                    if logger.isEnabledFor(TRACE_LEVEL):
-                                        logger.log(
-                                            TRACE_LEVEL,
-                                            "[STREAMING] Buffering stop chunk (from buffer)",
-                                        )
-                                    final_stop_chunk = processed_chunk
-                                    continue
-
-                                yield processed_chunk
-                                # Yield control to the event loop
-                                await asyncio.sleep(0)
-                            line_buffer = ""
-
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(
-                                TRACE_LEVEL,
-                                f"[STREAMING] Completed chunk loop. final_stop_chunk captured: {final_stop_chunk is not None}",
-                            )
-
-                    except GeneratorExit:
-                        logger.debug("Stream closed by consumer before completion")
-                        raise
-                    except Exception as e:
-                        logger.error(
-                            f"Error in streaming generator: {e}", exc_info=True
-                        )
-                        raise
-
-                    # Calculate usage and merge into final stop chunk
-                    # Per OpenRouter API spec, usage should be in the final chunk
-                    # with finish_reason="stop", NOT as a separate usage-only chunk
-                    usage: dict[str, Any] | None = None
-                    try:
-                        completion_tokens = len(encoding.encode(generated_text))
-                        usage = {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                            "total_tokens": (prompt_tokens or 0) + completion_tokens,
-                        }
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(
-                                TRACE_LEVEL, f"[STREAMING] Calculated usage: {usage}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not calculate completion tokens for streaming: {e}"
-                        )
-
-                    # Yield the final stop chunk with usage merged in
-                    # Import the protective wrapper to detect accidental stringification
-                    from src.core.ports.streaming_contracts import StopChunkWithUsage
-
-                    if final_stop_chunk:
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(
-                                TRACE_LEVEL,
-                                "[STREAMING] Yielding final stop chunk with usage",
-                            )
-                        # Merge usage into the final stop chunk content
-                        final_content = final_stop_chunk.content
-                        if isinstance(final_content, dict) and usage:
-                            final_content = dict(
-                                final_content
-                            )  # Copy to avoid mutation
-                            final_content["usage"] = usage
-                            # Wrap with StopChunkWithUsage to detect accidental
-                            # stringification. If any code tries to str() this dict,
-                            # it will raise UsageChunkLeakError with a stack trace.
-                            final_content = StopChunkWithUsage(final_content)
-                        yield ProcessedResponse(
-                            content=final_content,
-                            metadata=final_stop_chunk.metadata,
-                            usage=usage,
-                        )
-                    else:
-                        logger.debug(
-                            "[STREAMING] No stop chunk buffered, yielding generic stop with usage"
-                        )
-                        # Fallback: create a generic stop chunk if none was captured
-                        # (e.g. if stream ended without explicit stop reason)
-                        final_chunk = self.translation_service.to_domain_stream_chunk(
-                            chunk=None, source_format="code_assist"
-                        )
-                        # Merge usage and correct model into the generic stop chunk
-                        if isinstance(final_chunk, dict):
-                            # Override the default model name with the actual effective model
-                            final_chunk["model"] = effective_model
-                            if usage:
-                                final_chunk["usage"] = usage
-                            # Wrap with protective class
-                            final_chunk = StopChunkWithUsage(final_chunk)
-                        yield ProcessedResponse(
-                            content=final_chunk,
-                            usage=usage,
-                            metadata={"model": effective_model},
-                        )
-
-                except BackendError as e:
-                    logger.error(f"Error in streaming generator: {e}", exc_info=True)
-                    raise
-                except Exception as e:
-                    logger.error(f"Error in streaming generator: {e}", exc_info=True)
-                    # Build proper error chunk with full error details
-                    now = int(time.time())
-                    error_message = str(e) if str(e) else "An unexpected error occurred"
-                    error_chunk = {
-                        "id": f"chatcmpl-error-{now}",
-                        "object": "chat.completion.chunk",
-                        "created": now,
-                        "model": effective_model,
-                        "choices": [
-                            {"index": 0, "delta": {}, "finish_reason": "error"}
-                        ],
-                        "error": {
-                            "message": error_message,
-                            "type": "internal_error",
-                            "code": 500,
-                        },
-                    }
-                    yield ProcessedResponse(
-                        content=error_chunk,
-                        metadata={
-                            "finish_reason": "error",
-                            "error": error_chunk["error"],
-                            "id": error_chunk["id"],
-                            "model": error_chunk["model"],
-                            "created": error_chunk["created"],
-                        },
-                    )
-                finally:
-                    if response is not None:
-                        with contextlib.suppress(Exception):
-                            response.close()
-
-            # Note: gemini_base yields ProcessedResponse objects, not raw SSE data.
-            # VTC processing is applied via VTCResponseStreamWrapper when vtc_enabled.
-            # This wrapper handles XML tool call extraction, reactor invocation,
-            # and passes content through unchanged for Cline-like VTC clients.
+            # VTC (Virtual Tool Call) processing setup
             from src.core.services.streaming.vtc_response_wrapper import (
                 wrap_processed_response_stream_with_vtc,
             )
@@ -2443,9 +1603,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 "model_name": effective_model,
                 "calling_agent": getattr(request_data, "agent", None),
             }
-
-            # Create the base generator
-            base_generator = stream_generator()
 
             # Wrap with prefetch to trigger immediate errors (like 429) before returning
             # This ensures BackendService.call_completion() can catch and handle errors

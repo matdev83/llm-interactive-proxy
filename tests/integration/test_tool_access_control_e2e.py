@@ -190,11 +190,11 @@ class TestToolAccessControlEndToEnd:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
-        
+
         # Handle case where content is a dict (e.g. structured content)
         if isinstance(content, dict):
             content = json.dumps(content)
-            
+
         assert "blocked by security policy" in content.lower()
 
         # Verify telemetry

@@ -11,6 +11,9 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
     """
     Test that token usage is calculated using tiktoken when the backend
     response does not include it.
+
+    NOTE: After SOLID refactoring, non-streaming path uses streaming executor
+    internally and accumulates the response. The mock must provide an SSE stream.
     """
     # Arrange
     mock_client = AsyncMock()
@@ -37,50 +40,38 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
     }
 
     # Mock the response from the Code Assist API (without usage data)
+    # NOTE: Must provide iter_content for streaming executor
     mock_sse_response = MagicMock()
-    mock_sse_response.text = 'data: {"choices": [{"delta": {"content": "World"}}], "finish_reason": "stop"}\n\ndata: [DONE]\n'
     mock_sse_response.status_code = 200
-    mock_sse_response.json.return_value = {
-        "candidates": [
-            {
-                "content": {
-                    "parts": [
-                        {
-                            "text": "World",
-                        }
-                    ]
-                }
-            }
-        ]
-    }
+
+    def mock_iter_content(*args, **kwargs):
+        # Simulate SSE stream with content chunk and finish
+        data = b'data: {"candidates": [{"content": {"parts": [{"text": "World"}]}}]}\ndata: {"candidates": [{"finishReason": "STOP"}]}\ndata: [DONE]\n'
+        for byte in data:
+            yield bytes([byte])
+
+    mock_sse_response.iter_content = mock_iter_content
+    mock_sse_response.close = MagicMock()
 
     # Mock the auth_session and its request method
     mock_auth_session = MagicMock()
+    mock_auth_session.headers = {}
     mock_auth_session.request.return_value = mock_sse_response
 
     # Mock the translation service for the response
-    mock_translation_service.to_domain_stream_chunk.return_value = {
-        "choices": [{"delta": {"content": "World"}}]
-    }
-    mock_translation_service.from_domain_to_openai_response.side_effect = (
-        lambda openai_response: {
-            "id": "chatcmpl-123",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "gemini-pro",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": openai_response.choices[0].message.content,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": openai_response.usage,
-        }
-    )
+    def mock_stream_chunk(chunk, source_format):
+        if chunk is None:
+            return {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        if chunk.get("candidates"):
+            cand = chunk["candidates"][0]
+            if "content" in cand and "parts" in cand["content"]:
+                text = cand["content"]["parts"][0].get("text", "")
+                return {"choices": [{"delta": {"content": text}}]}
+            if "finishReason" in cand:
+                return {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        return {"choices": [{"delta": {}}]}
+
+    mock_translation_service.to_domain_stream_chunk.side_effect = mock_stream_chunk
 
     request_data = ChatRequest(
         model="gemini-oauth-free:gemini-pro",

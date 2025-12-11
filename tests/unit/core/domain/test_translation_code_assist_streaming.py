@@ -177,7 +177,12 @@ def test_thought_signature_server_side_injection() -> None:
     Some clients like Droid don't preserve extra_content when storing tool calls.
     The server must store and inject the signature from cache.
     """
-    from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
+    from src.connectors.gemini_base.thought_signature_service import (
+        ThoughtSignatureService,
+    )
+
+    # Create a fresh service for testing (not using global)
+    service = ThoughtSignatureService(use_global_cache=False)
 
     # Simulate a tool call without extra_content (as Droid would send)
     tc_without_sig = ToolCall(
@@ -190,9 +195,7 @@ def test_thought_signature_server_side_injection() -> None:
     # Store a signature in the cache (simulating what happens when we receive a response)
     session_id = "test_session_abc"
     cache_key = f"{session_id}:{tc_without_sig.id}"
-    GeminiOAuthBaseConnector._thought_signature_cache[cache_key] = (
-        "cached_signature_xyz"
-    )
+    service.cache[cache_key] = "cached_signature_xyz"
 
     # Create a request with the tool call
     req = CanonicalChatRequest(
@@ -203,8 +206,8 @@ def test_thought_signature_server_side_injection() -> None:
         ],
     )
 
-    # Inject signatures
-    GeminiOAuthBaseConnector._inject_thought_signatures(req, session_id)
+    # Inject signatures using the service
+    service.inject_signatures(req, session_id)
 
     # Verify the signature was injected
     injected_tc = req.messages[1].tool_calls[0]
@@ -214,9 +217,6 @@ def test_thought_signature_server_side_injection() -> None:
         injected_tc.extra_content["google"]["thought_signature"]
         == "cached_signature_xyz"
     )
-
-    # Clean up the cache
-    del GeminiOAuthBaseConnector._thought_signature_cache[cache_key]
 
 
 def test_thought_signature_preserved_in_function_call_round_trip() -> None:

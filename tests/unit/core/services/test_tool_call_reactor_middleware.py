@@ -554,7 +554,9 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
 def _expected_path(relative_path: str) -> str:
     """Helper to get expected absolute path."""
     import os
+
     return os.path.abspath(os.path.join(os.getcwd(), relative_path.lstrip("/\\")))
+
 
 def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
     """Single-segment relative paths should be normalized with leading forward slash."""
@@ -595,7 +597,7 @@ def test_maybe_fix_droid_antigravity_path_not_modified_for_absolute_path() -> No
     fixed, modified = ToolCallReactorFeature._maybe_fix_droid_antigravity_path(
         args, "gemini-oauth-antigravity", "droid"
     )
-    
+
     # On Windows, /src/test.py is not fully absolute, so it gets fixed
     assert fixed["file_path"] == _expected_path("src/test.py")
     assert modified is True
@@ -646,9 +648,8 @@ def test_maybe_fix_droid_antigravity_path_handles_factory_cli_agent() -> None:
         args, "gemini-oauth-antigravity", "factory-cli/0.35.0"
     )
     assert isinstance(fixed, dict)
-    assert (
-        fixed.get("file_path")
-        == _expected_path("tests/unit/services/test_steering_leak_protection.py")
+    assert fixed.get("file_path") == _expected_path(
+        "tests/unit/services/test_steering_leak_protection.py"
     )
     assert modified is True
 
@@ -668,8 +669,8 @@ def test_maybe_fix_droid_antigravity_path_handles_factory_variations() -> None:
             args, "gemini-oauth-antigravity", agent_name
         )
         assert isinstance(fixed, dict), f"Should return dict for agent: {agent_name}"
-        assert (
-            fixed.get("file_path") == _expected_path("src/test.py")
+        assert fixed.get("file_path") == _expected_path(
+            "src/test.py"
         ), f"Should fix path for agent: {agent_name}"
         assert modified is True, f"Should mark as modified for agent: {agent_name}"
 

@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.config import DEFAULT_READ_TIMEOUT
@@ -123,9 +123,7 @@ class SSELineProcessor:
             error_type=error_type,
         )
 
-    def check_rate_limit_in_payload(
-        self, data: dict[str, Any]
-    ) -> BackendError | None:
+    def check_rate_limit_in_payload(self, data: dict[str, Any]) -> BackendError | None:
         """Check if a payload indicates rate limiting.
 
         Args:
@@ -208,7 +206,10 @@ class SSELineProcessor:
                         len(domain_chunk.get("choices", [])),
                     )
 
-            return domain_chunk
+            result: dict[str, Any] | None = (
+                domain_chunk if isinstance(domain_chunk, dict) else None
+            )
+            return result
 
         except Exception as e:
             logger.error("Failed to process streaming chunk: %s", str(e))
@@ -254,9 +255,9 @@ class StreamingExecutor:
         url: str,
         *,
         token_refresher: ITokenRefresher | None = None,
-        thought_signature_callback: Callable[
-            [list[dict[str, Any]], str | None], None
-        ] | None = None,
+        thought_signature_callback: (
+            Callable[[list[dict[str, Any]], str | None], None] | None
+        ) = None,
         key_name: str | None = None,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Execute a streaming request and yield processed responses.
@@ -282,9 +283,12 @@ class StreamingExecutor:
         # Calculate prompt tokens if not already done
         prompt_tokens = prepared.prompt_tokens_estimate
         if prompt_tokens is None:
-            prompt_tokens = self._token_estimator.estimate_prompt_tokens(
-                prepared.code_assist_request
-            ) or 0
+            prompt_tokens = (
+                self._token_estimator.estimate_prompt_tokens(
+                    prepared.code_assist_request
+                )
+                or 0
+            )
 
         async for chunk in self._stream_generator(
             prepared=prepared,
@@ -305,9 +309,9 @@ class StreamingExecutor:
         prompt_tokens: int,
         *,
         token_refresher: ITokenRefresher | None = None,
-        thought_signature_callback: Callable[
-            [list[dict[str, Any]], str | None], None
-        ] | None = None,
+        thought_signature_callback: (
+            Callable[[list[dict[str, Any]], str | None], None] | None
+        ) = None,
         key_name: str | None = None,
         _allow_tool_retry: bool = True,
         without_tools: bool = False,
@@ -501,9 +505,14 @@ class StreamingExecutor:
                                     pass
                                 else:
                                     error_json_buffer = None
-                                    if isinstance(parsed_error, dict) and "error" in parsed_error:
-                                        rate_limit_error = processor.check_rate_limit_in_payload(
-                                            parsed_error
+                                    if (
+                                        isinstance(parsed_error, dict)
+                                        and "error" in parsed_error
+                                    ):
+                                        rate_limit_error = (
+                                            processor.check_rate_limit_in_payload(
+                                                parsed_error
+                                            )
                                         )
                                         if rate_limit_error:
                                             with contextlib.suppress(Exception):
@@ -514,7 +523,8 @@ class StreamingExecutor:
                                         error_info = parsed_error.get("error") or {}
                                         error_code = error_info.get("code")
                                         error_message = error_info.get(
-                                            "message", "API error received from Gemini Code Assist"
+                                            "message",
+                                            "API error received from Gemini Code Assist",
                                         )
                                         error_code_value = (
                                             error_code
@@ -545,20 +555,23 @@ class StreamingExecutor:
                         .get("delta", {})
                         .get("tool_calls")
                     )
-                    metadata.update({
-                        "raw_tool_calls": raw_tool_calls,
-                        "raw_finish_reason": domain_chunk.get("choices", [{}])[0].get(
-                            "finish_reason"
-                        ),
-                        "model": prepared.effective_model,
-                    })
+                    metadata.update(
+                        {
+                            "raw_tool_calls": raw_tool_calls,
+                            "raw_finish_reason": domain_chunk.get("choices", [{}])[
+                                0
+                            ].get("finish_reason"),
+                            "model": prepared.effective_model,
+                        }
+                    )
 
                     # Store thought signatures
-                    if raw_tool_calls and isinstance(raw_tool_calls, list):
-                        if thought_signature_callback:
-                            thought_signature_callback(
-                                raw_tool_calls, prepared.session_id
-                            )
+                    if (
+                        raw_tool_calls
+                        and isinstance(raw_tool_calls, list)
+                        and thought_signature_callback
+                    ):
+                        thought_signature_callback(raw_tool_calls, prepared.session_id)
 
                     yield ProcessedResponse(content=domain_chunk, metadata=metadata)
                     return
@@ -576,9 +589,7 @@ class StreamingExecutor:
 
                     try:
                         chunk_str = (
-                            chunk
-                            if isinstance(chunk, bytes)
-                            else str(chunk).encode()
+                            chunk if isinstance(chunk, bytes) else str(chunk).encode()
                         ).decode("utf-8")
                     except (UnicodeDecodeError, AttributeError):
                         continue
@@ -734,9 +745,9 @@ class StreamingExecutor:
         prompt_tokens: int,
         *,
         token_refresher: ITokenRefresher | None = None,
-        thought_signature_callback: Callable[
-            [list[dict[str, Any]], str | None], None
-        ] | None = None,
+        thought_signature_callback: (
+            Callable[[list[dict[str, Any]], str | None], None] | None
+        ) = None,
         key_name: str | None = None,
         _allow_tool_retry: bool = True,
         without_tools: bool = False,
@@ -840,8 +851,6 @@ class StreamingExecutor:
             details=detail_payload,
             backend_name=self._backend_type,
         )
-        # This yield is never reached but needed for type checker
-        yield  # type: ignore[misc]
 
     def _build_error_metadata(self, error_chunk: dict[str, Any]) -> dict[str, Any]:
         """Build metadata for error responses."""
@@ -875,4 +884,3 @@ __all__ = [
     "SSELineProcessor",
     "StreamingExecutor",
 ]
-

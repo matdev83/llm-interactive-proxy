@@ -27,9 +27,7 @@ class ITokenEstimator(Protocol):
         """
         ...
 
-    def estimate_prompt_tokens(
-        self, code_assist_request: dict[str, Any]
-    ) -> int | None:
+    def estimate_prompt_tokens(self, code_assist_request: dict[str, Any]) -> int | None:
         """Estimate prompt tokens from a Code Assist request.
 
         Args:
@@ -92,9 +90,7 @@ class TiktokenEstimator:
             logger.warning("Failed to estimate tokens: %s", e)
             return 0
 
-    def estimate_prompt_tokens(
-        self, code_assist_request: dict[str, Any]
-    ) -> int | None:
+    def estimate_prompt_tokens(self, code_assist_request: dict[str, Any]) -> int | None:
         """Estimate prompt tokens from a Code Assist request.
 
         Extracts text from systemInstruction and contents fields,
@@ -155,4 +151,3 @@ __all__ = [
     "TiktokenEstimator",
     "get_default_token_estimator",
 ]
-

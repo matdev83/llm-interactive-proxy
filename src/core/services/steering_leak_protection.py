@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # These patterns should NEVER appear in client-facing content
 _STEERING_LEAK_PATTERNS: tuple[re.Pattern[str], ...] = (
     # chatcmpl-steering-* ID pattern from replacement responses
-    re.compile(r'"id"\s*:\s*"chatcmpl-steering-\d+"'),
+    re.compile(r'"id"\s*:\s*"chatcmpl-steering-[^"]+"'),
     # Steering message metadata keys
     re.compile(r'"steering_message"\s*:\s*"'),
     # Tool call swallowed markers
@@ -43,14 +43,21 @@ _STEERING_LEAK_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 # Pattern to extract the leaked JSON structure for removal
+# This matches the standard structure including object type
 _LEAKED_JSON_PATTERN = re.compile(
-    r'\{"id"\s*:\s*"chatcmpl-steering-\d+"[^}]*"object"\s*:\s*"chat\.completion"[^}]*\}',
+    r'\{\s*"id"\s*:\s*"chatcmpl-steering-[^"]+"[^}]*"object"\s*:\s*"chat\.completion"[^}]*\}',
+    re.DOTALL,
+)
+
+# Simple steering object pattern (e.g. just id and message)
+_SIMPLE_STEERING_PATTERN = re.compile(
+    r'\{\s*"id"\s*:\s*"chatcmpl-steering-[^"]+"[^}]*\}',
     re.DOTALL,
 )
 
 # More aggressive pattern for full steering response structure
 _FULL_STEERING_RESPONSE_PATTERN = re.compile(
-    r'\{"id"\s*:\s*"chatcmpl-steering-\d+".*?"finish_reason"\s*:\s*"stop"\s*\}\s*\]\s*,\s*"usage"\s*:\s*(?:null|\{[^}]*\})\s*\}',
+    r'\{\s*"id"\s*:\s*"chatcmpl-steering-[^"]+".*?"finish_reason"\s*:\s*"stop"\s*\}\s*\]\s*,\s*"usage"\s*:\s*(?:null|\{[^}]*\})\s*\}',
     re.DOTALL,
 )
 
@@ -235,6 +242,8 @@ class SteeringLeakProtector:
                 if not nested_found:
                     return data, False
                 found_keys = nested_found
+            else:
+                return data, False
 
         self._leak_count += 1
 
@@ -273,6 +282,10 @@ class SteeringLeakProtector:
         # If that didn't work, try the simpler pattern
         if sanitized == content:
             sanitized = _LEAKED_JSON_PATTERN.sub("", content)
+
+        # If still no change, try the simplest pattern
+        if sanitized == content:
+            sanitized = _SIMPLE_STEERING_PATTERN.sub("", content)
 
         # Clean up any trailing garbage that might remain
         # (e.g., dangling commas, brackets)

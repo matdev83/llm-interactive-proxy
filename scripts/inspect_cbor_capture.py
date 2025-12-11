@@ -69,6 +69,11 @@ Examples:
 
     # Combine features
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --detect-issues --timeline --backend gemini-oauth-plan
+
+    # Filter by time range (Unix timestamps or ISO datetime)
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --start-time 1702300000 --end-time 1702400000
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --start-time "2024-01-15T10:00:00" --end-time "2024-01-15T11:00:00"
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --start-time "10:30:00" --end-time "11:00:00" --entries 50
 """
 
 from __future__ import annotations
@@ -200,6 +205,102 @@ def format_timestamp(ts: float) -> str:
     """Format a timestamp into a human-readable string."""
     dt = datetime.datetime.fromtimestamp(ts)
     return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def parse_time_arg(time_str: str, reference_date: datetime.date | None = None) -> float:
+    """Parse a time argument into a Unix timestamp.
+
+    Supports:
+    - Unix timestamps (integer or float): 1702300000, 1702300000.123
+    - ISO datetime: 2024-01-15T10:00:00, 2024-01-15 10:00:00
+    - Date only: 2024-01-15
+    - Time only: 10:30:00, 10:30 (uses reference_date or today)
+
+    Args:
+        time_str: The time string to parse
+        reference_date: Reference date for time-only values (defaults to today)
+
+    Returns:
+        Unix timestamp as float
+    """
+    time_str = time_str.strip()
+
+    # Try parsing as Unix timestamp first
+    try:
+        ts = float(time_str)
+        if ts > 0:
+            return ts
+    except ValueError:
+        pass
+
+    # Try ISO datetime formats
+    iso_formats = [
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ]
+
+    for fmt in iso_formats:
+        try:
+            dt = datetime.datetime.strptime(time_str, fmt)
+            return dt.timestamp()
+        except ValueError:
+            continue
+
+    # Try time-only formats
+    time_formats = [
+        "%H:%M:%S.%f",
+        "%H:%M:%S",
+        "%H:%M",
+    ]
+
+    ref_date = reference_date or datetime.date.today()
+    for fmt in time_formats:
+        try:
+            t = datetime.datetime.strptime(time_str, fmt).time()
+            dt = datetime.datetime.combine(ref_date, t)
+            return dt.timestamp()
+        except ValueError:
+            continue
+
+    raise ValueError(
+        f"Could not parse time: '{time_str}'. "
+        "Supported formats: Unix timestamp, ISO datetime (2024-01-15T10:00:00), "
+        "date (2024-01-15), or time (10:30:00)"
+    )
+
+
+def filter_entries_by_time(
+    entries: list[dict[str, Any]],
+    start_time: float | None = None,
+    end_time: float | None = None,
+) -> list[dict[str, Any]]:
+    """Filter entries by time range.
+
+    Args:
+        entries: List of capture entry dictionaries
+        start_time: Minimum timestamp (inclusive), or None for no lower bound
+        end_time: Maximum timestamp (inclusive), or None for no upper bound
+
+    Returns:
+        Filtered list of entries
+    """
+    if start_time is None and end_time is None:
+        return entries
+
+    result = []
+    for e in entries:
+        ts = e.get("ts", 0)
+        if start_time is not None and ts < start_time:
+            continue
+        if end_time is not None and ts > end_time:
+            continue
+        result.append(e)
+    return result
 
 
 def get_unique_backends(entries: list[dict[str, Any]]) -> dict[str, int]:
@@ -1238,6 +1339,16 @@ def main() -> int:
         metavar="SID",
         help="Filter by specific session ID",
     )
+    parser.add_argument(
+        "--start-time",
+        metavar="TIME",
+        help="Filter entries after this time (Unix timestamp, ISO datetime, or time-only)",
+    )
+    parser.add_argument(
+        "--end-time",
+        metavar="TIME",
+        help="Filter entries before this time (Unix timestamp, ISO datetime, or time-only)",
+    )
 
     args = parser.parse_args()
 
@@ -1313,6 +1424,37 @@ def main() -> int:
             )
             return 1
         print(f"Filtered to session: {args.session_id}")
+        print()
+
+    # Apply time filters if specified
+    start_time = None
+    end_time = None
+    if args.start_time:
+        try:
+            start_time = parse_time_arg(args.start_time)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    if args.end_time:
+        try:
+            end_time = parse_time_arg(args.end_time)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    if start_time is not None or end_time is not None:
+        original_count = len(entries)
+        entries = filter_entries_by_time(entries, start_time, end_time)
+        if not entries:
+            print("No entries found in specified time range", file=sys.stderr)
+            return 1
+        time_info = []
+        if start_time:
+            time_info.append(f"after {format_timestamp(start_time)}")
+        if end_time:
+            time_info.append(f"before {format_timestamp(end_time)}")
+        print(f"Filtered to entries {' and '.join(time_info)}")
+        print(f"Matched {len(entries)} of {original_count} entries")
         print()
 
     # Parse range if specified

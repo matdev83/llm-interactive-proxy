@@ -78,22 +78,28 @@ class IThoughtSignatureService(Protocol):
 
 @runtime_checkable
 class IMessageConverter(Protocol):
-    """Interface for message conversion operations."""
+    """Interface for message conversion operations.
 
-    def convert_system_messages_for_code_assist(
+    Note: Method names use underscores to match existing connector implementation.
+    This maintains backward compatibility while enabling interface-based testing.
+    """
+
+    def _convert_system_messages_for_code_assist(
         self, gemini_request: dict[str, Any]
     ) -> list[dict[str, Any]]:
         """Convert system messages for Code Assist API format."""
         ...
 
-    def build_code_assist_request(
+    def _build_code_assist_request(
         self, gemini_request: dict[str, Any], final_contents: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """Build Code Assist API request from Gemini format."""
         ...
 
-    def sanitize_code_assist_tools(
-        self, canonical_request: "CanonicalChatRequest", code_assist_request: dict[str, Any]
+    def _sanitize_code_assist_tools(
+        self,
+        canonical_request: "CanonicalChatRequest",
+        code_assist_request: dict[str, Any],
     ) -> None:
         """Sanitize tool definitions for Code Assist API."""
         ...
@@ -101,13 +107,18 @@ class IMessageConverter(Protocol):
 
 @runtime_checkable
 class IPromptLimiter(Protocol):
-    """Interface for prompt limit enforcement."""
+    """Interface for prompt limit enforcement.
 
-    def estimate_prompt_tokens(self, code_assist_request: dict[str, Any]) -> int | None:
+    Note: Method names use underscores to match existing connector implementation.
+    """
+
+    def _estimate_prompt_tokens(
+        self, code_assist_request: dict[str, Any]
+    ) -> int | None:
         """Estimate the number of prompt tokens in the request."""
         ...
 
-    def enforce_prompt_limit(
+    def _enforce_prompt_limit(
         self,
         prompt_tokens: int | None,
         effective_model: str,
@@ -120,9 +131,12 @@ class IPromptLimiter(Protocol):
 
 @runtime_checkable
 class IRequestBodyBuilder(Protocol):
-    """Interface for building Code Assist request bodies."""
+    """Interface for building Code Assist request bodies.
 
-    def build_code_assist_request_body(
+    Note: Method names use underscores to match existing connector implementation.
+    """
+
+    def _build_code_assist_request_body(
         self,
         effective_model: str,
         project_id: str,
@@ -141,4 +155,3 @@ __all__ = [
     "IRequestCounter",
     "IThoughtSignatureService",
 ]
-

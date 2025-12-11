@@ -136,6 +136,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
         processed_messages: list[Any],
         effective_model: str,
         _in_graceful_degradation: bool = False,
+        _auth_retry_attempted: bool = False,
         **kwargs: Any,
     ):
         # Delegates to the real implementation; kept for legacy static checks.
@@ -144,6 +145,7 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
             processed_messages=processed_messages,
             effective_model=effective_model,
             _in_graceful_degradation=_in_graceful_degradation,
+            _auth_retry_attempted=_auth_retry_attempted,
             **kwargs,
         )
 

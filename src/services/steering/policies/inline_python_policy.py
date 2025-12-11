@@ -26,8 +26,10 @@ class InlinePythonPolicy(ISteeringPolicy):
     )
 
     # Matches `python -c` or `python.exe -c` with optional flags/args
+    # Also matches when python is preceded by path separators (/ or \)
+    # to catch commands like `./.venv/Scripts/python.exe -c` or `C:\Python\python.exe -c`
     _INLINE_PYTHON_PATTERN = re.compile(
-        r"(?:^|[;&|\s])python(?:3|[\d\.]*)?(?:\.exe)?\s+(?:-[a-zA-Z0-9]+\s+)*-c\s+",
+        r"(?:^|[;&|\s/\\])python(?:3|[\d\.]*)?(?:\.exe)?\s+(?:-[a-zA-Z0-9]+\s+)*-c\s+",
         re.IGNORECASE,
     )
 

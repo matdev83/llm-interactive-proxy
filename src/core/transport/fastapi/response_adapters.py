@@ -351,6 +351,67 @@ def _inject_reasoning_metadata(
     return normalized_content
 
 
+def _decode_sse_payload(
+    payload: Any,
+) -> tuple[Any, dict[str, Any], bool]:
+    """Decode SSE-formatted payloads into structured content."""
+    text_payload: str | None = None
+    if isinstance(payload, bytes | bytearray):
+        try:
+            text_payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return payload, {}, False
+    elif isinstance(payload, str):
+        text_payload = payload
+    else:
+        return payload, {}, False
+
+    stripped = text_payload.strip()
+    if "data:" not in stripped:
+        return payload, {}, False
+
+    data_lines: list[str] = []
+    for line in stripped.splitlines():
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+
+    if not data_lines:
+        return payload, {}, False
+
+    forced_done = False
+    if data_lines and data_lines[-1] in ("[DONE]", '["DONE"]'):
+        forced_done = True
+        data_lines = data_lines[:-1]
+
+    # Nothing but a done marker
+    if not data_lines:
+        return "", {"finish_reason": "stop"}, True
+
+    data_body = "\n".join(data_lines).strip()
+    if data_body in ("[DONE]", '["DONE"]'):
+        return "", {"finish_reason": "stop"}, True
+
+    metadata_hint: dict[str, Any] = {}
+    try:
+        decoded = json.loads(data_body)
+    except json.JSONDecodeError:
+        if forced_done:
+            metadata_hint["finish_reason"] = "stop"
+        return data_body, metadata_hint, forced_done
+
+    finish_reason = decoded.get("finish_reason")
+    if finish_reason:
+        metadata_hint["finish_reason"] = finish_reason
+    elif forced_done:
+        metadata_hint["finish_reason"] = "stop"
+
+    event_type = decoded.get("type")
+    if isinstance(event_type, str):
+        metadata_hint["event_type"] = event_type.strip().lower()
+
+    return decoded, metadata_hint, forced_done
+
+
 async def _string_to_async_iterator(content: bytes) -> AsyncIterator[ProcessedResponse]:
     """Convert a bytes object to an async iterator that yields the content once."""
     yield ProcessedResponse(content=content.decode("utf-8"))
@@ -1195,24 +1256,38 @@ def to_fastapi_streaming_response(
             if not data_lines:
                 return payload, {}, False
 
+            forced_done = False
+            if data_lines and data_lines[-1] in ("[DONE]", '["DONE"]'):
+                forced_done = True
+                data_lines = data_lines[:-1]
+
+            # Nothing but a done marker
+            if not data_lines:
+                return "", {"finish_reason": "stop"}, True
+
             data_body = "\n".join(data_lines).strip()
             if data_body in ("[DONE]", '["DONE"]'):
                 return "", {"finish_reason": "stop"}, True
 
+            metadata_hint: dict[str, Any] = {}
             try:
                 decoded = json.loads(data_body)
             except json.JSONDecodeError:
-                return data_body, {}, False
+                if forced_done:
+                    metadata_hint["finish_reason"] = "stop"
+                return data_body, metadata_hint, forced_done
 
-            metadata_hint: dict[str, Any] = {}
             finish_reason = decoded.get("finish_reason")
             if finish_reason:
                 metadata_hint["finish_reason"] = finish_reason
+            elif forced_done:
+                metadata_hint["finish_reason"] = "stop"
+
             event_type = decoded.get("type")
             if isinstance(event_type, str):
                 metadata_hint["event_type"] = event_type.strip().lower()
 
-            return decoded, metadata_hint, False
+            return decoded, metadata_hint, forced_done
 
         def _extract_delta_from_payload(payload: Any) -> dict[str, Any] | None:
             if not isinstance(payload, dict):

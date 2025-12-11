@@ -798,6 +798,7 @@ class ToolCallReactorFeature(IResponseFeature):
         # Fix the path to be absolute relative to CWD
         # Strip potential leading separators to ensure we append to CWD
         import os
+
         cleaned_path = path.lstrip("/\\")
         fixed = os.path.abspath(os.path.join(os.getcwd(), cleaned_path))
 
@@ -1569,6 +1570,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # Fix the path to be absolute relative to CWD
         # Strip potential leading separators to ensure we append to CWD
         import os
+
         cleaned_path = path.lstrip("/\\")
         fixed = os.path.abspath(os.path.join(os.getcwd(), cleaned_path))
 

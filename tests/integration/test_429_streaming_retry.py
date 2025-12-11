@@ -9,7 +9,6 @@ with appropriate wait time.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.common.exceptions import BackendError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.failure_strategy_interface import (
@@ -182,7 +181,7 @@ async def test_streaming_429_with_retry_after_in_details(
 ):
     """Test that retry_after from error details is used."""
 
-    service = BackendService(
+    BackendService(
         factory=mock_dependencies["factory"],
         rate_limiter=mock_dependencies["rate_limiter"],
         config=mock_dependencies["config"],

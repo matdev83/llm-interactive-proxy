@@ -32,6 +32,13 @@ from .chat_request_preparer import (
     PreparedChatRequest,
 )
 from .connector import GeminiOAuthBaseConnector
+from .connector_context import (
+    IConnectorContext,
+    IMessageConverter,
+    IPromptLimiter,
+    IRequestCounter,
+    IThoughtSignatureService,
+)
 from .credential_loader import CredentialLoader
 from .credential_providers import (
     AntigravitySQLiteCredentialProvider,
@@ -51,6 +58,11 @@ from .generation_config_builder import (
     GenerationConfigBuilder,
     build_code_assist_request_format,
     convert_from_code_assist_format,
+)
+from .google_auth_adapter import (
+    GoogleAuthProvider,
+    IGoogleAuthProvider,
+    get_default_google_auth_provider,
 )
 from .graceful_degradation import (
     GracefulDegradationManager,
@@ -107,9 +119,24 @@ from .stream_processor import (
     process_chunk_for_streaming,
     should_skip_chunk,
 )
+from .streaming_executor import (
+    IRetryDelayExtractor,
+    ITokenRefresher,
+    SSELineProcessor,
+    StreamingExecutor,
+)
 from .thought_signature_manager import (
     ThoughtSignatureManager,
     get_global_thought_signature_manager,
+)
+from .thought_signature_service import (
+    ThoughtSignatureService,
+    get_default_thought_signature_service,
+)
+from .token_estimator import (
+    ITokenEstimator,
+    TiktokenEstimator,
+    get_default_token_estimator,
 )
 from .token_manager import TokenManager
 from .tool_sanitizer import sanitize_code_assist_tools
@@ -192,4 +219,22 @@ __all__ = [
     "parse_duration_string",
     "parse_retry_from_message",
     "response_envelope_to_stream_chunk",
+    # New injectable services
+    "GoogleAuthProvider",
+    "IGoogleAuthProvider",
+    "IConnectorContext",
+    "IMessageConverter",
+    "IPromptLimiter",
+    "IRequestCounter",
+    "IRetryDelayExtractor",
+    "IThoughtSignatureService",
+    "ITokenEstimator",
+    "ITokenRefresher",
+    "SSELineProcessor",
+    "StreamingExecutor",
+    "ThoughtSignatureService",
+    "TiktokenEstimator",
+    "get_default_google_auth_provider",
+    "get_default_thought_signature_service",
+    "get_default_token_estimator",
 ]

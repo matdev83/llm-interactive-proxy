@@ -162,11 +162,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
-        
+
         # Handle case where content is a dict (e.g. structured content)
         if isinstance(content, dict):
             content = json.dumps(content)
-            
+
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
@@ -252,11 +252,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
-        
+
         # Handle case where content is a dict (e.g. structured content)
         if isinstance(content, dict):
             content = json.dumps(content)
-            
+
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
@@ -339,11 +339,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
-        
+
         # Handle case where content is a dict (e.g. structured content)
         if isinstance(content, dict):
             content = json.dumps(content)
-            
+
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
@@ -902,11 +902,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
-        
+
         # Handle case where content is a dict (e.g. structured content)
         if isinstance(content, dict):
             content = json.dumps(content)
-            
+
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio

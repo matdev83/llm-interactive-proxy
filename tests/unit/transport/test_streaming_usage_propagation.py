@@ -107,6 +107,42 @@ async def test_streaming_usage_recalculated_from_accumulated_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pre_serialized_stop_chunk_with_usage_is_not_dropped() -> None:
+    """Ensure a pre-serialized StopChunkWithUsage payload (data + DONE) is preserved."""
+
+    stop_chunk = {
+        "id": "chatcmpl-stop-test",
+        "object": "chat.completion.chunk",
+        "created": 1700000000,
+        "model": "gemini-3-pro-preview",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": "final text"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+
+    async def stream():
+        payload = f"data: {json.dumps(stop_chunk)}\n\ndata: [DONE]\n\n".encode()
+        yield payload
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    response = to_fastapi_streaming_response(envelope)
+
+    body = await _collect_streaming_body(response)
+
+    assert '"chatcmpl-stop-test"' in body
+    assert '"finish_reason": "stop"' in body
+    assert '"final text"' in body
+    assert '"usage"' in body
+    assert '"total_tokens": 15' in body
+    assert body.count("[DONE]") >= 1
+
+
+@pytest.mark.asyncio
 async def test_streaming_usage_respects_outbound_token_hint_for_tool_calls() -> None:
     """Ensure prompt tokens are populated from outbound_tokens when backend omits usage."""
 

@@ -110,7 +110,9 @@ class ThoughtSignatureService:
             session_id: The session ID
             effective_model: The model name for logging
         """
-        self._manager.log_signature_state(canonical_request, session_id, effective_model)
+        self._manager.log_signature_state(
+            canonical_request, session_id, effective_model
+        )
 
 
 # Default instance for convenience
@@ -132,4 +134,3 @@ __all__ = [
     "ThoughtSignatureService",
     "get_default_thought_signature_service",
 ]
-
