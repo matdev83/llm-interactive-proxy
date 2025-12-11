@@ -1,9 +1,9 @@
 """Debug script to trace what _stream_as_sse_bytes produces."""
 
 import sys
+
 sys.path.insert(0, ".")
 
-import asyncio
 from src.core.domain.chat import (
     CanonicalStreamChunk,
     StreamingChatCompletionChoice,
@@ -21,9 +21,11 @@ chunk_newline = CanonicalStreamChunk(
     choices=[choice],
 )
 
-# Create a CanonicalStreamChunk with dash content  
+# Create a CanonicalStreamChunk with dash content
 delta_dash = StreamingChatCompletionChoiceDelta(role="assistant", content="-")
-choice_dash = StreamingChatCompletionChoice(index=0, delta=delta_dash, finish_reason=None)
+choice_dash = StreamingChatCompletionChoice(
+    index=0, delta=delta_dash, finish_reason=None
+)
 chunk_dash = CanonicalStreamChunk(
     id="gen-123",
     object="chat.completion.chunk",
@@ -34,6 +36,7 @@ chunk_dash = CanonicalStreamChunk(
 
 # Simulate the _format_as_sse function from backend_service.py
 import json
+
 
 def _format_as_sse(content):
     """Normalize arbitrary content to SSE-framed bytes."""
@@ -79,7 +82,7 @@ print("\n=== Dash chunk ===")
 print(f"SSE bytes: {bytes_dash!r}")
 
 # Now decode these back using _decode_sse_payload logic
-import json
+
 
 def _decode_sse_payload(payload):
     """Decode SSE-formatted payloads into structured content."""
@@ -139,4 +142,3 @@ if isinstance(decoded_dash, dict):
         delta = choices[0].get("delta", {})
         content = delta.get("content")
         print(f"Dash content field: {content!r}")
-

@@ -15,6 +15,7 @@ from src.core.services.project_directory_resolution_service import (
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
+
 def test_resolution():
     # Mock dependencies
     app_config = MagicMock(spec=AppConfig)
@@ -34,13 +35,14 @@ def test_resolution():
     print(f"Analyzing prompt: {prompt}")
     result = service._find_absolute_path_in_prompt(prompt)
     print(f"Result: {result}")
-    
+
     expected = r"C:\Users\Mateusz\Projects\Java\Project1"
-    
-    if result and (result == expected or result.rstrip('\\') == expected):
+
+    if result and (result == expected or result.rstrip("\\") == expected):
         print("SUCCESS: Detected correct common root.")
     else:
         print(f"FAILURE: Expected {expected}, got {result}")
+
 
 if __name__ == "__main__":
     test_resolution()

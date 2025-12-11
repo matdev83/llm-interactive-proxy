@@ -996,7 +996,7 @@ class RequestProcessor(IRequestProcessor):
         if "session_id" not in final_extra_body:
             final_extra_body["session_id"] = session_id
         backend_request = backend_request.model_copy(
-            update={"extra_body": final_extra_body}
+            update={"extra_body": final_extra_body, "session_id": session_id}
         )
 
         # Process backend request with retry handling

@@ -75,7 +75,7 @@ The service automatically cleans up expired entries:
 - **Size-based cleanup** - When cache exceeds 10,000 entries, oldest entries are evicted
 - **On-access cleanup** - Cleanup checks happen during normal request processing
 
-## Example Scenarios
+## Usage Examples
 
 ### Scenario 1: Client Retry Due to Timeout
 

@@ -1,0 +1,1 @@
+{"approvals":{"design":true,"requirements":true},"created":"2025-12-08","description":"Automatic on-the-fly rewriting of && to ; in command execution tool calls for Windows clients","feature":"windows-double-ampersand-fixer","status":"implemented"}

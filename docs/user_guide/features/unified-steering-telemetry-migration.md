@@ -44,6 +44,33 @@ Steering via rule '<policy_name>' for tool '<tool_name>' in session <session_id>
 INFO - Steering via rule 'inline_python' for tool 'shell' in session abc123
 ```
 
+## Use Cases
+
+### When to Migrate
+
+This migration guide is relevant for users who:
+
+- Have existing log monitoring dashboards parsing steering logs
+- Use log aggregators (Splunk, ELK, etc.) to track steering events
+- Need visibility into which policies are being evaluated and matched
+- Want to track steering performance metrics (elapsed time)
+
+### When to Enable Legacy Logging
+
+Enable legacy log emission when:
+
+- You have dashboards that parse the old `Steering via rule` format
+- You need time to update log parsing rules
+- You want to run both formats in parallel during migration
+
+### When to Disable Legacy Logging
+
+Disable legacy log emission when:
+
+- All dashboards have been updated to the new format
+- You want to reduce log volume
+- You don't need the redundant legacy entries
+
 ## Migration Strategies
 
 ### Option 1: Enable Legacy Log Emission (Recommended for Gradual Migration)
@@ -115,7 +142,7 @@ index=proxy sourcetype=application "Unified steering evaluation"
 | Outcome indicator | Implicit (log only on block) | Explicit (`outcome` field) |
 | Pass-through logging | No | Yes (when `outcome: pass_through`) |
 
-## Configuration Reference
+## Configuration
 
 ### Full Configuration Example
 

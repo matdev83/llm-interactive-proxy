@@ -5,11 +5,9 @@ Base class for Gemini OAuth connectors.
 import abc
 import asyncio
 import contextlib
-import json
 import logging
 import threading
 import time
-import uuid
 from collections.abc import AsyncGenerator, Iterable
 from functools import lru_cache
 from pathlib import Path
@@ -49,6 +47,10 @@ from src.connectors.gemini_base.credentials import (
 # Strategy interfaces and implementations
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
+from src.connectors.gemini_base.generation_config_builder import (
+    GenerationConfigBuilder,
+    convert_from_code_assist_format,
+)
 from src.connectors.gemini_base.graceful_degradation import (
     calculate_retry_delay,
     is_model_in_cooldown,
@@ -64,6 +66,9 @@ from src.connectors.gemini_base.interfaces import (
     IResponsePostProcessor,
 )
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.model_validation import (
+    GOOGLE_VENDOR_PREFIX,
+)
 from src.connectors.gemini_base.prompt_limiter import (
     enforce_prompt_limit,
     estimate_prompt_tokens,
@@ -71,12 +76,34 @@ from src.connectors.gemini_base.prompt_limiter import (
     normalize_model_key,
 )
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
+from src.connectors.gemini_base.response_accumulator import (
+    StreamingResponseAccumulator,
+    response_envelope_to_stream_chunk,
+)
 from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
+from src.connectors.gemini_base.response_text_extractor import (
+    extract_generated_text_from_response,
+)
+from src.connectors.gemini_base.retry_delay_parser import (
+    extract_retry_delay as _extract_retry_delay_impl,
+)
+from src.connectors.gemini_base.retry_delay_parser import (
+    parse_duration_string as _parse_duration_string_impl,
+)
+from src.connectors.gemini_base.retry_delay_parser import (
+    parse_retry_from_message as _parse_retry_from_message_impl,
+)
 from src.connectors.gemini_base.stream_processor import (
     build_rate_limit_backend_error,
 )
+from src.connectors.gemini_base.thought_signature_manager import (
+    get_global_thought_signature_manager,
+)
 from src.connectors.gemini_base.token_manager import TokenManager
 from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
+from src.connectors.gemini_base.user_prompt_id_generator import (
+    generate_user_prompt_id as _generate_user_prompt_id_impl,
+)
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
@@ -88,7 +115,6 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.gemini_metadata import (
-    create_gemini_generation_config,
     create_gemini_response_metadata,
 )
 from src.core.domain.responses import (
@@ -101,8 +127,8 @@ from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
-# Vendor prefix for Google models in unified model naming convention
-GOOGLE_VENDOR_PREFIX = "google"
+# Re-export for backward compatibility
+__all__ = ["GeminiOAuthBaseConnector", "GOOGLE_VENDOR_PREFIX"]
 
 
 def _get_google_transport_requests():
@@ -155,10 +181,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     _project_id: str | None = None
 
     # Server-side storage for Gemini thought_signatures.
-    # Droid and similar clients don't preserve extra_content, so we store
-    # the mapping of tool_call_id -> thought_signature server-side and
-    # inject it when processing subsequent requests.
-    # Key format: "session_id:tool_call_id" -> thought_signature
+    # Kept as class variable for backward compatibility; new code uses ThoughtSignatureManager
     _thought_signature_cache: dict[str, str] = {}
 
     @staticmethod
@@ -185,254 +208,38 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Clients like Droid don't preserve extra_content when storing tool calls,
         so we need to look up and inject the thought_signature from our server-side cache.
 
+        Delegates to ThoughtSignatureManager for implementation.
+
         Args:
             canonical_request: The canonical request with messages to process
             session_id: The session ID for cache key lookup
         """
-        if not hasattr(canonical_request, "messages"):
-            return
+        manager = get_global_thought_signature_manager()
+        # Sync class cache TO manager before injection for backward compatibility
+        # (tests and legacy code may set signatures directly on class cache)
+        manager.cache.update(cls._thought_signature_cache)
+        manager.inject_signatures(canonical_request, session_id)
+        # Sync manager cache back TO class cache for backward compatibility
+        cls._thought_signature_cache.update(manager.cache)
 
-        for message in canonical_request.messages:
-            if getattr(message, "role", None) != "assistant":
-                continue
-            tool_calls = getattr(message, "tool_calls", None)
-            if not tool_calls:
-                continue
+    @classmethod
+    def _log_tool_call_signature_state(
+        cls, canonical_request: Any, session_id: str, effective_model: str
+    ) -> None:
+        """Log presence/absence of thought signatures on assistant tool calls.
 
-            for tc in tool_calls:
-                # Get tool call ID
-                tc_id = None
-                if isinstance(tc, dict):
-                    tc_id = tc.get("id")
-                elif hasattr(tc, "id"):
-                    tc_id = tc.id
-
-                if not tc_id:
-                    continue
-
-                # Check if already has thought_signature
-                extra_content = None
-                if isinstance(tc, dict):
-                    extra_content = tc.get("extra_content")
-                elif hasattr(tc, "extra_content"):
-                    extra_content = tc.extra_content
-
-                if extra_content:
-                    google_extra = (
-                        extra_content.get("google", {})
-                        if isinstance(extra_content, dict)
-                        else {}
-                    )
-                    if google_extra.get("thought_signature"):
-                        continue  # Already has signature
-
-                # Look up in cache
-                cache_key = f"{session_id}:{tc_id}"
-                sig = cls._thought_signature_cache.get(cache_key)
-                if sig:
-                    # Inject the signature
-                    if isinstance(tc, dict):
-                        tc["extra_content"] = {"google": {"thought_signature": sig}}
-                    elif hasattr(tc, "extra_content"):
-                        tc.extra_content = {"google": {"thought_signature": sig}}
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "Injected thought_signature for tool_call_id=%s (session=%s)",
-                            tc_id,
-                            session_id[:8] if session_id else "none",
-                        )
+        Delegates to ThoughtSignatureManager for implementation.
+        """
+        manager = get_global_thought_signature_manager()
+        manager.log_signature_state(canonical_request, session_id, effective_model)
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
-        """Extract concatenated text content from a Gemini Code Assist response."""
+        """Extract concatenated text content from a Gemini Code Assist response.
 
-        def _detect_rate_limit(details: dict[str, Any]) -> bool:
-            error = details.get("error")
-            if isinstance(error, dict):
-                error_code = error.get("code")
-                if isinstance(error_code, int) and error_code == 429:
-                    return True
-                message = error.get("message")
-                if isinstance(message, str):
-                    lower = message.lower()
-                    if any(
-                        phrase in lower
-                        for phrase in (
-                            "resource exhausted",
-                            "rate limit",
-                            "quota",
-                            "too many requests",
-                        )
-                    ):
-                        return True
-            message = details.get("message")
-            if isinstance(message, str):
-                lower = message.lower()
-                if any(
-                    phrase in lower
-                    for phrase in (
-                        "resource exhausted",
-                        "rate limit",
-                        "quota",
-                        "too many requests",
-                    )
-                ):
-                    return True
-            return False
-
-        def _build_preview(payload: Any) -> str:
-            try:
-                text = json.dumps(payload, ensure_ascii=False)  # type: ignore[arg-type]
-            except Exception:
-                text = repr(payload)
-            if len(text) > 512:
-                return text[:512] + "…"
-            return text
-
-        def _log_anomaly(message: str, payload: Any | None = None) -> None:
-            if not logger.isEnabledFor(logging.WARNING):
-                return
-            extra: dict[str, Any] = {
-                "event": "gemini_response_anomaly",
-                "log_message": message,
-            }
-            formatted_message = message
-            if payload is not None:
-                preview = _build_preview(payload)
-                extra["payload_preview"] = preview
-                formatted_message = f"{message}; payload_preview={preview}"
-            logger.warning(formatted_message, extra=extra)
-
-        def _raise_error(
-            message: str,
-            code: str,
-            details: dict[str, Any],
-            *,
-            default_status: int = 503,
-            payload: Any | None = None,
-        ) -> None:
-            status_code = 429 if _detect_rate_limit(details) else default_status
-            if payload is not None:
-                details = {**details, "payload_preview": _build_preview(payload)}
-            raise BackendError(
-                message=message,
-                code=code,
-                details=details,
-                status_code=status_code,
-            )
-
-        candidate_dicts: list[dict[str, Any]] = []
-        visited: set[int] = set()
-
-        def _walk(node: Any) -> None:
-            if isinstance(node, str | bytes | int | float | bool) or node is None:
-                return
-
-            node_id = id(node)
-            if node_id in visited:
-                return
-            visited.add(node_id)
-
-            if isinstance(node, dict):
-                error_obj = node.get("error")
-                if isinstance(error_obj, dict):
-                    _log_anomaly("Gemini API returned error object", node)
-                    _raise_error(
-                        "Gemini API returned an error payload",
-                        "gemini_error_payload",
-                        {"error": error_obj},
-                        payload=response_payload,
-                    )
-
-                maybe_candidates = node.get("candidates")
-                if isinstance(maybe_candidates, list) and maybe_candidates:
-                    candidate_dicts.extend(
-                        candidate
-                        for candidate in maybe_candidates
-                        if isinstance(candidate, dict)
-                    )
-
-                for value in node.values():
-                    _walk(value)
-
-            elif isinstance(node, list | tuple):
-                for item in node:
-                    _walk(item)
-            else:
-                # Unsupported container type
-                return
-
-        if isinstance(response_payload, dict | list | tuple):
-            _walk(response_payload)
-        else:
-            _raise_error(
-                f"Unexpected response format: {type(response_payload).__name__}",
-                "unexpected_response_format",
-                {"payload_type": type(response_payload).__name__},
-                default_status=502,
-                payload=response_payload,
-            )
-
-        if not candidate_dicts:
-            payload_type = (
-                type(response_payload).__name__
-                if not isinstance(response_payload, list)
-                else "list"
-            )
-            _log_anomaly(
-                "Gemini response contained no candidates",
-                response_payload,
-            )
-            _raise_error(
-                "Gemini response did not include any candidates",
-                "empty_response",
-                {"payload_type": payload_type},
-                default_status=502,
-                payload=response_payload,
-            )
-
-        text_parts: list[str] = []
-        for candidate in candidate_dicts:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_error = candidate.get("error")
-            if isinstance(candidate_error, dict):
-                _raise_error(
-                    "Gemini candidate contained an error payload",
-                    "gemini_error_payload",
-                    {"error": candidate_error},
-                )
-            content = candidate.get("content", {})
-            if not isinstance(content, dict):
-                continue
-            parts = content.get("parts", [])
-            if not isinstance(parts, list):
-                continue
-            for part in parts:
-                if not isinstance(part, dict):
-                    continue
-                text_value = part.get("text")
-                if isinstance(text_value, str):
-                    text_parts.append(text_value)
-
-        if not text_parts or not any(part.strip() for part in text_parts):
-            logger.warning(
-                "List response from Gemini API contained no candidates. This may be due to safety settings or other content filters."
-            )
-            _log_anomaly(
-                "Gemini response list contained no text parts",
-                response_payload,
-            )
-            _raise_error(
-                "Gemini response did not contain any text content",
-                "empty_response",
-                {"payload_type": type(response_payload).__name__},
-                default_status=502,
-                payload=response_payload,
-            )
-
-        return "".join(text_parts)
+        Delegates to response_text_extractor module.
+        """
+        return extract_generated_text_from_response(response_payload)
 
     def __init__(
         self,
@@ -1704,7 +1511,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         This method is used when the client requests non-streaming mode but the
         backend only supports streaming (e.g., Gemini Code Assist API).
-        It consumes the async iterator and builds a complete response.
+
+        Delegates to StreamingResponseAccumulator for implementation.
 
         Args:
             streaming_response: The streaming response envelope to accumulate
@@ -1712,214 +1520,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Returns:
             A ResponseEnvelope containing the accumulated content
         """
-        import json
-
-        accumulated_content: str = ""
-        accumulated_tool_calls: list[dict[str, Any]] = []
-        finish_reason: str | None = None
-        usage_data: dict[str, int] | None = None
-        accumulated_reasoning: str = ""
-        error_data: dict[str, Any] | None = None
-
-        def _process_openai_chunk(data: dict[str, Any]) -> None:
-            """Process an OpenAI-style chunk and accumulate content."""
-            nonlocal accumulated_content, finish_reason, usage_data, accumulated_reasoning, error_data
-
-            # Check for error in the chunk - this is critical for non-streaming
-            # requests where backend errors need to be properly propagated
-            if data.get("error"):
-                error_data = data.get("error")
-                # Also capture the finish_reason if present (usually "error")
-                choices = data.get("choices", [])
-                if choices and choices[0].get("finish_reason"):
-                    finish_reason = choices[0]["finish_reason"]
-                return
-
-            choices = data.get("choices", [])
-            if choices:
-                choice = choices[0]
-                # Handle both streaming delta and non-streaming message formats
-                delta = choice.get("delta", {}) or choice.get("message", {})
-
-                # Accumulate text content
-                content_piece = delta.get("content")
-                if content_piece:
-                    accumulated_content += content_piece
-
-                # Accumulate reasoning content (for thinking models)
-                reasoning_piece = delta.get("reasoning_content") or delta.get(
-                    "reasoning"
-                )
-                if reasoning_piece:
-                    accumulated_reasoning += reasoning_piece
-
-                # Accumulate tool calls
-                if "tool_calls" in delta:
-                    for tc in delta["tool_calls"]:
-                        tc_index = tc.get("index", len(accumulated_tool_calls))
-                        while len(accumulated_tool_calls) <= tc_index:
-                            accumulated_tool_calls.append(
-                                {
-                                    "id": "",
-                                    "type": "function",
-                                    "function": {"name": "", "arguments": ""},
-                                }
-                            )
-                        if tc.get("id"):
-                            accumulated_tool_calls[tc_index]["id"] = tc["id"]
-                        if "function" in tc:
-                            fn = tc["function"]
-                            if fn.get("name"):
-                                accumulated_tool_calls[tc_index]["function"]["name"] = (
-                                    fn["name"]
-                                )
-                            if "arguments" in fn:
-                                accumulated_tool_calls[tc_index]["function"][
-                                    "arguments"
-                                ] += fn["arguments"]
-
-                # Capture finish reason
-                if choice.get("finish_reason"):
-                    finish_reason = choice["finish_reason"]
-
-            # Capture usage data
-            if data.get("usage"):
-                usage_data = data["usage"]
-
-        try:
-            if streaming_response.content is None:
-                # Empty stream - return empty response
-                return ResponseEnvelope(
-                    content={
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {"role": "assistant", "content": ""},
-                                "finish_reason": "stop",
-                            }
-                        ]
-                    },
-                    headers={},
-                    status_code=200,
-                )
-            async for chunk in streaming_response.content:
-                # Handle ProcessedResponse objects
-                if hasattr(chunk, "content"):
-                    chunk_content = chunk.content
-                else:
-                    chunk_content = chunk
-
-                # Handle dict content directly (from ProcessedResponse with dict content)
-                # This is the common case for _chat_completions_code_assist_streaming
-                if isinstance(chunk_content, dict):
-                    _process_openai_chunk(chunk_content)
-                    continue
-
-                # Parse SSE data format (for raw SSE streams)
-                if isinstance(chunk_content, bytes):
-                    chunk_content = chunk_content.decode("utf-8", errors="ignore")
-
-                if not isinstance(chunk_content, str):
-                    continue
-
-                # Handle SSE data lines
-                for line in chunk_content.split("\n"):
-                    line = line.strip()
-                    if not line.startswith("data:"):
-                        continue
-
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        continue
-
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-
-                    _process_openai_chunk(data)
-
-        except Exception as e:
-            logger.warning(f"Error accumulating streaming response: {e}", exc_info=True)
-            # Capture the exception as an error to propagate to the client
-            if error_data is None:
-                error_data = {
-                    "message": f"Error processing response: {e}",
-                    "type": "internal_error",
-                    "code": 500,
-                }
-
-        # If an error was encountered during streaming, return an error response
-        # This is critical for non-streaming requests where the client waits for
-        # a complete response and needs to know about backend failures
-        if error_data:
-            error_status_code = error_data.get("code", 500)
-            if isinstance(error_status_code, str):
-                try:
-                    error_status_code = int(error_status_code)
-                except ValueError:
-                    error_status_code = 500
-
-            error_response: dict[str, Any] = {
-                "id": f"chatcmpl-error-{uuid.uuid4().hex[:8]}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": getattr(self, "backend_type", "gemini"),
-                "choices": [],
-                "error": error_data,
-            }
-            logger.warning(
-                f"Returning error response for non-streaming request: {error_data.get('message', 'Unknown error')}"
-            )
-            return ResponseEnvelope(
-                content=error_response,
-                headers=streaming_response.headers or {},
-                status_code=error_status_code,
-                usage=None,
-            )
-
-        # Build OpenAI-style response
-        message_content: dict[str, Any] = {
-            "role": "assistant",
-            "content": accumulated_content if accumulated_content else None,
-        }
-
-        # Add reasoning content if present (for thinking models)
-        if accumulated_reasoning:
-            message_content["reasoning_content"] = accumulated_reasoning
-
-        response_content: dict[str, Any] = {
-            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": getattr(self, "backend_type", "gemini"),
-            "choices": [
-                {
-                    "index": 0,
-                    "message": message_content,
-                    "finish_reason": finish_reason or "stop",
-                }
-            ],
-        }
-
-        # Add tool calls if present
-        if accumulated_tool_calls:
-            response_content["choices"][0]["message"][
-                "tool_calls"
-            ] = accumulated_tool_calls
-            if not finish_reason:
-                response_content["choices"][0]["finish_reason"] = "tool_calls"
-
-        # Add usage data if available
-        if usage_data:
-            response_content["usage"] = usage_data
-
-        return ResponseEnvelope(
-            content=response_content,
-            headers=streaming_response.headers or {},
-            status_code=streaming_response.status_code or 200,
-            usage=usage_data,
+        accumulator = StreamingResponseAccumulator(
+            backend_type=getattr(self, "backend_type", "gemini")
         )
+        return await accumulator.accumulate(streaming_response)
 
     async def _chat_completions_code_assist(
         self,
@@ -1987,7 +1591,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Inject stored thought_signatures for clients that don't preserve extra_content
             session_id = getattr(request_data, "session_id", None) or ""
-            self._inject_thought_signatures(canonical_request, session_id)
+            # Only inject cached signatures when we have a real session identifier.
+            # Using an empty key risks cross-session leakage and "corrupted thought signature" errors.
+            if session_id:
+                self._inject_thought_signatures(canonical_request, session_id)
+            self._log_tool_call_signature_state(
+                canonical_request, session_id, effective_model
+            )
 
             # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
@@ -2195,6 +1805,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # Inject stored thought_signatures for clients that don't preserve extra_content
             session_id = getattr(request_data, "session_id", None) or ""
             self._inject_thought_signatures(canonical_request, session_id)
+            self._log_tool_call_signature_state(
+                canonical_request, session_id, effective_model
+            )
 
             # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
@@ -2290,7 +1903,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 error_json_buffer: str | None = None
                 google_auth_exceptions = _get_google_auth_exceptions()
 
-                def _should_skip_chunk(chunk: dict[str, Any]) -> bool:
+                def _should_skip_chunk(chunk: dict[str, Any] | Any) -> bool:
                     """Filter out empty deltas so clients don't receive blank messages.
 
                     NOTE: Usage-only chunks (with empty choices but usage data) should
@@ -2298,6 +1911,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     NOTE: Stop chunks (finish_reason=stop) should NOT be skipped -
                     they are needed to merge usage data per OpenRouter API spec.
                     """
+                    if not isinstance(chunk, dict):
+                        dump = getattr(chunk, "model_dump", lambda **_: None)(
+                            exclude_none=True
+                        )
+                        if isinstance(dump, dict):
+                            chunk = dump
+                        else:
+                            return True
+
                     if not chunk:
                         return True
                     choices = chunk.get("choices") or []
@@ -2879,6 +2501,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         chunk=data, source_format="code_assist"
                                     )
                                 )
+                                if domain_chunk is not None and not isinstance(
+                                    domain_chunk, dict
+                                ):
+                                    dump = getattr(
+                                        domain_chunk, "model_dump", lambda **_: None
+                                    )(exclude_none=True)
+                                    if isinstance(dump, dict):
+                                        domain_chunk = dump
+                                    else:
+                                        domain_chunk = {}
                                 if domain_chunk is not None:
                                     # Ensure we use the effective model name, not what the backend returns
                                     # This prevents leaking internal model names like 'code-assist-model'
@@ -3092,51 +2724,53 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                             # Store thought_signatures server-side for clients that don't preserve extra_content
                             # (e.g., Droid). This allows us to inject signatures in subsequent requests.
-                            if raw_tool_calls and isinstance(raw_tool_calls, list):
-                                session_id = (
-                                    getattr(request_data, "session_id", None) or ""
-                                )
-                                for tc in raw_tool_calls:
-                                    if not isinstance(tc, dict):
-                                        continue
-                                    tc_id = tc.get("id", "")
-                                    extra = tc.get("extra_content")
-                                    if isinstance(extra, dict):
-                                        google_extra = extra.get("google", {})
-                                        sig = google_extra.get("thought_signature")
-                                        if sig and tc_id:
-                                            cache_key = f"{session_id}:{tc_id}"
+                        if raw_tool_calls and isinstance(raw_tool_calls, list):
+                            session_id = getattr(request_data, "session_id", None)
+                            anonymous_key = None
+                            if not session_id:
+                                # Fall back to an anonymous cache key so we still preserve signatures
+                                anonymous_key = "anon"
+                            manager = get_global_thought_signature_manager()
+                            manager.store_signatures_from_tool_calls(
+                                raw_tool_calls, session_id
+                            )
+                            # Keep legacy cache in sync for backward compatibility
+                            GeminiOAuthBaseConnector._thought_signature_cache.update(
+                                manager.cache
+                            )
+
+                            for tc in raw_tool_calls:
+                                if not isinstance(tc, dict):
+                                    continue
+                                tc_id = tc.get("id", "")
+                                extra = tc.get("extra_content")
+                                if isinstance(extra, dict):
+                                    google_extra = extra.get("google", {})
+                                    sig = google_extra.get("thought_signature")
+                                    if sig and tc_id:
+                                        cache_key = (
+                                            f"{session_id}:{tc_id}"
+                                            if session_id
+                                            else f"{anonymous_key}:{tc_id}"
+                                        )
+                                        if cache_key:
                                             GeminiOAuthBaseConnector._thought_signature_cache[
                                                 cache_key
                                             ] = sig
-                                            logger.debug(
-                                                "Stored thought_signature for tool_call_id=%s (session=%s)",
-                                                tc_id,
-                                                (
-                                                    session_id[:8]
-                                                    if session_id
-                                                    else "none"
-                                                ),
-                                            )
+                                            if logger.isEnabledFor(logging.DEBUG):
+                                                logger.debug(
+                                                    "Stored thought_signature for tool_call_id=%s (key=%s)",
+                                                    tc_id,
+                                                    cache_key[:16],
+                                                )
 
-                            yield ProcessedResponse(
-                                content=domain_chunk,
-                                metadata=metadata,
-                            )
-                            return
+                                        yield ProcessedResponse(
+                                            content=domain_chunk,
+                                            metadata=metadata,
+                                        )
+                                        return
 
-                        if decoded_line.strip():
-                            passthrough_chunk = (
-                                self.translation_service.to_domain_stream_chunk(
-                                    chunk={"text": decoded_line},
-                                    source_format="raw_text",
-                                )
-                            )
-                            if passthrough_chunk and not _should_skip_chunk(
-                                passthrough_chunk
-                            ):
-                                yield ProcessedResponse(content=passthrough_chunk)
-
+                        # Do not forward raw backend lines; skip to avoid leaking internal payloads.
                         return
 
                     # Buffer for the final chunk that contains the stop reason
@@ -3514,72 +3148,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _response_envelope_to_stream_chunk(
         self, response: ResponseEnvelope, model: str
     ) -> ProcessedResponse:
-        """Convert a non-streaming response into a single streaming chunk."""
-        created_ts = int(time.time())
-        chunk_id = f"chatcmpl-fallback-{created_ts}"
+        """Convert a non-streaming response into a single streaming chunk.
 
-        text_content: str
-        if isinstance(response.content, str):
-            text_content = response.content
-        elif isinstance(response.content, dict):
-            text_content = (
-                response.content.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
-            if not text_content:
-                text_content = json.dumps(response.content)
-        else:
-            text_content = str(response.content or "")
-
-        payload = {
-            "id": chunk_id,
-            "object": "chat.completion.chunk",
-            "created": created_ts,
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {"content": text_content},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-
-        metadata: dict[str, Any] = {
-            "finish_reason": "stop",
-            "id": chunk_id,
-            "model": model,
-            "created": created_ts,
-            "graceful_degradation": True,
-        }
-        if response.usage:
-            metadata["usage"] = response.usage
-
-        return ProcessedResponse(
-            content=payload, metadata=metadata, usage=response.usage
+        Delegates to response_envelope_to_stream_chunk module function.
+        """
+        return response_envelope_to_stream_chunk(
+            response, model, getattr(self, "backend_type", "gemini")
         )
 
     def _generate_user_prompt_id(self, request_data: Any) -> str:
-        """Generate a unique user_prompt_id for Code Assist requests."""
-        session_hint: str | None = None
-        extra_body = getattr(request_data, "extra_body", None)
-        if isinstance(extra_body, dict):
-            raw_session = extra_body.get("session_id") or extra_body.get(
-                "user_prompt_id"
-            )
-            if raw_session is not None:
-                session_hint = str(raw_session)
+        """Generate a unique user_prompt_id for Code Assist requests.
 
-        base = "proxy"
-        if session_hint:
-            safe_session = "".join(
-                c if c.isalnum() or c in "-._" else "-" for c in session_hint
-            ).strip("-")
-            if safe_session:
-                base = f"{base}-{safe_session}"
-
-        return f"{base}-{uuid.uuid4().hex}"
+        Delegates to user_prompt_id_generator module.
+        """
+        return _generate_user_prompt_id_impl(request_data)
 
     def _convert_to_code_assist_format(
         self, request_data: Any, processed_messages: list[Any], model: str
@@ -3608,10 +3190,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             if role == "system":
                 system_prompt = content
-            elif role == "user":
-                conversation_context.append(f"User: {content}")
-            elif role == "assistant":
-                conversation_context.append(f"Assistant: {content}")
+            elif role in ("user", "assistant"):
+                # Avoid double-prefixing if the content already starts with a role label
+                normalized = content.lstrip()
+                lowered = normalized.lower()
+                if lowered.startswith(("assistant:", "user:")):
+                    normalized = normalized.split(":", 1)[1].lstrip()
+                prefix = "Assistant" if role == "assistant" else "User"
+                conversation_context.append(f"{prefix}: {normalized}")
 
         # Combine system prompt with conversation context
         full_prompt = system_prompt
@@ -3634,102 +3220,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
         """Build Code Assist generationConfig from request_data using Pydantic models.
 
-        This method builds the generationConfig including thinkingConfig for models
-        that support thinking/reasoning (like gemini-2.5-pro, gemini-3-pro).
+        Delegates to GenerationConfigBuilder for implementation.
         """
-        # Extract parameters with defaults
-        temperature = float(getattr(request_data, "temperature", 0.7))
-        max_tokens = int(getattr(request_data, "max_tokens", 1024))
-        top_p = float(getattr(request_data, "top_p", 0.95))
-        top_k = getattr(request_data, "top_k", None)
-
-        # Create generation config using Pydantic model
-        config = create_gemini_generation_config(
-            temperature=temperature,
-            top_p=top_p,
-            max_output_tokens=max_tokens,
-            top_k=int(top_k) if top_k is not None else None,
-        )
-
-        # Convert to Gemini API format
-        cfg = config.model_dump()
-
-        # Convert field names to Code Assist API format
-        if "max_output_tokens" in cfg:
-            cfg["maxOutputTokens"] = cfg.pop("max_output_tokens")
-        if "top_p" in cfg:
-            cfg["topP"] = cfg.pop("top_p")
-        if "top_k" in cfg:
-            cfg["topK"] = cfg.pop("top_k")
-
-        # Add thinkingConfig for thinking/reasoning support
-        # This enables the model to include reasoning content in responses
-        thinking_budget = getattr(request_data, "thinking_budget", None)
-        reasoning_effort = getattr(request_data, "reasoning_effort", None)
-
-        # Map reasoning_effort to thinking_budget if thinking_budget not explicit
-        if thinking_budget is None and reasoning_effort is not None:
-            effort_to_budget: dict[str, int] = {
-                "low": 512,
-                "medium": 2048,
-                "high": -1,  # -1 means unlimited
-            }
-            thinking_budget = effort_to_budget.get(
-                reasoning_effort.lower() if isinstance(reasoning_effort, str) else "",
-                None,
-            )
-
-        # Default to medium thinking budget if not specified to enable reasoning
-        # This ensures Code Assist models produce reasoning content by default
-        if thinking_budget is None:
-            thinking_budget = 2048  # Default medium thinking budget
-
-        cfg["thinkingConfig"] = {
-            "thinkingBudget": thinking_budget,
-            "includeThoughts": True,
-        }
-
-        return cfg
+        builder = GenerationConfigBuilder()
+        return builder.build(request_data)
 
     def _convert_from_code_assist_format(
         self, code_assist_response: dict[str, Any], model: str
     ) -> dict[str, Any]:
-        """Convert Code Assist API response to OpenAI-compatible format."""
-        # Extract the generated text from Code Assist response
-        # Code Assist API wraps the response in a "response" object
-        response_wrapper = code_assist_response.get("response", {})
-        candidates = response_wrapper.get("candidates", [])
-        generated_text = ""
+        """Convert Code Assist API response to OpenAI-compatible format.
 
-        if candidates and len(candidates) > 0:
-            candidate = candidates[0]
-            content = candidate.get("content", {})
-            parts = content.get("parts", [])
-
-            if parts and len(parts) > 0:
-                generated_text = parts[0].get("text", "")
-
-        # Create OpenAI-compatible response
-        openai_response = {
-            "id": f"code-assist-{int(time.time())}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": generated_text},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 0,  # Code Assist API doesn't provide token counts
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
-
-        return openai_response
+        Delegates to convert_from_code_assist_format module function.
+        """
+        return convert_from_code_assist_format(code_assist_response, model)
 
     def _get_fallback_model(self, original_model: str) -> str | list[str] | None:
         """Get the fallback model for a given model.
@@ -3748,138 +3251,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error details.
 
-        Handles:
-        1. 'retryDelay' (Google RPC RetryInfo)
-        2. 'quotaResetDelay' (Google RPC ErrorInfo metadata)
-        3. Natural language in error message (e.g., "quota will reset after 46s")
+        Delegates to retry_delay_parser module.
         """
-        if not error.details:
-            # Try parsing from error message as last resort
-            return self._parse_retry_from_message(str(error.message or ""))
-
-        # Get the inner error object if present (from _extract_generated_text_from_response)
-        error_data = error.details.get("error", error.details)
-
-        # Check details list
-        details_list = error_data.get("details")
-        if isinstance(details_list, list):
-            for detail in details_list:
-                if not isinstance(detail, dict):
-                    continue
-
-                type_url = detail.get("@type", "")
-
-                # Case 1: RetryInfo with retryDelay
-                if "RetryInfo" in type_url:
-                    delay_str = detail.get("retryDelay")
-                    if isinstance(delay_str, str):
-                        parsed = self._parse_duration_string(delay_str)
-                        if parsed is not None:
-                            return parsed
-
-                # Case 2: ErrorInfo with quotaResetDelay in metadata
-                if "ErrorInfo" in type_url:
-                    metadata = detail.get("metadata")
-                    if isinstance(metadata, dict):
-                        reset_delay = metadata.get("quotaResetDelay")
-                        if isinstance(reset_delay, str):
-                            parsed = self._parse_duration_string(reset_delay)
-                            if parsed is not None:
-                                return parsed
-
-        # Case 3: Try parsing from the error message text
-        # For messages like "Your quota will reset after 46s."
-        message_text = ""
-        if isinstance(error_data, dict):
-            message_text = error_data.get("message", "")
-        if not message_text and error.message:
-            message_text = str(error.message)
-        if message_text:
-            parsed = self._parse_retry_from_message(message_text)
-            if parsed is not None:
-                return parsed
-
-        return None
+        return _extract_retry_delay_impl(error)
 
     def _parse_retry_from_message(self, message: str) -> float | None:
         """Parse retry delay from natural language message.
 
-        Patterns handled:
-        - "quota will reset after 46s"
-        - "try again in 30 seconds"
-        - "wait 1m30s"
+        Delegates to retry_delay_parser module.
         """
-        import re
-
-        if not message:
-            return None
-
-        # Pattern 1: "after Xs" or "after X seconds" or "in Xs" or "in X seconds"
-        # Matches: "reset after 46s", "try again in 30 seconds"
-        pattern1 = re.search(
-            r"(?:after|in)\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)\b",
-            message,
-            re.IGNORECASE,
-        )
-        if pattern1:
-            try:
-                return float(pattern1.group(1))
-            except ValueError:
-                pass
-
-        # Pattern 2: "wait X seconds" or "wait Xs"
-        pattern2 = re.search(
-            r"wait\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)?\b",
-            message,
-            re.IGNORECASE,
-        )
-        if pattern2:
-            try:
-                return float(pattern2.group(1))
-            except ValueError:
-                pass
-
-        # Pattern 3: Duration format like "1m30s" or "2m" in the message
-        pattern3 = re.search(
-            r"\b(\d+m(?:\d+s)?|\d+h(?:\d+m)?(?:\d+s)?)\b",
-            message,
-            re.IGNORECASE,
-        )
-        if pattern3:
-            parsed = self._parse_duration_string(pattern3.group(1))
-            if parsed is not None:
-                return parsed
-
-        return None
+        return _parse_retry_from_message_impl(message)
 
     @staticmethod
     def _parse_duration_string(duration: str) -> float | None:
-        """Parse duration string like '10s' or '4h51m33.9s'."""
-        try:
-            # Simple seconds format (e.g. "17493.989s")
-            if duration.endswith("s") and "m" not in duration and "h" not in duration:
-                return float(duration[:-1])
+        """Parse duration string like '10s' or '4h51m33.9s'.
 
-            # Complex format (e.g. "4h51m33.989s")
-            total_seconds = 0.0
-            current_val = ""
-
-            for char in duration:
-                if char.isdigit() or char == ".":
-                    current_val += char
-                elif char == "h":
-                    total_seconds += float(current_val) * 3600
-                    current_val = ""
-                elif char == "m":
-                    total_seconds += float(current_val) * 60
-                    current_val = ""
-                elif char == "s":
-                    total_seconds += float(current_val)
-                    current_val = ""
-
-            return total_seconds if total_seconds > 0 else None
-        except Exception:
-            return None
+        Delegates to retry_delay_parser module.
+        """
+        return _parse_duration_string_impl(duration)
 
     def _set_cooldown(self, model: str, duration: float | None = None) -> None:
         """Put a model into cooldown state.
@@ -4384,7 +3773,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def __del__(self):
         """Cleanup file watcher on destruction."""
-        self._stop_file_watching()
+        # Guard against partial initialization
+        if hasattr(self, "_file_watcher_state"):
+            self._stop_file_watching()
 
         # Cleanup CLI refresh process via token manager
         if hasattr(self, "_token_manager"):

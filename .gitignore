@@ -27,7 +27,6 @@ build/
 .cursorignore.json
 GEMINI.md
 .agent.md
-.kiro/
 .factory/
 .gemini/
 .mypy_cache_cli/

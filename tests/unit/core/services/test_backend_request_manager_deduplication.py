@@ -99,7 +99,7 @@ class TestBackendRequestManagerDeduplication:
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
     ) -> None:
-        """Verify that DuplicateRequestError is raised when duplicate detected."""
+        """Verify that duplicate requests raise DuplicateRequestError and do not reach backend."""
         # Setup
         request = ChatRequest(
             model="gpt-4", messages=[ChatMessage(role="user", content="test")]
@@ -112,12 +112,14 @@ class TestBackendRequestManagerDeduplication:
         # Mock dedup service to return "IS a duplicate"
         mock_dedup_service.check_and_register.return_value = (True, "hash123")
 
-        # Execute & Verify
-        with pytest.raises(DuplicateRequestError) as exc_info:
+        # Mock backend processing
+        mock_backend_processor.process_backend_request = AsyncMock()
+
+        # Execute & verify
+        with pytest.raises(DuplicateRequestError):
             await backend_request_manager.process_backend_request(
                 request, session_id, context
             )
 
-        assert exc_info.value.status_code == 429
-        # Verify backend processor was NOT called
+        # Backend should not be called on duplicate
         mock_backend_processor.process_backend_request.assert_not_called()

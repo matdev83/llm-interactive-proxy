@@ -96,6 +96,15 @@ class ToolCallReactorFeature(IResponseFeature):
         stream_key = self._resolve_stream_key(session_id, context, response)
         buffer_state = self._resolve_buffer_state(context, stream_key)
 
+        if logger.is_enabled_for(logging.DEBUG):
+            logger.debug(
+                "ToolCallReactor: session=%s stream_key=%s backend=%s model=%s",
+                session_id,
+                stream_key,
+                context.get("backend_name", "unknown"),
+                context.get("model_name", "unknown"),
+            )
+
         # Clear lifecycle state for non-streaming to ensure fresh detection
         if not is_streaming:
             self._clear_stream_state(stream_key)
@@ -207,9 +216,12 @@ class ToolCallReactorFeature(IResponseFeature):
 
         if logger.is_enabled_for(logging.DEBUG):
             logger.debug(
-                "Detected %d new tool call(s) in session %s",
+                "Detected %d new tool call(s) in session %s (stream=%s, buffer=%d, total=%d)",
                 len(new_tool_calls_with_raw),
                 session_id,
+                stream_key,
+                buffered_call_count,
+                len(tool_calls),
             )
 
         # Get session context
@@ -262,9 +274,19 @@ class ToolCallReactorFeature(IResponseFeature):
                     )
                 continue
 
+            if logger.is_enabled_for(logging.DEBUG):
+                logger.debug(
+                    "Processing tool call signature=%s session=%s stream=%s backend=%s model=%s",
+                    signature,
+                    session_id,
+                    stream_key,
+                    backend_name,
+                    model_name,
+                )
+
             function_payload = tool_call.get("function")
             if not isinstance(function_payload, dict):
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.is_enabled_for(logging.DEBUG):
                     logger.debug(
                         "Skipping non-function tool call type: %s",
                         type(function_payload).__name__,

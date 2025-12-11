@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
-
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming_contracts import StreamingContent
 
@@ -38,7 +37,7 @@ class TestSSEAssemblerDisconnection:
         # it would raise a RuntimeError or similar in some python versions,
         # or just be ignored.
         # Ideally we want to ensure no extra processing happened.
-        
+
         # To strictly verify the "done_emitted=True" logic, we can mock logger?
         # Or just trust that if aclose() succeeds without error, we are good.
 
@@ -46,15 +45,15 @@ class TestSSEAssemblerDisconnection:
     async def test_generator_exit_propagation(self) -> None:
         """Verify GeneratorExit propagates correctly."""
         assembler = SSEAssembler()
-        
+
         async def endless_stream():
             while True:
                 yield StreamingContent(content="data", is_done=False)
                 await asyncio.sleep(0.1)
 
         sse_stream = assembler.assemble_stream(endless_stream())
-        
+
         await anext(sse_stream)
-        
+
         # Close the stream - should propagate GeneratorExit and exit cleanly
         await sse_stream.aclose()

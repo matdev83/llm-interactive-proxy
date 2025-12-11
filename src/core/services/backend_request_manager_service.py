@@ -296,6 +296,7 @@ class BackendRequestManager(IBackendRequestManager):
         context: RequestContext,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process backend request with retry handling."""
+        content_hash: str | None = None
         # Deduplication check FIRST (before any processing)
         if self._dedup_service:
             is_duplicate, content_hash = await self._dedup_service.check_and_register(
@@ -312,6 +313,15 @@ class BackendRequestManager(IBackendRequestManager):
                         backend_request.model,
                     )
                 raise DuplicateRequestError(content_hash, session_id)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Submitting backend request: hash=%s session=%s model=%s stream=%s",
+                content_hash[:8] if content_hash else "n/a",
+                session_id,
+                backend_request.model,
+                getattr(backend_request, "stream", False),
+            )
 
         return await self._process_backend_request_with_retry(
             backend_request, session_id, context
@@ -401,9 +411,18 @@ class BackendRequestManager(IBackendRequestManager):
 
                     # Process through response processor for empty response detection
                     # This works for both real implementations and mocks in tests
+                    extra_body = getattr(backend_request, "extra_body", None)
+                    backend_name = None
+                    if isinstance(extra_body, dict):
+                        backend_name = extra_body.get("backend_type")
+                    if not backend_name:
+                        backend_name = getattr(backend_request, "model", None)
                     middleware_context = {
                         "original_request": backend_request,
                         "backend_response": backend_response,
+                        "backend_name": backend_name,
+                        "model_name": getattr(backend_request, "model", None),
+                        "session_id": session_id,
                     }
                     if processing_context:
                         middleware_context.update(processing_context)
@@ -951,6 +970,16 @@ class BackendRequestManager(IBackendRequestManager):
         middleware_context = {
             "original_request": original_request,
             "session_id": session_id,
+            # Use a stable stream_id for this pipeline so reactor/state can correlate chunks
+            "stream_id": getattr(context, "request_id", None) or session_id,
+            "backend_name": (
+                getattr(context, "backend_name", None)
+                or (getattr(original_request, "extra_body", {}) or {}).get(
+                    "backend_type"
+                )
+                or getattr(original_request, "model", None)
+            ),
+            "model_name": getattr(original_request, "model", None),
         }
         if hasattr(context, "processing_context") and context.processing_context:
             # Add processing context values (like client_os)

@@ -193,9 +193,15 @@ async def demo_backend_notifications():
 
     # Verify initial state
     print("\nInitial state (all healthy):")
-    print(f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}")
-    print(f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}")
-    print(f"  - {anthropic_backend.name}.is_endpoint_healthy = {anthropic_backend.is_endpoint_healthy}")
+    print(
+        f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}"
+    )
+    print(
+        f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}"
+    )
+    print(
+        f"  - {anthropic_backend.name}.is_endpoint_healthy = {anthropic_backend.is_endpoint_healthy}"
+    )
 
     # Simulate OpenAI endpoint becoming unhealthy
     # Note: BackendHealthNotifier listens to EndpointHealthChanged (combined status)
@@ -213,9 +219,15 @@ async def demo_backend_notifications():
     await asyncio.sleep(0.1)
 
     print("\nAfter OpenAI health degradation:")
-    print(f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}")
-    print(f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}")
-    print(f"  - {anthropic_backend.name}.is_endpoint_healthy = {anthropic_backend.is_endpoint_healthy}")
+    print(
+        f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}"
+    )
+    print(
+        f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}"
+    )
+    print(
+        f"  - {anthropic_backend.name}.is_endpoint_healthy = {anthropic_backend.is_endpoint_healthy}"
+    )
 
     # Verify both OpenAI backends were notified, but not Anthropic
     assert not openai_backend_1.is_endpoint_healthy, "openai.1 should be unhealthy"
@@ -241,8 +253,12 @@ async def demo_backend_notifications():
     await asyncio.sleep(0.1)
 
     print("\nAfter OpenAI recovery:")
-    print(f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}")
-    print(f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}")
+    print(
+        f"  - {openai_backend_1.name}.is_endpoint_healthy = {openai_backend_1.is_endpoint_healthy}"
+    )
+    print(
+        f"  - {openai_backend_2.name}.is_endpoint_healthy = {openai_backend_2.is_endpoint_healthy}"
+    )
 
     assert openai_backend_1.is_endpoint_healthy, "openai.1 should be healthy again"
     assert openai_backend_2.is_endpoint_healthy, "openai.2 should be healthy again"
@@ -449,4 +465,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

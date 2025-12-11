@@ -373,6 +373,17 @@ class TranslationService:
                 f"Stream chunk converter for format '{source_format}' not implemented."
             )
 
+        # Normalize CanonicalStreamChunk -> dict so downstream callers can safely use .get
+        if isinstance(result, CanonicalStreamChunk):
+            result = result.model_dump(exclude_none=True)
+        if isinstance(result, dict):
+            choices_val = result.get("choices")
+            if isinstance(choices_val, list):
+                result["choices"] = [
+                    c.model_dump(exclude_none=True) if hasattr(c, "model_dump") else c
+                    for c in choices_val
+                ]
+
         # Log transformation result at TRACE level
         if logger.isEnabledFor(TRACE_LEVEL):
             result_type = type(result).__name__

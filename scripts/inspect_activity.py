@@ -21,7 +21,6 @@ import httpx
 try:
     from rich import box
     from rich.console import Console
-    from rich.live import Live
     from rich.panel import Panel
     from rich.table import Table
 
@@ -88,14 +87,22 @@ def print_activity_plain(data: dict) -> None:
     if global_activity:
         if not global_activity.get("enabled", True):
             print("NOTE: Activity tracking is DISABLED.")
-            print("Enable with: --enable-activity-tracking or ENABLE_ACTIVITY_TRACKING=1")
+            print(
+                "Enable with: --enable-activity-tracking or ENABLE_ACTIVITY_TRACKING=1"
+            )
             print()
             return
 
         print("Global Activity:")
-        print(f"  Active Connections: {global_activity.get('total_active_connections', 0)}")
-        print(f"  Total Bytes RX: {format_bytes(global_activity.get('total_bytes_rx', 0))}")
-        print(f"  Total Bytes TX: {format_bytes(global_activity.get('total_bytes_tx', 0))}")
+        print(
+            f"  Active Connections: {global_activity.get('total_active_connections', 0)}"
+        )
+        print(
+            f"  Total Bytes RX: {format_bytes(global_activity.get('total_bytes_rx', 0))}"
+        )
+        print(
+            f"  Total Bytes TX: {format_bytes(global_activity.get('total_bytes_tx', 0))}"
+        )
         print()
 
     instances = data.get("instances", [])
@@ -246,7 +253,10 @@ def watch_activity(url: str, interval: float = 1.0) -> None:
             data = get_diagnostics(url)
             return create_summary_panel(data), create_activity_table(data)
         except Exception as e:
-            return Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"), Table()
+            return (
+                Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"),
+                Table(),
+            )
 
     console.print("[dim]Press Ctrl+C to stop watching...[/dim]\n")
 
@@ -263,7 +273,9 @@ def watch_activity(url: str, interval: float = 1.0) -> None:
             else:
                 console.print("[dim]No active connections[/dim]")
 
-            console.print(f"\n[dim]Refreshing every {interval}s... (Ctrl+C to stop)[/dim]")
+            console.print(
+                f"\n[dim]Refreshing every {interval}s... (Ctrl+C to stop)[/dim]"
+            )
             time.sleep(interval)
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopped watching.[/yellow]")
@@ -324,4 +336,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

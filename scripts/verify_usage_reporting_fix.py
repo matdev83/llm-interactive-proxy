@@ -118,7 +118,9 @@ class UsageReportingVerificationReport:
 
         # Usage at top level check
         top_level_passes = [r for r in self.usage_at_top_level_results if r.passed]
-        top_level_failures = [r for r in self.usage_at_top_level_results if not r.passed]
+        top_level_failures = [
+            r for r in self.usage_at_top_level_results if not r.passed
+        ]
 
         if top_level_failures:
             lines.append(
@@ -177,7 +179,6 @@ class UsageReportingVerificationReport:
         lines.append("=" * 70)
 
         return "\n".join(lines)
-
 
 
 class UsageReportingVerifier:
@@ -357,7 +358,7 @@ class UsageReportingVerifier:
                 for field in OPENROUTER_USAGE_FIELDS:
                     if field not in usage:
                         missing_fields.append(field)
-                    elif not isinstance(usage[field], (int, float)):
+                    elif not isinstance(usage[field], int | float):
                         invalid_fields.append(f"{field} (not numeric)")
 
                 if missing_fields or invalid_fields:
@@ -432,7 +433,9 @@ class UsageReportingVerifier:
                                 details={
                                     "finish_reason": finish_reason,
                                     "usage": usage,
-                                    "content_preview": delta_content[:200] if delta_content else None,
+                                    "content_preview": (
+                                        delta_content[:200] if delta_content else None
+                                    ),
                                 },
                                 entry_index=i,
                             )
@@ -533,9 +536,7 @@ class UsageReportingVerifier:
 
         return results
 
-    def _simulate_usage_headers(
-        self, usage: dict[str, Any]
-    ) -> dict[str, str] | None:
+    def _simulate_usage_headers(self, usage: dict[str, Any]) -> dict[str, str] | None:
         """Simulate generating x-usage-* headers from usage data.
 
         This mirrors the logic in response_adapters.py _apply_usage_headers().
@@ -586,7 +587,6 @@ class UsageReportingVerifier:
 
         delta = choices[0].get("delta", {})
         return delta.get("content")
-
 
 
 def create_synthetic_usage_chunk() -> dict[str, Any]:

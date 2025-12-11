@@ -1,6 +1,7 @@
 """Test SSE decoding of the actual newline bytes from the capture."""
 
 import sys
+
 sys.path.insert(0, ".")
 
 import json
@@ -18,29 +19,29 @@ def decode_sse_payload(payload: bytes):
         text = payload.decode("utf-8")
     except UnicodeDecodeError:
         return payload, {}, False
-    
+
     stripped = text.strip()
     if "data:" not in stripped:
         return payload, {}, False
-    
+
     data_lines = []
     for line in stripped.splitlines():
         if line.startswith("data:"):
             data_lines.append(line[5:].lstrip())
-    
+
     if not data_lines:
         return payload, {}, False
-    
+
     data_body = "\n".join(data_lines).strip()
     if data_body in ("[DONE]", '["DONE"]'):
         return "", {"finish_reason": "stop"}, True
-    
+
     try:
         decoded = json.loads(data_body)
     except json.JSONDecodeError as e:
         print(f"JSON decode error: {e}")
         return data_body, {}, False
-    
+
     return decoded, {}, False
 
 
@@ -52,11 +53,10 @@ for label, sse in [("Newline", newline_sse), ("Dash", dash_sse)]:
     print(f"\n{label} chunk:")
     print(f"  Decoded type: {type(decoded)}")
     print(f"  is_done: {is_done}")
-    
+
     if isinstance(decoded, dict):
         choices = decoded.get("choices", [])
         if choices:
             delta = choices[0].get("delta", {})
             content = delta.get("content")
             print(f"  Content: {content!r}")
-

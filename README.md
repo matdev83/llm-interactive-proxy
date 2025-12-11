@@ -14,9 +14,10 @@ A swiss-army knife proxy for LLM-powered applications. Sits between any LLM-awar
 graph TD
     subgraph "Clients"
         A[OpenAI Client]
-        B[Anthropic Client]
-        C[Gemini Client]
-        D[Any LLM App]
+        B[OpenAI Responses API Client]
+        C[Anthropic Client]
+        D[Gemini Client]
+        E[Any LLM App]
     end
 
     subgraph "LLM Interactive Proxy"

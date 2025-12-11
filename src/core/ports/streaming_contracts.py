@@ -889,9 +889,12 @@ class StreamingContent:
                 if usage is not None:
                     result.usage = usage
                 result.raw_data = raw_data
-                if bool(metadata.get("is_done")):
+                # Preserve is_done if already True on result (e.g., from StopChunkWithUsage)
+                # OR if outer metadata says is_done
+                if result.is_done or bool(metadata.get("is_done")):
                     result.is_done = True
-                if bool(metadata.get("is_cancellation")):
+                # Same for is_cancellation
+                if result.is_cancellation or bool(metadata.get("is_cancellation")):
                     result.is_cancellation = True
                 return result
 

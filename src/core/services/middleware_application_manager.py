@@ -172,6 +172,13 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                             )
                         if result is not None:
                             processed_chunk = result
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Middleware %s returned chunk (is_none=%s) for session=%s",
+                                mw.__class__.__name__,
+                                result is None,
+                                session_id,
+                            )
                     except Exception as e:
                         logger.error(
                             "Error applying streaming middleware %s: %s",

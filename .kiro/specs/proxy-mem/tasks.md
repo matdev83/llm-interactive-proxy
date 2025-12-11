@@ -1,0 +1,346 @@
+# Implementation Plan
+
+> TDD Guardrails: For every functional area below, author or update failing tests first (unit/property/integration as specified), then implement code until the tests pass. Do not defer test creation to after implementation.
+> Coding Standards: Maintain layered, modular architecture; apply SOLID and DRY; use DI container for instance management (no globals); follow PEP8/modern Python; and run QA (ruff --fix, black, mypy) on touched files.
+
+- [ ] 1. Set up ProxyMem module structure and configuration
+  - [ ] 1.1 Create module directory structure under `src/core/memory/`
+    - Create `__init__.py`, `config.py`, `service.py`, `repository.py`, `models.py`
+    - _Requirements: 1.1, 1.4, 2.1, 2.3_
+  - [ ] 1.2 Implement `MemoryConfiguration` Pydantic model
+    - Define all configuration fields with defaults, including analysis limits (`max_summary_tokens`, `max_transcript_chars`, `summary_completion_tokens`), queue/concurrency limits (`analysis_queue_maxsize`, `analysis_timeout_seconds`, `max_concurrent_analyses`), redaction controls, disable lists, project scoping (`require_project_discovery`, `project_discovery_mode`), and schema/prompt versions
+    - Add validation for model spec format (backend:model)
+    - Add validation for prompt file paths (.txt, .md) and redaction pattern formats
+    - Add validation and defaults for identity controls (`single_user_mode`, `fixed_user_id`)
+    - _Requirements: 1.4, 2.3, 6.7, 6.8, 8.6, 8.7, 13.5, 14.1, 14.4, 16.2, 17.1, 17.5, 18.1_
+  - [ ] 1.3 Write property test for configuration precedence
+    - **Property 2: Configuration precedence**
+    - **Validates: Requirements 1.5**
+  - [ ] 1.4 Integrate configuration into `AppConfig` and `SessionConfig`
+    - Add `memory: MemoryConfiguration` field to AppConfig
+    - Wire up CLI argument parsing for memory flags
+    - Wire up environment variable loading
+    - _Requirements: 1.4, 1.5, 2.3_
+  - [ ] 1.5 Add CLI arguments to `build_cli_parser()`
+    - `--memory-available`, `--memory-default-enabled`
+    - `--memory-summary-model`, `--memory-context-model`
+    - `--memory-summary-prompt`, `--memory-context-prompt`
+    - `--memory-database-path`, `--memory-session-timeout`
+    - `--memory-analysis-queue-maxsize`, `--memory-analysis-timeout-seconds`, `--memory-max-transcript-chars`, `--memory-max-summary-tokens`, `--memory-summary-completion-tokens`, `--memory-max-concurrent-analyses`
+    - `--memory-redaction-pattern` (repeatable), `--memory-persist-transcript`, `--memory-disable-user`, `--memory-disable-client`, `--memory-summary-schema-version`
+    - `--memory-single-user-mode`, `--memory-fixed-user-id`
+    - `--memory-require-project-discovery`, `--memory-project-discovery-mode`
+    - `--memory-context-relevance-threshold`
+    - _Requirements: 1.4, 2.3, 6.7, 6.8, 8.6, 8.7, 13.5, 14.1, 14.4, 16.2, 17.1, 17.5_
+
+- [ ] 2. Implement data models and database layer
+  - [ ] 2.1 Create domain models in `src/core/memory/models.py`
+    - Implement `SessionSummary`, `CapturedInteraction`, `SessionData`, plus helper models (`TaskItem`, `FileChange`, `GitOperation`, `FileEditEvent`, `GitCommitEvent`)
+    - Include schema versioning and fields for remaining tasks, open questions, git operations, operations performed, tests run, errors, risks/warnings, evidence, branch/head, project_id/project_root, raw XML payload, and deterministic tool evidence collections on `SessionData`
+    - Use Pydantic with frozen config for immutability
+    - Add `tenant_id` support where applicable
+    - _Requirements: 7.2, 12.2, 12.7, 17.2, 19.1, 19.3, 19.4_
+  - [ ] 2.2 Write property test for summary storage completeness
+    - **Property 7: Summary storage completeness**
+    - **Validates: Requirements 7.2, 12.2, 12.7**
+  - [ ] 2.3 Implement `MemoryRepository` with SQLite backend
+    - Create `src/core/memory/repository.py`
+    - Implement `initialize_schema()` with table and index creation
+    - Implement `save_session_summary()` with JSON serialization for arrays and storage of raw XML + schema version
+    - Implement `get_recent_sessions()` with user_id filter and limit
+    - Implement `delete_old_sessions()` for retention cleanup
+    - Ensure full transcripts are not persisted; summaries only
+    - Enforce user_id (and tenant_id) scoping in all queries and writes; add indexes and constraints to prevent cross-user reads
+    - Maintain `user_project_dirs` with UNIQUE(user_id, project_root) and map summaries to project_id when available
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 14.2, 17.1, 17.2, 18.5_
+  - [ ] 2.4 Write property test for retention enforcement
+    - **Property 12: Retention enforcement**
+    - **Validates: Requirements 10.1, 10.2**
+  - [ ] 2.5 Implement database connection pooling
+    - Use `aiosqlite` for async SQLite access
+    - Implement connection pool with configurable size
+    - _Requirements: 7.6_
+
+- [ ] 3. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 4. Implement session capture buffer
+  - [ ] 4.1 Create `SessionCaptureBuffer` class
+    - Implement thread-safe buffer with asyncio.Lock
+    - Track buffer size per session
+    - Implement `append()`, `get_and_clear()`, `get_buffer_size()`
+    - _Requirements: 4.3, 4.4_
+  - [ ] 4.2 Write property test for buffer size enforcement
+    - **Property 5: Buffer size enforcement**
+    - **Validates: Requirements 4.4**
+  - [ ] 4.3 Implement buffer overflow handling
+    - Return False from append when buffer full
+    - Log warning and mark session as partial
+    - Emit metric for overflow event; ensure request path not blocked
+    - _Requirements: 4.4, 16.1_
+
+- [ ] 5. Implement core memory service
+  - [ ] 5.1 Create `IMemoryService` interface
+    - Define protocol in `src/core/interfaces/memory_service_interface.py`
+    - _Requirements: 1.1, 3.1, 3.2, 4.1_
+  - [ ] 5.2 Implement `MemoryService` class
+    - Implement `is_available()` checking global config
+    - Implement `is_enabled_for_session()` with session state lookup
+    - Implement `enable_for_session()` with availability check and user/client allow/deny evaluation
+    - Implement `disable_for_session()`
+    - Implement `capture_interaction()` with buffer append
+    - Implement `mark_session_complete()` with queue submission and deduplication (single queued job per session)
+    - Apply backpressure policy when analysis queue is saturated
+    - Enforce identity presence unless in single-user mode; fail closed on missing user_id
+    - Respect project discovery gating; disable context injection if project root unavailable when required
+    - _Requirements: 1.1, 1.2, 3.1, 3.2, 3.3, 4.1, 4.2, 5.3, 13.2, 13.3, 14.4, 16.1, 17.1, 17.6, 18.1, 18.2_
+  - [ ] 5.3 Write property test for memory availability gating
+    - **Property 1: Memory availability gates all activation**
+    - **Validates: Requirements 1.2, 2.4**
+  - [ ] 5.4 Write property test for session state isolation
+    - **Property 3: Session state isolation**
+    - **Validates: Requirements 3.5**
+  - [ ] 5.5 Write property test for capture completeness
+    - **Property 4: Capture completeness**
+    - **Validates: Requirements 4.1, 4.2**
+  - [ ] 5.6 Write property test for queue deduplication/backpressure
+    - **Property 15: Analysis deduplication and resumption**
+    - **Validates: Requirements 13.2, 13.3, 13.4**
+  - [ ] 5.7 Write property test for user isolation
+    - **Property 17: User isolation**
+    - **Validates: Requirements 17.1, 17.2, 17.3**
+  - [ ] 5.8 Write property test for project scoping
+    - **Property 20: Project scoping**
+    - **Validates: Requirements 18.1, 18.2, 18.4**
+  - [ ] 5.9 Implement deterministic tool event capture
+    - Add `record_tool_event()` handling to ingest file-edit tool calls and git commit events, normalize paths relative to project root, deduplicate per session, and drop events when memory is disabled
+    - _Requirements: 19.1, 19.2, 19.3_
+  - [ ] 5.10 Write unit/property test for deterministic tool event capture
+    - Verify file edits and git commits are captured only when memory is enabled, deduplicated by path/commit hash, and retain latest action/timestamp per session
+    - _Requirements: 19.1, 19.2, 19.3_
+
+- [ ] 6. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 7. Implement interactive commands
+  - [ ] 7.1 Create `MemoryOnCommandHandler`
+    - Check global availability, return error if unavailable
+    - Enable memory for session via MemoryService
+    - Return confirmation message
+    - _Requirements: 1.3, 3.1_
+  - [ ] 7.2 Create `MemoryOffCommandHandler`
+    - Disable memory for session via MemoryService
+    - Return confirmation message
+    - _Requirements: 3.2_
+  - [ ] 7.3 Create `MemoryStatusCommandHandler`
+    - Query current memory state for session
+    - Return formatted status message
+    - _Requirements: 3.4_
+  - [ ] 7.4 Write unit tests for command handlers
+    - Test availability check in memory-on
+    - Test state changes for on/off commands
+    - Test status reporting accuracy
+    - Test requeue command permission enforcement and enqueue behavior
+    - _Requirements: 1.3, 3.1, 3.2, 3.4_
+  - [ ] 7.5 Create `MemoryRequeueCommandHandler`
+    - Require operator permission (configurable ACL hook)
+    - Requeue or regenerate summary for a given session_id using current prompt/schema
+    - Return status of enqueue attempt
+    - _Requirements: 15.4_
+
+- [ ] 8. Implement prompt loading and template system
+  - [ ] 8.1 Create `PromptLoader` class
+    - Load prompts from file paths (.txt, .md)
+    - Validate file existence at startup
+    - Fall back to default prompts when not configured
+    - _Requirements: 6.8, 6.9, 8.7, 8.8, 11.4, 12.7_
+  - [ ] 8.2 Write property test for template substitution
+    - **Property 11: Prompt template substitution**
+    - **Validates: Requirements 11.5**
+  - [ ] 8.3 Create default prompt files
+    - Create `config/prompts/memory_summary.md`
+    - Create `config/prompts/memory_context.md`
+    - _Requirements: 11.1, 11.2, 11.3, 12.1, 12.2_
+  - [ ] 8.4 Implement template variable substitution
+    - Support `{session_transcript}`, `{user_prompt}`, `{session_summaries}`, `{max_tokens}`, `{summary_schema_version}`, `{summary_prompt_version}`, `{session_id}`, `{user_id}`, `{tenant_id}`, `{project_id}`, `{project_root}`, `{analysis_timestamp}`, `{model}`, `{branch}`, `{head_sha}`, `{deterministic_file_edits}`, `{deterministic_git_commits}`
+    - _Requirements: 11.5, 12.3, 19.6_
+
+- [ ] 9. Implement summary generator
+  - [ ] 9.1 Create `SummaryGenerator` class
+    - Accept backend service, model spec, prompt loader, repository
+    - Implement `generate_summary()` with LLM call using XML prompt and metadata (schema/prompt versions)
+    - Parse validated XML response into SessionSummary with sentinel defaults for missing fields
+    - Apply redaction before model calls and before persistence
+    - Emit metrics for summary latency and success/failure
+    - Ensure tests/errors/branch/head and open questions are captured when present; use UNKNOWN when absent
+    - Enforce `summary_completion_tokens` cap on model responses (per chunk and final pass)
+    - Apply middle-out compression if responses exceed size after retries to fit within the budget
+    - Persist project_id/project_root when available from SessionData
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.10, 6.14, 11.1, 12.1, 12.4, 14.1, 14.2, 18.3_
+  - [ ] 9.2 Implement retry logic with exponential backoff
+    - Retry up to 3 times on failure
+    - Use 1s, 2s, 4s backoff intervals
+    - Log errors on final failure
+    - _Requirements: 6.5_
+  - [ ] 9.3 Implement background analysis queue
+    - Create async queue for pending sessions
+    - Implement `process_queue()` worker with bounded size and per-job timeout
+    - Persist queue metadata to resume on restart and prevent duplicates
+    - Ensure non-blocking operation
+    - Enforce `max_concurrent_analyses` worker limit
+    - Emit metrics for queue depth and latency
+    - _Requirements: 6.6, 13.2, 13.3, 13.4, 13.5, 15.1_
+  - [ ] 9.4 Write property test for session completion triggers analysis
+    - **Property 6: Session completion triggers analysis**
+    - **Validates: Requirements 5.3**
+  - [ ] 9.5 Implement `SummaryValidator`
+    - Validate XML against schema version and required enums
+    - Reject pre/postamble text; enforce escaping
+    - Log validation failures with sanitized payload fingerprints, not full content
+    - _Requirements: 6.10, 12.1, 12.6, 12.7, 12.8_
+  - [ ] 9.6 Write property test for XML validity
+    - **Property 13: Summary XML validity**
+    - **Validates: Requirements 6.10, 12.1, 12.6**
+  - [ ] 9.7 Implement chunking for oversized transcripts
+    - Split transcripts beyond `max_transcript_chars` and summarize hierarchically
+    - Preserve ordering and ensure single final summary
+    - _Requirements: 6.12, 13.1_
+  - [ ] 9.8 Ensure transcript disposal and redaction
+    - Drop in-memory transcripts after successful persistence
+    - Confirm no transcript content is logged; redact payloads before logs
+    - _Requirements: 6.13, 14.2, 14.3_
+  - [ ] 9.9 Write property test for transcript disposal
+    - **Property 14: Transcript disposal**
+    - **Validates: Requirements 6.13, 14.2**
+  - [ ] 9.10 Write property test for backpressure isolation
+    - **Property 16: Backpressure isolation**
+    - **Validates: Requirements 13.3, 16.1, 16.3**
+  - [ ] 9.11 Write property test for summary completion cap
+    - **Property 21: Summary completion cap**
+    - **Validates: Requirements 6.14**
+  - [ ] 9.12 Inject deterministic tool evidence into summary prompt
+    - Populate `{deterministic_file_edits}` and `{deterministic_git_commits}` from `SessionData`, serialize them in a machine-readable section, and ensure final XML echoes the lists in `<touched_files>` and `<git_operations>` with `UNKNOWN` only when lists are empty
+    - _Requirements: 12.4, 12.7, 19.4, 19.5, 19.6_
+  - [ ] 9.13 Write property test for deterministic tool events reflected in summaries
+    - **Property 22: Deterministic tool events reflected in summaries**
+    - **Validates: Requirements 19.4, 19.5, 19.6**
+
+- [ ] 10. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 11. Implement context injector
+  - [ ] 11.1 Create `ContextInjector` class
+    - Accept backend service, model spec, prompt loader, repository, config
+    - Implement `get_relevant_context()` with LLM call, scoped by `user_id` (and tenant_id)
+    - Rank summaries by relevance+recency; apply configurable relevance threshold
+    - Handle NO_RELEVANT_CONTEXT response
+    - _Requirements: 8.1, 8.2, 18.4_
+  - [ ] 11.2 Write property test for context injection position
+    - **Property 8: Context injection position**
+    - **Validates: Requirements 8.3**
+  - [ ] 11.3 Implement `inject_context()` method
+    - Find position after system message, before first user message
+    - Create virtual message with role "user"
+    - Apply context template formatting and skip injection if templated context would exceed `max_context_tokens`
+    - Emit metric for context injection hit/miss
+    - When skipping context (low relevance/timeout/backpressure/token cap/no relevant), inject a minimal marker indicating no prior context provided
+    - _Requirements: 8.3, 9.1, 9.2, 9.3, 10.1, 11.1, 15.1, 16.4_
+  - [ ] 11.4 Write property test for context token limiting
+    - **Property 9: Context token limiting**
+    - **Validates: Requirements 8.4**
+  - [ ] 11.5 Implement token limiting
+    - Truncate context to max_context_tokens or skip injection if truncation would distort template
+    - Use tiktoken or simple word-based estimation
+    - _Requirements: 8.4, 16.4_
+  - [ ] 11.6 Write property test for graceful degradation
+    - **Property 10: Graceful degradation on context failure**
+    - **Validates: Requirements 8.5**
+  - [ ] 11.7 Implement timeout and error handling
+    - Set reasonable timeout for context retrieval
+    - Log warning and proceed without context on failure
+    - _Requirements: 8.5_
+  - [ ] 11.8 Write property test for context relevance thresholding
+    - **Property 19: Context relevance filtering**
+    - **Validates: Requirements 8.10, 9.1**
+
+- [ ] 12. Implement session completion detection
+  - [ ] 12.1 Add session timeout tracking
+    - Track last activity timestamp per session
+    - Implement timeout check in session cleanup
+    - _Requirements: 5.1, 5.4_
+  - [ ] 12.2 Hook into connection close events
+    - Detect explicit session/connection close
+    - Trigger session completion on close
+    - _Requirements: 5.2_
+  - [ ] 12.3 Integrate completion detection with memory service
+    - Call `mark_session_complete()` on timeout or close
+    - Only queue if memory was enabled for session
+    - Ensure duplicate completion signals do not enqueue multiple jobs
+    - _Requirements: 5.3, 13.2_
+
+- [ ] 13. Implement database maintenance
+  - [ ] 13.1 Create cleanup task scheduler
+    - Schedule periodic cleanup on proxy startup
+    - Run cleanup at configurable interval (default: daily)
+    - _Requirements: 10.2_
+  - [ ] 13.2 Implement retention-based cleanup
+    - Delete records older than retention_days
+    - Log number of records deleted
+    - _Requirements: 10.1, 10.3_
+
+- [ ] 14. Integrate with request pipeline
+  - [ ] 14.1 Add memory capture to request middleware
+    - Check if memory enabled for session
+    - Capture user prompts before forwarding
+    - _Requirements: 4.1_
+  - [ ] 14.2 Add memory capture to response middleware
+    - Capture assistant responses after receiving
+    - Include metadata (backend, model, tokens)
+    - _Requirements: 4.1, 4.2_
+  - [ ] 14.3 Add context injection to request pipeline
+    - Check if memory enabled and user has prior sessions
+    - Call context injector for first message of session
+    - Inject context into message list
+    - _Requirements: 8.1, 8.3, 17.3_
+  - [ ] 14.4 Propagate project discovery results to memory
+    - Ensure project root (and project_id if available) is attached to session data before capture/analysis/injection
+    - Enforce gating: skip context injection when project root is missing and log/emit marker
+    - _Requirements: 18.1, 18.2, 18.3, 18.4_
+
+- [ ] 15. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 16. Wire up dependency injection
+  - [ ] 16.1 Register memory services in DI container
+    - Register IMemoryService, MemoryRepository, SummaryGenerator, ContextInjector
+    - Configure with MemoryConfiguration from AppConfig
+    - _Requirements: All_
+  - [ ] 16.2 Initialize database schema on startup
+    - Call repository.initialize_schema() during app startup
+    - Handle schema migration for future versions
+    - _Requirements: 7.5_
+  - [ ] 16.3 Start background workers on startup
+    - Start summary generation queue processor
+    - Start cleanup task scheduler
+    - _Requirements: 6.6, 10.2_
+  - [ ] 16.4 Expose health and metrics reporting
+    - Wire metrics sink/logging with session_id and user_id correlation
+    - Expose health probe for DB connectivity, worker liveness, and queue saturation
+    - _Requirements: 15.1, 15.2, 15.3_
+
+- [ ] 17. Final integration testing
+  - [ ] 17.1 Write integration test for end-to-end flow
+    - Test capture -> analysis -> storage -> retrieval -> injection
+    - Verify data integrity through the pipeline
+    - _Requirements: All_
+  - [ ] 17.2 Write integration test for multi-session scenarios
+    - Test concurrent sessions with different memory states
+    - Verify session isolation (user_id and tenant_id)
+    - _Requirements: 3.5, 17.1, 17.2, 17.3_
+  - [ ] 17.3 Write integration test for XML summary validation and redaction
+    - Ensure summaries are well-formed XML, schema compliant, and redact sensitive patterns
+    - _Requirements: 6.10, 12.1, 12.6, 14.1, 14.3_
+
+- [ ] 18. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+

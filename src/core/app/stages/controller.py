@@ -106,10 +106,14 @@ class ControllerStage(InitializationStage):
             """Factory function for creating AnthropicController."""
             from typing import cast
 
+            from src.core.interfaces.wire_capture_interface import IWireCapture
+
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            return AnthropicController(request_processor)
+            # Get wire capture service if available
+            wire_capture = provider.get_service(cast(type, IWireCapture))
+            return AnthropicController(request_processor, wire_capture=wire_capture)
 
         # Register as singleton
         services.add_singleton(

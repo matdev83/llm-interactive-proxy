@@ -38,7 +38,11 @@ def get_diagnostics(url: str) -> dict:
 def create_summary_panel(instances: list) -> Panel:
     """Create a summary panel."""
     total = len(instances)
-    active = sum(1 for i in instances if i.get("is_functional", True) and not i.get("is_rate_limited", False))
+    active = sum(
+        1
+        for i in instances
+        if i.get("is_functional", True) and not i.get("is_rate_limited", False)
+    )
     limited = sum(1 for i in instances if i.get("is_rate_limited", False))
     down = sum(1 for i in instances if not i.get("is_functional", True))
 
@@ -54,30 +58,38 @@ def create_summary_panel(instances: list) -> Panel:
         f"[bold yellow]{limited}[/bold yellow] Rate Limited",
         f"[bold red]{down}[/bold red] Non-Functional",
     )
-    
+
     return Panel(grid, title="[bold]System Overview[/bold]", border_style="blue")
 
 
 def display_diagnostics(data: dict):
     """Display diagnostics using Rich."""
     console = Console()
-    
+
     timestamp = data.get("timestamp", time.time())
     dt = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-    
+
     instances = data.get("instances", [])
-    
+
     # Header
     console.print()
-    console.print(Panel(
-        f"[bold blue]LLM Proxy Inspector[/bold blue]\n[dim]Snapshot at: {dt}[/dim]",
-        box=box.DOUBLE,
-        border_style="blue"
-    ))
+    console.print(
+        Panel(
+            f"[bold blue]LLM Proxy Inspector[/bold blue]\n[dim]Snapshot at: {dt}[/dim]",
+            box=box.DOUBLE,
+            border_style="blue",
+        )
+    )
     console.print()
 
     if not instances:
-        console.print(Panel("[yellow]No active backend instances found.[/yellow]", title="Status", border_style="yellow"))
+        console.print(
+            Panel(
+                "[yellow]No active backend instances found.[/yellow]",
+                title="Status",
+                border_style="yellow",
+            )
+        )
         return
 
     # Summary
@@ -96,8 +108,10 @@ def display_diagnostics(data: dict):
     root = Tree("[bold]Backend Registry[/bold]")
 
     for ctype, backend_list in sorted(by_type.items()):
-        type_node = root.add(f"[bold cyan]{ctype.upper()}[/bold cyan] [dim]({len(backend_list)})[/dim]")
-        
+        type_node = root.add(
+            f"[bold cyan]{ctype.upper()}[/bold cyan] [dim]({len(backend_list)})[/dim]"
+        )
+
         for inst in sorted(backend_list, key=lambda x: x.get("name")):
             name = inst.get("name")
             is_functional = inst.get("is_functional", True)
@@ -105,7 +119,7 @@ def display_diagnostics(data: dict):
             retry_after = inst.get("retry_after_seconds")
             validation_errors = inst.get("validation_errors", [])
             models = inst.get("models", [])
-            
+
             # Status badge
             if not is_functional:
                 status = Text("DOWN", style="bold white on red")
@@ -116,10 +130,7 @@ def display_diagnostics(data: dict):
                 status = Text("ACTIVE", style="bold white on green")
 
             # Instance Node
-            label = Text.assemble(
-                (f"{name} ", "bold"),
-                status
-            )
+            label = Text.assemble((f"{name} ", "bold"), status)
             inst_node = type_node.add(label)
 
             # Details
@@ -127,13 +138,15 @@ def display_diagnostics(data: dict):
                 err_table = Table(box=box.SIMPLE, show_header=False, padding=0)
                 for err in validation_errors:
                     err_table.add_row(f"[red]• {err}[/red]")
-                inst_node.add(Panel(err_table, title="[red]Errors[/red]", border_style="red"))
+                inst_node.add(
+                    Panel(err_table, title="[red]Errors[/red]", border_style="red")
+                )
 
             # Models
             if models:
                 model_count = len(models)
                 model_node = inst_node.add(f"Models ({model_count})")
-                
+
                 # Use a simple table for models if there are many
                 if model_count > 0:
                     model_names = [m.get("name") for m in models]
@@ -150,9 +163,9 @@ def display_diagnostics(data: dict):
 def main():
     parser = argparse.ArgumentParser(description="Inspect LLM Proxy Backends")
     parser.add_argument(
-        "--url", 
-        default="http://localhost:8000/v1/diagnostics", 
-        help="URL of the diagnostics endpoint"
+        "--url",
+        default="http://localhost:8000/v1/diagnostics",
+        help="URL of the diagnostics endpoint",
     )
     args = parser.parse_args()
 

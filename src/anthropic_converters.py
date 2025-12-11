@@ -717,6 +717,16 @@ async def openai_stream_to_anthropic_stream(
         if delta.get("tool_calls"):
             for tool_call in delta["tool_calls"]:
                 if tool_call.get("id"):
+                    # Some backends omit the index; fall back to sequential ordering.
+                    idx = tool_call.get("index")
+                    if idx is None:
+                        idx = (
+                            active_tool_call_index + 1
+                            if active_tool_call_index != -1
+                            else 0
+                        )
+                        tool_call["index"] = idx
+
                     if active_tool_call_index != -1:
                         stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
                         if logger.isEnabledFor(TRACE_LEVEL):
@@ -725,14 +735,14 @@ async def openai_stream_to_anthropic_stream(
                                 f"YIELDING content_block_stop (new tool): {stop_block_event!r}",
                             )
                         events.append(stop_block_event)
-                    active_tool_call_index = tool_call["index"]
+                    active_tool_call_index = idx
                     start_block = {
                         "type": "content_block_start",
                         "index": active_tool_call_index,
                         "content_block": {
                             "type": "tool_use",
                             "id": tool_call["id"],
-                            "name": tool_call["function"]["name"],
+                            "name": tool_call.get("function", {}).get("name"),
                             "input": {},
                         },
                     }
@@ -744,10 +754,10 @@ async def openai_stream_to_anthropic_stream(
                         )
                     events.append(start_block_event)
 
-                if tool_call.get("function", {}).get("arguments"):
+                if tool_call.get("function", {}).get("arguments") is not None:
                     args_delta = {
                         "type": "content_block_delta",
-                        "index": tool_call["index"],
+                        "index": tool_call.get("index", 0),
                         "delta": {
                             "type": "input_json_delta",
                             "partial_json": tool_call["function"]["arguments"],

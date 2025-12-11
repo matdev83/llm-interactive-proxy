@@ -182,7 +182,11 @@ async def get_anthropic_controller_if_available(
                 )
                 request_processor = mock_processor
 
-            return AnthropicController(request_processor)
+            # Get wire capture for CLIENT_TO_PROXY capture
+            from src.core.interfaces.wire_capture_interface import IWireCapture
+
+            wire_capture = service_provider.get_service(IWireCapture)
+            return AnthropicController(request_processor, wire_capture=wire_capture)
     except Exception as e:
         logger.exception(
             f"Failed to get AnthropicController from service provider: {e}",

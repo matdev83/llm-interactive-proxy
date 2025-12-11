@@ -494,7 +494,6 @@ class ResponseProcessor(IResponseProcessor):
         # Process the stream using the unified pipeline
         try:
             # Wrap response iterator with memory capture if enabled
-            effective_iterator = response_iterator
             capture_processor: ResponseCaptureProcessor | None = None
 
             if self._memory_capture:
@@ -525,6 +524,12 @@ class ResponseProcessor(IResponseProcessor):
             )
 
             async for processed_chunk in stream_processor:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Yielding processed chunk from pipeline: type=%s is_done=%s",
+                        type(processed_chunk).__name__,
+                        getattr(processed_chunk, "is_done", None),
+                    )
                 # Feed to capture processor if enabled
                 if capture_processor and isinstance(processed_chunk, StreamingContent):
                     try:
