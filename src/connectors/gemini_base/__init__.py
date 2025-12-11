@@ -8,7 +8,7 @@ The main connector class is broken down into focused, composable modules:
 - credential_loader: Credential loading, saving, and validation
 - credentials: Pluggable credential providers (file, SQLite)
 - file_watcher: File system monitoring for credential changes
-- graceful_degradation: Rate limit handling and model fallback
+- graceful_degradation: Rate limit handling
 - stream_processor: Streaming response utilities
 - prompt_limiter: Prompt size enforcement
 - tool_sanitizer: Tool format conversion
@@ -52,7 +52,13 @@ from .generation_config_builder import (
     build_code_assist_request_format,
     convert_from_code_assist_format,
 )
-from .graceful_degradation import GracefulDegradationManager
+from .graceful_degradation import (
+    GracefulDegradationManager,
+    calculate_retry_delay,
+    is_model_in_cooldown,
+    is_rate_limit_like_error,
+    set_model_cooldown,
+)
 from .interfaces import (
     ICredentialProvider,
     IEndpointConfig,
@@ -147,6 +153,10 @@ __all__ = [
     "FileWatcher",
     "FileWatcherState",
     "GracefulDegradationManager",
+    "calculate_retry_delay",
+    "is_model_in_cooldown",
+    "is_rate_limit_like_error",
+    "set_model_cooldown",
     "TokenManager",
     # Backward-compatible helpers
     "build_client_metadata",

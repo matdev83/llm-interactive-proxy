@@ -24,31 +24,6 @@ from src.core.common.exceptions import BackendError
 logger = logging.getLogger(__name__)
 
 
-# Fallback mapping is now disabled - the Resilience Layer handles
-# rate limiting and error recovery at the BackendService level.
-# Automatic model fallbacks (e.g., Pro -> Flash) are no longer performed
-# within connectors to maintain clear separation of concerns.
-DEFAULT_FALLBACK_MAP: dict[str, str | list[str] | None] = {}
-
-
-def get_fallback_model(
-    original_model: str,
-    fallback_map: dict[str, str | list[str] | None] | None = None,
-) -> str | list[str] | None:
-    """Get the fallback model for a given model.
-
-    Args:
-        original_model: The model that needs fallback.
-        fallback_map: Optional custom fallback mapping. Defaults to DEFAULT_FALLBACK_MAP.
-
-    Returns:
-        The fallback model name(s), or None if no fallback available.
-    """
-    if fallback_map is None:
-        fallback_map = DEFAULT_FALLBACK_MAP
-    return fallback_map.get(original_model)
-
-
 def is_rate_limit_like_error(error: BackendError) -> bool:
     """Determine whether an error should trigger graceful degradation retries.
 
@@ -139,12 +114,7 @@ def calculate_retry_delay(
 
 
 class GracefulDegradationManager:
-    """Manages graceful degradation state for a connector.
-
-    This class provides a clean interface for managing model retry states,
-    cooldowns, and metrics during graceful degradation. It is designed to
-    be composed into connector classes.
-    """
+    """Manages graceful degradation state for a connector."""
 
     def __init__(
         self,
@@ -161,10 +131,6 @@ class GracefulDegradationManager:
         self.metrics = metrics or GracefulDegradationMetrics()
         self.model_retry_states: dict[str, ModelRetryState] = {}
         self.permanently_failed = False
-
-    def get_fallback_model(self, original_model: str) -> str | list[str] | None:
-        """Get the fallback model for a given model."""
-        return get_fallback_model(original_model)
 
     def is_rate_limit_like_error(self, error: BackendError) -> bool:
         """Determine whether an error should trigger graceful degradation."""
@@ -197,29 +163,9 @@ class GracefulDegradationManager:
             self.model_retry_states[model] = ModelRetryState()
         return self.model_retry_states[model]
 
-    def get_models_to_try(
-        self,
-        original_model: str,
-        disable_fallback: bool = False,
-    ) -> list[str]:
-        """Get the list of models to try for graceful degradation.
-
-        Args:
-            original_model: The originally requested model.
-            disable_fallback: If True, don't add fallback models.
-
-        Returns:
-            List of models to try in order.
-        """
-        models = [original_model]
-        if not disable_fallback:
-            fallback = self.get_fallback_model(original_model)
-            if fallback:
-                if isinstance(fallback, list):
-                    models.extend(fallback)
-                else:
-                    models.append(fallback)
-        return models
+    def get_models_to_try(self, original_model: str, disable_fallback: bool = False) -> list[str]:
+        """Return only the original model; fallbacks are handled upstream."""
+        return [original_model]
 
     def record_attempt(self) -> None:
         """Record an attempt in metrics."""
@@ -256,10 +202,8 @@ class GracefulDegradationManager:
 
 
 __all__ = [
-    "DEFAULT_FALLBACK_MAP",
     "GracefulDegradationManager",
     "calculate_retry_delay",
-    "get_fallback_model",
     "is_model_in_cooldown",
     "is_rate_limit_like_error",
     "set_model_cooldown",

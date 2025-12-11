@@ -2568,16 +2568,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         return convert_from_code_assist_format(code_assist_response, model)
 
-    def _get_fallback_model(self, original_model: str) -> str | list[str] | None:
-        """Get the fallback model for a given model.
-
-        Note: Fallbacks are now disabled. The Resilience Layer handles
-        rate limiting and error recovery at the BackendService level.
-        This method always returns None.
-        """
-        # Fallback logic removed - handled by Resilience Layer
-        return None
-
     def _is_in_cooldown(self, model: str) -> bool:
         """Check if a model is currently in cooldown.
 
