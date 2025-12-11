@@ -4,6 +4,15 @@
 
 ### Added
 
+- **401 Authentication Retry with Token Refresh**: Transparent recovery from expired OAuth tokens in Gemini OAuth connectors
+  - **Automatic Retry**: When a 401 Unauthorized is received from the Gemini backend, the proxy now automatically attempts to refresh the OAuth token and retries the request
+  - **Timeout Protection**: Token refresh has a 30-second timeout to prevent indefinite client waiting
+  - **Single Retry**: Uses `_auth_retry_attempted` flag to prevent infinite retry loops
+  - **Both Paths Covered**: Implemented for both streaming and non-streaming requests
+  - **Comprehensive Logging**: INFO-level logs for retry attempts and outcomes
+  - **Unit Tests**: 18 new unit tests in `test_gemini_oauth_auth_retry.py`
+  - **Behavioral Tests**: 12 new behavioral tests in `test_gemini_oauth_auth_retry_behavior.py`
+
 - New Gemini connector modules: `generation_config_builder.py`, `model_validation.py`, `response_accumulator.py`, `response_text_extractor.py`, `retry_delay_parser.py`, `thought_signature_manager.py`, `user_prompt_id_generator.py`
 - Database schema and usage tracking documentation in `docs/database-*.md`
 

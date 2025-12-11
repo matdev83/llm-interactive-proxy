@@ -185,7 +185,17 @@ class TestToolAccessControlEndToEnd:
         assert isinstance(result, ProcessedResponse)
         assert result != response  # Should be modified
         assert result.metadata["tool_call_swallowed"] is True
-        assert "blocked by security policy" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        
+        # Handle case where content is a dict (e.g. structured content)
+        if isinstance(content, dict):
+            content = json.dumps(content)
+            
+        assert "blocked by security policy" in content.lower()
 
         # Verify telemetry
         stats = reactor_service.get_telemetry_stats()
@@ -548,7 +558,12 @@ class TestToolAccessControlEndToEnd:
 
         # Verify tool call was blocked
         assert result.metadata["tool_call_swallowed"] is True
-        assert "dangerous tools are not allowed" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        assert "dangerous tools are not allowed" in content.lower()
 
     # Test 10: Complex scenario with multiple policies and agents
     @pytest.mark.asyncio

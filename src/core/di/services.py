@@ -2616,9 +2616,16 @@ def register_core_services(
         resilience_coordinator = provider.get_service(ResilienceCoordinator)
 
         # Get or create failure handling strategy
+        # Use get_service (not get_required) to allow graceful degradation
+        # if the strategy isn't registered, but log a warning in BackendService
         failure_handling_strategy = provider.get_service(
             cast(type, IFailureHandlingStrategy)
         )
+        if failure_handling_strategy is None:
+            logger.warning(
+                "IFailureHandlingStrategy not registered in DI container. "
+                "429 retry handling will be disabled."
+            )
 
         # Return backend service
         return BackendService(

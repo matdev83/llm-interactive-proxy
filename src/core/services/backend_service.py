@@ -1745,6 +1745,16 @@ class BackendService(IBackendService):
             except (
                 Exception
             ) as call_exc:  # Catch all exceptions for comprehensive logging
+                # DEBUG: Log that we caught an exception in the failure strategy handler
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "BackendService caught exception from %s: %s (type=%s, status=%s)",
+                        current_backend,
+                        call_exc,
+                        type(call_exc).__name__,
+                        getattr(call_exc, "status_code", None),
+                    )
+
                 call_exc = self._normalize_provider_exception(call_exc, backend_type)
 
                 # Store retry-after in backend instance if this is a rate limit error
@@ -1780,6 +1790,22 @@ class BackendService(IBackendService):
                     last_error = call_exc  # type: ignore[assignment]
 
                 # Use the failure handling strategy to decide next action
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failure strategy check: allow_failover=%s, _failure_strategy=%s",
+                        allow_failover,
+                        self._failure_strategy is not None,
+                    )
+
+                if not allow_failover:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Skipping failure strategy: allow_failover=False")
+                elif self._failure_strategy is None:
+                    logger.warning(
+                        "No failure handling strategy configured - 429 errors will not "
+                        "be retried automatically. Consider configuring a failure strategy."
+                    )
+
                 if allow_failover and self._failure_strategy is not None:
                     # Normalize the error for the strategy
                     normalized_error = (
@@ -1807,6 +1833,16 @@ class BackendService(IBackendService):
                             content_started=content_started,
                         )
                     )
+
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failure strategy decision for %s/%s: %s, wait=%s, next=%s",
+                            current_backend,
+                            effective_model,
+                            failure_decision,
+                            wait_seconds,
+                            next_backend,
+                        )
 
                     if failure_decision == FailureDecision.WAIT_AND_RETRY:
                         if wait_seconds is not None and wait_seconds > 0:

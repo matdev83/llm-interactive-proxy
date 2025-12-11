@@ -157,7 +157,17 @@ class TestFileSandboxingIntegration:
         # Verify the tool call was blocked
         assert isinstance(result, ProcessedResponse)
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "paths outside project root" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        
+        # Handle case where content is a dict (e.g. structured content)
+        if isinstance(content, dict):
+            content = json.dumps(content)
+            
+        assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
     async def test_cline_write_to_file_allowed_inside_project(self, temp_project_dir):
@@ -242,6 +252,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
+        
+        # Handle case where content is a dict (e.g. structured content)
+        if isinstance(content, dict):
+            content = json.dumps(content)
+            
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
@@ -324,6 +339,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
+        
+        # Handle case where content is a dict (e.g. structured content)
+        if isinstance(content, dict):
+            content = json.dumps(content)
+            
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
@@ -882,6 +902,11 @@ class TestFileSandboxingIntegration:
             content = result.content["choices"][0]["message"]["content"]
         else:
             content = result.content
+        
+        # Handle case where content is a dict (e.g. structured content)
+        if isinstance(content, dict):
+            content = json.dumps(content)
+            
         assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio

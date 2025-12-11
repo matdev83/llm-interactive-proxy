@@ -8,7 +8,7 @@ eliminating duplication between streaming and non-streaming paths.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from src.connectors.gemini_base.credentials import _StaticTokenCreds
 from src.core.common.exceptions import AuthenticationError
@@ -22,11 +22,91 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_google_transport_requests():
-    """Lazily import google.auth transport to avoid heavy startup cost."""
-    import google.auth.transport.requests as transport_requests  # type: ignore[import-untyped]
+@runtime_checkable
+class IConnectorDependencies(Protocol):
+    """Narrow interface defining what ChatRequestPreparer needs from a connector.
 
-    return transport_requests
+    This protocol allows testing with mock implementations and avoids
+    coupling the preparer to the full connector class.
+    """
+
+    @property
+    def _oauth_credentials(self) -> dict[str, Any] | None:
+        """Get current OAuth credentials."""
+        ...
+
+    @property
+    def _request_counter(self) -> Any:
+        """Get request counter (may be None)."""
+        ...
+
+    async def _refresh_token_if_needed(self) -> bool:
+        """Ensure a valid access token is available."""
+        ...
+
+    def _get_session_headers(self) -> dict[str, str]:
+        """Get headers for AuthorizedSession requests."""
+        ...
+
+    async def _discover_project_id(self, auth_session: Any) -> str:
+        """Discover the project ID for Code Assist API."""
+        ...
+
+    def _convert_system_messages_for_code_assist(
+        self, gemini_request: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Convert system messages for Code Assist API format."""
+        ...
+
+    def _build_code_assist_request(
+        self, gemini_request: dict[str, Any], final_contents: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Build Code Assist API request from Gemini format."""
+        ...
+
+    def _sanitize_code_assist_tools(
+        self, canonical_request: Any, code_assist_request: dict[str, Any]
+    ) -> None:
+        """Sanitize tool definitions for Code Assist API."""
+        ...
+
+    def _estimate_prompt_tokens(
+        self, code_assist_request: dict[str, Any]
+    ) -> int | None:
+        """Estimate the number of prompt tokens in the request."""
+        ...
+
+    def _enforce_prompt_limit(
+        self,
+        prompt_tokens: int | None,
+        effective_model: str,
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """Enforce prompt token limits, raising InvalidRequestError if exceeded."""
+        ...
+
+    def _build_code_assist_request_body(
+        self,
+        effective_model: str,
+        project_id: str,
+        request_data: Any,
+        code_assist_request: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the final request body for the Code Assist API."""
+        ...
+
+    def _inject_thought_signatures(
+        self, canonical_request: Any, session_id: str
+    ) -> None:
+        """Inject stored thought_signatures into tool_calls."""
+        ...
+
+    def _log_tool_call_signature_state(
+        self, canonical_request: Any, session_id: str, effective_model: str
+    ) -> None:
+        """Log presence/absence of thought signatures."""
+        ...
 
 
 @dataclass
@@ -63,21 +143,35 @@ class ChatRequestPreparer:
 
     This class encapsulates the common setup logic shared between
     streaming and non-streaming chat completion paths.
+
+    The preparer can work with any object that implements IConnectorDependencies,
+    allowing for testing with mock implementations.
     """
 
     def __init__(
         self,
-        connector: "GeminiOAuthBaseConnector",
+        connector: "GeminiOAuthBaseConnector | IConnectorDependencies",
         translation_service: "TranslationService",
+        *,
+        google_auth_provider: GoogleAuthProvider | None = None,
+        thought_signature_service: ThoughtSignatureService | None = None,
+        token_estimator: TiktokenEstimator | None = None,
     ) -> None:
         """Initialize the preparer.
 
         Args:
             connector: The connector instance providing credentials and config.
+                      Can be any object implementing IConnectorDependencies.
             translation_service: Service for request/response translation.
+            google_auth_provider: Optional Google auth provider for testing.
+            thought_signature_service: Optional thought signature service for testing.
+            token_estimator: Optional token estimator for testing.
         """
         self._connector = connector
         self._translation_service = translation_service
+        self._google_auth_provider = google_auth_provider
+        self._thought_signature_service = thought_signature_service
+        self._token_estimator = token_estimator
 
     async def prepare(
         self,
@@ -130,8 +224,8 @@ class ChatRequestPreparer:
         if not access_token:
             raise AuthenticationError("Missing access_token in OAuth credentials")
 
-        transport_requests = _get_google_transport_requests()
-        auth_session = transport_requests.AuthorizedSession(
+        google_auth = self._google_auth_provider or get_default_google_auth_provider()
+        auth_session = google_auth.create_authorized_session(
             _StaticTokenCreds(access_token)
         )
         auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
