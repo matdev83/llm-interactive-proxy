@@ -20,150 +20,150 @@ This refactoring follows incremental development practices to prevent codebase d
 
 ---
 
-- [ ] 1. Extract shared utility modules from Translation class (TDD)
-  - [ ] 1.1 Create translation_utils directory structure
+- [x] 1. Extract shared utility modules from Translation class (TDD)
+  - [x] 1.1 Create translation_utils directory structure
     - Create `src/core/domain/translation_utils/__init__.py`
     - Create directory for shared utility modules
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 8.2_
 
-  - [ ] 1.2 Write tests for JSON utilities (characterize current behavior)
+  - [x] 1.2 Write tests for JSON utilities (characterize current behavior)
     - **Property 2: Shared Utility Output Validity**
     - **Validates: Requirements 2.1**
     - _Requirements: 2.1, 7.4_
 
-  - [ ] 1.3 Extract JSON utilities to json_utils.py
+  - [x] 1.3 Extract JSON utilities to json_utils.py
     - Extract `_is_json_serializable`, `_sanitize_dict_for_json`, `_sanitize_list_for_json` from Translation class
     - Create `src/core/domain/translation_utils/json_utils.py`
     - Update imports in Translation class to use new module
     - _Requirements: 2.1, 8.2_
 
-  - [ ] 1.4 Phase gate: run tests after JSON utility extraction
+  - [x] 1.4 Phase gate: run tests after JSON utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest -k "sanitize or json_utils or translation"`
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 1.5 Write tests for tool utilities (characterize current behavior)
+  - [x] 1.5 Write tests for tool utilities (characterize current behavior)
     - **Property 2: Shared Utility Output Validity**
     - **Validates: Requirements 2.2**
     - _Requirements: 2.2, 7.4_
 
-  - [ ] 1.6 Extract tool utilities to tool_utils.py
+  - [x] 1.6 Extract tool utilities to tool_utils.py
     - Extract `_normalize_tool_arguments`, `_process_gemini_function_call` from Translation class
     - Create `src/core/domain/translation_utils/tool_utils.py`
     - Update imports in Translation class
     - _Requirements: 2.2, 8.2_
 
-  - [ ] 1.7 Phase gate: run tests after tool utility extraction
+  - [x] 1.7 Phase gate: run tests after tool utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest -k "tool_utils or tool_call or translation"`
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 1.8 Write tests for media utilities (characterize current behavior)
+  - [x] 1.8 Write tests for media utilities (characterize current behavior)
     - **Property 2: Shared Utility Output Validity**
     - **Validates: Requirements 2.4**
     - _Requirements: 2.4, 7.4_
 
-  - [ ] 1.9 Extract media utilities to media_utils.py
+  - [x] 1.9 Extract media utilities to media_utils.py
     - Extract `_detect_image_mime_type`, `_process_gemini_image_part` from Translation class
     - Create `src/core/domain/translation_utils/media_utils.py`
     - Update imports in Translation class
     - _Requirements: 2.4, 8.2_
 
-  - [ ] 1.10 Phase gate: run tests after media utility extraction
+  - [x] 1.10 Phase gate: run tests after media utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest -k "media or multimodal or translation"`
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 1.11 Write tests for content utilities (characterize current behavior)
+  - [x] 1.11 Write tests for content utilities (characterize current behavior)
     - **Property 2: Shared Utility Output Validity**
     - **Validates: Requirements 2.5**
     - _Requirements: 2.5, 7.4_
 
-  - [ ] 1.12 Extract content utilities to content_utils.py
+  - [x] 1.12 Extract content utilities to content_utils.py
     - Extract `_safe_string`, `_coerce_reasoning_text`, `_collect_reasoning_lines` from Translation class
     - Create `src/core/domain/translation_utils/content_utils.py`
     - Update imports in Translation class
     - _Requirements: 2.5, 8.2_
 
-  - [ ] 1.13 Phase gate: run tests after content utility extraction
+  - [x] 1.13 Phase gate: run tests after content utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest -k "reasoning or content_utils or translation"`
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 1.14 Write tests for usage utilities (characterize current behavior)
+  - [x] 1.14 Write tests for usage utilities (characterize current behavior)
     - **Property 7: Usage Metadata Normalization Consistency**
     - **Validates: Requirements 2.3**
     - _Requirements: 2.3, 7.4_
 
-  - [ ] 1.15 Extract usage utilities to usage_utils.py
+  - [x] 1.15 Extract usage utilities to usage_utils.py
     - Extract `_normalize_usage_metadata` from Translation class
     - Create `src/core/domain/translation_utils/usage_utils.py`
     - Update imports in Translation class
     - _Requirements: 2.3, 8.2_
 
-  - [ ] 1.16 Phase gate: run tests after usage utility extraction
+  - [x] 1.16 Phase gate: run tests after usage utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest -k "usage or usage_utils or translation"`
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 1.17 Final gate: run full test suite after all utility extraction
+  - [x] 1.17 Final gate: run full test suite after all utility extraction
     - Run `./.venv/Scripts/python.exe -m pytest` to verify no regressions
     - All existing tests must pass before proceeding
     - _Requirements: 7.5_
 
-- [ ] 2. Checkpoint - Ensure all tests pass
+- [x] 2. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 3. Create translator infrastructure
-  - [ ] 3.1 Write tests for TranslatorRegistry routing and alias support (TDD)
+- [x] 3. Create translator infrastructure
+  - [x] 3.1 Write tests for TranslatorRegistry routing and alias support (TDD)
     - **Property 5: Format-Based Routing Correctness**
     - Include coverage for format aliases (e.g., `openai-responses` → Responses translator)
     - _Requirements: 4.3, 4.4_
 
-  - [ ] 3.2 Create TranslatorProtocol interface
+  - [x] 3.2 Create TranslatorProtocol interface
     - Create `src/core/interfaces/translator_protocol.py`
     - Define TranslatorProtocol with to_domain_request, from_domain_request, to_domain_response, from_domain_response
     - Define StreamingTranslatorProtocol with to_domain_stream_chunk, from_domain_stream_chunk
     - _Requirements: 4.1, 4.2, 8.3_
 
-  - [ ] 3.3 Create BaseFormatTranslator abstract base class
+  - [x] 3.3 Create BaseFormatTranslator abstract base class
     - Create `src/core/domain/translators/__init__.py`
     - Create `src/core/domain/translators/base.py`
     - Implement BaseFormatTranslator ABC with abstract methods
     - Implement StreamingTranslatorMixin
     - _Requirements: 4.1, 4.2, 8.1_
 
-  - [ ] 3.4 Create TranslatorRegistry
+  - [x] 3.4 Create TranslatorRegistry
     - Create `src/core/domain/translators/registry.py`
     - Implement register, register_factory, get, has methods
     - Support lazy translator creation via factories
     - Ensure format alias support (e.g., `openai-responses` → Responses translator)
     - _Requirements: 3.1, 3.2, 4.3, 4.4, 8.1_
 
-  - [ ] 3.5 Run full test suite after infrastructure creation
+  - [x] 3.5 Run full test suite after infrastructure creation
     - Run `./.venv/Scripts/python.exe -m pytest` to verify no regressions
     - New infrastructure must not break existing functionality
     - _Requirements: 7.5_
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 5. Implement OpenAI translator (TDD)
-  - [ ] 5.1 Write property/unit tests for OpenAI translator backward compatibility
+- [x] 5. Implement OpenAI translator (TDD)
+  - [x] 5.1 Write property/unit tests for OpenAI translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
     - **Validates: Requirements 5.1, 5.2**
     - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
 
-  - [ ] 5.2 Write property/unit tests for OpenAI translator correctness
+  - [x] 5.2 Write property/unit tests for OpenAI translator correctness
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.1**
     - _Requirements: 1.1, 7.1, 7.2, 7.3_
 
-  - [ ] 5.3 Create OpenAITranslator class
+  - [x] 5.3 Create OpenAITranslator class
     - Create `src/core/domain/translators/openai_translator.py`
     - Extract `openai_to_domain_request` logic from Translation class
     - Extract `openai_to_domain_response` logic from Translation class
@@ -171,26 +171,26 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.1, 6.1, 6.2, 6.3_
 
-  - [ ] 5.4 Run targeted tests after OpenAI translator
+  - [x] 5.4 Run targeted tests after OpenAI translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "openai or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 5.5 Phase gate: run full test suite after OpenAI translator
+  - [x] 5.5 Phase gate: run full test suite after OpenAI translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-- [ ] 6. Implement Anthropic translator (TDD)
-  - [ ] 6.1 Write property/unit tests for Anthropic translator backward compatibility
+- [x] 6. Implement Anthropic translator (TDD)
+  - [x] 6.1 Write property/unit tests for Anthropic translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
     - **Validates: Requirements 5.1, 5.2**
     - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
 
-  - [ ] 6.2 Write property/unit tests for Anthropic translator correctness
+  - [x] 6.2 Write property/unit tests for Anthropic translator correctness
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.2**
     - _Requirements: 1.2, 7.1, 7.2, 7.3_
 
-  - [ ] 6.3 Create AnthropicTranslator class
+  - [x] 6.3 Create AnthropicTranslator class
     - Create `src/core/domain/translators/anthropic_translator.py`
     - Extract `anthropic_to_domain_request` logic from Translation class
     - Extract `anthropic_to_domain_response` logic from Translation class
@@ -199,15 +199,15 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.2, 6.1, 6.2, 6.3_
 
-  - [ ] 6.4 Run targeted tests after Anthropic translator
+  - [x] 6.4 Run targeted tests after Anthropic translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "anthropic or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 6.5 Phase gate: run full test suite after Anthropic translator
+  - [x] 6.5 Phase gate: run full test suite after Anthropic translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-- [ ] 7. Checkpoint - Ensure all tests pass
+- [x] 7. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_
