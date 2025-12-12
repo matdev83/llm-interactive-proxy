@@ -11,6 +11,88 @@ The refactoring follows SOLID principles, particularly:
 - **ISP**: Interfaces are focused and minimal
 - **DIP**: High-level modules depend on abstractions
 
+## Invariants and Gotchas to Preserve
+
+These are concrete, observable behaviors from the current `BackendService` implementation and its tests. Treat them as regression targets while extracting services.
+
+### Streaming / SSE
+
+- `_stream_as_sse_bytes` accepts an async iterator yielding `ProcessedResponse`, `dict`, `str`, or `bytes`, and always yields SSE‑encoded `bytes`.
+- Content that already begins with `data:` (bytes or str) is passed through unchanged.
+- Raw `[DONE]` / `["DONE"]` is normalized to exactly `b"data: [DONE]\n\n"`. If a stream ends without any done marker, one is appended.
+- `StopChunkWithUsage` is special‑cased: serialize via `StreamingContent(..., usage=...)` so usage is top‑level, then mark done.
+- `_chunk_signals_done` treats completion as signaled by any of: raw/sse `[DONE]`, `metadata.finish_reason`, `content.metadata.finish_reason`, or OpenAI‑style `choices[*].finish_reason` / empty deltas with finish_reason.
+
+### Usage Tracking
+
+- `_wrap_stream_for_usage` is a no‑op when `IUsageTrackingService` is not injected or both record IDs are `None`.
+- TTFT is measured on the first *valid* completion token per `_is_valid_completion_token`.
+- Final usage is sourced, in priority order: `StopChunkWithUsage.usage`, `dict["usage"]`, then `ProcessedResponse.usage`.
+- On completion, wrapper records TTFT, total duration, and streaming TPS to both PTB and CTP records when present.
+
+### Model Aliases
+
+- Aliases are read from `AppConfig.model_aliases`; if missing or non‑iterable (e.g., mocks), return the original model.
+- Matching uses `re.match` semantics (start‑anchored unless user‑anchored explicitly); first match wins.
+- Replacements use `match.expand` to support capture groups.
+- Invalid regex patterns never throw; log at WARNING and skip.
+
+### URI Parameters
+
+- `_apply_uri_parameters` early‑returns if `uri_params` is empty.
+- Sources and precedence: session overrides > URI params > request/extra_body fields (headers) > backend/app config.
+- Type coercion rules: `temperature` / `top_p` → float, `top_k` → int (reject non‑integer floats), `reasoning_effort` → str.
+- Edit‑precision mode (`_edit_precision_mode` in `extra_body`) promotes one‑shot request fields into session‑level precedence.
+
+### Reasoning Config
+
+- If `session.get_reasoning_mode()` returns `None`, request is unchanged.
+- Numeric overrides respect edit‑precision constraints.
+- Prompt prefix/suffix is applied to user text in both string and multipart message content without altering non‑text parts.
+
+### Planning Phase
+
+- Enabled only when `session.state.planning_phase_config.enabled` and `strong_model` are set.
+- When max turns or file writes are reached, restore original backend/model and clear original‑route fields.
+- Original route is persisted only once per planning phase.
+
+### Backend Lifecycle
+
+- Permanently disabled backends are tracked by backend type; attempts to create them raise `BackendError`.
+- Cache key rules:
+  - With `session_id`: `f"{backend_type}:{session_id}"`.
+  - Special case `gemini-cli-acp` without session_id: `f"{backend_type}:default"`.
+  - Otherwise: `backend_type`.
+- Per‑session cache is LRU via `OrderedDict`; eviction shuts down backends.
+- `_discard_backend` disables globally and removes both global and per‑session variants.
+
+### Exception Normalization
+
+- HTTP 429 → `RateLimitExceededError` with message extracted from nested `detail` blocks when possible.
+- Preserve retry‑after headers and compute `reset_at`.
+- HTTP 4xx → `InvalidRequestError`; HTTP 5xx/other → `BackendError`.
+- Normalizer never raises.
+
+## Service Boundaries and State Ownership
+
+| Service | Extracted logic | Owns state | Injected dependencies | Notes |
+| --- | --- | --- | --- | --- |
+| StreamFormattingService | `_stream_as_sse_bytes`, `_format_as_sse`, `_chunk_signals_done`, `_is_valid_completion_token` | None | None | Must be usable from static wrappers. |
+| UsageTrackingWrapper | `_wrap_stream_for_usage` | None | `IUsageTrackingService`, `IStreamFormattingService` | Uses SFS for token validation. |
+| ModelAliasResolver | `_apply_model_aliases` | None | `IConfig` (AppConfig) | Read‑only access to `model_aliases`. |
+| URIParameterApplicator | `_apply_uri_parameters` | None | `IConfig` (AppConfig), `ParameterResolutionService`, `URIParameterValidator` | Existing services may be instantiated internally if not DI‑registered. |
+| ReasoningConfigApplicator | `_apply_reasoning_config` | None | None | Keep current mock‑tolerant logic. |
+| PlanningPhaseManager | `_apply_planning_phase_if_needed`, `_update_planning_phase_counters`, `_restore_planning_phase_route`, `_count_file_writes_in_response` | None | `ISessionService` | Pure session‑state mutations. |
+| BackendLifecycleManager | `_get_or_create_backend`, `_shutdown_backend`, `_discard_backend`, cache helpers | `_backends`, `_per_session_backends`, `_disabled_backends`, `_backend_configs`, per‑session limit | `BackendFactory`, optional `IBackendConfigProvider`, `IConfig` | Must also support sync `get_backend` used in tests. |
+| ExceptionNormalizer | `_normalize_provider_exception` | None | None | Pure translation, never throws. |
+
+## Interface Style Conventions
+
+- Default to `abc.ABC` + `@abstractmethod` for new interfaces under `src/core/interfaces/`. This matches most core service interfaces and provides explicit DI tokens.
+- Use `Protocol` only for purely structural typing where no runtime identity or DI registration is required.
+- Keep method signatures behavior‑compatible with existing helpers (avoid widening/renaming args).
+- Public interface methods must have short, behavioral docstrings; implementation details belong in services.
+
 ## Architecture
 
 The refactored architecture decomposes `BackendService` into a coordinator that delegates to specialized services:
@@ -64,6 +146,7 @@ graph TB
     BS --> RC
     BS --> FHS
     UTW --> UTS
+    UTW --> SFS
     PPM --> SS
 ```
 
@@ -117,7 +200,6 @@ class IUsageTrackingWrapper(ABC):
         ctp_record_id: str | None,
         ptb_record_id: str | None,
         start_time: float,
-        token_validator: Any,
     ) -> AsyncIterator[Any]:
         """Wrap stream to track usage metrics."""
 ```
@@ -135,8 +217,8 @@ from typing import Any
 
 class IModelAliasResolver(ABC):
     @abstractmethod
-    def resolve(self, model: str, aliases: list[Any] | None) -> str:
-        """Apply model aliases and return resolved model name."""
+    def resolve(self, model: str) -> str:
+        """Apply configured model aliases and return resolved model name."""
 ```
 
 ### 4. IURIParameterApplicator
@@ -158,8 +240,7 @@ class IURIParameterApplicator(ABC):
         request: ChatRequest,
         uri_params: dict[str, Any],
         backend_type: str,
-        session: Any | None,
-        config: Any,
+        session: Any | None = None,
     ) -> ChatRequest:
         """Apply URI parameters to request with precedence resolution."""
 ```
@@ -278,11 +359,11 @@ No new data models are required. The refactoring uses existing domain models:
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
 ### Property 1: SSE Format Consistency
-*For any* valid domain chunk (ProcessedResponse, dict, str, or bytes), formatting it as SSE SHALL produce bytes starting with "data: " and ending with "\n\n".
+*For any* valid domain chunk (ProcessedResponse, dict, str, or bytes), `format_chunk_as_sse` SHALL: (a) pass through content already framed as SSE (`data:` prefix), (b) normalize raw `[DONE]` / `["DONE"]` to `data: [DONE]\n\n`, and (c) otherwise return bytes framed as `data: {payload}\n\n`.
 **Validates: Requirements 5.1, 5.3**
 
 ### Property 2: Done Marker Detection
-*For any* chunk containing "[DONE]" or finish_reason, the stream formatter SHALL detect it as signaling completion.
+*For any* chunk containing raw/sse `[DONE]` / `["DONE"]`, `metadata.finish_reason`, `content.metadata.finish_reason`, or `choices[*].finish_reason`, the formatter SHALL detect it as signaling completion and emit exactly one done marker for the stream.
 **Validates: Requirements 5.4**
 
 ### Property 3: Valid Token Identification
@@ -294,11 +375,11 @@ No new data models are required. The refactoring uses existing domain models:
 **Validates: Requirements 6.2, 6.3**
 
 ### Property 5: Model Alias Round-Trip
-*For any* model name and alias configuration, applying aliases and then checking if the result matches the expected pattern SHALL be consistent.
+*For any* model name and configured aliases, the resolver SHALL apply at most one rewrite using the first matching `re.match` rule and `match.expand` replacement semantics.
 **Validates: Requirements 7.1, 7.2**
 
 ### Property 6: Alias Graceful Degradation
-*For any* invalid regex pattern in aliases, the resolver SHALL return the original model name without throwing.
+*For any* invalid regex pattern in aliases, the resolver SHALL skip it, log at WARNING, and return the original model name when no valid match exists.
 **Validates: Requirements 7.3, 7.4**
 
 ### Property 7: Parameter Precedence
@@ -408,6 +489,40 @@ class BackendService(IBackendService):
         # ... initialization with fallback to default implementations
 ```
 
+### DI Wiring Pattern (src/core/di/services.py)
+
+Use the existing DI helpers and singleton lifetimes (these services are stateless or manage shared caches):
+
+```python
+def register_core_services(services: ServiceCollection, config: AppConfig | None) -> None:
+    services.add_singleton(IStreamFormattingService, implementation_type=StreamFormattingService)
+    services.add_singleton(IUsageTrackingWrapper, implementation_type=UsageTrackingWrapper)
+    services.add_singleton(IModelAliasResolver, implementation_type=ModelAliasResolver)
+    services.add_singleton(IURIParameterApplicator, implementation_type=URIParameterApplicator)
+    services.add_singleton(IReasoningConfigApplicator, implementation_type=ReasoningConfigApplicator)
+    services.add_singleton(IPlanningPhaseManager, implementation_type=PlanningPhaseManager)
+    services.add_singleton(IBackendLifecycleManager, implementation_type=BackendLifecycleManager)
+    services.add_singleton(IExceptionNormalizer, implementation_type=ExceptionNormalizer)
+
+    def _backend_service_factory(provider: IServiceProvider) -> BackendService:
+        return BackendService(
+            factory=provider.get_required_service(BackendFactory),
+            rate_limiter=provider.get_required_service(IRateLimiter),
+            config=provider.get_required_service(AppConfig),
+            session_service=provider.get_required_service(ISessionService),
+            app_state=provider.get_required_service(IApplicationState),
+            stream_formatting_service=provider.get_required_service(IStreamFormattingService),
+            usage_tracking_wrapper=provider.get_required_service(IUsageTrackingWrapper),
+            model_alias_resolver=provider.get_required_service(IModelAliasResolver),
+            uri_parameter_applicator=provider.get_required_service(IURIParameterApplicator),
+            reasoning_config_applicator=provider.get_required_service(IReasoningConfigApplicator),
+            planning_phase_manager=provider.get_required_service(IPlanningPhaseManager),
+            backend_lifecycle_manager=provider.get_required_service(IBackendLifecycleManager),
+            exception_normalizer=provider.get_required_service(IExceptionNormalizer),
+            # keep existing optional deps resolution as today
+        )
+```
+
 ### Backward Compatibility
 
 To maintain backward compatibility:
@@ -416,6 +531,8 @@ To maintain backward compatibility:
 2. When `None`, BackendService creates default implementations internally
 3. This allows gradual migration and doesn't break existing instantiation code
 4. DI container will be updated to inject the new services
+5. BackendService keeps existing helper/private methods as thin delegating wrappers to avoid breaking existing tests and debugging scripts
+6. Some helpers are invoked in tests as unbound methods with a dummy `self` (e.g., `_apply_reasoning_config`, `_stream_as_sse_bytes`); wrappers MUST continue to work in that mode by not requiring initialized instance state, or by falling back to local default implementations.
 
 ### File Organization
 

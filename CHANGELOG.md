@@ -4,6 +4,7 @@
 
 ### Refactored
 
+- **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
 - **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
   - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
   - **Streaming Executor**: Enhanced `StreamingExecutor` for more robust stream handling and error recovery
@@ -11,6 +12,7 @@
 
 ### Added
 
+- **Code Analysis Tools**: Added `scripts/analyze_codebase.py` for cyclomatic complexity and maintainability index analysis, and `GOD_OBJECTS_REPORT.md` baseline.
 - **Developer Tool Exemptions**: Intelligent exemption system for safe developer tools in dangerous command protection
   - **Smart Detection**: Automatically exempts common safe tools (linters, formatters, test runners) from dangerous command blocks
   - **Tool Support**: Includes Python (ruff, black, mypy), JS/TS (eslint, prettier), Rust (cargo), Go, and more
@@ -59,6 +61,7 @@
 
 ### Fixed
 
+- **Gemini Streaming**: Fixed retry logic syntax in `streaming_executor.py` to correctly check sleep time.
 - **Gemini Auth Retry**: Force credential reload on 401 retry to ensure fresh tokens are used
 - **Gemini Rate Limits**: Implemented automatic retry for rate limit errors with `retry-after` header support in `GeminiOAuthBaseConnector`
 - **Thought Signatures**: Added secondary index by tool call ID to `ThoughtSignatureManager` to persist signatures across session ID changes

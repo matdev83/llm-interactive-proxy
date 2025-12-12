@@ -931,12 +931,11 @@ class StreamingExecutor:
                 backend_error, attempt, is_streaming=True
             )
             sleep_seconds = retry_decision.sleep_seconds
-            should_retry = (
+            if (
                 retry_decision.should_retry
                 and sleep_seconds is not None
                 and not _rate_limit_retry_attempted
-            )
-            if should_retry:
+            ):
                 with contextlib.suppress(Exception):
                     response.close()
                 logger.info(

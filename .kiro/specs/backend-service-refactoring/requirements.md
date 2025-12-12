@@ -69,6 +69,8 @@ This document specifies the requirements for refactoring the `BackendService` cl
 2. WHEN the refactoring is complete THEN the system SHALL pass all existing integration tests without modification
 3. WHEN new services are created THEN the system SHALL include unit tests for each new service
 4. WHEN the refactoring is complete THEN the test suite SHALL achieve zero test failures
+5. WHEN responsibilities are extracted THEN BackendService SHALL retain existing helper/private methods with compatible signatures (e.g., `_stream_as_sse_bytes`, `_wrap_stream_for_usage`, `_apply_model_aliases`, `_apply_reasoning_config`, `_apply_uri_parameters`, planning phase helpers, lifecycle helpers, `_normalize_provider_exception`) as thin delegating wrappers so existing tests and scripts do not require changes
+6. WHEN helpers are delegated to extracted services THEN those services SHALL preserve the observable invariants documented in Design → “Invariants and Gotchas to Preserve”
 
 ### Requirement 5
 
