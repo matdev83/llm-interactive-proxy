@@ -38,15 +38,15 @@ This plan follows TDD (Test-Driven Development) methodology: Write tests first (
     - Update `parse_cli_args()` to delegate to `CliArgsValidator` while preserving existing exception messages
     - _Requirements: 1.4, 7.5, 9.1_
 
-- [ ] 3. Domain Applicators (TDD)
+- [x] 3. Domain Applicators (TDD)
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 9.1, 9.3_
-  - [ ] 3.1 Write property test for domain applicator isolation (RED)
+  - [x] 3.1 Write property test for domain applicator isolation (RED)
     - Create `tests/property/core/cli_support/test_domain_applicators_property.py`
     - **Property 3: Domain Applicator Isolation**
     - **Validates: Requirements 6.2**
     - Tests should fail initially (no implementation yet)
     - _Requirements: 6.2, 9.3_
-  - [ ] 3.2 Write unit tests for domain applicators (RED)
+  - [x] 3.2 Write unit tests for domain applicators (RED)
     - Create `tests/unit/core/cli_support/applicators/test_server_applicator.py`
     - Create `tests/unit/core/cli_support/applicators/test_logging_applicator.py`
     - Create `tests/unit/core/cli_support/applicators/test_backend_applicator.py`
@@ -56,55 +56,55 @@ This plan follows TDD (Test-Driven Development) methodology: Write tests first (
     - Test environment variable handling
     - Tests should fail initially
     - _Requirements: 6.3, 6.5, 9.1_
-  - [ ] 3.3 Create ServerApplicator (GREEN)
+  - [x] 3.3 Create ServerApplicator (GREEN)
     - Create `src/core/cli_support/applicators/server_applicator.py`
     - Extract host, port, timeout, command_prefix, context_window logic
     - Make server applicator tests pass
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.4 Create LoggingApplicator (GREEN)
+  - [x] 3.4 Create LoggingApplicator (GREEN)
     - Create `src/core/cli_support/applicators/logging_applicator.py`
     - Extract log_file, log_level, capture settings, CBOR capture logic
     - Make logging applicator tests pass
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.5 Create BackendApplicator (GREEN)
+  - [x] 3.5 Create BackendApplicator (GREEN)
     - Create `src/core/cli_support/applicators/backend_applicator.py`
     - Extract default_backend, API keys, static_route, hybrid settings, debugging overrides
     - Make backend applicator tests pass
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.6 Create SessionApplicator (GREEN)
+  - [x] 3.6 Create SessionApplicator (GREEN)
     - Create `src/core/cli_support/applicators/session_applicator.py`
     - Extract session flags, planning phase, tool access, pytest settings
     - Make session applicator tests pass
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.7 Create AuthApplicator (GREEN)
+  - [x] 3.7 Create AuthApplicator (GREEN)
     - Create `src/core/cli_support/applicators/auth_applicator.py`
     - Extract auth flags, SSO settings, brute force protection
     - Make auth applicator tests pass
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.8 Create AssessmentApplicator (GREEN)
+  - [x] 3.8 Create AssessmentApplicator (GREEN)
     - Create `src/core/cli_support/applicators/assessment_applicator.py`
     - Extract LLM assessment configuration
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.9 Create MemoryApplicator (GREEN)
+  - [x] 3.9 Create MemoryApplicator (GREEN)
     - Create `src/core/cli_support/applicators/memory_applicator.py`
     - Extract ProxyMem configuration
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.10 Create FailureHandlingApplicator (GREEN)
+  - [x] 3.10 Create FailureHandlingApplicator (GREEN)
     - Create `src/core/cli_support/applicators/failure_handling_applicator.py`
     - Extract failure handling configuration
     - _Requirements: 6.1, 6.2_
-  - [ ] 3.11 Create additional applicators (GREEN)
+  - [x] 3.11 Create additional applicators (GREEN) - Created EditPrecisionApplicator, IdentityApplicator, RoutingApplicator, CompactionApplicator, SandboxingApplicator
     - Create `EditPrecisionApplicator`, `IdentityApplicator`, `RoutingApplicator`, `CompactionApplicator`
     - Make all domain applicator tests pass including property test
     - _Requirements: 6.1, 6.2, 6.4_
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass (230 tests passing in cli_support)
   - Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 7.3, 9.2_
 
-- [ ] 5. ConfigurationApplicator (TDD)
+- [x] 5. ConfigurationApplicator (TDD)
   - _Requirements: 1.1, 1.2, 1.3, 6.1, 7.1, 7.5, 8.3, 9.1, 9.3_
-  - [ ] 5.1 Write unit + property tests for ConfigurationApplicator (RED)
+  - [x] 5.1 Write unit + property tests for ConfigurationApplicator (RED)
     - Create `tests/unit/core/cli_support/test_configuration_applicator.py`
     - Create `tests/property/core/cli_support/test_configuration_applicator_property.py`
     - **Property 1: Argument Parsing Round-Trip Consistency**
@@ -113,13 +113,13 @@ This plan follows TDD (Test-Driven Development) methodology: Write tests first (
     - **Validates: Requirements 1.3**
     - Tests should fail initially
     - _Requirements: 1.1, 1.2, 1.3, 7.1, 8.3, 9.1, 9.3_
-  - [ ] 5.2 Create `ConfigurationApplicator` class (GREEN)
+  - [x] 5.2 Create `ConfigurationApplicator` class (GREEN)
     - Create `src/core/cli_support/configuration_applicator.py`
     - Implement coordination of domain applicators
     - Handle ParameterResolution recording
     - Make property tests pass
     - _Requirements: 1.2, 1.3, 6.1_
-  - [ ] 5.3 Update `cli.py` to use `ConfigurationApplicator`
+  - [x] 5.3 Update `cli.py` to use `ConfigurationApplicator`
     - Replace `apply_cli_args()` internals with delegation to `ConfigurationApplicator`
     - Maintain backward compatibility of `apply_cli_args()` signature
     - _Requirements: 7.1, 7.5_

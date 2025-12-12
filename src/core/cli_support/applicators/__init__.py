@@ -22,9 +22,44 @@ Domain Applicators:
 - IdentityApplicator: client identity override
 - RoutingApplicator: routing policies
 - CompactionApplicator: context compaction
+- SandboxingApplicator: file access sandboxing
 
 Requirements satisfied:
 - 6.1: ConfigurationApplicator delegates to domain-specific applicators
 - 6.2: Each domain applicator only modifies its relevant configuration section
 - 6.4: New configuration domains can be added without modifying existing applicators
 """
+
+from src.core.cli_support.applicators.assessment_applicator import AssessmentApplicator
+from src.core.cli_support.applicators.auth_applicator import AuthApplicator
+from src.core.cli_support.applicators.backend_applicator import BackendApplicator
+from src.core.cli_support.applicators.compaction_applicator import CompactionApplicator
+from src.core.cli_support.applicators.editprecision_applicator import (
+    EditPrecisionApplicator,
+)
+from src.core.cli_support.applicators.failurehandling_applicator import (
+    FailureHandlingApplicator,
+)
+from src.core.cli_support.applicators.identity_applicator import IdentityApplicator
+from src.core.cli_support.applicators.logging_applicator import LoggingApplicator
+from src.core.cli_support.applicators.memory_applicator import MemoryApplicator
+from src.core.cli_support.applicators.routing_applicator import RoutingApplicator
+from src.core.cli_support.applicators.sandboxing_applicator import SandboxingApplicator
+from src.core.cli_support.applicators.server_applicator import ServerApplicator
+from src.core.cli_support.applicators.session_applicator import SessionApplicator
+
+__all__ = [
+    "AssessmentApplicator",
+    "AuthApplicator",
+    "BackendApplicator",
+    "CompactionApplicator",
+    "EditPrecisionApplicator",
+    "FailureHandlingApplicator",
+    "IdentityApplicator",
+    "LoggingApplicator",
+    "MemoryApplicator",
+    "RoutingApplicator",
+    "SandboxingApplicator",
+    "ServerApplicator",
+    "SessionApplicator",
+]

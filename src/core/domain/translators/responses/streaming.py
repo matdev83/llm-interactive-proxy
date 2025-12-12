@@ -5,9 +5,9 @@ import logging
 from typing import Any, cast
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+from src.core.domain import translation as translation_module
 from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.translation import Translation
-from src.core.services.tool_text_renderer import render_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             type="function",
             function=FunctionCall(name=name, arguments=arguments),
         )
-        tool_text = render_tool_call(tool_call_obj)
+        tool_text = translation_module.render_tool_call(tool_call_obj)
         delta = {
             "tool_calls": [
                 {
@@ -285,7 +285,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 type="function",
                 function=FunctionCall(name=item.get("name", ""), arguments=arguments),
             )
-            tool_text = render_tool_call(tool_call_obj)
+            tool_text = translation_module.render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -322,7 +322,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     name=item.get("name", ""), arguments=input_payload
                 ),
             )
-            tool_text = render_tool_call(tool_call_obj)
+            tool_text = translation_module.render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -355,7 +355,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 type="function",
                 function=FunctionCall(name="shell", arguments=arguments),
             )
-            tool_text = render_tool_call(tool_call_obj)
+            tool_text = translation_module.render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {

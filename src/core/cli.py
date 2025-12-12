@@ -1214,7 +1214,44 @@ def apply_cli_args(
     return_resolution: bool = False,
     resolution: ParameterResolution | None = None,
 ) -> AppConfig | tuple[AppConfig, ParameterResolution]:
-    """Apply CLI arguments to configuration with full feature parity."""
+    """Apply CLI arguments to configuration with full feature parity.
+
+    This function delegates to ConfigurationApplicator for applying arguments.
+    The delegation maintains backward compatibility while organizing argument
+    application by domain.
+
+    Args:
+        args: Parsed command line arguments
+        return_resolution: If True, return (config, resolution) tuple
+        resolution: Optional pre-existing resolution tracker
+
+    Returns:
+        AppConfig if return_resolution is False
+        tuple (AppConfig, ParameterResolution) if return_resolution is True
+    """
+    from src.core.cli_support.configuration_applicator import ConfigurationApplicator
+
+    applicator = ConfigurationApplicator()
+    return applicator.apply(args, return_resolution=return_resolution, resolution=resolution)
+
+
+# ============================================================================
+# Legacy apply_cli_args implementation preserved for reference
+# (Now handled by ConfigurationApplicator)
+# ============================================================================
+
+
+def _apply_cli_args_legacy(
+    args: argparse.Namespace,
+    *,
+    return_resolution: bool = False,
+    resolution: ParameterResolution | None = None,
+) -> AppConfig | tuple[AppConfig, ParameterResolution]:
+    """Legacy implementation preserved for reference - DO NOT USE.
+
+    This function preserves the original implementation for reference.
+    All new code should use apply_cli_args() which delegates to ConfigurationApplicator.
+    """
     res = resolution or ParameterResolution()
     config_path = getattr(args, "config_file", None)
     cfg: AppConfig = cast(

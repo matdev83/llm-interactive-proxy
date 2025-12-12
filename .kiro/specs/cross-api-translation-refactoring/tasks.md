@@ -344,36 +344,36 @@ This refactoring follows incremental development practices to prevent codebase d
     - All translators must work correctly before proceeding to facade refactoring
     - _Requirements: 7.5_
 
-- [ ] 13. Refactor Translation class to facade
-  - [ ] 13.1 Write property/unit tests for Translation facade delegation (TDD)
+- [x] 13. Refactor Translation class to facade
+  - [x] 13.1 Write property/unit tests for Translation facade delegation (TDD)
     - **Property 5: Format-Based Routing Correctness**
     - **Validates: Requirements 9.1, 9.2, 9.3**
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 13.2 Initialize TranslatorRegistry with all translators
+  - [x] 13.2 Initialize TranslatorRegistry with all translators
     - Create initialization code that registers all translators
     - Support lazy loading via factories for performance
     - _Requirements: 3.1, 3.4_
 
-  - [ ] 13.3 Update Translation static methods to delegate
+  - [x] 13.3 Update Translation static methods to delegate
     - Update `gemini_to_domain_request` to delegate to GeminiTranslator
     - Update `anthropic_to_domain_response` to delegate to AnthropicTranslator
     - Update `openai_to_domain_stream_chunk` to delegate to OpenAITranslator
     - Update all other methods to delegate to appropriate translators
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 13.4 Remove extracted code from Translation class
+  - [x] 13.4 Remove extracted code from Translation class
     - Remove method implementations that are now in specialized translators
     - Keep only delegation logic and backward-compatible static methods
     - Verify Translation class is under 500 lines
     - _Requirements: 8.4, 9.4_
 
-  - [ ] 13.5 Run full test suite after facade refactoring
+  - [x] 13.5 Run full test suite after facade refactoring
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
     - Critical checkpoint: facade must maintain 100% backward compatibility
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 7.5_
 
-- [ ] 14. Checkpoint - Ensure all tests pass
+- [x] 14. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_

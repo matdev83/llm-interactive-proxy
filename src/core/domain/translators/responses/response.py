@@ -216,7 +216,7 @@ def from_domain_to_responses_response(response: ChatResponse) -> dict[str, Any]:
                     try:
                         import re
 
-                        json_pattern = r"\\{.*\\}"
+                        json_pattern = r"\{.*\}"
                         json_match = re.search(json_pattern, cleaned_content, re.DOTALL)
                         if json_match:
                             potential_json = json_match.group(0)
