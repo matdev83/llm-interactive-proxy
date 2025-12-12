@@ -2,68 +2,65 @@
 
 ## Overview
 
-This design document describes the refactoring of the Cross-API Translation service from a monolithic "God Object" pattern into a modular, layered architecture. The current `Translation` class (4447 lines, 51 methods) will be decomposed into specialized translator modules following SOLID principles, with shared utilities extracted into reusable components.
+This design document describes the refactoring of the Cross-API Translation service from a monolithic "God Object" pattern into a modular, layered architecture. The current `Translation` class in `src/core/domain/translation.py` (~4.4k lines, 51 methods) will be decomposed into specialized translator modules following SOLID principles, with shared utilities extracted into reusable components. The refactor also targets `TranslationService` in `src/core/services/translation_service.py` (~1k lines) which currently duplicates and orchestrates portions of the same logic.
 
 The refactoring uses the Strategy pattern for translator implementations, Factory pattern for translator creation, and Facade pattern to maintain backward compatibility with existing public APIs.
+
+## Goals
+
+- Split `Translation` into focused translator modules by format: `openai`, `anthropic`, `gemini`, `responses` (including `openai-responses`), `code_assist`, `openrouter`, `raw_text`.
+- Extract shared helpers (JSON sanitization, tool args, usage normalization, multimodal helpers, safe string coercion) into reusable modules.
+- Preserve backward compatibility for all existing public translation entrypoints and the compatibility modules `src/anthropic_converters.py` and `src/gemini_converters.py`.
+- Integrate cleanly with the existing DI container (`ServiceCollection`) without introducing new DI infrastructure.
+
+## Non-Goals
+
+- Changing any external API schemas or introducing new frontend endpoints.
+- Changing the canonical domain models (`CanonicalChatRequest`, `CanonicalChatResponse`, `CanonicalStreamChunk`).
+- Altering existing error types/messages as observed by callers (unless explicitly required by requirements).
 
 ## Architecture
 
 ### Current Architecture (Before)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Translation (God Object)                  │
-│  - 4447 lines, 51 methods                                   │
-│  - All API formats mixed together                           │
-│  - Utility functions embedded                               │
-│  - No clear separation of concerns                          │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    TranslationService                        │
-│  - 993 lines                                                │
-│  - Orchestrates Translation class                           │
-│  - Some duplication with Translation                        │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    TranslationService[TranslationService] --> Translation[Translation]
+    AnthropicConverters[src anthropic_converters] --> Translation
+    GeminiConverters[src gemini_converters] --> Translation
+    Translation --> DomainModels[Domain models]
 ```
 
 ### Target Architecture (After)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Translation (Facade)                        │
-│  - ~200 lines                                               │
-│  - Delegates to specialized translators                     │
-│  - Maintains backward-compatible API                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 TranslatorRegistry                           │
-│  - Manages translator instances                             │
-│  - Factory for creating translators                         │
-│  - DI-friendly registration                                 │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│OpenAITranslator│   │AnthropicTrans│   │GeminiTranslator│
-│  ~400 lines   │   │  ~400 lines   │   │  ~400 lines   │
-└───────────────┘   └───────────────┘   └───────────────┘
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Shared Utilities                           │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐        │
-│  │ json_utils   │ │ tool_utils   │ │ media_utils  │        │
-│  └──────────────┘ └──────────────┘ └──────────────┘        │
-│  ┌──────────────┐ ┌──────────────┐                         │
-│  │content_utils │ │ usage_utils  │                         │
-│  └──────────────┘ └──────────────┘                         │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    TranslationFacade[Translation facade] --> TranslatorRegistry[TranslatorRegistry]
+    TranslationService[TranslationService] --> TranslatorRegistry
+
+    TranslatorRegistry --> OpenAITranslator[OpenAI translator]
+    TranslatorRegistry --> AnthropicTranslator[Anthropic translator]
+    TranslatorRegistry --> GeminiTranslator[Gemini translator]
+    TranslatorRegistry --> ResponsesTranslator[Responses translator]
+    TranslatorRegistry --> CodeAssistTranslator[Code Assist translator]
+    TranslatorRegistry --> OpenRouterTranslator[OpenRouter translator]
+    TranslatorRegistry --> RawTextTranslator[Raw Text translator]
+
+    subgraph TranslationUtils[Translation utils]
+        JsonUtils[json utils]
+        ToolUtils[tool utils]
+        MediaUtils[media utils]
+        ContentUtils[content utils]
+        UsageUtils[usage utils]
+    end
+
+    OpenAITranslator --> TranslationUtils
+    AnthropicTranslator --> TranslationUtils
+    GeminiTranslator --> TranslationUtils
+    ResponsesTranslator --> TranslationUtils
+    CodeAssistTranslator --> TranslationUtils
+    OpenRouterTranslator --> TranslationUtils
+    RawTextTranslator --> TranslationUtils
 ```
 
 ## Components and Interfaces
@@ -73,15 +70,22 @@ The refactoring uses the Strategy pattern for translator implementations, Factor
 ```python
 # src/core/interfaces/translator_protocol.py
 
-from typing import Protocol, Any
-from src.core.domain.chat import CanonicalChatRequest, CanonicalChatResponse
+from collections.abc import Collection
+from typing import Any, Protocol
+
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    CanonicalChatResponse,
+    CanonicalStreamChunk,
+    ChatResponse,
+)
 
 class TranslatorProtocol(Protocol):
     """Protocol defining the contract for API format translators."""
     
     @property
-    def format_name(self) -> str:
-        """Return the API format name (e.g., 'openai', 'anthropic')."""
+    def format_names(self) -> Collection[str]:
+        """Return supported format keys, including aliases (e.g., 'responses', 'openai-responses')."""
         ...
     
     def to_domain_request(self, request: Any) -> CanonicalChatRequest:
@@ -96,15 +100,15 @@ class TranslatorProtocol(Protocol):
         """Convert API-specific response to canonical format."""
         ...
     
-    def from_domain_response(self, response: CanonicalChatResponse) -> dict[str, Any]:
-        """Convert canonical response to API-specific format."""
+    def from_domain_response(self, response: ChatResponse) -> dict[str, Any]:
+        """Convert domain response to API-specific format."""
         ...
 
 
 class StreamingTranslatorProtocol(Protocol):
     """Protocol for streaming chunk translation."""
     
-    def to_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
+    def to_domain_stream_chunk(self, chunk: Any) -> dict[str, Any] | CanonicalStreamChunk:
         """Convert API-specific stream chunk to canonical format."""
         ...
     
@@ -120,15 +124,20 @@ class StreamingTranslatorProtocol(Protocol):
 
 from abc import ABC, abstractmethod
 from typing import Any
-from src.core.domain.chat import CanonicalChatRequest, CanonicalChatResponse
 
-class BaseTranslator(ABC):
-    """Abstract base class for API format translators."""
+from src.core.domain.base_translator import BaseTranslator as TranslationBaseTranslator
+from src.core.domain.chat import CanonicalChatRequest, CanonicalChatResponse, ChatResponse
+
+class BaseFormatTranslator(TranslationBaseTranslator, ABC):
+    """Abstract base class for API format translators.
+
+    Note: This is intentionally distinct from `src.core.domain.base_translator.BaseTranslator`.
+    """
     
     @property
     @abstractmethod
-    def format_name(self) -> str:
-        """Return the API format name."""
+    def format_names(self) -> set[str]:
+        """Return the supported API format keys (including aliases)."""
         pass
     
     @abstractmethod
@@ -143,11 +152,11 @@ class BaseTranslator(ABC):
     
     def from_domain_request(self, request: CanonicalChatRequest) -> dict[str, Any]:
         """Convert canonical request to API-specific format. Optional override."""
-        raise NotImplementedError(f"{self.format_name} does not support from_domain_request")
+        raise NotImplementedError("Translator does not support from_domain_request")
     
-    def from_domain_response(self, response: CanonicalChatResponse) -> dict[str, Any]:
-        """Convert canonical response to API-specific format. Optional override."""
-        raise NotImplementedError(f"{self.format_name} does not support from_domain_response")
+    def from_domain_response(self, response: ChatResponse) -> dict[str, Any]:
+        """Convert domain response to API-specific format. Optional override."""
+        raise NotImplementedError("Translator does not support from_domain_response")
 
 
 class StreamingTranslatorMixin:
@@ -177,9 +186,10 @@ class TranslatorRegistry:
         self._translators: dict[str, TranslatorProtocol] = {}
         self._factories: dict[str, Callable[[], TranslatorProtocol]] = {}
     
-    def register(self, format_name: str, translator: TranslatorProtocol) -> None:
-        """Register a translator instance."""
-        self._translators[format_name] = translator
+    def register(self, translator: TranslatorProtocol) -> None:
+        """Register a translator instance for all of its supported format keys."""
+        for format_name in translator.format_names:
+            self._translators[format_name] = translator
     
     def register_factory(self, format_name: str, factory: Callable[[], TranslatorProtocol]) -> None:
         """Register a factory for lazy translator creation."""
@@ -197,6 +207,14 @@ class TranslatorRegistry:
     def has(self, format_name: str) -> bool:
         """Check if a translator is registered for the format."""
         return format_name in self._translators or format_name in self._factories
+
+
+_global_registry = TranslatorRegistry()
+
+
+def get_global_translator_registry() -> TranslatorRegistry:
+    """Return the process-wide translator registry used by Translation and TranslationService."""
+    return _global_registry
 ```
 
 ### 4. Specialized Translators
@@ -205,12 +223,12 @@ class TranslatorRegistry:
 ```python
 # src/core/domain/translators/openai_translator.py
 
-class OpenAITranslator(BaseTranslator, StreamingTranslatorMixin):
+class OpenAITranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     """Translator for OpenAI API format."""
     
     @property
-    def format_name(self) -> str:
-        return "openai"
+    def format_names(self) -> set[str]:
+        return {"openai"}
     
     def to_domain_request(self, request: Any) -> CanonicalChatRequest:
         # OpenAI-specific request conversion logic
@@ -229,12 +247,12 @@ class OpenAITranslator(BaseTranslator, StreamingTranslatorMixin):
 ```python
 # src/core/domain/translators/anthropic_translator.py
 
-class AnthropicTranslator(BaseTranslator, StreamingTranslatorMixin):
+class AnthropicTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     """Translator for Anthropic API format."""
     
     @property
-    def format_name(self) -> str:
-        return "anthropic"
+    def format_names(self) -> set[str]:
+        return {"anthropic"}
     
     # Similar structure to OpenAI translator
 ```
@@ -243,12 +261,12 @@ class AnthropicTranslator(BaseTranslator, StreamingTranslatorMixin):
 ```python
 # src/core/domain/translators/gemini_translator.py
 
-class GeminiTranslator(BaseTranslator, StreamingTranslatorMixin):
+class GeminiTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     """Translator for Gemini API format."""
     
     @property
-    def format_name(self) -> str:
-        return "gemini"
+    def format_names(self) -> set[str]:
+        return {"gemini"}
     
     # Similar structure with Gemini-specific logic
 ```
@@ -257,24 +275,48 @@ class GeminiTranslator(BaseTranslator, StreamingTranslatorMixin):
 ```python
 # src/core/domain/translators/responses_translator.py
 
-class ResponsesTranslator(BaseTranslator, StreamingTranslatorMixin):
+class ResponsesTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     """Translator for OpenAI Responses API format."""
     
     @property
-    def format_name(self) -> str:
-        return "responses"
+    def format_names(self) -> set[str]:
+        return {"responses", "openai-responses"}
 ```
 
 #### Code Assist Translator
 ```python
 # src/core/domain/translators/code_assist_translator.py
 
-class CodeAssistTranslator(BaseTranslator, StreamingTranslatorMixin):
+class CodeAssistTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     """Translator for Code Assist API format."""
     
     @property
-    def format_name(self) -> str:
-        return "code_assist"
+    def format_names(self) -> set[str]:
+        return {"code_assist"}
+```
+
+#### OpenRouter Translator
+```python
+# src/core/domain/translators/openrouter_translator.py
+
+class OpenRouterTranslator(BaseFormatTranslator):
+    """Translator for OpenRouter API format."""
+
+    @property
+    def format_names(self) -> set[str]:
+        return {"openrouter"}
+```
+
+#### Raw Text Translator
+```python
+# src/core/domain/translators/raw_text_translator.py
+
+class RawTextTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
+    """Translator for raw text format."""
+
+    @property
+    def format_names(self) -> set[str]:
+        return {"raw_text"}
 ```
 
 ### 5. Shared Utilities
@@ -283,15 +325,15 @@ class CodeAssistTranslator(BaseTranslator, StreamingTranslatorMixin):
 ```python
 # src/core/domain/translation_utils/json_utils.py
 
-def is_json_serializable(value: Any, *, max_depth: int = 100) -> bool:
+def _is_json_serializable(value: Any, *, max_depth: int = 100) -> bool:
     """Check if a value can be JSON-serialized."""
     ...
 
-def sanitize_dict_for_json(data: dict[str, Any], *, max_depth: int = 100) -> dict[str, Any]:
+def _sanitize_dict_for_json(data: dict[str, Any], *, max_depth: int = 100) -> dict[str, Any]:
     """Sanitize a dictionary for JSON serialization."""
     ...
 
-def sanitize_list_for_json(data: list[Any], *, max_depth: int = 100) -> list[Any]:
+def _sanitize_list_for_json(data: list[Any], *, max_depth: int = 100) -> list[Any]:
     """Sanitize a list for JSON serialization."""
     ...
 ```
@@ -300,11 +342,11 @@ def sanitize_list_for_json(data: list[Any], *, max_depth: int = 100) -> list[Any
 ```python
 # src/core/domain/translation_utils/tool_utils.py
 
-def normalize_tool_arguments(args: Any) -> str:
+def _normalize_tool_arguments(args: Any) -> str:
     """Normalize tool call arguments to a JSON string."""
     ...
 
-def process_gemini_function_call(function_call: dict[str, Any], part: dict[str, Any] | None = None) -> ToolCall:
+def _process_gemini_function_call(function_call: dict[str, Any], part: dict[str, Any] | None = None) -> ToolCall:
     """Process a Gemini function call into a ToolCall."""
     ...
 ```
@@ -313,11 +355,11 @@ def process_gemini_function_call(function_call: dict[str, Any], part: dict[str, 
 ```python
 # src/core/domain/translation_utils/media_utils.py
 
-def detect_image_mime_type(url: str) -> str:
+def _detect_image_mime_type(url: str) -> str:
     """Detect MIME type for an image URL or data URI."""
     ...
 
-def process_gemini_image_part(part: Any) -> dict[str, Any] | None:
+def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
     """Convert a multimodal image part to Gemini format."""
     ...
 ```
@@ -326,7 +368,7 @@ def process_gemini_image_part(part: Any) -> dict[str, Any] | None:
 ```python
 # src/core/domain/translation_utils/content_utils.py
 
-def safe_string(value: Any) -> str:
+def _safe_string(value: Any) -> str:
     """Convert any value to a string safely."""
     ...
 
@@ -334,7 +376,7 @@ def normalize_text_content(content: Any) -> str:
     """Normalize text content from various formats."""
     ...
 
-def coerce_reasoning_text(value: Any) -> str | None:
+def _coerce_reasoning_text(value: Any) -> str | None:
     """Flatten nested reasoning payloads into text."""
     ...
 ```
@@ -343,7 +385,7 @@ def coerce_reasoning_text(value: Any) -> str | None:
 ```python
 # src/core/domain/translation_utils/usage_utils.py
 
-def normalize_usage_metadata(usage: dict[str, Any], source_format: str) -> dict[str, Any]:
+def _normalize_usage_metadata(usage: dict[str, Any], source_format: str) -> dict[str, Any]:
     """Normalize usage metadata from different API formats."""
     ...
 ```
@@ -359,11 +401,11 @@ class Translation(BaseTranslator):
     Delegates to specialized translators.
     """
     
-    _registry: TranslatorRegistry = TranslatorRegistry()
-    
     @classmethod
     def _get_translator(cls, format_name: str) -> TranslatorProtocol:
-        return cls._registry.get(format_name)
+        from src.core.domain.translators.registry import get_global_translator_registry
+
+        return get_global_translator_registry().get(format_name)
     
     @staticmethod
     def gemini_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -392,24 +434,24 @@ The existing data models remain unchanged:
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
 ### Property 1: Translator Module Existence and Correctness
-*For any* supported API format (openai, anthropic, gemini, responses, code_assist), a dedicated translator module SHALL exist and correctly convert requests/responses for that format.
-**Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5**
+*For any* supported API format (`openai`, `anthropic`, `gemini`, `responses`/`openai-responses`, `code_assist`, `openrouter`, `raw_text`), a dedicated translator module SHALL exist and correctly convert requests/responses for that format.
+**Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7**
 
 ### Property 2: Shared Utility Output Validity
-*For any* input to shared utility functions (sanitize_dict_for_json, sanitize_list_for_json, normalize_tool_arguments, safe_string), the output SHALL be valid and JSON-serializable.
+*For any* input to shared utility functions (`_sanitize_dict_for_json`, `_sanitize_list_for_json`, `_normalize_tool_arguments`, `_safe_string`), the output SHALL be valid and JSON-serializable.
 **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
 
 ### Property 3: Backward Compatibility Equivalence
 *For any* valid input to the original Translation class methods, the refactored implementation SHALL produce output equivalent to the original implementation.
-**Validates: Requirements 5.1, 5.2, 5.3, 5.4**
+**Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
 
 ### Property 4: Protocol Implementation Completeness
 *For any* translator registered in the system, the translator SHALL implement all required methods defined in the TranslatorProtocol.
 **Validates: Requirements 4.1, 4.2**
 
 ### Property 5: Format-Based Routing Correctness
-*For any* request with a specified source format, the TranslationService SHALL dispatch to the translator registered for that format.
-**Validates: Requirements 4.3, 6.1, 6.2**
+*For any* translation call with a specified format key, the Translation facade and TranslationService SHALL dispatch to the translator registered for that format key (including aliases).
+**Validates: Requirements 4.3, 9.1, 9.2, 9.3**
 
 ### Property 6: Edge Case Handling Preservation
 *For any* edge case input (malformed JSON, multimodal content, reasoning data, thought signatures, empty/null content), the refactored system SHALL handle it identically to the original implementation.
@@ -431,25 +473,9 @@ The existing data models remain unchanged:
 
 ### Error Handling Strategy
 
-```python
-class TranslationError(LLMProxyError):
-    """Base exception for translation errors."""
-    pass
-
-class UnsupportedFormatError(TranslationError):
-    """Raised when the API format is not supported."""
-    def __init__(self, format_name: str):
-        super().__init__(f"Unsupported API format: {format_name}")
-        self.format_name = format_name
-
-class InvalidRequestError(TranslationError):
-    """Raised when request structure is invalid."""
-    pass
-
-class InvalidResponseError(TranslationError):
-    """Raised when response structure is invalid."""
-    pass
-```
+- Preserve current externally observable exception behavior as asserted by the existing test suite (including error types/messages where tests rely on them).
+- Prefer the existing exception hierarchy in `src/core/common/exceptions.py` (notably `TranslationError`, `InvalidRequestError`, and `ValidationError`) for any new/centralized error paths introduced by refactoring.
+- Keep unsupported-format behavior consistent with current call sites (today this is typically `NotImplementedError` in `TranslationService`).
 
 ## Testing Strategy
 
@@ -474,7 +500,9 @@ tests/
 │       ├── test_anthropic_translator.py
 │       ├── test_gemini_translator.py
 │       ├── test_responses_translator.py
-│       └── test_code_assist_translator.py
+│       ├── test_code_assist_translator.py
+│       ├── test_openrouter_translator.py
+│       └── test_raw_text_translator.py
 │   └── translation_utils/
 │       ├── test_json_utils.py
 │       ├── test_tool_utils.py
@@ -492,7 +520,11 @@ tests/
 ```python
 # tests/property/translators/test_translator_properties.py
 
+import json
+
 from hypothesis import given, strategies as st
+
+from src.core.domain.translation_utils.json_utils import _sanitize_dict_for_json
 
 @given(st.dictionaries(st.text(), st.recursive(
     st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | st.text(),
@@ -503,14 +535,14 @@ def test_sanitize_dict_produces_json_serializable(data):
     **Feature: cross-api-translation-refactoring, Property 2: Shared Utility Output Validity**
     **Validates: Requirements 2.1**
     """
-    result = sanitize_dict_for_json(data)
+    result = _sanitize_dict_for_json(data)
     # Should not raise
     json.dumps(result)
 ```
 
 ### Backward Compatibility Tests
 
-Each refactored method will have a corresponding test that compares output with the original implementation:
+Backward compatibility is primarily validated by the existing unit/integration/property tests that already assert canonical translation behavior, plus any additional targeted regression fixtures added during the refactor.
 
 ```python
 def test_gemini_to_domain_request_backward_compatible(sample_gemini_request):
@@ -518,10 +550,10 @@ def test_gemini_to_domain_request_backward_compatible(sample_gemini_request):
     **Feature: cross-api-translation-refactoring, Property 3: Backward Compatibility Equivalence**
     **Validates: Requirements 5.1**
     """
-    # Original implementation result (captured before refactoring)
-    expected = original_translation.gemini_to_domain_request(sample_gemini_request)
-    
-    # Refactored implementation result
+    # Expected result is provided by an existing regression fixture (or a stable golden snapshot).
+    expected = expected_canonical_request
+
+    # Refactored implementation result (public API remains the same)
     actual = Translation.gemini_to_domain_request(sample_gemini_request)
     
     assert actual == expected
@@ -536,13 +568,15 @@ src/core/
 │   ├── base_translator.py          # Existing base class
 │   ├── translators/
 │   │   ├── __init__.py
-│   │   ├── base.py                 # BaseTranslator ABC
+│   │   ├── base.py                 # BaseFormatTranslator + StreamingTranslatorMixin
 │   │   ├── registry.py             # TranslatorRegistry
 │   │   ├── openai_translator.py    # OpenAI translator (~400 lines)
 │   │   ├── anthropic_translator.py # Anthropic translator (~400 lines)
 │   │   ├── gemini_translator.py    # Gemini translator (~400 lines)
 │   │   ├── responses_translator.py # Responses API translator (~300 lines)
-│   │   └── code_assist_translator.py # Code Assist translator (~200 lines)
+│   │   ├── code_assist_translator.py # Code Assist translator (~200 lines)
+│   │   ├── openrouter_translator.py  # OpenRouter translator (~200 lines)
+│   │   └── raw_text_translator.py    # Raw text translator (~200 lines)
 │   └── translation_utils/
 │       ├── __init__.py
 │       ├── json_utils.py           # JSON sanitization (~150 lines)
@@ -566,7 +600,7 @@ src/core/
 
 ### Phase 2: Create Translator Infrastructure
 1. Create `translators/` directory
-2. Implement TranslatorProtocol and BaseTranslator
+2. Implement TranslatorProtocol and BaseFormatTranslator
 3. Implement TranslatorRegistry
 4. Verify infrastructure works
 
@@ -576,7 +610,9 @@ src/core/
 3. Create GeminiTranslator (extract from Translation)
 4. Create ResponsesTranslator (extract from Translation)
 5. Create CodeAssistTranslator (extract from Translation)
-6. Verify each translator independently
+6. Create OpenRouterTranslator (extract from Translation)
+7. Create RawTextTranslator (extract from Translation)
+8. Verify each translator independently
 
 ### Phase 4: Refactor Translation Facade
 1. Update Translation class to delegate to translators

@@ -4,6 +4,7 @@
 
 ### Refactored
 
+- **Cross-API Translation Specs**: Updated refactoring specifications in `.kiro/specs/cross-api-translation-refactoring/` with refined design, requirements, and tasks.
 - **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
 - **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
   - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
@@ -12,6 +13,7 @@
 
 ### Added
 
+- **CLI Refactoring Specs**: Added initial specifications for CLI God Object refactoring in `.kiro/specs/cli-god-object-refactoring/`.
 - **Code Analysis Tools**: Added `scripts/analyze_codebase.py` for cyclomatic complexity and maintainability index analysis, and `GOD_OBJECTS_REPORT.md` baseline.
 - **Developer Tool Exemptions**: Intelligent exemption system for safe developer tools in dangerous command protection
   - **Smart Detection**: Automatically exempts common safe tools (linters, formatters, test runners) from dangerous command blocks

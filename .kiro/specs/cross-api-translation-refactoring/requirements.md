@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This document specifies the requirements for refactoring the Cross-API Translation service/middleware, which currently exhibits "God Object" anti-pattern characteristics. The primary target is the `Translation` class in `src/core/domain/translation.py` (4447 lines, 51 methods) and related components including `TranslationService` (993 lines), `anthropic_converters.py` (1052 lines), and `gemini_converters.py` (600+ lines).
+This document specifies the requirements for refactoring the Cross-API Translation service/middleware, which currently exhibits "God Object" anti-pattern characteristics. The primary target is the `Translation` class in `src/core/domain/translation.py` (~4.4k lines, 51 methods) and related components including `TranslationService` in `src/core/services/translation_service.py` (~1k lines), plus the compatibility modules `src/anthropic_converters.py` (~1k lines) and `src/gemini_converters.py` (~650 lines).
 
 The refactoring aims to decompose these monolithic components into a modular, layered architecture that respects SOLID principles, DRY principle, proper DI container usage, and appropriate OOP design patterns while maintaining full backward compatibility with existing public APIs.
 
@@ -26,11 +26,13 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN a developer needs to modify OpenAI translation logic THEN the Translation_System SHALL provide a dedicated OpenAI translator module that contains only OpenAI-specific conversion code
-2. WHEN a developer needs to modify Anthropic translation logic THEN the Translation_System SHALL provide a dedicated Anthropic translator module that contains only Anthropic-specific conversion code
-3. WHEN a developer needs to modify Gemini translation logic THEN the Translation_System SHALL provide a dedicated Gemini translator module that contains only Gemini-specific conversion code
-4. WHEN a developer needs to modify Responses API translation logic THEN the Translation_System SHALL provide a dedicated Responses translator module that contains only Responses API-specific conversion code
-5. WHEN a developer needs to modify Code Assist translation logic THEN the Translation_System SHALL provide a dedicated Code Assist translator module that contains only Code Assist-specific conversion code
+1.1 WHEN a developer needs to modify OpenAI translation logic THEN the system SHALL provide a dedicated OpenAI translator module that contains only OpenAI-specific conversion code
+1.2 WHEN a developer needs to modify Anthropic translation logic THEN the system SHALL provide a dedicated Anthropic translator module that contains only Anthropic-specific conversion code
+1.3 WHEN a developer needs to modify Gemini translation logic THEN the system SHALL provide a dedicated Gemini translator module that contains only Gemini-specific conversion code
+1.4 WHEN a developer needs to modify Responses API translation logic (format keys `responses` and `openai-responses`) THEN the system SHALL provide a dedicated Responses translator module that contains only Responses API-specific conversion code
+1.5 WHEN a developer needs to modify Code Assist translation logic THEN the system SHALL provide a dedicated Code Assist translator module that contains only Code Assist-specific conversion code
+1.6 WHEN a developer needs to modify OpenRouter translation logic THEN the system SHALL provide a dedicated OpenRouter translator module that contains only OpenRouter-specific conversion code
+1.7 WHEN a developer needs to modify Raw Text translation logic THEN the system SHALL provide a dedicated Raw Text translator module that contains only Raw Text-specific conversion code
 
 ### Requirement 2
 
@@ -38,11 +40,11 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN multiple translators need JSON sanitization functionality THEN the Translation_System SHALL provide a shared JSON utilities module containing _sanitize_dict_for_json, _sanitize_list_for_json, and _is_json_serializable functions
-2. WHEN multiple translators need tool argument normalization THEN the Translation_System SHALL provide a shared tool utilities module containing _normalize_tool_arguments and related functions
-3. WHEN multiple translators need usage metadata normalization THEN the Translation_System SHALL provide a shared usage utilities module containing _normalize_usage_metadata function
-4. WHEN multiple translators need image processing functionality THEN the Translation_System SHALL provide a shared media utilities module containing _detect_image_mime_type and _process_gemini_image_part functions
-5. WHEN multiple translators need text content normalization THEN the Translation_System SHALL provide a shared content utilities module containing _safe_string and text coercion functions
+2.1 WHEN multiple translators need JSON sanitization functionality THEN the system SHALL provide a shared JSON utilities module containing `_sanitize_dict_for_json`, `_sanitize_list_for_json`, and `_is_json_serializable`
+2.2 WHEN multiple translators need tool argument normalization THEN the system SHALL provide a shared tool utilities module containing `_normalize_tool_arguments` and related functions
+2.3 WHEN multiple translators need usage metadata normalization THEN the system SHALL provide a shared usage utilities module containing `_normalize_usage_metadata`
+2.4 WHEN multiple translators need image processing functionality THEN the system SHALL provide a shared media utilities module containing `_detect_image_mime_type` and `_process_gemini_image_part`
+2.5 WHEN multiple translators need text content normalization THEN the system SHALL provide a shared content utilities module containing `_safe_string` and text coercion functions
 
 ### Requirement 3
 
@@ -50,10 +52,10 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN the TranslationService is instantiated THEN the Translation_System SHALL accept translator implementations via constructor injection
-2. WHEN a new API format translator is needed THEN the Translation_System SHALL allow registration of new translators without modifying existing code
-3. WHEN unit testing a specific translator THEN the Translation_System SHALL allow injection of mock dependencies for isolated testing
-4. WHEN the application starts THEN the Translation_System SHALL use the DI container to resolve translator dependencies
+3.1 WHEN the application starts THEN the system SHALL register translator components and the translator registry in the DI container
+3.2 WHEN the TranslationService is instantiated THEN the system SHALL obtain translator dependencies via DI (factory or injected registry), not by constructing them inline in business logic
+3.3 WHEN unit testing a specific translator or the TranslationService THEN the system SHALL allow injection of mock translators and/or a test registry for isolated testing
+3.4 WHEN a new API format translator is needed THEN the system SHALL allow registration of new translators without modifying existing translator dispatch logic (open/closed)
 
 ### Requirement 4
 
@@ -61,10 +63,10 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN a new translator is created THEN the Translation_System SHALL require implementation of a BaseTranslator protocol defining to_domain_request, from_domain_request, to_domain_response, from_domain_response methods
-2. WHEN a streaming translator is created THEN the Translation_System SHALL require implementation of a StreamingTranslator protocol defining to_domain_stream_chunk and from_domain_stream_chunk methods
-3. WHEN the TranslationService receives a request THEN the Translation_System SHALL dispatch to the appropriate translator based on the source format
-4. WHEN a translator is registered THEN the Translation_System SHALL validate that the translator implements the required protocol
+4.1 WHEN a new translator is created THEN the system SHALL require implementation of a translator protocol defining `to_domain_request`, `from_domain_request`, `to_domain_response`, `from_domain_response`
+4.2 WHEN a streaming translator is created THEN the system SHALL require implementation of a streaming translator protocol defining `to_domain_stream_chunk` and `from_domain_stream_chunk`
+4.3 WHEN the TranslationService receives a request/response/stream chunk THEN the system SHALL dispatch to the appropriate translator based on the format key, including known aliases (e.g., `openai-responses` → Responses translator)
+4.4 WHEN a translator is registered THEN the system SHALL validate that the translator implements the required protocol
 
 ### Requirement 5
 
@@ -72,11 +74,11 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN external code calls Translation.gemini_to_domain_request THEN the Translation_System SHALL return the same result as before refactoring
-2. WHEN external code calls Translation.anthropic_to_domain_response THEN the Translation_System SHALL return the same result as before refactoring
-3. WHEN external code calls TranslationService.to_domain_request THEN the Translation_System SHALL return the same result as before refactoring
-4. WHEN external code calls TranslationService.from_domain_request THEN the Translation_System SHALL return the same result as before refactoring
-5. WHEN external code imports from anthropic_converters or gemini_converters THEN the Translation_System SHALL maintain backward-compatible exports
+5.1 WHEN external code calls any existing `Translation.*_to_domain_*` method for supported formats THEN the system SHALL return results equivalent to the pre-refactor behavior
+5.2 WHEN external code calls any existing `Translation.from_domain_to_*` method for supported target formats THEN the system SHALL return results equivalent to the pre-refactor behavior
+5.3 WHEN external code calls `TranslationService.to_domain_request`, `TranslationService.to_domain_response`, or `TranslationService.to_domain_stream_chunk` THEN the system SHALL return results equivalent to the pre-refactor behavior
+5.4 WHEN external code calls `TranslationService.from_domain_request`, `TranslationService.from_domain_response`, or `TranslationService.from_domain_stream_chunk` THEN the system SHALL return results equivalent to the pre-refactor behavior
+5.5 WHEN external code imports from `src/anthropic_converters.py` or `src/gemini_converters.py` THEN the system SHALL maintain backward-compatible exports
 
 ### Requirement 6
 
@@ -84,9 +86,9 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN processing a streaming request THEN the Translation_System SHALL use dedicated streaming translator components
-2. WHEN processing a non-streaming request THEN the Translation_System SHALL use dedicated non-streaming translator components
-3. WHEN a translator handles both streaming and non-streaming THEN the Translation_System SHALL separate the logic into distinct methods or classes
+6.1 WHEN processing a streaming request THEN the system SHALL use dedicated streaming translator components
+6.2 WHEN processing a non-streaming request THEN the system SHALL use dedicated non-streaming translator components
+6.3 WHEN a translator handles both streaming and non-streaming THEN the system SHALL separate the logic into distinct methods or classes
 
 ### Requirement 7
 
@@ -94,11 +96,11 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN a translator module is created THEN the Translation_System SHALL have unit tests covering request translation
-2. WHEN a translator module is created THEN the Translation_System SHALL have unit tests covering response translation
-3. WHEN a translator module is created THEN the Translation_System SHALL have unit tests covering stream chunk translation
-4. WHEN shared utilities are created THEN the Translation_System SHALL have unit tests covering edge cases and error conditions
-5. WHEN the refactoring is complete THEN the Translation_System SHALL pass all existing tests with zero regressions
+7.1 WHEN a translator module is created THEN the system SHALL have tests (unit and/or property-based) covering request translation
+7.2 WHEN a translator module is created THEN the system SHALL have tests (unit and/or property-based) covering response translation
+7.3 WHEN a translator module is created THEN the system SHALL have tests (unit and/or property-based) covering stream chunk translation
+7.4 WHEN shared utilities are created THEN the system SHALL have tests (unit and/or property-based) covering edge cases and error conditions
+7.5 WHEN the refactoring is complete THEN the system SHALL pass all existing tests with zero regressions
 
 ### Requirement 8
 
@@ -106,10 +108,10 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN organizing translator code THEN the Translation_System SHALL place translator implementations in src/core/domain/translators/ directory
-2. WHEN organizing shared utilities THEN the Translation_System SHALL place utility modules in src/core/domain/translation_utils/ directory
-3. WHEN organizing interfaces THEN the Translation_System SHALL place protocol definitions in src/core/interfaces/ directory
-4. WHEN a module has more than 500 lines THEN the Translation_System SHALL split it into smaller focused modules
+8.1 WHEN organizing translator code THEN the system SHALL place translator implementations in `src/core/domain/translators/`
+8.2 WHEN organizing shared utilities THEN the system SHALL place utility modules in `src/core/domain/translation_utils/`
+8.3 WHEN organizing interfaces THEN the system SHALL place protocol definitions in `src/core/interfaces/`
+8.4 WHEN a module has more than 500 lines THEN the system SHALL split it into smaller focused modules
 
 ### Requirement 9
 
@@ -117,10 +119,10 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN Translation.gemini_to_domain_request is called THEN the Translation_System SHALL delegate to GeminiTranslator.to_domain_request
-2. WHEN Translation.anthropic_to_domain_response is called THEN the Translation_System SHALL delegate to AnthropicTranslator.to_domain_response
-3. WHEN Translation.openai_to_domain_stream_chunk is called THEN the Translation_System SHALL delegate to OpenAITranslator.to_domain_stream_chunk
-4. WHEN the Translation class is refactored THEN the Translation_System SHALL reduce its line count by at least 80%
+9.1 WHEN `Translation.gemini_to_domain_request` is called THEN the system SHALL delegate to the Gemini translator implementation
+9.2 WHEN `Translation.anthropic_to_domain_response` is called THEN the system SHALL delegate to the Anthropic translator implementation
+9.3 WHEN `Translation.openai_to_domain_stream_chunk` is called THEN the system SHALL delegate to the OpenAI translator implementation
+9.4 WHEN the Translation class is refactored THEN `src/core/domain/translation.py` SHALL be reduced to a thin facade (≤ 500 lines)
 
 ### Requirement 10
 
@@ -128,8 +130,8 @@ The refactoring aims to decompose these monolithic components into a modular, la
 
 #### Acceptance Criteria
 
-1. WHEN processing malformed JSON in tool arguments THEN the Translation_System SHALL handle the error gracefully as before
-2. WHEN processing multimodal content with images THEN the Translation_System SHALL convert formats correctly as before
-3. WHEN processing extended thinking/reasoning content THEN the Translation_System SHALL preserve reasoning data as before
-4. WHEN processing tool calls with thought signatures THEN the Translation_System SHALL preserve signatures as before
-5. WHEN processing empty or null content THEN the Translation_System SHALL handle edge cases as before
+10.1 WHEN processing malformed JSON in tool arguments THEN the system SHALL handle the error gracefully as before
+10.2 WHEN processing multimodal content with images THEN the system SHALL convert formats correctly as before
+10.3 WHEN processing extended thinking/reasoning content THEN the system SHALL preserve reasoning data as before
+10.4 WHEN processing tool calls with thought signatures THEN the system SHALL preserve signatures as before
+10.5 WHEN processing empty or null content THEN the system SHALL handle edge cases as before

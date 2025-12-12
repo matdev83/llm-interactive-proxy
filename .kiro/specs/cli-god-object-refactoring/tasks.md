@@ -1,0 +1,180 @@
+# Implementation Plan
+
+- [ ] 1. Set up package structure and base interfaces
+  - [ ] 1.1 Create `src/core/cli/` package directory structure
+    - Create `src/core/cli/__init__.py` with public API exports
+    - Create `src/core/cli/applicators/__init__.py` for domain applicators
+    - _Requirements: 10.1, 10.2, 10.3_
+  - [ ] 1.2 Define `DomainApplicator` protocol and base types
+    - Create `src/core/cli/protocols.py` with `DomainApplicator` protocol
+    - Define common type aliases and constants
+    - _Requirements: 6.1, 8.1, 8.2_
+  - [ ] 1.3 Write property test for domain applicator isolation
+    - **Property 3: Domain Applicator Isolation**
+    - **Validates: Requirements 6.2**
+
+- [ ] 2. Extract ArgumentParserBuilder
+  - [ ] 2.1 Create `ArgumentParserBuilder` class
+    - Create `src/core/cli/argument_parser_builder.py`
+    - Extract `build_cli_parser()` logic into builder methods organized by domain
+    - Implement `_add_server_arguments`, `_add_backend_arguments`, `_add_logging_arguments`, etc.
+    - _Requirements: 1.1, 1.5_
+  - [ ] 2.2 Update `cli.py` to use `ArgumentParserBuilder`
+    - Replace `build_cli_parser()` with delegation to `ArgumentParserBuilder().build()`
+    - Maintain backward compatibility of `build_cli_parser()` function signature
+    - _Requirements: 7.1, 7.5_
+  - [ ] 2.3 Write unit tests for ArgumentParserBuilder
+    - Test that all expected arguments are present
+    - Test argument groups are correctly organized
+    - _Requirements: 9.1_
+
+- [ ] 3. Extract domain applicators
+  - [ ] 3.1 Create ServerApplicator
+    - Create `src/core/cli/applicators/server_applicator.py`
+    - Extract host, port, timeout, command_prefix, context_window logic
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.2 Create LoggingApplicator
+    - Create `src/core/cli/applicators/logging_applicator.py`
+    - Extract log_file, log_level, capture settings, CBOR capture logic
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.3 Create BackendApplicator
+    - Create `src/core/cli/applicators/backend_applicator.py`
+    - Extract default_backend, API keys, static_route, hybrid settings, debugging overrides
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.4 Create SessionApplicator
+    - Create `src/core/cli/applicators/session_applicator.py`
+    - Extract session flags, planning phase, tool access, pytest settings
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.5 Create AuthApplicator
+    - Create `src/core/cli/applicators/auth_applicator.py`
+    - Extract auth flags, SSO settings, brute force protection
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.6 Create AssessmentApplicator
+    - Create `src/core/cli/applicators/assessment_applicator.py`
+    - Extract LLM assessment configuration
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.7 Create MemoryApplicator
+    - Create `src/core/cli/applicators/memory_applicator.py`
+    - Extract ProxyMem configuration
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.8 Create FailureHandlingApplicator
+    - Create `src/core/cli/applicators/failure_handling_applicator.py`
+    - Extract failure handling configuration
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.9 Create additional applicators for remaining domains
+    - Create `EditPrecisionApplicator`, `IdentityApplicator`, `RoutingApplicator`, `CompactionApplicator`
+    - _Requirements: 6.1, 6.2_
+  - [ ] 3.10 Write unit tests for domain applicators
+    - Test each applicator modifies only its domain
+    - Test environment variable handling
+    - _Requirements: 6.5, 9.1_
+
+- [ ] 4. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 5. Extract ConfigurationApplicator
+  - [ ] 5.1 Create `ConfigurationApplicator` class
+    - Create `src/core/cli/configuration_applicator.py`
+    - Implement coordination of domain applicators
+    - Handle ParameterResolution recording
+    - _Requirements: 1.2, 1.3, 6.1_
+  - [ ] 5.2 Update `cli.py` to use `ConfigurationApplicator`
+    - Replace `apply_cli_args()` internals with delegation to `ConfigurationApplicator`
+    - Maintain backward compatibility of `apply_cli_args()` signature
+    - _Requirements: 7.1, 7.5_
+  - [ ] 5.3 Write property test for argument parsing round-trip
+    - **Property 1: Argument Parsing Round-Trip Consistency**
+    - **Validates: Requirements 1.1, 1.2, 7.1**
+  - [ ] 5.4 Write property test for parameter source recording
+    - **Property 2: Parameter Source Recording Completeness**
+    - **Validates: Requirements 1.3**
+
+- [ ] 6. Extract ErrorHandler
+  - [ ] 6.1 Create `ErrorHandler` class
+    - Create `src/core/cli/error_handler.py`
+    - Extract `_handle_application_build_error()` logic
+    - Implement `ErrorType` enum and `classify_error()` method
+    - Implement specialized message formatters
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+  - [ ] 6.2 Update `cli.py` to use `ErrorHandler`
+    - Replace `_handle_application_build_error()` with delegation to `ErrorHandler`
+    - _Requirements: 5.1_
+  - [ ] 6.3 Write property test for error classification
+    - **Property 4: Error Classification Consistency**
+    - **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
+
+- [ ] 7. Extract LoggingConfigurator
+  - [ ] 7.1 Create `LoggingConfigurator` class
+    - Create `src/core/cli/logging_configurator.py`
+    - Extract `_configure_logging()`, `_with_timestamp_suffix()`, `_apply_pid_suffixes()` logic
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [ ] 7.2 Update `cli.py` to use `LoggingConfigurator`
+    - Replace logging configuration functions with delegation to `LoggingConfigurator`
+    - _Requirements: 4.1_
+  - [ ] 7.3 Write property test for timestamp suffix format
+    - **Property 5: Timestamp Suffix Format Validity**
+    - **Validates: Requirements 4.2**
+
+- [ ] 8. Extract PrivilegeChecker
+  - [ ] 8.1 Create `PrivilegeChecker` class with injectable platform detector
+    - Create `src/core/cli/privilege_checker.py`
+    - Extract `_is_admin()`, `_has_privilege_functionality()`, `_check_privileges()` logic
+    - Define `PlatformDetector` protocol for testability
+    - _Requirements: 3.1, 3.2, 3.3, 3.4_
+  - [ ] 8.2 Update `cli.py` to use `PrivilegeChecker`
+    - Replace privilege checking functions with delegation to `PrivilegeChecker`
+    - _Requirements: 3.1_
+  - [ ] 8.3 Write property test for privilege enforcement
+    - **Property 6: Privilege Check Enforcement**
+    - **Validates: Requirements 3.2**
+
+- [ ] 9. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 10. Extract ServerLifecycleManager
+  - [ ] 10.1 Create `ServerLifecycleManager` class
+    - Create `src/core/cli/server_lifecycle_manager.py`
+    - Extract `is_port_in_use()`, `_daemonize()`, `_maybe_run_as_daemon()` logic
+    - Implement server startup coordination
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+  - [ ] 10.2 Update `cli.py` to use `ServerLifecycleManager`
+    - Replace server lifecycle logic in `main()` with delegation to `ServerLifecycleManager`
+    - _Requirements: 2.1_
+  - [ ] 10.3 Write unit tests for ServerLifecycleManager
+    - Test port availability checking
+    - Test daemon mode handling
+    - Test server coordination
+    - _Requirements: 9.1_
+
+- [ ] 11. Refactor main() to thin facade
+  - [ ] 11.1 Simplify `main()` function
+    - Reduce `main()` to orchestration of extracted services
+    - Ensure all business logic is delegated to services
+    - _Requirements: 10.4_
+  - [ ] 11.2 Update `src/core/cli/__init__.py` with public API
+    - Export `parse_cli_args`, `apply_cli_args`, `main`, `build_cli_parser`
+    - Export `ArgumentParserBuilder`, `ConfigurationApplicator` for advanced usage
+    - _Requirements: 10.2, 7.4, 7.5_
+  - [ ] 11.3 Write property test for public API signature preservation
+    - **Property 7: Public API Signature Preservation**
+    - **Validates: Requirements 7.4, 7.5**
+
+- [ ] 12. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 13. Backward compatibility verification
+  - [ ] 13.1 Run existing CLI tests
+    - Execute all tests in `tests/` related to CLI functionality
+    - Verify zero test modifications required
+    - _Requirements: 7.3, 9.2_
+  - [ ] 13.2 Run full test suite
+    - Execute `./.venv/Scripts/python.exe -m pytest -m "integration or unit"`
+    - Verify zero regressions
+    - _Requirements: 9.2_
+  - [ ] 13.3 Write integration tests for end-to-end CLI behavior
+    - Test full CLI invocation with various argument combinations
+    - Verify output matches original implementation
+    - _Requirements: 7.2, 9.4_
+
+- [ ] 14. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
