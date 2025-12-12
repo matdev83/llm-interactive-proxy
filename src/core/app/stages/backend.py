@@ -176,12 +176,29 @@ class BackendStage(InitializationStage):
     def _register_translation_service(self, services: ServiceCollection) -> None:
         """Register translation service."""
         try:
+            from src.core.domain.translators.defaults import (
+                ensure_default_translator_factories_registered,
+            )
+            from src.core.domain.translators.registry import (
+                TranslatorRegistry,
+                get_global_translator_registry,
+            )
             from src.core.interfaces.translation_service_interface import (
                 ITranslationService,
             )
             from src.core.services.translation_service import TranslationService
 
-            # Register concrete implementation once
+            def _translator_registry_factory(
+                provider: IServiceProvider,
+            ) -> TranslatorRegistry:
+                registry = get_global_translator_registry()
+                ensure_default_translator_factories_registered(registry)
+                return registry
+
+            services.add_singleton(
+                TranslatorRegistry, implementation_factory=_translator_registry_factory
+            )
+
             services.add_singleton(TranslationService)
 
             # Ensure interface resolves to the same singleton instance via factory
@@ -612,6 +629,26 @@ class BackendStage(InitializationStage):
                                 logger.warning(
                                     "TranslationService not found in container, registering temporary instance for validation"
                                 )
+                            from src.core.domain.translators.defaults import (
+                                ensure_default_translator_factories_registered,
+                            )
+                            from src.core.domain.translators.registry import (
+                                TranslatorRegistry,
+                                get_global_translator_registry,
+                            )
+
+                            def _translator_registry_factory(
+                                p: IServiceProvider,
+                            ) -> TranslatorRegistry:
+                                registry = get_global_translator_registry()
+                                ensure_default_translator_factories_registered(registry)
+                                return registry
+
+                            services.add_singleton(
+                                TranslatorRegistry,
+                                implementation_factory=_translator_registry_factory,
+                            )
+
                             services.add_singleton(TranslationService)
                             services.add_singleton(
                                 cast(type, ITranslationService),

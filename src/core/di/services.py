@@ -1871,8 +1871,27 @@ def register_core_services(
     # IAngelServiceFactory already registered above via _add_singleton
 
     # Register TranslationService (dependency of BackendService)
+    from src.core.domain.translators.defaults import (
+        ensure_default_translator_factories_registered,
+    )
+    from src.core.domain.translators.registry import (
+        TranslatorRegistry,
+        get_global_translator_registry,
+    )
+
+    def _translator_registry_factory(provider: IServiceProvider) -> TranslatorRegistry:
+        registry = get_global_translator_registry()
+        ensure_default_translator_factories_registered(registry)
+        return registry
+
+    _add_singleton(
+        TranslatorRegistry, implementation_factory=_translator_registry_factory
+    )
+
     def _translation_service_factory(provider: IServiceProvider) -> TranslationService:
-        return TranslationService()
+        return TranslationService(
+            translator_registry=provider.get_required_service(TranslatorRegistry)
+        )
 
     _add_singleton(
         TranslationService, implementation_factory=_translation_service_factory

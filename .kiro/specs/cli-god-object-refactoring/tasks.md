@@ -124,105 +124,105 @@ This plan follows TDD (Test-Driven Development) methodology: Write tests first (
     - Maintain backward compatibility of `apply_cli_args()` signature
     - _Requirements: 7.1, 7.5_
 
-- [ ] 6. ErrorHandler (TDD)
+- [x] 6. ErrorHandler (TDD)
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 8.3, 9.1, 9.3_
-  - [ ] 6.1 Write unit + property tests for error classification (RED)
+  - [x] 6.1 Write unit + property tests for error classification (RED)
     - Create `tests/unit/core/cli_support/test_error_handler.py`
     - Create `tests/property/core/cli_support/test_error_handler_property.py`
     - **Property 4: Error Classification Consistency**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
     - Tests should fail initially
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 8.3, 9.1, 9.3_
-  - [ ] 6.2 Create `ErrorHandler` class (GREEN)
+  - [x] 6.2 Create `ErrorHandler` class (GREEN)
     - Create `src/core/cli_support/error_handler.py`
     - Extract `_handle_application_build_error()` logic
     - Implement `ErrorType` enum and `classify_error()` method
     - Implement specialized message formatters
     - Make property test pass
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
-  - [ ] 6.3 Update `cli.py` to use `ErrorHandler`
+  - [x] 6.3 Update `cli.py` to use `ErrorHandler`
     - Replace `_handle_application_build_error()` with delegation to `ErrorHandler`
     - _Requirements: 5.1_
 
-- [ ] 7. LoggingConfigurator (TDD)
+- [x] 7. LoggingConfigurator (TDD)
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 9.1, 9.3_
-  - [ ] 7.1 Write unit + property tests for timestamp suffix format (RED)
+  - [x] 7.1 Write unit + property tests for timestamp suffix format (RED)
     - Create `tests/unit/core/cli_support/test_logging_configurator.py`
     - Create `tests/property/core/cli_support/test_logging_configurator_property.py`
     - **Property 5: Timestamp Suffix Format Validity**
     - **Validates: Requirements 4.2**
     - Tests should fail initially
     - _Requirements: 4.2, 4.4, 9.1, 9.3_
-  - [ ] 7.2 Create `LoggingConfigurator` class (GREEN)
+  - [x] 7.2 Create `LoggingConfigurator` class (GREEN)
     - Create `src/core/cli_support/logging_configurator.py`
     - Extract `_configure_logging()`, `_with_timestamp_suffix()`, `_apply_pid_suffixes()` logic
     - Make property test pass
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
-  - [ ] 7.3 Update `cli.py` to use `LoggingConfigurator`
+  - [x] 7.3 Update `cli.py` to use `LoggingConfigurator`
     - Replace logging configuration functions with delegation to `LoggingConfigurator`
     - _Requirements: 4.1_
 
-- [ ] 8. PrivilegeChecker (TDD)
+- [x] 8. PrivilegeChecker (TDD)
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 8.3, 9.1, 9.3_
-  - [ ] 8.1 Write unit + property tests for privilege enforcement (RED)
+  - [x] 8.1 Write unit + property tests for privilege enforcement (RED)
     - Create `tests/unit/core/cli_support/test_privilege_checker.py`
     - Create `tests/property/core/cli_support/test_privilege_checker_property.py`
     - **Property 6: Privilege Check Enforcement**
     - **Validates: Requirements 3.2**
     - Tests should fail initially
     - _Requirements: 3.2, 3.4, 8.3, 9.1, 9.3_
-  - [ ] 8.2 Create `PrivilegeChecker` class (GREEN)
+  - [x] 8.2 Create `PrivilegeChecker` class (GREEN)
     - Create `src/core/cli_support/privilege_checker.py`
     - Extract `_is_admin()`, `_has_privilege_functionality()`, `_check_privileges()` logic
     - Define `PlatformDetector` protocol for testability
     - Make property test pass
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
-  - [ ] 8.3 Update `cli.py` to use `PrivilegeChecker`
+  - [x] 8.3 Update `cli.py` to use `PrivilegeChecker`
     - Replace privilege checking functions with delegation to `PrivilegeChecker`
     - _Requirements: 3.1_
 
-- [ ] 9. Checkpoint - Ensure all tests pass
+- [x] 9. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 7.3, 9.2_
 
-- [ ] 10. ServerLifecycleManager (TDD)
+- [x] 10. ServerLifecycleManager (TDD)
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 9.1_
-  - [ ] 10.1 Write unit tests for ServerLifecycleManager (RED)
+  - [x] 10.1 Write unit tests for ServerLifecycleManager (RED)
     - Create `tests/unit/core/cli_support/test_server_lifecycle_manager.py`
     - Test port availability checking
     - Test daemon mode handling
     - Test server coordination
     - Tests should fail initially
     - _Requirements: 9.1_
-  - [ ] 10.2 Create `ServerLifecycleManager` class (GREEN)
+  - [x] 10.2 Create `ServerLifecycleManager` class (GREEN)
     - Create `src/core/cli_support/server_lifecycle_manager.py`
     - Extract `is_port_in_use()`, `_daemonize()`, `_maybe_run_as_daemon()` logic
     - Implement server startup coordination
     - Make tests pass
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
-  - [ ] 10.3 Update `cli.py` to use `ServerLifecycleManager`
+  - [x] 10.3 Update `cli.py` to use `ServerLifecycleManager`
     - Replace server lifecycle logic in `main()` with delegation to `ServerLifecycleManager`
     - _Requirements: 2.1_
 
-- [ ] 11. Refactor main() to thin facade (TDD)
+- [x] 11. Refactor main() to thin facade (TDD)
   - _Requirements: 7.4, 7.5, 7.6, 8.4, 10.4, 9.3_
-  - [ ] 11.1 Write property test for public API signature preservation (RED)
+  - [x] 11.1 Write property test for public API signature preservation (RED)
     - Create `tests/property/core/cli_support/test_public_api_property.py`
     - **Property 7: Public API Signature Preservation**
     - **Validates: Requirements 7.4, 7.5**
     - Tests should fail initially
     - _Requirements: 7.4, 7.5, 9.3_
-  - [ ] 11.2 Simplify `main()` function (GREEN)
+  - [x] 11.2 Simplify `main()` function (GREEN)
     - Reduce `main()` to orchestration of extracted services
     - Ensure all business logic is delegated to services
     - Make property test pass
     - _Requirements: 7.4, 8.4, 10.4_
-  - [ ] 11.3 Verify `cli_v2` compatibility layer remains functional
+  - [x] 11.3 Verify `cli_v2` compatibility layer remains functional
     - Ensure `src/core/cli_v2.py` continues delegating to `src/core/cli.py` without signature drift
     - Add or extend a small unit test covering delegation behavior
     - _Requirements: 7.5, 7.6_
 
-- [ ] 12. Checkpoint - Ensure all tests pass
+- [x] 12. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 7.3, 9.2_
 

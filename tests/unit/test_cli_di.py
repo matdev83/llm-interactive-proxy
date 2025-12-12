@@ -258,12 +258,21 @@ async def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     from unittest.mock import AsyncMock, MagicMock, patch
 
     with (
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli._check_privileges", lambda: None),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges",
+            lambda *args, **kwargs: None,
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -610,16 +619,28 @@ async def test_main_disable_auth_forces_localhost() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli._configure_logging"),
+        patch(
+            "src.core.cli_support.logging_configurator.LoggingConfigurator.configure"
+        ),
         patch("src.core.cli.logging") as mock_logging,
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -643,7 +664,9 @@ async def test_main_disable_auth_forces_localhost() -> None:
         # main_server = uvicorn.Server(main_config)
 
         # Let's patch uvicorn.Config as well to check arguments easily
-        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+        with patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls:
             await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
 
             # Check that Config was initialized with forced localhost
@@ -668,16 +691,28 @@ async def test_main_disable_auth_with_localhost_no_force() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
         ),
-        patch("src.core.cli._configure_logging"),
+        patch(
+            "src.core.cli_support.logging_configurator.LoggingConfigurator.configure"
+        ),
         patch("src.core.cli.logging") as mock_logging,
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -686,7 +721,9 @@ async def test_main_disable_auth_with_localhost_no_force() -> None:
         mock_server_instance.serve = AsyncMock(return_value=None)
         mock_server_cls.return_value = mock_server_instance
 
-        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+        with patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls:
             await main(["--port", "8080", "--disable-auth", "--host", "127.0.0.1"])
 
             # Should use localhost
@@ -711,16 +748,28 @@ async def test_main_auth_enabled_allows_custom_host() -> None:
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli._configure_logging"),
+        patch(
+            "src.core.cli_support.logging_configurator.LoggingConfigurator.configure"
+        ),
         patch("src.core.cli.logging") as mock_logging,
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -729,7 +778,9 @@ async def test_main_auth_enabled_allows_custom_host() -> None:
         mock_server_instance.serve = AsyncMock(return_value=None)
         mock_server_cls.return_value = mock_server_instance
 
-        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+        with patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls:
             await main(["--port", "8080", "--host", "0.0.0.0"])
 
             # Should use custom host when auth is enabled

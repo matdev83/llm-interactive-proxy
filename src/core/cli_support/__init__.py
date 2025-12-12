@@ -16,9 +16,14 @@ Requirements satisfied:
 from src.core.cli_support.argument_parser_builder import ArgumentParserBuilder
 from src.core.cli_support.cli_args_validator import CliArgsValidator
 from src.core.cli_support.configuration_applicator import ConfigurationApplicator
+from src.core.cli_support.error_handler import ErrorHandler, ErrorType
+from src.core.cli_support.logging_configurator import LoggingConfigurator
 
 __all__ = [
     "ArgumentParserBuilder",
     "CliArgsValidator",
     "ConfigurationApplicator",
+    "ErrorHandler",
+    "ErrorType",
+    "LoggingConfigurator",
 ]

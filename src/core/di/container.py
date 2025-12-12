@@ -346,6 +346,13 @@ class ServiceCollection(IServiceCollection):
 
     def register_app_services(self) -> None:
         from src.core.config.app_config import AppConfig
+        from src.core.domain.translators.defaults import (
+            ensure_default_translator_factories_registered,
+        )
+        from src.core.domain.translators.registry import (
+            TranslatorRegistry,
+            get_global_translator_registry,
+        )
         from src.core.interfaces.usage_tracking_interface import (
             IUsageTrackingService,  # type: ignore[import-untyped]
         )
@@ -387,7 +394,17 @@ class ServiceCollection(IServiceCollection):
             AppConfig, implementation_factory=lambda _: AppConfig.from_env()
         )
 
-        # Register TranslationService as singleton
+        def _translator_registry_factory(
+            provider: IServiceProvider,
+        ) -> TranslatorRegistry:
+            registry = get_global_translator_registry()
+            ensure_default_translator_factories_registered(registry)
+            return registry
+
+        self.add_singleton(
+            TranslatorRegistry, implementation_factory=_translator_registry_factory
+        )
+
         self.add_singleton(TranslationService)
 
         # Register BackendFactory with proper factory

@@ -873,24 +873,20 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_reasoning_phase_api_failure(self, hybrid_connector):
         """Test reasoning phase API failure."""
-        # Mock backend registry to return a failing connector
-        mock_backend = AsyncMock()
-        mock_backend.initialize = AsyncMock()
-        mock_backend.chat_completions = AsyncMock(side_effect=Exception("API Error"))
+        # Mock backend service to return a failing completion
+        mock_backend_service = AsyncMock()
+        mock_backend_service.call_completion = AsyncMock(side_effect=Exception("API Error"))
 
-        mock_factory = Mock(return_value=mock_backend)
-        hybrid_connector._backend_registry.get_backend_factory = Mock(
-            return_value=mock_factory
-        )
-
-        with pytest.raises(BackendError) as exc_info:
-            await hybrid_connector._execute_reasoning_phase(
-                messages=[{"role": "user", "content": "test"}],
-                reasoning_backend="openai",
-                reasoning_model="gpt-4",
-                request_data={"model": "gpt-4"},
-                identity=None,
-            )
+        # Patch get_required_service to return our mock service
+        with patch("src.core.di.services.get_required_service", return_value=mock_backend_service):
+            with pytest.raises(BackendError) as exc_info:
+                await hybrid_connector._execute_reasoning_phase(
+                    messages=[{"role": "user", "content": "test"}],
+                    reasoning_backend="openai",
+                    reasoning_model="gpt-4",
+                    request_data={"model": "gpt-4"},
+                    identity=None,
+                )
 
         assert "reasoning" in str(exc_info.value).lower()
 
@@ -902,50 +898,47 @@ class TestErrorHandling:
         mock_backend.initialize = AsyncMock()
         mock_backend.chat_completions = AsyncMock(side_effect=Exception("API Error"))
 
-        mock_factory = Mock(return_value=mock_backend)
-        hybrid_connector._backend_registry.get_backend_factory = Mock(
-            return_value=mock_factory
-        )
+        # Mock factory to return the failing backend
+        mock_factory = Mock()
+        mock_factory.ensure_backend = AsyncMock(return_value=mock_backend)
 
-        with pytest.raises(BackendError) as exc_info:
-            await hybrid_connector._execute_execution_phase(
-                request_data={"model": "gpt-4"},
-                augmented_messages=[{"role": "user", "content": "test"}],
-                execution_backend="openai",
-                execution_model="gpt-4",
-                identity=None,
-            )
+        # Patch get_required_service to return our mock factory
+        with patch("src.core.di.services.get_required_service", return_value=mock_factory):
+            with pytest.raises(BackendError) as exc_info:
+                await hybrid_connector._execute_execution_phase(
+                    request_data={"model": "gpt-4"},
+                    augmented_messages=[{"role": "user", "content": "test"}],
+                    execution_backend="openai",
+                    execution_model="gpt-4",
+                    identity=None,
+                )
 
         assert "execution" in str(exc_info.value).lower()
+        assert "api error" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_timeout_scenario_reasoning_phase(self, hybrid_connector):
         """Test timeout scenario in reasoning phase."""
         import asyncio
 
-        # Mock backend that takes too long
-        mock_backend = AsyncMock()
-        mock_backend.initialize = AsyncMock()
+        # Mock backend service that takes too long
+        mock_backend_service = AsyncMock()
 
         async def slow_completion(*args, **kwargs):
             await asyncio.sleep(100)  # Longer than timeout
             return Mock()
 
-        mock_backend.chat_completions = slow_completion
+        mock_backend_service.call_completion = slow_completion
 
-        mock_factory = Mock(return_value=mock_backend)
-        hybrid_connector._backend_registry.get_backend_factory = Mock(
-            return_value=mock_factory
-        )
-
-        with pytest.raises(BackendError) as exc_info:
-            await hybrid_connector._execute_reasoning_phase(
-                messages=[{"role": "user", "content": "test"}],
-                reasoning_backend="openai",
-                reasoning_model="gpt-4",
-                request_data={"model": "gpt-4"},
-                identity=None,
-            )
+        with patch("src.core.di.services.get_required_service", return_value=mock_backend_service):
+            with pytest.raises(BackendError) as exc_info:
+                await hybrid_connector._execute_reasoning_phase(
+                    messages=[{"role": "user", "content": "test"}],
+                    reasoning_backend="openai",
+                    reasoning_model="gpt-4",
+                    request_data={"model": "gpt-4"},
+                    identity=None,
+                )
 
         error_message = str(exc_info.value)
         assert (

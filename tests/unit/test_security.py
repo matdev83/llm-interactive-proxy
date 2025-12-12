@@ -13,16 +13,28 @@ async def test_cli_disable_auth_forces_localhost():
     # Test that the CLI properly forces localhost when disable-auth is set
     with (
         patch.dict(os.environ, {}, clear=True),
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli.uvicorn.Config") as mock_config_cls,
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls,
+        patch("src.core.cli_support.logging_configurator.logging.basicConfig"),
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -61,16 +73,28 @@ async def test_env_disable_auth_forces_localhost():
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli.uvicorn.Config") as mock_config_cls,
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls,
+        patch("src.core.cli_support.logging_configurator.logging.basicConfig"),
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
@@ -98,16 +122,28 @@ async def test_auth_enabled_allows_custom_host():
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "APP_HOST": "0.0.0.0"}, clear=True
         ),
-        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
-        patch("src.core.cli.uvicorn.Config") as mock_config_cls,
-        patch("src.core.cli.logging.basicConfig"),
-        patch("src.core.cli._check_privileges"),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
+        ) as mock_server_cls,
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
+        ) as mock_config_cls,
+        patch("src.core.cli_support.logging_configurator.logging.basicConfig"),
+        patch(
+            "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
+        ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch("src.core.cli.is_port_in_use", return_value=False),
-        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
+            return_value=False,
+        ),
+        patch(
+            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
+            new_callable=AsyncMock,
+        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 

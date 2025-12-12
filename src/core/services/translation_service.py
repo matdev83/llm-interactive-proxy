@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -17,55 +17,88 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoiceDelta,
 )
 from src.core.domain.translation import Translation
+from src.core.domain.translators.defaults import (
+    ensure_default_translator_factories_registered,
+)
+from src.core.domain.translators.registry import (
+    TranslatorRegistry,
+    get_global_translator_registry,
+)
+from src.core.interfaces.translator_protocol import StreamingTranslatorProtocol
 
 logger = logging.getLogger(__name__)
 
 
 class TranslationService:
-    """
-    A centralized service for translating requests and responses between different API formats.
-    """
+    """Central service for translating payloads between API formats."""
 
-    def __init__(self) -> None:
-        # Converters that translate vendor specific payloads into the canonical
-        # domain models. These are used when a frontend request/response needs to
-        # be normalized before handing it to the rest of the system.
+    def __init__(self, translator_registry: TranslatorRegistry | None = None) -> None:
+        self._registry = translator_registry or get_global_translator_registry()
+        ensure_default_translator_factories_registered(self._registry)
+
+        def _to_domain_request(format_name: str) -> Callable[[Any], Any]:
+            def _convert(request: Any) -> Any:
+                return self._registry.get(format_name).to_domain_request(request)
+
+            return _convert
+
+        def _to_domain_response(format_name: str) -> Callable[[Any], Any]:
+            def _convert(response: Any) -> Any:
+                return self._registry.get(format_name).to_domain_response(response)
+
+            return _convert
+
+        def _from_domain_request(
+            format_name: str,
+        ) -> Callable[[CanonicalChatRequest], Any]:
+            def _convert(request: CanonicalChatRequest) -> Any:
+                return self._registry.get(format_name).from_domain_request(request)
+
+            return _convert
+
+        def _from_domain_response(format_name: str) -> Callable[[ChatResponse], Any]:
+            def _convert(response: ChatResponse) -> Any:
+                return self._registry.get(format_name).from_domain_response(response)
+
+            return _convert
+
         self._to_domain_request_converters: dict[str, Callable[..., Any]] = {
-            "gemini": Translation.gemini_to_domain_request,
-            "openai": Translation.openai_to_domain_request,
-            "openrouter": Translation.openrouter_to_domain_request,
-            "anthropic": Translation.anthropic_to_domain_request,
-            "code_assist": Translation.code_assist_to_domain_request,
-            "raw_text": Translation.raw_text_to_domain_request,
-            "responses": Translation.responses_to_domain_request,
+            "gemini": _to_domain_request("gemini"),
+            "openai": _to_domain_request("openai"),
+            "openrouter": _to_domain_request("openrouter"),
+            "anthropic": _to_domain_request("anthropic"),
+            "code_assist": _to_domain_request("code_assist"),
+            "raw_text": _to_domain_request("raw_text"),
+            "responses": _to_domain_request("responses"),
+            "openai-responses": _to_domain_request("openai-responses"),
         }
         self._to_domain_response_converters: dict[str, Callable[..., Any]] = {
-            "gemini": Translation.gemini_to_domain_response,
-            "openai": Translation.openai_to_domain_response,
-            "openai-responses": Translation.responses_to_domain_response,
-            "anthropic": Translation.anthropic_to_domain_response,
-            "code_assist": Translation.code_assist_to_domain_response,
-            "raw_text": Translation.raw_text_to_domain_response,
+            "gemini": _to_domain_response("gemini"),
+            "openai": _to_domain_response("openai"),
+            "openai-responses": _to_domain_response("openai-responses"),
+            "responses": _to_domain_response("responses"),
+            "anthropic": _to_domain_response("anthropic"),
+            "code_assist": _to_domain_response("code_assist"),
+            "raw_text": _to_domain_response("raw_text"),
         }
 
-        # Converters that translate canonical payloads to provider specific
-        # formats. These are used when calling backends.
         self._from_domain_request_converters: dict[
             str, Callable[[CanonicalChatRequest], Any]
         ] = {
-            "gemini": self.from_domain_to_gemini_request,
-            "openai": self.from_domain_to_openai_request,
-            "openai-responses": self.from_domain_to_responses_request,
-            "anthropic": self.from_domain_to_anthropic_request,
+            "gemini": _from_domain_request("gemini"),
+            "openai": _from_domain_request("openai"),
+            "responses": _from_domain_request("responses"),
+            "openai-responses": _from_domain_request("openai-responses"),
+            "anthropic": _from_domain_request("anthropic"),
         }
         self._from_domain_response_converters: dict[
             str, Callable[[ChatResponse], Any]
         ] = {
-            "openai": self.from_domain_to_openai_response,
-            "openai-responses": self.from_domain_to_responses_response,
-            "responses": self.from_domain_to_responses_response,
-            "anthropic": self.from_domain_to_anthropic_response,
-            "gemini": self.from_domain_to_gemini_response,
+            "openai": _from_domain_response("openai"),
+            "openai-responses": _from_domain_response("openai-responses"),
+            "responses": _from_domain_response("responses"),
+            "anthropic": _from_domain_response("anthropic"),
+            "gemini": _from_domain_response("gemini"),
         }
 
     def register_converter(
@@ -74,8 +107,7 @@ class TranslationService:
         format: str,
         converter: Callable[..., Any],
     ) -> None:
-        """
-        Register a new converter.
+        """Register a new converter.
 
         Args:
             direction: The direction of the conversion (e.g., "request", "response").
@@ -99,34 +131,20 @@ class TranslationService:
         except KeyError as exc:  # pragma: no cover - defensive guard
             raise KeyError(f"Unknown converter direction: {direction}") from exc
 
+    def _get_streaming_translator(
+        self, format_name: str
+    ) -> StreamingTranslatorProtocol:
+        translator = self._registry.get(format_name)
+        if not isinstance(translator, StreamingTranslatorProtocol):
+            raise NotImplementedError(
+                f"Stream chunk converter for format '{format_name}' not implemented."
+            )
+        return translator
+
     def to_domain_request(
         self, request: Any, source_format: str
     ) -> CanonicalChatRequest:
-        """
-        Translates an incoming request from a specific API format to the internal domain ChatRequest.
-
-        Args:
-            request: The request object in the source format.
-            source_format: The source API format (e.g., "anthropic", "gemini").
-
-        Returns:
-            A ChatRequest object.
-
-        Raises:
-            ValueError: If the source format is not supported.
-            TypeError: If the request object is not in the expected format.
-        """
-        """
-        Translates an incoming request from a specific API format to the internal domain ChatRequest.
-
-        Args:
-            request: The request object in the source format.
-            source_format: The source API format (e.g., "anthropic", "gemini").
-
-        Returns:
-            A ChatRequest object.
-        """
-        # If the request is already in canonical/domain form, return it as-is
+        """Translate an incoming request from a vendor format into CanonicalChatRequest."""
         from src.core.domain.chat import (
             CanonicalChatRequest as _Canonical,
         )
@@ -135,17 +153,15 @@ class TranslationService:
         )
 
         if isinstance(request, _Canonical | _ChatRequest):
-            # PERFORMANCE OPTIMIZATION: Avoid unnecessary round-trip serialization
-            # If the request is already CanonicalChatRequest, return it directly
             if isinstance(request, _Canonical):
                 return request
-            # If it's a ChatRequest but not Canonical, convert efficiently
             return _Canonical.model_validate(request.model_dump())
 
-        if source_format == "responses":
+        if source_format in {"responses", "openai-responses"}:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+                    "Converting Responses API request to domain format - model=%s",
+                    getattr(request, "model", "unknown"),
                 )
 
             has_response_format = False
@@ -174,35 +190,46 @@ class TranslationService:
                 )
 
             try:
-                domain_request = Translation.responses_to_domain_request(request)
+                responses_converter = self._to_domain_request_converters["responses"]
+                domain_request = cast(
+                    CanonicalChatRequest, responses_converter(request)
+                )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        f"Successfully converted Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+                        "Successfully converted Responses API request to domain format - model=%s",
+                        getattr(request, "model", "unknown"),
                     )
                 return domain_request
             except ValidationError:
                 raise
-            except (ValueError, KeyError) as e:
-                if isinstance(e, json.JSONDecodeError):
+            except (ValueError, KeyError) as exc:
+                if isinstance(exc, json.JSONDecodeError):
                     if logger.isEnabledFor(logging.ERROR):
                         logger.error(
-                            f"JSON decode error in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                            "JSON decode error in Responses API request - model=%s, error=%s",
+                            getattr(request, "model", "unknown"),
+                            exc,
                         )
-                    raise ValueError(f"Invalid JSON in request: {e}") from e
+                    raise ValueError(f"Invalid JSON in request: {exc}") from exc
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Invalid format in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                        "Invalid format in Responses API request - model=%s, error=%s",
+                        getattr(request, "model", "unknown"),
+                        exc,
                     )
-                raise ValueError(f"Invalid request format: {e}") from e
-            except Exception as e:
+                raise ValueError(f"Invalid request format: {exc}") from exc
+            except Exception as exc:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Unexpected error converting Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}",
+                        "Unexpected error converting Responses API request - model=%s, error=%s",
+                        getattr(request, "model", "unknown"),
+                        exc,
                         exc_info=True,
                     )
                 raise
+
         converter = self._to_domain_request_converters.get(source_format)
-        if not converter:
+        if converter is None:
             raise NotImplementedError(
                 f"Request converter for format '{source_format}' not implemented."
             )
@@ -214,18 +241,9 @@ class TranslationService:
     def from_domain_request(
         self, request: CanonicalChatRequest, target_format: str
     ) -> Any:
-        """
-        Translates an internal domain ChatRequest to a specific API format.
-
-        Args:
-            request: The internal ChatRequest object.
-            target_format: The target API format (e.g., "anthropic", "gemini").
-
-        Returns:
-            The request object in the target format.
-        """
+        """Translate a CanonicalChatRequest to a vendor request format."""
         converter = self._from_domain_request_converters.get(target_format)
-        if not converter:
+        if converter is None:
             raise NotImplementedError(
                 f"Request converter for format '{target_format}' not implemented."
             )
@@ -234,18 +252,9 @@ class TranslationService:
     def to_domain_response(
         self, response: Any, source_format: str
     ) -> CanonicalChatResponse:
-        """
-        Translates a response from a specific API format to the internal domain ChatResponse.
-
-        Args:
-            response: The response object in the source format.
-            source_format: The source API format (e.g., "anthropic", "gemini").
-
-        Returns:
-            A ChatResponse object.
-        """
+        """Translate a vendor response format into CanonicalChatResponse."""
         converter = self._to_domain_response_converters.get(source_format)
-        if not converter:
+        if converter is None:
             raise NotImplementedError(
                 f"Response converter for format '{source_format}' not implemented."
             )
@@ -257,46 +266,35 @@ class TranslationService:
     def from_domain_to_gemini_request(
         self, request: CanonicalChatRequest
     ) -> dict[str, Any]:
-        """Translates a CanonicalChatRequest to a Gemini request."""
-        return Translation.from_domain_to_gemini_request(request)
+        return self._registry.get("gemini").from_domain_request(request)
 
     def from_domain_to_openai_request(
         self, request: CanonicalChatRequest
     ) -> dict[str, Any]:
-        """Translates a CanonicalChatRequest to an OpenAI request."""
-        return Translation.from_domain_to_openai_request(request)
+        return self._registry.get("openai").from_domain_request(request)
 
     def from_domain_to_anthropic_request(
         self, request: CanonicalChatRequest
     ) -> dict[str, Any]:
-        """Translates a CanonicalChatRequest to an Anthropic request."""
-        return Translation.from_domain_to_anthropic_request(request)
+        return self._registry.get("anthropic").from_domain_request(request)
 
     def _dict_to_canonical_stream_chunk(
         self, chunk_dict: dict[str, Any]
     ) -> CanonicalStreamChunk:
-        """Convert a chunk dict to CanonicalStreamChunk.
-
-        This handles the conversion of the raw dict returned by Translation methods
-        to the properly typed CanonicalStreamChunk.
-        """
-        choices = []
+        choices: list[StreamingChatCompletionChoice] = []
         for choice_dict in chunk_dict.get("choices", []):
             delta_dict = choice_dict.get("delta", {})
-            # Create delta with standard fields
             delta_data = {
                 "role": delta_dict.get("role"),
                 "content": delta_dict.get("content"),
                 "tool_calls": delta_dict.get("tool_calls"),
                 "refusal": delta_dict.get("refusal"),
             }
-            # Preserve extra fields like _tool_call_text
             for key, value in delta_dict.items():
                 if key not in delta_data:
                     delta_data[key] = value
 
             delta = StreamingChatCompletionChoiceDelta(**delta_data)
-            # OpenAI API parity: preserve logprobs in streaming chunks
             choice = StreamingChatCompletionChoice(
                 index=choice_dict.get("index", 0),
                 delta=delta,
@@ -318,32 +316,19 @@ class TranslationService:
     def to_domain_stream_chunk(
         self, chunk: Any, source_format: str, target_format: str = "domain"
     ) -> Any:
-        """
-        Translates a streaming chunk from a specific API format to the internal domain stream chunk.
-        Implements lazy translation - only translates when format mismatch occurs.
-
-        Args:
-            chunk: The stream chunk object in the source format.
-            source_format: The source API format (e.g., "anthropic", "gemini").
-            target_format: The target format (default: "domain").
-
-        Returns:
-            The stream chunk in the target format (only translated if needed).
-        """
-        # Lazy translation: skip if source and target formats match
+        """Translate a streaming chunk to the internal format (lazy when possible)."""
         if source_format == target_format:
             return chunk
 
-        # Formats that return CanonicalStreamChunk
         canonical_formats = {
             "gemini",
             "openai",
             "raw_text",
             "openai-responses",
             "responses",
+            "openrouter",
         }
 
-        # Log transformation at TRACE level for diagnostic tracking
         if logger.isEnabledFor(TRACE_LEVEL):
             chunk_keys = list(chunk.keys()) if isinstance(chunk, dict) else "N/A"
             logger.log(
@@ -354,26 +339,17 @@ class TranslationService:
                 chunk_keys,
             )
 
-        # Only translate when there's a format mismatch
-        result: dict[str, Any] | Any
-        if source_format == "gemini":
-            result = Translation.gemini_to_domain_stream_chunk(chunk)
-        elif source_format == "openai":
-            result = Translation.openai_to_domain_stream_chunk(chunk)
-        elif source_format == "openai-responses" or source_format == "responses":
-            result = Translation.responses_to_domain_stream_chunk(chunk)
-        elif source_format == "anthropic":
-            return Translation.anthropic_to_domain_stream_chunk(chunk)
-        elif source_format == "code_assist":
-            return Translation.code_assist_to_domain_stream_chunk(chunk)
-        elif source_format == "raw_text":
-            result = Translation.raw_text_to_domain_stream_chunk(chunk)
-        else:
+        try:
+            translator = self._get_streaming_translator(source_format)
+        except KeyError as exc:
             raise NotImplementedError(
                 f"Stream chunk converter for format '{source_format}' not implemented."
-            )
+            ) from exc
 
-        # Normalize CanonicalStreamChunk -> dict so downstream callers can safely use .get
+        result: dict[str, Any] | CanonicalStreamChunk = (
+            translator.to_domain_stream_chunk(chunk)
+        )
+
         if isinstance(result, CanonicalStreamChunk):
             result = result.model_dump(exclude_none=True)
         if isinstance(result, dict):
@@ -384,7 +360,6 @@ class TranslationService:
                     for c in choices_val
                 ]
 
-        # Log transformation result at TRACE level
         if logger.isEnabledFor(TRACE_LEVEL):
             result_type = type(result).__name__
             result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
@@ -396,7 +371,6 @@ class TranslationService:
                 result_keys,
             )
 
-        # Convert dict to CanonicalStreamChunk for supported formats
         if source_format in canonical_formats and isinstance(result, dict):
             return self._dict_to_canonical_stream_chunk(result)
         return result
@@ -404,28 +378,15 @@ class TranslationService:
     def from_domain_stream_chunk(
         self, chunk: Any, target_format: str, source_format: str = "domain"
     ) -> Any:
-        """
-        Translates an internal domain stream chunk to a specific API format.
-        Implements lazy translation - only translates when format mismatch occurs.
-
-        Args:
-            chunk: The internal domain stream chunk object.
-            target_format: The target API format (e.g., "anthropic", "gemini").
-            source_format: The source format (default: "domain").
-
-        Returns:
-            The stream chunk in the target format (only translated if needed).
-        """
-        # Lazy translation: skip if source and target formats match
+        """Translate an internal stream chunk to a vendor streaming format (lazy when possible)."""
         if source_format == target_format:
             return chunk
 
-        # Only translate when there's a format mismatch
         if target_format == "openai":
             return self.from_domain_to_openai_stream_chunk(chunk)
-        elif target_format == "anthropic":
+        if target_format == "anthropic":
             return self.from_domain_to_anthropic_stream_chunk(chunk)
-        elif target_format == "gemini":
+        if target_format == "gemini":
             return self.from_domain_to_gemini_stream_chunk(chunk)
 
         raise NotImplementedError(
@@ -433,476 +394,42 @@ class TranslationService:
         )
 
     def from_domain_to_openai_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        """Translates a domain stream chunk to the canonical OpenAI SSE format.
-
-        The canonical chunk shape returned here mirrors `chat.completion.chunk`
-        responses with a single choice that contains a `delta` payload. Tool calls
-        remain in `delta["tool_calls"]` while plain text is exposed via
-        `delta["content"]`. Tests rely on this structure to assert streaming
-        semantics, so changes to the contracted shape should be accompanied by
-        updated documentation and test fixtures."""
-        """Translates a domain stream chunk to the canonical OpenAI SSE format.
-
-        The canonical chunk shape returned here mirrors `chat.completion.chunk`
-        responses with a single choice that contains a `delta` payload. Tool calls
-        remain in `delta["tool_calls"]` while plain text is exposed via
-        `delta["content"]`. Tests rely on this structure to assert streaming
-        semantics, so changes to the contracted shape should be accompanied by
-        updated documentation and test fixtures."""
-        # Normalize chunk dictionary to inspect delta/tool_calls/content values
-        if isinstance(chunk, dict):
-            chunk_dict = chunk
-        else:
-            dumped = getattr(chunk, "model_dump", lambda: None)()
-            if isinstance(dumped, dict):
-                chunk_dict = dumped
-            else:
-                chunk_dict = {
-                    "id": getattr(chunk, "id", "chatcmpl-stream"),
-                    "object": getattr(chunk, "object", "chat.completion.chunk"),
-                    "created": getattr(
-                        chunk, "created", int(__import__("time").time())
-                    ),
-                    "model": getattr(chunk, "model", "unknown"),
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": getattr(chunk, "delta", {}) or {},
-                            "finish_reason": getattr(chunk, "finish_reason", None),
-                        }
-                    ],
-                }
-
-        choices: list[dict[str, Any]] = []
-        if isinstance(chunk_dict.get("choices"), list):
-            raw_choices = chunk_dict.get("choices", [])
-            choices = [c for c in raw_choices if isinstance(c, dict)]
-        if not choices:
-            choices = [
-                {
-                    "index": 0,
-                    "delta": getattr(chunk, "delta", {}) or {},
-                    "finish_reason": getattr(chunk, "finish_reason", None),
-                }
-            ]
-
-        first_choice = choices[0] or {}
-        delta = first_choice.get("delta") or {}
-        tool_call_text = None
-        if isinstance(delta, dict) and "_tool_call_text" in delta:
-            tool_call_text = delta.get("_tool_call_text")
-            delta = dict(delta)
-            delta.pop("_tool_call_text", None)
-
-        # Ensure we honor tool_calls semantics: no duplicate content alongside tool_calls
-        tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
-        if tool_calls:
-            delta = dict(delta)
-            delta["tool_calls"] = tool_calls
-            if tool_call_text is not None:
-                delta["content"] = tool_call_text
-            else:
-                delta.pop("content", None)
-        else:
-            content = delta.get("content")
-            if content is None:
-                content = getattr(chunk, "content", None)
-            if content is not None:
-                delta = dict(delta)
-                delta["content"] = content
-            if tool_call_text is not None:
-                delta["content"] = tool_call_text
-
-        normalized_choice = {
-            "index": first_choice.get("index", 0),
-            "delta": delta,
-            "finish_reason": first_choice.get(
-                "finish_reason", getattr(chunk, "finish_reason", None)
-            ),
-        }
-
-        return {
-            "id": chunk_dict.get("id", getattr(chunk, "id", "chatcmpl-stream")),
-            "object": chunk_dict.get(
-                "object", getattr(chunk, "object", "chat.completion.chunk")
-            ),
-            "created": chunk_dict.get(
-                "created", getattr(chunk, "created", int(__import__("time").time()))
-            ),
-            "model": chunk_dict.get("model", getattr(chunk, "model", "unknown")),
-            "choices": [normalized_choice],
-        }
-
-    def _extract_content_from_domain_chunk(self, chunk: Any) -> str:
-        """Extract text content from a domain stream chunk.
-
-        Handles both CanonicalStreamChunk (with choices[0].delta.content)
-        and simpler objects with a direct content attribute.
-        """
-        # Try to get content from choices[0].delta.content (CanonicalStreamChunk)
-        choices = getattr(chunk, "choices", None)
-        if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
-            if isinstance(choice, dict):
-                delta = choice.get("delta", {})
-                if isinstance(delta, dict) and "content" in delta:
-                    return delta.get("content", "") or ""
-            elif hasattr(choice, "delta"):
-                delta = getattr(choice, "delta", None)
-                if delta:
-                    if isinstance(delta, dict):
-                        return delta.get("content", "") or ""
-                    elif hasattr(delta, "content"):
-                        return getattr(delta, "content", "") or ""
-
-        # Fallback: direct content attribute
-        return getattr(chunk, "content", "") or ""
+        return cast(
+            dict[str, Any],
+            self._get_streaming_translator("openai").from_domain_stream_chunk(chunk),
+        )
 
     def from_domain_to_anthropic_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        """Translates a domain stream chunk to an Anthropic stream format."""
-        content = self._extract_content_from_domain_chunk(chunk)
-
-        # Check for tool calls
-        choices = getattr(chunk, "choices", None)
-        if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
-            delta = getattr(choice, "delta", None)
-            if delta:
-                tool_calls = (
-                    delta.get("tool_calls")
-                    if isinstance(delta, dict)
-                    else getattr(delta, "tool_calls", None)
-                )
-                if tool_calls:
-                    # Anthropic streaming tool calls are complex (content_block_start, content_block_delta, etc.)
-                    # For simplicity in this proxy context, we might need to assume the client can handle
-                    # a simplified representation or we'd need a stateful converter.
-                    # However, since we are just passing through what we parsed from XML,
-                    # we can try to emit a content_block_start for the tool use.
-
-                    # NOTE: This is a simplification. True Anthropic streaming requires state management
-                    # to emit start/delta/stop events correctly.
-                    # Given the XML parsing yields a complete tool call in one chunk, we can emit a complete block.
-                    tool_call = tool_calls[0]
-                    function_data = (
-                        tool_call.get("function")
-                        if isinstance(tool_call, dict)
-                        else getattr(tool_call, "function", None)
-                    )
-                    if function_data:
-                        name = (
-                            function_data.get("name")
-                            if isinstance(function_data, dict)
-                            else getattr(function_data, "name", None)
-                        )
-                        args = (
-                            function_data.get("arguments")
-                            if isinstance(function_data, dict)
-                            else getattr(function_data, "arguments", None)
-                        )
-                        call_id = (
-                            tool_call.get("id")
-                            if isinstance(tool_call, dict)
-                            else getattr(tool_call, "id", None)
-                        )
-
-                        if name and args and call_id:
-                            return {
-                                "type": "content_block_start",
-                                "index": 0,  # Assuming index 0 for now
-                                "content_block": {
-                                    "type": "tool_use",
-                                    "id": call_id,
-                                    "name": name,
-                                    "input": json.loads(
-                                        args
-                                    ),  # Anthropic expects parsed JSON input in start block? No, usually it's streamed.
-                                    # Actually, content_block_start for tool_use has 'id', 'name', 'type'. Input is streamed in deltas.
-                                    # But since we have the full input, we might need to emit multiple events or a simplified one.
-                                    # Let's emit a 'tool_use' block if possible.
-                                    # Wait, standard Anthropic stream is:
-                                    # event: content_block_start {type: tool_use, id: ..., name: ...}
-                                    # event: content_block_delta {type: input_json_delta, partial_json: ...}
-                                    # event: content_block_stop
-                                },
-                            }
-                            # This return is problematic because we can only return ONE dict.
-                            # We might need to rely on the client handling a custom format or
-                            # we accept that we can't fully emulate Anthropic streaming for tool calls
-                            # without a more complex stateful translation layer.
-
-                            # For now, let's return a content_block_start which is the most critical part.
-                            # The client might expect subsequent deltas.
-
-        return {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": content},
-        }
+        return cast(
+            dict[str, Any],
+            self._get_streaming_translator("anthropic").from_domain_stream_chunk(chunk),
+        )
 
     def from_domain_to_gemini_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        """Translates a domain stream chunk to a Gemini stream format."""
-        content = self._extract_content_from_domain_chunk(chunk)
-        parts: list[dict[str, Any]] = []
-        if content:
-            parts.append({"text": content})
-
-        # Determine finish reason and check for tool calls
-        finish_reason = None
-        choices = getattr(chunk, "choices", None)
-        if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
-
-            # Handle tool calls
-            delta = getattr(choice, "delta", None)
-            if delta:
-                tool_calls = (
-                    delta.get("tool_calls")
-                    if isinstance(delta, dict)
-                    else getattr(delta, "tool_calls", None)
-                )
-                if tool_calls:
-                    for tool_call in tool_calls:
-                        # Gemini streaming tool calls are complex, simplifying to functionCall
-                        # This assumes the tool call is complete or we are sending a simplified representation
-                        function_data = (
-                            tool_call.get("function")
-                            if isinstance(tool_call, dict)
-                            else getattr(tool_call, "function", None)
-                        )
-                        if function_data:
-                            name = (
-                                function_data.get("name")
-                                if isinstance(function_data, dict)
-                                else getattr(function_data, "name", None)
-                            )
-                            args = (
-                                function_data.get("arguments")
-                                if isinstance(function_data, dict)
-                                else getattr(function_data, "arguments", None)
-                            )
-                            if name and args:
-                                try:
-                                    # Gemini expects 'args' as a dict, not string
-                                    args_dict = json.loads(args)
-                                    parts.append(
-                                        {
-                                            "functionCall": {
-                                                "name": name,
-                                                "args": args_dict,
-                                            }
-                                        }
-                                    )
-                                except json.JSONDecodeError:
-                                    pass
-
-            if isinstance(choice, dict):
-                fr = choice.get("finish_reason")
-            else:
-                fr = getattr(choice, "finish_reason", None)
-            if fr:
-                finish_reason = "STOP" if fr == "stop" else str(fr).upper()
-
-        return {
-            "candidates": [
-                {
-                    "content": {"parts": parts, "role": "model"},
-                    "finishReason": finish_reason,
-                }
-            ]
-        }
+        return cast(
+            dict[str, Any],
+            self._get_streaming_translator("gemini").from_domain_stream_chunk(chunk),
+        )
 
     def from_domain_to_openai_response(self, response: ChatResponse) -> dict[str, Any]:
-        """Translates a domain ChatResponse to an OpenAI response format."""
-        from src.core.domain.chat import (
-            ChatCompletionChoice,
-            ChatCompletionChoiceMessage,
-            ChatResponse,
-        )
-
-        # Create choices using Pydantic models
-        openai_choices = []
-        for choice in response.choices:
-            # Create the message using Pydantic model
-            message = ChatCompletionChoiceMessage(
-                role=choice.message.role,
-                content=choice.message.content,
-                reasoning_content=choice.message.reasoning_content,
-                tool_calls=(
-                    choice.message.tool_calls if choice.message.tool_calls else None
-                ),
-            )
-
-            # Create the choice using Pydantic model
-            openai_choice = ChatCompletionChoice(
-                index=choice.index,
-                message=message,
-                finish_reason=choice.finish_reason,
-            )
-            openai_choices.append(openai_choice)
-
-        # Create the response using Pydantic model
-        openai_response = ChatResponse(
-            id=response.id,
-            created=response.created,
-            model=response.model,
-            choices=openai_choices,
-            usage=response.usage,
-        )
-
-        response_dict: dict[str, Any] = openai_response.model_dump()
-        for choice in response_dict.get("choices", []):
-            if not isinstance(choice, dict):
-                continue
-            message_payload = choice.get("message")
-            if (
-                isinstance(message_payload, dict)
-                and message_payload.get("reasoning_content")
-                and "reasoning" not in message_payload
-            ):
-                message_payload["reasoning"] = message_payload["reasoning_content"]
-        return response_dict
+        return self._registry.get("openai").from_domain_response(response)
 
     def from_domain_to_anthropic_response(
         self, response: ChatResponse
     ) -> dict[str, Any]:
-        """Translates a domain ChatResponse to an Anthropic response format."""
-        content_blocks: list[dict[str, Any]] = []
-
-        first_choice = response.choices[0] if response.choices else None
-        message = first_choice.message if first_choice else None
-
-        if message and message.reasoning_content:
-            content_blocks.append(
-                {
-                    "type": "thinking",
-                    "thinking": message.reasoning_content,
-                    "signature": "llm-proxy",
-                }
-            )
-
-        if message and message.content:
-            content_blocks.append({"type": "text", "text": message.content})
-
-        if message and message.tool_calls:
-            for tool_call in message.tool_calls:
-                arguments_raw = tool_call.function.arguments
-                try:
-                    arguments = json.loads(arguments_raw)
-                except Exception:
-                    arguments = {"_raw": arguments_raw}
-
-                content_blocks.append(
-                    {
-                        "type": "tool_use",
-                        "id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "input": arguments,
-                    }
-                )
-
-        stop_reason = first_choice.finish_reason if first_choice else "stop"
-
-        usage: dict[str, Any] | None = None
-        if response.usage:
-            usage = {
-                "input_tokens": response.usage.get("prompt_tokens", 0),
-                "output_tokens": response.usage.get("completion_tokens", 0),
-            }
-
-        return {
-            "id": response.id,
-            "type": "message",
-            "role": "assistant",
-            "model": response.model,
-            "content": content_blocks,
-            "stop_reason": stop_reason,
-            "stop_sequence": None,
-            "usage": usage,
-        }
+        return self._registry.get("anthropic").from_domain_response(response)
 
     def from_domain_to_gemini_response(self, response: ChatResponse) -> dict[str, Any]:
-        """Translates a domain ChatResponse to a Gemini response format."""
-        candidates = []
-        for choice in response.choices:
-            if choice.message:
-                parts: list[dict[str, Any]] = []
-                if choice.message.reasoning_content:
-                    parts.append(
-                        {
-                            "type": "reasoning",
-                            "text": choice.message.reasoning_content,
-                        }
-                    )
-
-                if choice.message.content:
-                    parts.append({"text": choice.message.content})
-
-                if choice.message.tool_calls:
-                    for tool_call in choice.message.tool_calls:
-                        function_call = {
-                            "name": tool_call.function.name,
-                            "args": json.loads(tool_call.function.arguments),
-                        }
-                        parts.append({"functionCall": function_call})
-
-                candidates.append(
-                    {
-                        "content": {
-                            "parts": parts,
-                            "role": choice.message.role,
-                        },
-                        "finishReason": (
-                            choice.finish_reason.upper()
-                            if choice.finish_reason
-                            else "STOP"
-                        ),
-                        "index": choice.index,
-                        "safetyRatings": [],
-                    }
-                )
-
-        return {
-            "candidates": candidates,
-            "promptFeedback": {"safetyRatings": []},
-            "usageMetadata": (
-                {
-                    "promptTokenCount": (
-                        response.usage.get("prompt_tokens", 0) if response.usage else 0
-                    ),
-                    "candidatesTokenCount": (
-                        response.usage.get("completion_tokens", 0)
-                        if response.usage
-                        else 0
-                    ),
-                    "totalTokenCount": (
-                        response.usage.get("total_tokens", 0) if response.usage else 0
-                    ),
-                }
-                if response.usage
-                else {}
-            ),
-        }
+        return self._registry.get("gemini").from_domain_response(response)
 
     def from_domain_response(
         self, response: ChatResponse, target_format: str = "openai"
     ) -> Any:
-        """
-        Translates an internal domain ChatResponse to a specific API format.
-
-        Args:
-            response: The internal ChatResponse object.
-            target_format: The target API format (e.g., "anthropic", "gemini", "responses").
-
-        Returns:
-            The response object in the target format.
-        """
-        # Handle special case for responses format
-        if target_format == "responses":
+        if target_format in {"responses", "openai-responses"}:
             return self.from_domain_to_responses_response(response)
 
         converter = self._from_domain_response_converters.get(target_format)
-        if not converter:
+        if converter is None:
             raise NotImplementedError(
                 f"Response converter for format '{target_format}' not implemented."
             )
@@ -911,46 +438,56 @@ class TranslationService:
     def from_domain_to_responses_response(
         self, response: ChatResponse
     ) -> dict[str, Any]:
-        """Translates a domain ChatResponse to a Responses API response format."""
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Converting domain response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+                "Converting domain response to Responses API format - response_id=%s",
+                getattr(response, "id", "unknown"),
             )
 
         try:
-            converted_response = Translation.from_domain_to_responses_response(response)
+            converted_response = self._registry.get("responses").from_domain_response(
+                response
+            )
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Successfully converted response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+                    "Successfully converted response to Responses API format - response_id=%s",
+                    getattr(response, "id", "unknown"),
                 )
             return converted_response
-        except Exception as e:
+        except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to convert response to Responses API format - response_id={getattr(response, 'id', 'unknown')}, error={e}"
+                    "Failed to convert response to Responses API format - response_id=%s, error=%s",
+                    getattr(response, "id", "unknown"),
+                    exc,
                 )
             raise
 
     def from_domain_to_responses_request(
         self, request: CanonicalChatRequest
     ) -> dict[str, Any]:
-        """Translates a CanonicalChatRequest to a Responses API request format."""
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Converting domain request to Responses API format - model={request.model}"
+                "Converting domain request to Responses API format - model=%s",
+                request.model,
             )
 
         try:
-            converted_request = Translation.from_domain_to_responses_request(request)
+            converted_request = self._registry.get("responses").from_domain_request(
+                request
+            )
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Successfully converted request to Responses API format - model={request.model}"
+                    "Successfully converted request to Responses API format - model=%s",
+                    request.model,
                 )
             return converted_request
-        except Exception as e:
+        except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to convert request to Responses API format - model={request.model}, error={e}"
+                    "Failed to convert request to Responses API format - model=%s, error=%s",
+                    request.model,
+                    exc,
                 )
             raise
 
@@ -959,19 +496,6 @@ class TranslationService:
         response: ChatResponse,
         original_request_extra_body: dict[str, Any] | None = None,
     ) -> ChatResponse:
-        """
-        Enhance a ChatResponse with structured output validation and repair.
-
-        This method validates the response against the original JSON schema
-        and attempts repair if validation fails.
-
-        Args:
-            response: The original ChatResponse
-            original_request_extra_body: The extra_body from the original request containing schema info
-
-        Returns:
-            Enhanced ChatResponse with validated/repaired structured output
-        """
         return Translation.enhance_structured_output_response(
             response, original_request_extra_body
         )
@@ -979,14 +503,4 @@ class TranslationService:
     def validate_json_against_schema(
         self, json_data: dict[str, Any], schema: dict[str, Any]
     ) -> tuple[bool, str | None]:
-        """
-        Validate JSON data against a JSON schema.
-
-        Args:
-            json_data: The JSON data to validate
-            schema: The JSON schema to validate against
-
-        Returns:
-            A tuple of (is_valid, error_message)
-        """
         return Translation.validate_json_against_schema(json_data, schema)
