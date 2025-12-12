@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -136,6 +137,51 @@ async def test_empty_stream_is_retried_before_forwarding() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_stream_retry_respects_max_limit() -> None:
+    """Do not exceed the max empty-stream retry budget when retries stay empty."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
+
+    original_request = ChatRequest(
+        model="gemini",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=True,
+    )
+
+    async def empty_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(content={"usage": {"prompt_tokens": 1}}, metadata={})
+        yield ProcessedResponse(content="", metadata={"is_done": True})
+
+    async def retry_empty_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(content="", metadata={})
+        yield ProcessedResponse(content="", metadata={"is_done": True})
+
+    backend_processor.process_backend_request.side_effect = [
+        StreamingResponseEnvelope(content=retry_empty_stream())
+    ]
+
+    envelope = await manager._process_streaming_response(
+        StreamingResponseEnvelope(content=empty_stream()),
+        original_request,
+        "session-empty-max",
+        _make_context(),
+    )
+
+    assert envelope.content is not None
+    with pytest.raises(BackendError):
+        async for _ in envelope.content:
+            pass
+
+    assert backend_processor.process_backend_request.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_streaming_retry_skipped_when_retry_marker_present() -> None:
     """When retry marker is present, the reactor should not trigger again."""
     backend_processor = AsyncMock()
@@ -236,15 +282,18 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     assert retry_request.messages[: len(original_messages)] == original_messages
     assert retry_request.messages[-1].role == "system"
     proxy_notice = retry_request.messages[-1].content
+    assert isinstance(proxy_notice, str)
     assert "Proxy Notice" in proxy_notice
     assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert "execute_command" in proxy_notice
     assert "pytest" in proxy_notice
-    assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
+    extra_body = retry_request.extra_body or {}
+    assert extra_body.get("_tool_call_reactor_retry") is True
 
     assert isinstance(result, ResponseEnvelope)
     assert result.content == "corrected output"
-    assert result.metadata.get("clean") is True
+    result_metadata = result.metadata or {}
+    assert result_metadata.get("clean") is True
     assert result.content != steering_processed.content
 
 
@@ -290,7 +339,8 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
     assert backend_processor.process_backend_request.await_count == 2
     assert isinstance(result, ResponseEnvelope)
     assert result.content == ""
-    assert result.metadata.get("tool_call_swallowed") is True
+    failure_metadata = result.metadata or {}
+    assert failure_metadata.get("tool_call_swallowed") is True
     assert result.content != steering_processed.content
 
 
@@ -355,10 +405,12 @@ async def test_streaming_full_suite_swallow_replays_history_and_hides_steering()
     assert retry_request.messages[: len(original_messages)] == original_messages
     assert retry_request.messages[-1].role == "system"
     proxy_notice = retry_request.messages[-1].content
+    assert isinstance(proxy_notice, str)
     assert "Proxy Notice" in proxy_notice
     assert "Proxy Security Notice" in proxy_notice  # Escalating message
     assert "execute_command" in proxy_notice
-    assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
+    extra_body = retry_request.extra_body or {}
+    assert extra_body.get("_tool_call_reactor_retry") is True
 
     assert [chunk.content for chunk in chunks] == ["fixed 1", "fixed 2"]
     assert all("steering chunk" not in str(chunk.content) for chunk in chunks)

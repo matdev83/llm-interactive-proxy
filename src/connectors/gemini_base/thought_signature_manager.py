@@ -202,6 +202,51 @@ class ThoughtSignatureManager:
         except Exception:
             logger.debug("Failed to log tool call signature state", exc_info=True)
 
+    def clear_session_cache(self, session_id: str) -> int:
+        """Clear all cached signatures for a session.
+
+        Used when switching backends mid-session to prevent incompatible
+        thought signatures from being injected into requests to the new backend.
+
+        Args:
+            session_id: The session ID prefix to match and clear
+
+        Returns:
+            Number of entries cleared from the cache
+        """
+        if not session_id:
+            return 0
+
+        prefix = f"{session_id}:"
+        keys_to_remove: list[str] = [
+            key for key in self._cache if key.startswith(prefix)
+        ]
+
+        # Also collect tool_call_ids to remove from secondary index
+        tool_call_ids_to_remove: list[str] = []
+        for key in keys_to_remove:
+            # Key format is "session_id:tool_call_id"
+            parts = key.split(":", 1)
+            if len(parts) == 2:
+                tool_call_ids_to_remove.append(parts[1])
+
+        # Remove from primary cache
+        for key in keys_to_remove:
+            del self._cache[key]
+
+        # Remove from secondary index
+        for tc_id in tool_call_ids_to_remove:
+            self._by_tool_call.pop(tc_id, None)
+
+        if keys_to_remove and logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Cleared %d thought_signature(s) for session %s",
+                len(keys_to_remove),
+                session_id[:8] if session_id else "none",
+            )
+
+        return len(keys_to_remove)
+
 
 # Global instance for backward compatibility with class-level cache
 _global_thought_signature_manager = ThoughtSignatureManager()

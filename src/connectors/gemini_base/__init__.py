@@ -25,6 +25,7 @@ The main connector class is broken down into focused, composable modules:
 - retry_delay_parser: Retry delay parsing utilities
 - thought_signature_manager: Thought signature caching
 - user_prompt_id_generator: User prompt ID generation
+- backend_compatibility: Backend infrastructure compatibility rules
 """
 
 from .chat_request_preparer import (

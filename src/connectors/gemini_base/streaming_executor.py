@@ -21,6 +21,11 @@ from src.connectors.gemini_base.google_auth_adapter import (
     GoogleAuthProvider,
     get_default_google_auth_provider,
 )
+from src.connectors.gemini_base.policies import (
+    AuthRefreshPolicy,
+    IAuthRefreshPolicy,
+    IRetryPolicy,
+)
 from src.connectors.gemini_base.stream_processor import (
     build_error_chunk,
     build_rate_limit_backend_error,
@@ -232,6 +237,8 @@ class StreamingExecutor:
         token_estimator: TiktokenEstimator | None = None,
         google_auth_provider: GoogleAuthProvider | None = None,
         retry_delay_extractor: IRetryDelayExtractor | None = None,
+        auth_refresh_policy: IAuthRefreshPolicy | None = None,
+        retry_policy: IRetryPolicy | None = None,
         backend_type: str = "gemini",
     ) -> None:
         """Initialize the executor.
@@ -241,12 +248,16 @@ class StreamingExecutor:
             token_estimator: Optional token estimator (defaults to tiktoken).
             google_auth_provider: Optional Google auth provider.
             retry_delay_extractor: Optional retry delay extractor.
+            auth_refresh_policy: Optional auth refresh policy for 401 handling.
+            retry_policy: Optional retry policy for rate-limit handling.
             backend_type: The backend type for error reporting.
         """
         self._translation_service = translation_service
         self._token_estimator = token_estimator or get_default_token_estimator()
         self._google_auth = google_auth_provider or get_default_google_auth_provider()
         self._retry_delay_extractor = retry_delay_extractor
+        self._auth_refresh_policy = auth_refresh_policy or AuthRefreshPolicy()
+        self._retry_policy = retry_policy
         self._backend_type = backend_type
 
     async def execute(
@@ -259,6 +270,7 @@ class StreamingExecutor:
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
         key_name: str | None = None,
+        retry_policy: IRetryPolicy | None = None,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Execute a streaming request and yield processed responses.
 
@@ -268,6 +280,7 @@ class StreamingExecutor:
             token_refresher: Optional token refresher for auth retry.
             thought_signature_callback: Optional callback for storing thought signatures.
             key_name: Optional key name for metadata.
+            retry_policy: Optional retry policy for rate limits.
 
         Yields:
             ProcessedResponse objects for each chunk.
@@ -298,6 +311,8 @@ class StreamingExecutor:
             token_refresher=token_refresher,
             thought_signature_callback=thought_signature_callback,
             key_name=key_name,
+            auth_refresh_policy=self._auth_refresh_policy,
+            retry_policy=retry_policy or self._retry_policy,
         ):
             yield chunk
 
@@ -313,9 +328,12 @@ class StreamingExecutor:
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
         key_name: str | None = None,
+        auth_refresh_policy: IAuthRefreshPolicy | None = None,
+        retry_policy: IRetryPolicy | None = None,
         _allow_tool_retry: bool = True,
         without_tools: bool = False,
         _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Internal generator that handles the streaming loop."""
         response = None
@@ -408,9 +426,12 @@ class StreamingExecutor:
                     token_refresher=token_refresher,
                     thought_signature_callback=thought_signature_callback,
                     key_name=key_name,
+                    auth_refresh_policy=auth_refresh_policy,
+                    retry_policy=retry_policy,
                     _allow_tool_retry=_allow_tool_retry,
                     without_tools=without_tools,
                     _auth_retry_attempted=_auth_retry_attempted,
+                    _rate_limit_retry_attempted=_rate_limit_retry_attempted,
                 ):
                     yield chunk
                 return
@@ -613,8 +634,22 @@ class StreamingExecutor:
                                 choices = content.get("choices", [])
                                 if choices and isinstance(choices[0], dict):
                                     finish_reason = choices[0].get("finish_reason")
-                                    if finish_reason in ("stop", "stop_sequence"):
-                                        is_stop_chunk = True
+                                    if finish_reason is None:
+                                        finish_reason = (
+                                            choices[0].get("delta", {}) or {}
+                                        ).get("finish_reason")
+                            if finish_reason in ("stop", "stop_sequence"):
+                                is_stop_chunk = True
+
+                            # Defensive: capture stop chunks even if above branch misses
+                            if not is_stop_chunk:
+                                fallback_finish = (
+                                    choices[0].get("delta", {}) or {}
+                                ).get("finish_reason") or choices[0].get(
+                                    "finish_reason"
+                                )
+                                if fallback_finish in ("stop", "stop_sequence"):
+                                    is_stop_chunk = True
 
                             if is_stop_chunk:
                                 if logger.isEnabledFor(TRACE_LEVEL):
@@ -709,7 +744,38 @@ class StreamingExecutor:
                     metadata={"model": prepared.effective_model},
                 )
 
-        except BackendError:
+        except BackendError as err:
+            if retry_policy:
+                attempt = 1 if _rate_limit_retry_attempted else 0
+                decision = retry_policy.should_retry(err, attempt, is_streaming=True)
+                if (
+                    decision.should_retry
+                    and decision.sleep_seconds is not None
+                    and not _rate_limit_retry_attempted
+                ):
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
+                            decision.sleep_seconds,
+                            attempt + 1,
+                        )
+                    await asyncio.sleep(decision.sleep_seconds)
+                    async for retry_chunk in self._stream_generator(
+                        prepared=prepared,
+                        url=url,
+                        processor=processor,
+                        prompt_tokens=prompt_tokens,
+                        token_refresher=token_refresher,
+                        thought_signature_callback=thought_signature_callback,
+                        key_name=key_name,
+                        retry_policy=retry_policy,
+                        _allow_tool_retry=_allow_tool_retry,
+                        without_tools=without_tools,
+                        _auth_retry_attempted=_auth_retry_attempted,
+                        _rate_limit_retry_attempted=True,
+                    ):
+                        yield retry_chunk
+                    return
             raise
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}", exc_info=True)
@@ -749,9 +815,12 @@ class StreamingExecutor:
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
         key_name: str | None = None,
+        auth_refresh_policy: IAuthRefreshPolicy | None = None,
+        retry_policy: IRetryPolicy | None = None,
         _allow_tool_retry: bool = True,
         without_tools: bool = False,
         _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Handle non-200 HTTP response."""
         try:
@@ -781,20 +850,36 @@ class StreamingExecutor:
         elif isinstance(error_detail, str) and error_detail.strip():
             error_message = error_detail
 
-        # Handle 401 with token refresh and retry
-        if response.status_code == 401 and not _auth_retry_attempted:
-            logger.info(
-                "Received 401 Unauthorized from backend, attempting token refresh and retry..."
-            )
-            with contextlib.suppress(Exception):
-                response.close()
+        backend_error = BackendError(
+            message=error_message,
+            code=code,
+            status_code=response.status_code,
+            details=detail_payload,
+            backend_name=self._backend_type,
+        )
 
-            if token_refresher:
-                AUTH_RETRY_TIMEOUT = 30.0
+        auth_policy = auth_refresh_policy or self._auth_refresh_policy
+        auth_attempt = 1 if _auth_retry_attempted else 0
+
+        if response.status_code == 401 and token_refresher and auth_policy:
+            decision = auth_policy.should_refresh(
+                backend_error, auth_attempt, is_streaming=True
+            )
+            if decision.should_refresh:
+                logger.info(
+                    "Received 401 Unauthorized from backend, attempting token refresh and retry (attempt=%s, timeout=%.1fs)...",
+                    auth_attempt + 1,
+                    decision.timeout_seconds,
+                )
+                with contextlib.suppress(Exception):
+                    response.close()
+
                 try:
                     refreshed = await asyncio.wait_for(
-                        token_refresher.refresh_token_if_needed(force_reload=True),
-                        timeout=AUTH_RETRY_TIMEOUT,
+                        token_refresher.refresh_token_if_needed(
+                            force_reload=decision.force_reload
+                        ),
+                        timeout=decision.timeout_seconds,
                     )
                     if refreshed:
                         logger.info(
@@ -808,49 +893,74 @@ class StreamingExecutor:
                             token_refresher=token_refresher,
                             thought_signature_callback=thought_signature_callback,
                             key_name=key_name,
+                            auth_refresh_policy=auth_policy,
                             _allow_tool_retry=_allow_tool_retry,
                             without_tools=without_tools,
                             _auth_retry_attempted=True,
                         ):
                             yield retry_chunk
                         return
-                    else:
-                        logger.warning(
-                            "Token refresh failed; will return 401 error to client"
-                        )
+                    logger.warning(
+                        "Token refresh failed; will return 401 error to client"
+                    )
                 except asyncio.TimeoutError:
                     logger.warning(
-                        f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; returning 401 to client"
+                        "Token refresh timed out after %.1fs; returning 401 to client",
+                        decision.timeout_seconds,
                     )
                 except Exception as refresh_error:
                     logger.error(
-                        f"Error during token refresh attempt: {refresh_error}",
+                        "Error during token refresh attempt: %s",
+                        refresh_error,
                         exc_info=True,
                     )
 
         # Extract retry delay for rate limit errors
         if response.status_code == 429 and self._retry_delay_extractor:
-            retry_delay = self._retry_delay_extractor.extract_retry_delay(
-                BackendError(
-                    message=error_message,
-                    code=code,
-                    status_code=response.status_code,
-                    details=detail_payload,
-                )
-            )
+            retry_delay = self._retry_delay_extractor.extract_retry_delay(backend_error)
             if retry_delay is not None:
                 detail_payload["retry_after"] = retry_delay
+
+        if retry_policy and response.status_code == 429:
+            attempt = 1 if _rate_limit_retry_attempted else 0
+            retry_decision = retry_policy.should_retry(
+                backend_error, attempt, is_streaming=True
+            )
+            if (
+                retry_decision.should_retry
+                and retry_decision.sleep_seconds is not None
+                and not _rate_limit_retry_attempted
+            ):
+                with contextlib.suppress(Exception):
+                    response.close()
+                logger.info(
+                    "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
+                    retry_decision.sleep_seconds,
+                    attempt + 1,
+                )
+                await asyncio.sleep(retry_decision.sleep_seconds)
+                async for retry_chunk in self._stream_generator(
+                    prepared=prepared,
+                    url=url,
+                    processor=processor,
+                    prompt_tokens=prompt_tokens,
+                    token_refresher=token_refresher,
+                    thought_signature_callback=thought_signature_callback,
+                    key_name=key_name,
+                    auth_refresh_policy=auth_refresh_policy,
+                    retry_policy=retry_policy,
+                    _allow_tool_retry=_allow_tool_retry,
+                    without_tools=without_tools,
+                    _auth_retry_attempted=_auth_retry_attempted,
+                    _rate_limit_retry_attempted=True,
+                ):
+                    yield retry_chunk
+                return
 
         with contextlib.suppress(Exception):
             response.close()
 
-        raise BackendError(
-            message=error_message,
-            code=code,
-            status_code=response.status_code,
-            details=detail_payload,
-            backend_name=self._backend_type,
-        )
+        raise backend_error
 
     def _build_error_metadata(self, error_chunk: dict[str, Any]) -> dict[str, Any]:
         """Build metadata for error responses."""
@@ -879,6 +989,7 @@ class StreamingExecutor:
 
 
 __all__ = [
+    "IAuthRefreshPolicy",
     "IRetryDelayExtractor",
     "ITokenRefresher",
     "SSELineProcessor",

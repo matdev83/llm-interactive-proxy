@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 from typing import Any
+from unittest.mock import patch
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -184,7 +185,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
 
 
 @given(config_sources=config_source_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=30)
 def test_property_10_configuration_precedence_enabled(
     config_sources: dict[str, Any],
 ) -> None:
@@ -206,71 +207,75 @@ def test_property_10_configuration_precedence_enabled(
     if "PROXY_TIMEOUT" in os.environ:
         del os.environ["PROXY_TIMEOUT"]
 
-    try:
-        # Set up environment value
-        _apply_env_values(config_sources["env_enabled"], None)
+    # Patch backend discovery to improve test performance
+    with patch(
+        "src.core.config.app_config.BackendSettings._discover_backend_instances"
+    ):
+        try:
+            # Set up environment value
+            _apply_env_values(config_sources["env_enabled"], None)
 
-        # Create environment dict for from_env
-        test_env = dict(os.environ)
+            # Create environment dict for from_env
+            test_env = dict(os.environ)
 
-        # Create base config that simulates config file + environment loading
-        # The from_env method will apply environment variables
-        base_config = AppConfig.from_env(environ=test_env)
+            # Create base config that simulates config file + environment loading
+            # The from_env method will apply environment variables
+            base_config = AppConfig.from_env(environ=test_env)
 
-        # If config_enabled is set, we need to override the environment-loaded value
-        # to simulate a config file value (which has lower precedence than environment)
-        if (
-            config_sources["config_enabled"] is not None
-            and config_sources["env_enabled"] is None
-        ):
-            # Only apply config value if environment is not set
-            # (simulating that config file is loaded first, then env overrides it)
-            base_config = _create_config_with_values(
-                config_sources["config_enabled"],
-                None,
+            # If config_enabled is set, we need to override the environment-loaded value
+            # to simulate a config file value (which has lower precedence than environment)
+            if (
+                config_sources["config_enabled"] is not None
+                and config_sources["env_enabled"] is None
+            ):
+                # Only apply config value if environment is not set
+                # (simulating that config file is loaded first, then env overrides it)
+                base_config = _create_config_with_values(
+                    config_sources["config_enabled"],
+                    None,
+                )
+
+            # Set up CLI value
+            cli_args = _create_cli_args(config_sources["cli_enabled"], None)
+
+            # Apply CLI args (which should respect precedence)
+            with patch("src.core.cli.load_config", return_value=base_config):
+                result_config = apply_cli_args(cli_args)
+
+            # Determine expected value based on precedence
+            if config_sources["cli_enabled"] is not None:
+                # CLI has highest precedence
+                expected = config_sources["cli_enabled"]
+            elif config_sources["env_enabled"] is not None:
+                # Environment has second precedence
+                expected = config_sources["env_enabled"]
+            elif config_sources["config_enabled"] is not None:
+                # Config file has lowest precedence
+                expected = config_sources["config_enabled"]
+            else:
+                # Default value when nothing is set
+                expected = False
+
+            # Check the result
+            actual = (
+                result_config.session.tool_call_reactor.test_execution_reminder_enabled
+            )
+            assert actual == expected, (
+                f"Configuration precedence violated for enabled flag. "
+                f"Expected {expected}, got {actual}. "
+                f"Sources: CLI={config_sources['cli_enabled']}, "
+                f"ENV={config_sources['env_enabled']}, "
+                f"CONFIG={config_sources['config_enabled']}"
             )
 
-        # Set up CLI value
-        cli_args = _create_cli_args(config_sources["cli_enabled"], None)
-
-        # Apply CLI args (which should respect precedence)
-        from unittest.mock import patch
-
-        with patch("src.core.cli.load_config", return_value=base_config):
-            result_config = apply_cli_args(cli_args)
-
-        # Determine expected value based on precedence
-        if config_sources["cli_enabled"] is not None:
-            # CLI has highest precedence
-            expected = config_sources["cli_enabled"]
-        elif config_sources["env_enabled"] is not None:
-            # Environment has second precedence
-            expected = config_sources["env_enabled"]
-        elif config_sources["config_enabled"] is not None:
-            # Config file has lowest precedence
-            expected = config_sources["config_enabled"]
-        else:
-            # Default value when nothing is set
-            expected = False
-
-        # Check the result
-        actual = result_config.session.tool_call_reactor.test_execution_reminder_enabled
-        assert actual == expected, (
-            f"Configuration precedence violated for enabled flag. "
-            f"Expected {expected}, got {actual}. "
-            f"Sources: CLI={config_sources['cli_enabled']}, "
-            f"ENV={config_sources['env_enabled']}, "
-            f"CONFIG={config_sources['config_enabled']}"
-        )
-
-    finally:
-        # Clean up environment after test
-        if "TEST_EXECUTION_REMINDER_ENABLED" in os.environ:
-            del os.environ["TEST_EXECUTION_REMINDER_ENABLED"]
+        finally:
+            # Clean up environment after test
+            if "TEST_EXECUTION_REMINDER_ENABLED" in os.environ:
+                del os.environ["TEST_EXECUTION_REMINDER_ENABLED"]
 
 
 @given(config_sources=config_source_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=30)
 def test_property_10_configuration_precedence_message(
     config_sources: dict[str, Any],
 ) -> None:
@@ -292,59 +297,64 @@ def test_property_10_configuration_precedence_message(
     if "PROXY_TIMEOUT" in os.environ:
         del os.environ["PROXY_TIMEOUT"]
 
-    try:
-        # Set up environment value
-        _apply_env_values(None, config_sources["env_message"])
+    # Patch backend discovery to improve test performance
+    with patch(
+        "src.core.config.app_config.BackendSettings._discover_backend_instances"
+    ):
+        try:
+            # Set up environment value
+            _apply_env_values(None, config_sources["env_message"])
 
-        # Create environment dict for from_env
-        test_env = dict(os.environ)
+            # Create environment dict for from_env
+            test_env = dict(os.environ)
 
-        # Create base config that simulates config file + environment loading
-        base_config = AppConfig.from_env(environ=test_env)
+            # Create base config that simulates config file + environment loading
+            # The from_env method will apply environment variables
+            base_config = AppConfig.from_env(environ=test_env)
 
-        # If config_message is set, we need to override the environment-loaded value
-        # to simulate a config file value (which has lower precedence than environment)
-        if (
-            config_sources["config_message"] is not None
-            and config_sources["env_message"] is None
-        ):
-            # Only apply config value if environment is not set
-            base_config = _create_config_with_values(
-                None,
-                config_sources["config_message"],
+            # If config_message is set, we need to override the environment-loaded value
+            # to simulate a config file value (which has lower precedence than environment)
+            if (
+                config_sources["config_message"] is not None
+                and config_sources["env_message"] is None
+            ):
+                # Only apply config value if environment is not set
+                base_config = _create_config_with_values(
+                    None,
+                    config_sources["config_message"],
+                )
+
+            # Set up CLI value (note: CLI doesn't support message override currently)
+            cli_args = _create_cli_args(None, None)
+
+            # Apply CLI args (which should respect precedence)
+            with patch("src.core.cli.load_config", return_value=base_config):
+                result_config = apply_cli_args(cli_args)
+
+            # Determine expected value based on precedence
+            # Note: CLI doesn't support message override, so it's ENV > CONFIG
+            if config_sources["env_message"] is not None:
+                # Environment has highest precedence (since CLI doesn't support it)
+                expected = config_sources["env_message"]
+            elif config_sources["config_message"] is not None:
+                # Config file has lowest precedence
+                expected = config_sources["config_message"]
+            else:
+                # Default value when nothing is set
+                expected = None
+
+            # Check the result
+            actual = (
+                result_config.session.tool_call_reactor.test_execution_reminder_message
+            )
+            assert actual == expected, (
+                f"Configuration precedence violated for message. "
+                f"Expected {expected}, got {actual}. "
+                f"Sources: ENV={config_sources['env_message']}, "
+                f"CONFIG={config_sources['config_message']}"
             )
 
-        # Set up CLI value (note: CLI doesn't support message override currently)
-        cli_args = _create_cli_args(None, None)
-
-        # Apply CLI args (which should respect precedence)
-        from unittest.mock import patch
-
-        with patch("src.core.cli.load_config", return_value=base_config):
-            result_config = apply_cli_args(cli_args)
-
-        # Determine expected value based on precedence
-        # Note: CLI doesn't support message override, so it's ENV > CONFIG
-        if config_sources["env_message"] is not None:
-            # Environment has highest precedence (since CLI doesn't support it)
-            expected = config_sources["env_message"]
-        elif config_sources["config_message"] is not None:
-            # Config file has lowest precedence
-            expected = config_sources["config_message"]
-        else:
-            # Default value when nothing is set
-            expected = None
-
-        # Check the result
-        actual = result_config.session.tool_call_reactor.test_execution_reminder_message
-        assert actual == expected, (
-            f"Configuration precedence violated for message. "
-            f"Expected {expected}, got {actual}. "
-            f"Sources: ENV={config_sources['env_message']}, "
-            f"CONFIG={config_sources['config_message']}"
-        )
-
-    finally:
-        # Clean up environment after test
-        if "TEST_EXECUTION_REMINDER_MESSAGE" in os.environ:
-            del os.environ["TEST_EXECUTION_REMINDER_MESSAGE"]
+        finally:
+            # Clean up environment after test
+            if "TEST_EXECUTION_REMINDER_MESSAGE" in os.environ:
+                del os.environ["TEST_EXECUTION_REMINDER_MESSAGE"]

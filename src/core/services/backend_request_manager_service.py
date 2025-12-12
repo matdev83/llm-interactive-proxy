@@ -1426,6 +1426,16 @@ class BackendRequestManager(IBackendRequestManager):
                 async for chunk in stream:
                     yield chunk
             except EmptyResponseRetryError as exc:
+                if retry_depth >= self._MAX_EMPTY_STREAM_RETRIES:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Maximum empty stream recovery attempts reached for session %s",
+                            session_id,
+                        )
+                    self._raise_empty_stream_error(
+                        session_id=session_id,
+                        reason="empty_stream_after_retries",
+                    )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Empty streaming response detected, retrying with recovery prompt: %s",

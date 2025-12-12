@@ -1,5 +1,25 @@
 # Changelog
 
+## [2025-12-12]
+
+### Refactored
+
+- **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
+  - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
+  - **Streaming Executor**: Enhanced `StreamingExecutor` for more robust stream handling and error recovery
+  - **Thought Signature Management**: Improved `ThoughtSignatureManager` and `ThoughtSignatureService` for better persistence and retrieval of thought signatures
+
+### Added
+
+- **Session Sanitizer**: New `SessionSanitizer` service to ensure session data integrity and security
+  - **Sanitization Logic**: Implemented `session_sanitizer.py` to clean and normalize session data
+  - **Unit Tests**: Added comprehensive tests in `test_session_sanitizer.py`
+
+### Changed
+
+- **Spec Cleanup**: Removed obsolete test suite fix specifications from `.kiro/specs/test-suite-fixes/`
+- **Test Suite Updates**: Updated property tests and unit tests to align with new architecture and services
+
 ## [2025-12-11]
 
 ### Added

@@ -114,6 +114,20 @@ class ThoughtSignatureService:
             canonical_request, session_id, effective_model
         )
 
+    def clear_session_cache(self, session_id: str) -> int:
+        """Clear all cached signatures for a session.
+
+        Used when switching backends mid-session to prevent incompatible
+        thought signatures from being injected into requests to the new backend.
+
+        Args:
+            session_id: The session ID prefix to match and clear
+
+        Returns:
+            Number of entries cleared from the cache
+        """
+        return self._manager.clear_session_cache(session_id)
+
 
 # Default instance for convenience
 _default_service: ThoughtSignatureService | None = None

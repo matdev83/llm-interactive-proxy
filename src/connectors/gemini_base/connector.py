@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -65,6 +65,16 @@ from src.connectors.gemini_base.interfaces import (
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
 from src.connectors.gemini_base.model_validation import (
     GOOGLE_VENDOR_PREFIX,
+)
+from src.connectors.gemini_base.orchestrator import (
+    CodeAssistOrchestrator,
+    StreamWrapper,
+)
+from src.connectors.gemini_base.policies import (
+    AuthRefreshPolicy,
+    IAuthRefreshPolicy,
+    IRetryPolicy,
+    RateLimitRetryPolicy,
 )
 from src.connectors.gemini_base.prompt_limiter import (
     enforce_prompt_limit,
@@ -232,6 +242,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         token_estimator: TiktokenEstimator | None = None,
         google_auth_provider: GoogleAuthProvider | None = None,
         streaming_executor: StreamingExecutor | None = None,
+        retry_policy: IRetryPolicy | None = None,
+        auth_refresh_policy: IAuthRefreshPolicy | None = None,
     ) -> None:
         super().__init__(
             client, config, translation_service
@@ -282,7 +294,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Uses narrow interfaces for SOLID compliance - connector implements
         # IConnectorContext, IMessageConverter, IPromptLimiter, IRequestBodyBuilder
         self._chat_preparer = ChatRequestPreparer(
-            connector=self,  # Backward compat: connector provides all interfaces
+            connector_context=self,
+            message_converter=self,
+            prompt_limiter=self,
+            request_body_builder=self,
+            request_counter=self._request_counter,
             translation_service=translation_service,
             google_auth_provider=self._google_auth_provider,
             thought_signature_service=self._thought_signature_service,
@@ -290,6 +306,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         # Streaming executor (injected or lazily created)
         self._streaming_executor_instance = streaming_executor
+        self._retry_policy: IRetryPolicy = retry_policy or RateLimitRetryPolicy(
+            retry_delay_extractor=self._extract_retry_delay,
+            is_rate_limit_like=self._is_rate_limit_like_error,
+            max_attempts=1,
+        )
+        self._auth_refresh_policy: IAuthRefreshPolicy = (
+            auth_refresh_policy or AuthRefreshPolicy()
+        )
+        self._orchestrator_instance: CodeAssistOrchestrator | None = None
 
         # File watching (composed or injected)
         self._file_watcher_state = file_watcher_state or FileWatcherState()
@@ -388,9 +413,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 token_estimator=self._token_estimator,
                 google_auth_provider=self._google_auth_provider,
                 retry_delay_extractor=self,  # Connector implements IRetryDelayExtractor
+                auth_refresh_policy=self._auth_refresh_policy,
+                retry_policy=self._retry_policy,
                 backend_type=self.backend_type,
             )
         return self._streaming_executor_instance
+
+    @property
+    def _orchestrator(self) -> CodeAssistOrchestrator:
+        """Get or lazily create the orchestration helper."""
+        if self._orchestrator_instance is None:
+            self._orchestrator_instance = CodeAssistOrchestrator(
+                streaming_executor=self._streaming_executor,
+                response_post_processor=self._response_post_processor,
+                thought_signature_service=self._thought_signature_service,
+                retry_policy=self._retry_policy,
+                backend_type=getattr(self, "backend_type", "gemini"),
+            )
+        return self._orchestrator_instance
 
     def extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error - implements IRetryDelayExtractor."""
@@ -1342,7 +1382,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         )
                     )
                     # Accumulate streaming response into a ResponseEnvelope
-                    return await self._accumulate_streaming_response(streaming_response)
+                    accumulator = StreamingResponseAccumulator(
+                        backend_type=getattr(self, "backend_type", "gemini")
+                    )
+                    return await accumulator.accumulate(streaming_response)
             except BackendError:
                 # Propagate backend errors to be handled by the Resilience Layer.
                 raise
@@ -1398,6 +1441,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             user_prompt_id_generator=self._generate_user_prompt_id,
         )
 
+    async def _accumulate_streaming_response(
+        self, streaming_response: StreamingResponseEnvelope
+    ) -> ResponseEnvelope:
+        """Backward-compatible accumulator helper for tests and callers."""
+        accumulator = StreamingResponseAccumulator(
+            backend_type=getattr(self, "backend_type", "gemini")
+        )
+        return await accumulator.accumulate(streaming_response)
+
     @staticmethod
     def _sanitize_code_assist_tools(
         canonical_request: Any, code_assist_request: dict[str, Any]
@@ -1405,27 +1457,73 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Ensure only Gemini-compatible function tools are sent."""
         sanitize_code_assist_tools(canonical_request, code_assist_request)
 
-    async def _accumulate_streaming_response(
+    async def _attempt_auth_refresh_with_policy(
         self,
-        streaming_response: StreamingResponseEnvelope,
-    ) -> ResponseEnvelope:
-        """Accumulate a streaming response into a non-streaming ResponseEnvelope.
-
-        This method is used when the client requests non-streaming mode but the
-        backend only supports streaming (e.g., Gemini Code Assist API).
-
-        Delegates to StreamingResponseAccumulator for implementation.
-
-        Args:
-            streaming_response: The streaming response envelope to accumulate
-
-        Returns:
-            A ResponseEnvelope containing the accumulated content
-        """
-        accumulator = StreamingResponseAccumulator(
-            backend_type=getattr(self, "backend_type", "gemini")
+        error: Exception,
+        *,
+        is_streaming: bool,
+        has_attempted: bool,
+    ) -> bool:
+        """Apply auth refresh policy and perform the refresh if allowed."""
+        policy = cast(
+            IAuthRefreshPolicy | None, getattr(self, "_auth_refresh_policy", None)
         )
-        return await accumulator.accumulate(streaming_response)
+        if policy is None:
+            return False
+
+        attempt = 1 if has_attempted else 0
+        try:
+            decision = policy.should_refresh(error, attempt, is_streaming=is_streaming)
+        except Exception as policy_error:  # pragma: no cover - defensive
+            logger.warning(
+                "Auth refresh policy evaluation failed: %s",
+                policy_error,
+                exc_info=True,
+            )
+            return False
+
+        if not decision.should_refresh:
+            return False
+
+        AUTH_RETRY_TIMEOUT = decision.timeout_seconds or 30.0
+        logger.info(
+            "Received 401 Unauthorized; applying auth refresh policy (attempt=%s, timeout=%.1fs, streaming=%s)",
+            attempt + 1,
+            AUTH_RETRY_TIMEOUT,
+            is_streaming,
+        )
+
+        try:
+            refreshed = await asyncio.wait_for(
+                self._refresh_token_if_needed(force_reload=decision.force_reload),
+                timeout=AUTH_RETRY_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Token refresh timed out after %.1fs; will propagate auth error",
+                AUTH_RETRY_TIMEOUT,
+            )
+            return False
+        except Exception as refresh_error:
+            logger.error(
+                "Error during token refresh attempt: %s",
+                refresh_error,
+                exc_info=True,
+            )
+            return False
+
+        if refreshed:
+            logger.info(
+                "Token refresh successful (attempt=%s, streaming=%s); retrying request",
+                attempt + 1,
+                is_streaming,
+            )
+            return True
+
+        logger.warning(
+            "Token refresh failed after policy refresh attempt; propagating auth error"
+        )
+        return False
 
     async def _chat_completions_code_assist(
         self,
@@ -1443,118 +1541,71 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         approach, while converting to/from OpenAI-compatible formats.
         """
         try:
+            prepared_start = time.monotonic()
             prepared = await self._chat_preparer.prepare(
                 request_data=request_data,
                 effective_model=effective_model,
                 is_streaming=False,
             )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Prepared non-streaming request in %.3fs (model=%s, session=%s)",
+                    time.monotonic() - prepared_start,
+                    effective_model,
+                    getattr(request_data, "session_id", None),
+                )
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call to: {url}")
 
-            def thought_signature_callback(
-                tool_calls: list[dict[str, Any]], session_id: str | None
-            ) -> None:
-                self._thought_signature_service.store_signatures_from_tool_calls(
-                    tool_calls,
-                    session_id,
-                )
-
-            executor = self._streaming_executor
-            stream_gen = executor.execute(
+            response = await self._orchestrator.run_non_streaming(
                 prepared=prepared,
                 url=url,
                 token_refresher=self,
-                thought_signature_callback=thought_signature_callback,
+                thought_signature_callback=self._build_thought_signature_callback(),
                 key_name=getattr(self, "_key_name", None),
             )
-
-            streaming_envelope = StreamingResponseEnvelope(
-                content=stream_gen,
-                media_type="text/event-stream",
-                headers={},
-            )
-
-            response = await self._accumulate_streaming_response(streaming_envelope)
 
             logger.info(
                 "Successfully received and processed response from Code Assist API"
             )
-            return self._response_post_processor.process(
-                response, prepared.effective_model
-            )
+            return response
 
         except AuthenticationError as e:
-            if not _auth_retry_attempted:
-                logger.info(
-                    "Received 401 Unauthorized in non-streaming request, attempting token refresh and retry..."
+            should_retry = await self._attempt_auth_refresh_with_policy(
+                e,
+                is_streaming=False,
+                has_attempted=_auth_retry_attempted,
+            )
+            if should_retry:
+                return await self._chat_completions_code_assist(
+                    request_data=request_data,
+                    processed_messages=processed_messages,
+                    effective_model=effective_model,
+                    _in_graceful_degradation=_in_graceful_degradation,
+                    _auth_retry_attempted=True,
+                    _rate_limit_retry_attempted=_rate_limit_retry_attempted,
+                    **kwargs,
                 )
-                try:
-                    AUTH_RETRY_TIMEOUT = 30.0
-                    refreshed = await asyncio.wait_for(
-                        self._refresh_token_if_needed(force_reload=True),
-                        timeout=AUTH_RETRY_TIMEOUT,
-                    )
-                    if refreshed:
-                        logger.info(
-                            "Token refresh successful, retrying non-streaming request..."
-                        )
-                        return await self._chat_completions_code_assist(
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            effective_model=effective_model,
-                            _in_graceful_degradation=_in_graceful_degradation,
-                            _auth_retry_attempted=True,
-                            **kwargs,
-                        )
-                    logger.warning(
-                        "Token refresh failed; will raise 401 error to caller"
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"Token refresh timed out after {AUTH_RETRY_TIMEOUT}s; raising 401 to caller"
-                    )
-                except Exception as refresh_error:
-                    logger.error(
-                        f"Error during token refresh attempt: {refresh_error}",
-                        exc_info=True,
-                    )
             logger.error(f"Authentication error during API call: {e}", exc_info=True)
             raise
         except BackendError as e:
+            if e.status_code == 401 and await self._attempt_auth_refresh_with_policy(
+                e,
+                is_streaming=False,
+                has_attempted=_auth_retry_attempted,
+            ):
+                return await self._chat_completions_code_assist(
+                    request_data=request_data,
+                    processed_messages=processed_messages,
+                    effective_model=effective_model,
+                    _in_graceful_degradation=_in_graceful_degradation,
+                    _auth_retry_attempted=True,
+                    **kwargs,
+                )
+
             if self._is_rate_limit_like_error(e):
                 logger.info("Backend rate limited during API call: %s", e)
-                retry_after = self._extract_retry_delay(e)
-                if retry_after and retry_after > 0 and not _rate_limit_retry_attempted:
-                    logger.info(
-                        "Retrying after rate limit in %.2fs (non-streaming)",
-                        retry_after,
-                    )
-                    await asyncio.sleep(retry_after)
-                    return await self._chat_completions_code_assist(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=effective_model,
-                        _in_graceful_degradation=_in_graceful_degradation,
-                        _auth_retry_attempted=_auth_retry_attempted,
-                        _rate_limit_retry_attempted=True,
-                        **kwargs,
-                    )
-            elif e.status_code == 401 and not _auth_retry_attempted:
-                logger.info(
-                    "Backend returned 401; forcing credential reload and retry (non-streaming)"
-                )
-                refreshed = await self._refresh_token_if_needed(force_reload=True)
-                if refreshed:
-                    return await self._chat_completions_code_assist(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=effective_model,
-                        _in_graceful_degradation=_in_graceful_degradation,
-                        _auth_retry_attempted=True,
-                        _rate_limit_retry_attempted=_rate_limit_retry_attempted,
-                        **kwargs,
-                    )
             else:
                 logger.error(f"Backend error during API call: {e}", exc_info=True)
             raise
@@ -1583,138 +1634,36 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         try:
             # Use ChatRequestPreparer for all common setup
+            prepared_start = time.monotonic()
             prepared = await self._chat_preparer.prepare(
                 request_data=request_data,
                 effective_model=effective_model,
                 is_streaming=True,
             )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Prepared streaming request in %.3fs (model=%s, session=%s)",
+                    time.monotonic() - prepared_start,
+                    effective_model,
+                    getattr(request_data, "session_id", None),
+                )
 
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
-            # Create thought signature callback for the executor
-            def thought_signature_callback(
-                tool_calls: list[dict[str, Any]], session_id: str | None
-            ) -> None:
-                self._thought_signature_service.store_signatures_from_tool_calls(
-                    tool_calls,
-                    session_id,
-                )
+            stream_wrapper = self._build_vtc_wrapper(
+                request_data=request_data,
+                effective_model=effective_model,
+            )
 
-            # Use the streaming executor for HTTP handling
-            base_generator = self._streaming_executor.execute(
+            return await self._orchestrator.run_streaming(
                 prepared=prepared,
                 url=url,
                 token_refresher=self,  # Connector implements refresh_token_if_needed
-                thought_signature_callback=thought_signature_callback,
+                thought_signature_callback=self._build_thought_signature_callback(),
                 key_name=getattr(self, "_key_name", None),
-            )
-
-            # VTC (Virtual Tool Call) processing setup
-            from src.core.services.streaming.vtc_response_wrapper import (
-                wrap_processed_response_stream_with_vtc,
-            )
-
-            vtc_enabled = getattr(request_data, "vtc_enabled", False) or False
-
-            # Get tool call reactor for VTC processing
-            tool_call_reactor = None
-            if vtc_enabled:
-                try:
-                    from src.core.di.services import get_service_provider
-                    from src.core.services.tool_call_reactor_service import (
-                        ToolCallReactorService,
-                    )
-
-                    provider = get_service_provider()
-                    tool_call_reactor = provider.get_service(ToolCallReactorService)
-                except Exception as e:
-                    logger.warning("Failed to get tool call reactor for VTC: %s", e)
-
-            # Build context for reactor
-            reactor_context = {
-                "backend_name": self.backend_type,
-                "model_name": effective_model,
-                "calling_agent": getattr(request_data, "agent", None),
-            }
-
-            # Wrap with prefetch to trigger immediate errors (like 429) before returning
-            # This ensures BackendService.call_completion() can catch and handle errors
-            # with the failure handling strategy
-            async def prefetch_first_chunk_wrapper() -> (
-                AsyncGenerator[ProcessedResponse, None]
-            ):
-                # Prefetch first chunk to trigger HTTP request and any immediate errors
-                # This is critical for failure handling strategy to work with streaming
-                first_chunk = None
-                try:
-                    first_chunk = await base_generator.__anext__()
-                except StopAsyncIteration:
-                    # Empty stream, nothing to yield
-                    return
-                except GeneratorExit:
-                    # Consumer cancelled - close the base generator
-                    await base_generator.aclose()
-                    raise
-
-                # Yield the prefetched first chunk
-                try:
-                    yield first_chunk
-                except GeneratorExit:
-                    await base_generator.aclose()
-                    raise
-
-                # Continue with remaining chunks
-                try:
-                    async for chunk in base_generator:
-                        yield chunk
-                except GeneratorExit:
-                    await base_generator.aclose()
-                    raise
-
-            # Prefetch the first chunk NOW to catch immediate errors
-            # before returning the StreamingResponseEnvelope
-            prefetch_gen = prefetch_first_chunk_wrapper()
-            first_chunk_holder: list[ProcessedResponse] = []
-            try:
-                first_chunk = await prefetch_gen.__anext__()
-                first_chunk_holder.append(first_chunk)
-            except StopAsyncIteration:
-                # Empty stream
-                pass
-            # NOTE: BackendError from 429 will propagate here and be caught
-            # by the except BackendError block below (line ~3235)
-
-            # Create a generator that yields the prefetched chunk then continues
-            async def continue_from_prefetch() -> (
-                AsyncGenerator[ProcessedResponse, None]
-            ):
-                try:
-                    # Yield prefetched first chunk if any
-                    for chunk in first_chunk_holder:
-                        yield chunk
-                    # Continue with remaining chunks
-                    async for chunk in prefetch_gen:
-                        yield chunk
-                except GeneratorExit:
-                    # Consumer cancelled - close the prefetch generator
-                    await prefetch_gen.aclose()
-                    raise
-
-            envelope = StreamingResponseEnvelope(
-                content=wrap_processed_response_stream_with_vtc(
-                    continue_from_prefetch(),
-                    vtc_enabled=vtc_enabled,
-                    tool_call_reactor=tool_call_reactor,
-                    session_id=getattr(request_data, "session_id", None),
-                    context=reactor_context,
-                ),
-                media_type="text/event-stream",
-                headers={},
-            )
-            return await self._response_post_processor.process_streaming(
-                envelope, effective_model
+                stream_wrapper=stream_wrapper,
             )
 
         except AuthenticationError as e:
@@ -1741,21 +1690,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
         except BackendError as e:
             if self._is_rate_limit_like_error(e):
-                logger.info("Backend rate limited during streaming API call: %s", e)
-                retry_after = self._extract_retry_delay(e)
-                if retry_after and retry_after > 0 and not _rate_limit_retry_attempted:
-                    logger.info(
-                        "Retrying streaming call after %.2fs due to rate limit",
-                        retry_after,
-                    )
-                    await asyncio.sleep(retry_after)
-                    return await self._chat_completions_code_assist_streaming(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=effective_model,
-                        _rate_limit_retry_attempted=True,
-                        **kwargs,
-                    )
+                logger.info(
+                    "Backend rate limited during streaming API call (no retry-after): %s",
+                    e,
+                )
             else:
                 logger.error(
                     f"Backend error during streaming API call: {e}", exc_info=True
@@ -1769,6 +1707,63 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+
+    def _build_vtc_wrapper(
+        self, request_data: Any, effective_model: str
+    ) -> StreamWrapper | None:
+        """Build VTC wrapper for streaming responses if enabled."""
+        vtc_enabled = getattr(request_data, "vtc_enabled", False) or False
+        if not vtc_enabled:
+            return None
+
+        tool_call_reactor = None
+        try:
+            from src.core.di.services import get_service_provider
+            from src.core.services.tool_call_reactor_service import (
+                ToolCallReactorService,
+            )
+
+            provider = get_service_provider()
+            tool_call_reactor = provider.get_service(ToolCallReactorService)
+        except Exception as exc:
+            logger.warning("Failed to get tool call reactor for VTC: %s", exc)
+
+        reactor_context = {
+            "backend_name": self.backend_type,
+            "model_name": effective_model,
+            "calling_agent": getattr(request_data, "agent", None),
+        }
+        session_id = getattr(request_data, "session_id", None)
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        def wrapper(
+            generator: AsyncIterator[ProcessedResponse],
+        ) -> AsyncIterator[ProcessedResponse]:
+            return wrap_processed_response_stream_with_vtc(
+                generator,
+                vtc_enabled=vtc_enabled,
+                tool_call_reactor=tool_call_reactor,
+                session_id=session_id,
+                context=reactor_context,
+            )
+
+        return cast(StreamWrapper, wrapper)
+
+    def _build_thought_signature_callback(
+        self,
+    ) -> Callable[[list[dict[str, Any]], str | None], None]:
+        """Create a thought-signature storage callback for streaming executor."""
+
+        def callback(tool_calls: list[dict[str, Any]], session_id: str | None) -> None:
+            self._thought_signature_service.store_signatures_from_tool_calls(
+                tool_calls,
+                session_id,
+            )
+
+        return callback
 
     def _response_envelope_to_stream_chunk(
         self, response: ResponseEnvelope, model: str
