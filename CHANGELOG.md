@@ -6,6 +6,7 @@
 
 - **Cross-API Translation Specs**: Updated refactoring specifications in `.kiro/specs/cross-api-translation-refactoring/` with refined design, requirements, and tasks.
 - **Translation Domain**: Extracted translation utilities into `src/core/domain/translation_utils/` and refactored `Translation` class to use them.
+- **Translation Infrastructure**: Implemented `TranslatorRegistry`, `TranslatorProtocol`, and dedicated `OpenAITranslator` / `AnthropicTranslator` classes to decouple translation logic from the core service.
 - **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
 - **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
   - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
@@ -16,6 +17,7 @@
 
 - **CLI Refactoring Specs**: Added initial specifications for CLI God Object refactoring in `.kiro/specs/cli-god-object-refactoring/`.
 - **Code Analysis Tools**: Added `scripts/analyze_codebase.py` for cyclomatic complexity and maintainability index analysis, and `GOD_OBJECTS_REPORT.md` baseline.
+- **Usage Scripts**: Added ad-hoc analysis scripts `scripts/count_claude_opus_requests.py` and `scripts/list_models.py`.
 - **Developer Tool Exemptions**: Intelligent exemption system for safe developer tools in dangerous command protection
   - **Smart Detection**: Automatically exempts common safe tools (linters, formatters, test runners) from dangerous command blocks
   - **Tool Support**: Includes Python (ruff, black, mypy), JS/TS (eslint, prettier), Rust (cargo), Go, and more
