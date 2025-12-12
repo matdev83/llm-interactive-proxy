@@ -127,9 +127,7 @@ class ReplacementMetrics:
             Activations per second in the time window
         """
         if time_window_seconds is None:
-            elapsed = time.time() - self.start_time
-            if elapsed == 0:
-                return 0.0
+            elapsed = max(time.time() - self.start_time, 1e-9)
             return self.total_activations / elapsed
 
         # Count activations within time window
@@ -189,9 +187,7 @@ class ReplacementMetrics:
             Opt-outs per second in the time window
         """
         if time_window_seconds is None:
-            elapsed = time.time() - self.start_time
-            if elapsed == 0:
-                return 0.0
+            elapsed = max(time.time() - self.start_time, 1e-9)
             return self.total_opt_outs / elapsed
 
         # Count opt-outs within time window

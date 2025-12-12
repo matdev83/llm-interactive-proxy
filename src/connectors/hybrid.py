@@ -1541,12 +1541,6 @@ class HybridConnector(LLMBackend):
             )
 
         try:
-            # Use backend factory to properly create and initialize the backend
-            from src.core.di.services import get_required_service
-            from src.core.services.backend_factory import BackendFactory
-
-            backend_factory_instance = get_required_service(BackendFactory)
-
             # Get backend config for execution backend
             execution_backend_config = None
             if hasattr(self.config, "backends"):
@@ -1558,6 +1552,12 @@ class HybridConnector(LLMBackend):
             execution_identity = self._resolve_backend_identity(
                 execution_backend, identity, execution_backend_config
             )
+
+            # Use backend factory to properly create and initialize the backend
+            from src.core.di.services import get_required_service
+            from src.core.services.backend_factory import BackendFactory
+
+            backend_factory_instance = get_required_service(BackendFactory)
 
             # Use ensure_backend which properly handles API key initialization
             execution_connector = await backend_factory_instance.ensure_backend(

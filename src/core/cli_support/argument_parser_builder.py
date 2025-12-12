@@ -15,8 +15,13 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from typing import Protocol
 
 from src.core.services.backend_registry import backend_registry
+
+
+class BackendRegistryProtocol(Protocol):
+    def get_registered_backends(self) -> list[str]: ...
 
 
 class ArgumentParserBuilder:
@@ -31,9 +36,10 @@ class ArgumentParserBuilder:
         args = parser.parse_args()
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, registry: BackendRegistryProtocol | None = None) -> None:
         """Initialize the builder."""
         self._parser: argparse.ArgumentParser | None = None
+        self._backend_registry: BackendRegistryProtocol = registry or backend_registry
 
     def build(self) -> argparse.ArgumentParser:
         """Build and return the complete argument parser.
@@ -69,7 +75,9 @@ class ArgumentParserBuilder:
     def _add_backend_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add backend selection and configuration arguments."""
         # Dynamically get registered backends
-        registered_backends: list[str] = backend_registry.get_registered_backends()
+        registered_backends: list[str] = (
+            self._backend_registry.get_registered_backends()
+        )
 
         # Backend selection
         parser.add_argument(

@@ -154,7 +154,7 @@ class ErrorHandlerProtocol(Protocol):
     """
 
     @abstractmethod
-    def handle_application_build_error(self, error_msg: str) -> None:
+    def handle_build_error(self, error_msg: str) -> None:
         """Handle application build errors with user-friendly messages.
 
         Args:
@@ -234,7 +234,7 @@ class LoggingConfiguratorProtocol(Protocol):
         ...
 
     @abstractmethod
-    def with_timestamp_suffix(self, path: str | None) -> str | None:
+    def apply_timestamp_suffix(self, path: str | None) -> str | None:
         """Append a timestamp suffix to a file path.
 
         Args:
@@ -288,7 +288,7 @@ class ServerLifecycleManagerProtocol(Protocol):
         ...
 
     @abstractmethod
-    def maybe_daemonize(
+    def handle_daemon_mode(
         self,
         args: CliArgs,
         config: AppConfig,
@@ -305,17 +305,20 @@ class ServerLifecycleManagerProtocol(Protocol):
         ...
 
     @abstractmethod
-    async def start_server(
+    def check_ports(self, config: AppConfig) -> None:
+        """Exit if configured ports are in use."""
+        ...
+
+    @abstractmethod
+    async def start_servers(
         self,
+        app: Any,
         config: AppConfig,
-        *,
-        build_app_fn: Any | None = None,
     ) -> None:
-        """Start the server with the given configuration.
+        """Start the server(s) with the given configuration.
 
         Args:
             config: Application configuration
-            build_app_fn: Optional custom app builder function
         """
         ...
 
@@ -326,50 +329,19 @@ class ServerLifecycleManagerProtocol(Protocol):
 
 
 class PlatformDetectorProtocol(Protocol):
-    """Protocol for platform detection (used by PrivilegeChecker).
-
-    This protocol allows injection of platform detection for testing
-    privilege checking without actually requiring elevated privileges.
-
-    Requirements satisfied:
-    - 3.4: PrivilegeChecker accepts injectable platform detection for mocking
-    """
+    """Protocol for platform detection (used by PrivilegeChecker)."""
 
     @abstractmethod
-    def is_windows(self) -> bool:
-        """Check if running on Windows.
-
-        Returns:
-            True if on Windows, False otherwise
-        """
-        ...
+    def get_platform_name(self) -> str: ...
 
     @abstractmethod
-    def is_linux(self) -> bool:
-        """Check if running on Linux.
-
-        Returns:
-            True if on Linux, False otherwise
-        """
-        ...
+    def get_system_platform(self) -> str: ...
 
     @abstractmethod
-    def is_macos(self) -> bool:
-        """Check if running on macOS.
-
-        Returns:
-            True if on macOS, False otherwise
-        """
-        ...
+    def get_euid(self) -> int: ...
 
     @abstractmethod
-    def get_effective_uid(self) -> int | None:
-        """Get the effective user ID (Unix only).
-
-        Returns:
-            Effective UID on Unix, None on Windows
-        """
-        ...
+    def is_user_an_admin(self) -> bool: ...
 
 
 # =============================================================================

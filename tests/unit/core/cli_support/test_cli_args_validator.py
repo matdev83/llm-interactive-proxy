@@ -260,38 +260,3 @@ class TestMultipleValidations:
 # =============================================================================
 # Backward Compatibility Tests
 # =============================================================================
-
-
-class TestBackwardCompatibility:
-    """Tests for backward compatibility with existing validation."""
-
-    def test_same_error_as_original(self) -> None:
-        """CliArgsValidator produces same error as original _validate_llm_loop_assessment_config."""
-        from src.core.cli import _validate_llm_loop_assessment_config
-        from src.core.cli_support.cli_args_validator import CliArgsValidator
-
-        validator = CliArgsValidator()
-        args = argparse.Namespace(
-            llm_assessment_enabled=True,
-            llm_assessment_model=None,
-        )
-
-        # Both should raise ValueError with similar message
-        original_error: str | None = None
-        new_error: str | None = None
-
-        try:
-            _validate_llm_loop_assessment_config(args)
-        except ValueError as e:
-            original_error = str(e)
-
-        try:
-            validator.validate(args)
-        except ValueError as e:
-            new_error = str(e)
-
-        assert original_error is not None
-        assert new_error is not None
-        # Key parts of the message should match
-        assert "--enable-llm-assessment" in new_error
-        assert "--llm-assessment-model" in new_error

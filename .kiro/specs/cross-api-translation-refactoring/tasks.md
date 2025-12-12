@@ -378,29 +378,29 @@ This refactoring follows incremental development practices to prevent codebase d
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 15. Refactor TranslationService
-  - [ ] 15.1 Write property/unit tests for TranslationService routing (TDD)
+- [x] 15. Refactor TranslationService
+  - [x] 15.1 Write property/unit tests for TranslationService routing (TDD)
     - **Property 5: Format-Based Routing Correctness**
     - **Validates: Requirements 4.3**
     - _Requirements: 3.3, 4.3_
 
-  - [ ] 15.2 Update TranslationService to use TranslatorRegistry
+  - [x] 15.2 Update TranslationService to use TranslatorRegistry
     - Inject TranslatorRegistry via constructor
     - Update converter mappings to use registry
     - Remove duplicated delegation code
     - _Requirements: 3.1, 3.2_
 
-  - [ ] 15.3 Simplify TranslationService methods
+  - [x] 15.3 Simplify TranslationService methods
     - Reduce code duplication with Translation class
     - Use registry for all translator lookups
     - _Requirements: 8.4_
 
-  - [ ] 15.4 Run full test suite after TranslationService refactoring
+  - [x] 15.4 Run full test suite after TranslationService refactoring
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
     - Service layer must maintain identical behavior
     - _Requirements: 5.3, 5.4, 7.5_
 
-- [ ] 16. Checkpoint - Ensure all tests pass
+- [x] 16. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_

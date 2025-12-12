@@ -70,8 +70,15 @@ def parse_cli_args(args: list[str] | None = None) -> dict[str, Any]:
         help="SSO session lifetime in hours (default: 24)",
     )
 
-    # Parse arguments
-    parsed_args = parser.parse_args(args)
+    # Parse arguments.
+    #
+    # When called with `args=None`, argparse reads from sys.argv which may contain
+    # unrelated flags (e.g., when invoked in-process under pytest). In that case,
+    # tolerate unknown args to avoid hard exits.
+    if args is None:
+        parsed_args, _unknown = parser.parse_known_args(args)
+    else:
+        parsed_args = parser.parse_args(args)
 
     # Convert to dictionary, filtering out None values
     result: dict[str, Any] = {}

@@ -136,8 +136,6 @@ class ConfigurationApplicator:
             tuple (AppConfig, ParameterResolution) if return_resolution is True
         """
         # Import at runtime to avoid circular imports
-        from src.command_prefix import validate_command_prefix
-        from src.constants import DEFAULT_COMMAND_PREFIX
         from src.core.config.app_config import AppConfig, load_config
 
         # Create or use provided resolution tracker
@@ -145,10 +143,35 @@ class ConfigurationApplicator:
 
         # Load base configuration
         config_path = getattr(args, "config_file", None)
-        cfg: AppConfig = cast(
+        base_cfg: AppConfig = cast(
             AppConfig,
             load_config(config_path, resolution=res),
         )
+
+        final_cfg = self.apply_overrides(args, base_cfg, resolution=res)
+
+        if return_resolution:
+            return final_cfg, res
+        return final_cfg
+
+    def apply_overrides(
+        self,
+        args: CliArgs,
+        base_cfg: AppConfig,
+        *,
+        resolution: ParameterResolution | None = None,
+    ) -> AppConfig:
+        """Apply CLI overrides on top of an existing base configuration.
+
+        This is primarily used by compatibility layers that load configuration
+        elsewhere (e.g., tests patching `src.core.cli.load_config`) and need
+        to preserve that behavior while still using the domain applicators.
+        """
+        from src.command_prefix import validate_command_prefix
+        from src.constants import DEFAULT_COMMAND_PREFIX
+        from src.core.config.app_config import AppConfig
+
+        res = resolution or ParameterResolution()
 
         # Collect CLI overrides from all domain applicators
         cli_overrides: CliOverrides = {}
@@ -156,23 +179,28 @@ class ConfigurationApplicator:
             applicator.apply(args, cli_overrides, res)
 
         # Handle default log file if none specified
-        self._apply_default_log_file(args, cfg, cli_overrides, res)
+        self._apply_default_log_file(args, base_cfg, cli_overrides, res)
 
         # Merge CLI overrides onto base config
-        config_dict = cfg.model_dump(mode="json")
+        config_dict = base_cfg.model_dump(mode="json")
         _merge_dicts(config_dict, cli_overrides)
+
+        if config_dict.get("command_prefix") is None:
+            config_dict["command_prefix"] = DEFAULT_COMMAND_PREFIX
+            res.record(
+                "command_prefix",
+                DEFAULT_COMMAND_PREFIX,
+                ParameterSource.DEFAULT,
+                origin="default",
+            )
 
         # Create new AppConfig from merged dict
         final_cfg = AppConfig.model_validate(config_dict)
 
         # Validate and apply command prefix (ensures it's never None)
-        final_cfg = self._validate_and_apply_prefix(
+        return self._validate_and_apply_prefix(
             final_cfg, validate_command_prefix, DEFAULT_COMMAND_PREFIX
         )
-
-        if return_resolution:
-            return final_cfg, res
-        return final_cfg
 
     def _apply_default_log_file(
         self,

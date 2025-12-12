@@ -9,7 +9,10 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoice,
     StreamingChatCompletionChoiceDelta,
 )
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
+from src.core.domain.translation_utils.content_utils import (
+    _coerce_reasoning_text,
+    _safe_string,
+)
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
 
@@ -55,7 +58,9 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                         if normalized_reasoning:
                             reasoning_pieces.append(normalized_reasoning)
                     elif "text" in part and not part.get("functionCall"):
-                        content_pieces.append(part["text"])
+                        safe_text = _safe_string(part.get("text"))
+                        if safe_text:
+                            content_pieces.append(safe_text)
                         metadata = part.get("metadata", {})
                         if isinstance(metadata, dict):
                             metadata_reasoning = _coerce_reasoning_text(
@@ -66,10 +71,8 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                             if metadata_reasoning:
                                 reasoning_pieces.append(metadata_reasoning)
                             meta_type = str(metadata.get("type", "")).lower()
-                            if meta_type in {"thinking", "thought"} and isinstance(
-                                part.get("text"), str
-                            ):
-                                reasoning_pieces.append(part["text"])
+                            if meta_type in {"thinking", "thought"} and safe_text:
+                                reasoning_pieces.append(safe_text)
                     elif "functionCall" in part:
                         try:
                             tool_calls.append(
