@@ -118,3 +118,29 @@ class TestGeminiSchemaSanitization:
         assert field["description"] == "A union field"
         # Should NOT have anyOf
         assert "anyOf" not in field
+
+    def test_sanitize_preserves_property_named_pattern(self):
+        """Preserve properties whose names match stripped schema keywords.
+
+        The sanitizer must remove JSON Schema constraint keywords like "pattern" from
+        property schemas, but must not delete a tool parameter named "pattern".
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Search pattern",
+                    "minLength": 1,
+                },
+                "path": {"type": "string"},
+            },
+            "required": ["pattern", "path"],
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        assert "pattern" in cleaned["properties"]
+        assert cleaned["properties"]["pattern"]["type"] == "string"
+        assert "minLength" not in cleaned["properties"]["pattern"]
+        assert cleaned["required"] == ["pattern", "path"]

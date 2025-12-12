@@ -5,6 +5,7 @@
 ### Refactored
 
 - **Cross-API Translation Specs**: Updated refactoring specifications in `.kiro/specs/cross-api-translation-refactoring/` with refined design, requirements, and tasks.
+- **Translation Domain**: Extracted translation utilities into `src/core/domain/translation_utils/` and refactored `Translation` class to use them.
 - **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
 - **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
   - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
@@ -27,6 +28,7 @@
 
 ### Changed
 
+- **Documentation Structure**: Moved `GOD_OBJECTS_REPORT.md` to `docs/development_guide/god-objects-report.md`.
 - **Usage Tracking Metrics**: Expanded usage tracking with granular performance and traffic metrics
   - **New Metrics**: Added `stream_tps` (tokens per second), `backend_wait_ms`, and split tool call counts (`native` vs `vtc`)
   - **Instance Tracking**: Added `backend_instance_id` to usage records for tracking specific backend instances

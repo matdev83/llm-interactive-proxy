@@ -16,6 +16,7 @@ This refactoring follows incremental development practices to prevent codebase d
 10. **No Mass Formatting**: Avoid sweeping reformatting or unrelated cleanups that increase diff size and risk
 11. **Static Checks on Touched Files**: Run `ruff`, `black`, and `mypy` for changed files after each subtask that edits Python code
 12. **Revert-Friendly Checkpoints**: Keep changes small and checkpoint frequently (e.g., separate PRs/commits per phase)
+13. **Baseline First**: Start from green (`./.venv/Scripts/python.exe -m pytest`) before any refactor steps
 
 ---
 
@@ -211,8 +212,18 @@ This refactoring follows incremental development practices to prevent codebase d
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 8. Implement Gemini translator
-  - [ ] 8.1 Create GeminiTranslator class
+- [ ] 8. Implement Gemini translator (TDD)
+  - [ ] 8.1 Write property/unit tests for Gemini translator backward compatibility
+    - **Property 3: Backward Compatibility Equivalence**
+    - **Validates: Requirements 5.1, 5.2**
+    - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
+
+  - [ ] 8.2 Write property/unit tests for Gemini translator correctness
+    - **Property 1: Translator Module Existence and Correctness**
+    - **Validates: Requirements 1.3**
+    - _Requirements: 1.3, 7.1, 7.2, 7.3_
+
+  - [ ] 8.3 Create GeminiTranslator class
     - Create `src/core/domain/translators/gemini_translator.py`
     - Extract `gemini_to_domain_request` logic from Translation class
     - Extract `gemini_to_domain_response` logic from Translation class
@@ -221,23 +232,27 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.3, 6.1, 6.2, 6.3_
 
-  - [ ] 8.2 Write property test for Gemini translator backward compatibility
+  - [ ] 8.4 Run targeted tests after Gemini translator
+    - Run `./.venv/Scripts/python.exe -m pytest -k "gemini or translation"`
+    - _Requirements: 7.5_
+
+  - [ ] 8.5 Phase gate: run full test suite after Gemini translator
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
+
+- [ ] 9. Implement Responses API translator (TDD)
+  - [ ] 9.1 Write property/unit tests for Responses translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
+    - Include coverage for `openai-responses` alias routing
     - **Validates: Requirements 5.1, 5.2**
     - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
 
-  - [ ] 8.3 Write property test for Gemini translator correctness
+  - [ ] 9.2 Write property/unit tests for Responses translator correctness
     - **Property 1: Translator Module Existence and Correctness**
-    - **Validates: Requirements 1.3**
-    - _Requirements: 1.3, 7.1, 7.2, 7.3_
+    - **Validates: Requirements 1.4**
+    - _Requirements: 1.4, 7.1, 7.2, 7.3_
 
-  - [ ] 8.4 Run test suite after Gemini translator
-    - Run `./.venv/Scripts/python.exe -m pytest -k "gemini or translation"` to verify Gemini-related tests pass
-    - Verify new translator produces identical output to original
-    - _Requirements: 5.1, 5.2, 7.5_
-
-- [ ] 9. Implement Responses API translator
-  - [ ] 9.1 Create ResponsesTranslator class
+  - [ ] 9.3 Create ResponsesTranslator class
     - Create `src/core/domain/translators/responses_translator.py`
     - Extract `responses_to_domain_request` logic from Translation class
     - Extract `responses_to_domain_response` logic from Translation class
@@ -247,23 +262,26 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.4, 6.1, 6.2, 6.3_
 
-  - [ ] 9.2 Write property test for Responses translator backward compatibility
+  - [ ] 9.4 Run targeted tests after Responses translator
+    - Run `./.venv/Scripts/python.exe -m pytest -k "responses or translation"`
+    - _Requirements: 7.5_
+
+  - [ ] 9.5 Phase gate: run full test suite after Responses translator
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
+
+- [ ] 10. Implement Code Assist translator (TDD)
+  - [ ] 10.1 Write property/unit tests for Code Assist translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
-    - **Validates: Requirements 5.1, 5.2**
-    - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
+    - **Validates: Requirements 5.1**
+    - _Requirements: 5.1, 7.1, 7.2, 7.3_
 
-  - [ ] 9.3 Write property test for Responses translator correctness
+  - [ ] 10.2 Write property/unit tests for Code Assist translator correctness
     - **Property 1: Translator Module Existence and Correctness**
-    - **Validates: Requirements 1.4**
-    - _Requirements: 1.4, 7.1, 7.2, 7.3_
+    - **Validates: Requirements 1.5**
+    - _Requirements: 1.5, 7.1, 7.2, 7.3_
 
-  - [ ] 9.4 Run test suite after Responses translator
-    - Run `./.venv/Scripts/python.exe -m pytest -k "responses or translation"` to verify Responses-related tests pass
-    - Verify new translator produces identical output to original
-    - _Requirements: 5.1, 5.2, 7.5_
-
-- [ ] 10. Implement Code Assist translator
-  - [ ] 10.1 Create CodeAssistTranslator class
+  - [ ] 10.3 Create CodeAssistTranslator class
     - Create `src/core/domain/translators/code_assist_translator.py`
     - Extract `code_assist_to_domain_request` logic from Translation class
     - Extract `code_assist_to_domain_response` logic from Translation class
@@ -271,68 +289,84 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.5, 6.1, 6.2, 6.3_
 
-  - [ ] 10.2 Write property test for Code Assist translator correctness
-    - **Property 1: Translator Module Existence and Correctness**
-    - **Validates: Requirements 1.5**
-    - _Requirements: 1.5, 7.1, 7.2, 7.3_
+  - [ ] 10.4 Run targeted tests after Code Assist translator
+    - Run `./.venv/Scripts/python.exe -m pytest -k "code_assist or translation"`
+    - _Requirements: 7.5_
 
-  - [ ] 10.3 Run test suite after Code Assist translator
-    - Run `./.venv/Scripts/python.exe -m pytest -k "code_assist or translation"` to verify Code Assist-related tests pass
-    - Verify new translator produces identical output to original
-    - _Requirements: 5.1, 7.5_
+  - [ ] 10.5 Phase gate: run full test suite after Code Assist translator
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
 
 - [ ] 11. Checkpoint - Ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
+  - Run `./.venv/Scripts/python.exe -m pytest`
+  - Do not proceed unless green
+  - _Requirements: 7.5_
 
-- [ ] 12. Implement additional translators
-  - [ ] 12.1 Create OpenRouterTranslator class
-    - Create `src/core/domain/translators/openrouter_translator.py`
-    - Extract `openrouter_to_domain_request` logic from Translation class
-    - _Requirements: 1.6, 5.1_
-
-  - [ ] 12.2 Write property test for OpenRouter translator correctness
+- [ ] 12. Implement additional translators (TDD)
+  - [ ] 12.1 Write property/unit tests for OpenRouter translator
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.6**
     - _Requirements: 1.6, 5.1, 7.1_
 
-  - [ ] 12.3 Create RawTextTranslator class
-    - Create `src/core/domain/translators/raw_text_translator.py`
-    - Extract `raw_text_to_domain_request`, `raw_text_to_domain_response`, `raw_text_to_domain_stream_chunk` logic
-    - _Requirements: 1.7, 5.1, 6.1, 6.2, 6.3_
+  - [ ] 12.2 Create OpenRouterTranslator class
+    - Create `src/core/domain/translators/openrouter_translator.py`
+    - Extract `openrouter_to_domain_request` logic from Translation class
+    - _Requirements: 1.6, 5.1_
 
-  - [ ] 12.4 Write property test for Raw Text translator correctness
+  - [ ] 12.3 Run targeted tests after OpenRouter translator
+    - Run `./.venv/Scripts/python.exe -m pytest -k "openrouter or translation"`
+    - _Requirements: 7.5_
+
+  - [ ] 12.4 Phase gate: run full test suite after OpenRouter translator
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
+
+  - [ ] 12.5 Write property/unit tests for Raw Text translator
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.7**
     - _Requirements: 1.7, 5.1, 7.1, 7.2, 7.3_
 
-  - [ ] 12.5 Run full test suite after all translators implemented
+  - [ ] 12.6 Create RawTextTranslator class
+    - Create `src/core/domain/translators/raw_text_translator.py`
+    - Extract `raw_text_to_domain_request`, `raw_text_to_domain_response`, `raw_text_to_domain_stream_chunk` logic
+    - _Requirements: 1.7, 5.1, 6.1, 6.2, 6.3_
+
+  - [ ] 12.7 Run targeted tests after Raw Text translator
+    - Run `./.venv/Scripts/python.exe -m pytest -k "raw_text or translation"`
+    - _Requirements: 7.5_
+
+  - [ ] 12.8 Phase gate: run full test suite after Raw Text translator
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
+
+  - [ ] 12.9 Final gate: run full test suite after all translators implemented
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
     - All translators must work correctly before proceeding to facade refactoring
     - _Requirements: 7.5_
 
 - [ ] 13. Refactor Translation class to facade
-  - [ ] 13.1 Initialize TranslatorRegistry with all translators
+  - [ ] 13.1 Write property/unit tests for Translation facade delegation (TDD)
+    - **Property 5: Format-Based Routing Correctness**
+    - **Validates: Requirements 9.1, 9.2, 9.3**
+    - _Requirements: 9.1, 9.2, 9.3_
+
+  - [ ] 13.2 Initialize TranslatorRegistry with all translators
     - Create initialization code that registers all translators
     - Support lazy loading via factories for performance
     - _Requirements: 3.1, 3.4_
 
-  - [ ] 13.2 Update Translation static methods to delegate
+  - [ ] 13.3 Update Translation static methods to delegate
     - Update `gemini_to_domain_request` to delegate to GeminiTranslator
     - Update `anthropic_to_domain_response` to delegate to AnthropicTranslator
     - Update `openai_to_domain_stream_chunk` to delegate to OpenAITranslator
     - Update all other methods to delegate to appropriate translators
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 13.3 Remove extracted code from Translation class
+  - [ ] 13.4 Remove extracted code from Translation class
     - Remove method implementations that are now in specialized translators
     - Keep only delegation logic and backward-compatible static methods
     - Verify Translation class is under 500 lines
     - _Requirements: 8.4, 9.4_
-
-  - [ ] 13.4 Write property test for Translation facade delegation
-    - **Property 5: Format-Based Routing Correctness**
-    - **Validates: Requirements 9.1, 9.2, 9.3**
-    - _Requirements: 9.1, 9.2, 9.3_
 
   - [ ] 13.5 Run full test suite after facade refactoring
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
@@ -340,24 +374,26 @@ This refactoring follows incremental development practices to prevent codebase d
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 7.5_
 
 - [ ] 14. Checkpoint - Ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
+  - Run `./.venv/Scripts/python.exe -m pytest`
+  - Do not proceed unless green
+  - _Requirements: 7.5_
 
 - [ ] 15. Refactor TranslationService
-  - [ ] 15.1 Update TranslationService to use TranslatorRegistry
+  - [ ] 15.1 Write property/unit tests for TranslationService routing (TDD)
+    - **Property 5: Format-Based Routing Correctness**
+    - **Validates: Requirements 4.3**
+    - _Requirements: 3.3, 4.3_
+
+  - [ ] 15.2 Update TranslationService to use TranslatorRegistry
     - Inject TranslatorRegistry via constructor
     - Update converter mappings to use registry
     - Remove duplicated delegation code
     - _Requirements: 3.1, 3.2_
 
-  - [ ] 15.2 Simplify TranslationService methods
+  - [ ] 15.3 Simplify TranslationService methods
     - Reduce code duplication with Translation class
     - Use registry for all translator lookups
     - _Requirements: 8.4_
-
-  - [ ] 15.3 Write property test for TranslationService routing
-    - **Property 5: Format-Based Routing Correctness**
-    - **Validates: Requirements 4.3**
-    - _Requirements: 3.3, 4.3_
 
   - [ ] 15.4 Run full test suite after TranslationService refactoring
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
@@ -365,18 +401,20 @@ This refactoring follows incremental development practices to prevent codebase d
     - _Requirements: 5.3, 5.4, 7.5_
 
 - [ ] 16. Checkpoint - Ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
+  - Run `./.venv/Scripts/python.exe -m pytest`
+  - Do not proceed unless green
+  - _Requirements: 7.5_
 
 - [ ] 17. Edge case handling verification
-  - [ ] 17.1 Verify malformed JSON handling
-    - Test that malformed JSON in tool arguments is handled gracefully
-    - Compare behavior with original implementation
-    - _Requirements: 10.1_
-
-  - [ ] 17.2 Write property test for edge case handling
+  - [ ] 17.1 Write property/unit tests for edge case handling preservation (TDD)
     - **Property 6: Edge Case Handling Preservation**
     - **Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5**
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
+
+  - [ ] 17.2 Verify malformed JSON handling
+    - Test that malformed JSON in tool arguments is handled gracefully
+    - Compare behavior with original implementation
+    - _Requirements: 10.1_
 
   - [ ] 17.3 Verify multimodal content handling
     - Test image content conversion across all translators
@@ -389,21 +427,29 @@ This refactoring follows incremental development practices to prevent codebase d
     - Compare behavior with original implementation
     - _Requirements: 10.3, 10.4_
 
+  - [ ] 17.5 Phase gate: run full test suite after edge case verification
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
+
 - [ ] 18. Backward compatibility verification
-  - [ ] 18.1 Verify anthropic_converters.py exports
-    - Ensure all existing exports are maintained
-    - Update imports if necessary to use new modules
-    - _Requirements: 5.5_
-
-  - [ ] 18.2 Verify gemini_converters.py exports
-    - Ensure all existing exports are maintained
-    - Update imports if necessary to use new modules
-    - _Requirements: 5.5_
-
-  - [ ] 18.3 Write property test for backward compatibility
+  - [ ] 18.1 Write property/unit tests for backward compatibility (TDD)
     - **Property 3: Backward Compatibility Equivalence**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+
+  - [ ] 18.2 Verify anthropic_converters.py exports
+    - Ensure all existing exports are maintained
+    - Update imports if necessary to use new modules
+    - _Requirements: 5.5_
+
+  - [ ] 18.3 Verify gemini_converters.py exports
+    - Ensure all existing exports are maintained
+    - Update imports if necessary to use new modules
+    - _Requirements: 5.5_
+
+  - [ ] 18.4 Phase gate: run full test suite after compatibility verification
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
 
 - [ ] 19. Cleanup and documentation
   - [ ] 19.1 Remove dead code
@@ -420,6 +466,10 @@ This refactoring follows incremental development practices to prevent codebase d
     - Confirm `src/core/domain/translation.py` is ≤ 500 lines
     - Confirm all new modules are under 500 lines
     - _Requirements: 8.4, 9.4_
+
+  - [ ] 19.4 Phase gate: run full test suite after cleanup
+    - Run `./.venv/Scripts/python.exe -m pytest`
+    - _Requirements: 7.5_
 
 - [ ] 20. Final verification and regression testing
   - [ ] 20.1 Run full test suite
@@ -438,4 +488,7 @@ This refactoring follows incremental development practices to prevent codebase d
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 7.5_
 
 - [ ] 21. Final Checkpoint - Ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
+  - Run `./.venv/Scripts/python.exe -m pytest`
+  - Run `./.venv/Scripts/python.exe -m pytest -m integration`
+  - Do not consider the refactor complete unless green
+  - _Requirements: 7.5_

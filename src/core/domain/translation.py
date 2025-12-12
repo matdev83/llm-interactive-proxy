@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import mimetypes
 import os
 from typing import Any, cast
 
@@ -24,57 +23,21 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoiceDelta,
     ToolCall,
 )
+from src.core.domain.translation_utils import (
+    json_utils,
+    media_utils,
+    tool_utils,
+    usage_utils,
+)
+from src.core.domain.translation_utils.content_utils import (
+    _coerce_reasoning_text,
+)
+from src.core.domain.translation_utils.content_utils import (
+    _safe_string as _safe_string_value,
+)
 from src.core.services.tool_text_renderer import render_tool_call
 
 logger = logging.getLogger(__name__)
-
-
-def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
-    """Recursively collect textual fragments from nested reasoning payloads."""
-    if value is None or depth > 50:
-        return []
-
-    if isinstance(value, str):
-        return [value]
-
-    if isinstance(value, int | float | bool):
-        return [str(value)]
-
-    if isinstance(value, list | tuple | set):
-        sequence_values: list[str] = []
-        for item in value:
-            sequence_values.extend(_collect_reasoning_lines(item, depth + 1))
-        return sequence_values
-
-    if isinstance(value, dict):
-        collected_values: list[str] = []
-        # Prefer common reasoning keys before falling back to generic traversal.
-        for key in (
-            "thinking",
-            "reasoning",
-            "text",
-            "value",
-            "content",
-            "message",
-            "delta",
-        ):
-            if key in value:
-                collected_values.extend(_collect_reasoning_lines(value[key], depth + 1))
-        return collected_values
-
-    return [str(value)]
-
-
-def _coerce_reasoning_text(value: Any) -> str | None:
-    """Flatten nested reasoning payloads into a normalized text snippet."""
-    parts = [
-        segment.strip()
-        for segment in _collect_reasoning_lines(value)
-        if isinstance(segment, str) and segment.strip()
-    ]
-    if not parts:
-        return None
-    return "\n".join(parts)
 
 
 class Translation(BaseTranslator):
@@ -205,122 +168,17 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _detect_image_mime_type(url: str) -> str:
-        """Detect the MIME type for an image URL or data URI."""
-        if url.startswith("data:"):
-            header = url.split(",", 1)[0]
-            header = header.split(";", 1)[0]
-            if ":" in header:
-                candidate = header.split(":", 1)[1]
-                if candidate:
-                    return candidate
-            return "image/jpeg"
-
-        clean_url = url.split("?", 1)[0].split("#", 1)[0]
-        if "." in clean_url:
-            extension = clean_url.rsplit(".", 1)[-1].lower()
-            if extension:
-                mime_type = mimetypes.types_map.get(f".{extension}")
-                if mime_type and mime_type.startswith("image/"):
-                    return mime_type
-                if extension == "jpg":
-                    return "image/jpeg"
-        return "image/jpeg"
+        return media_utils._detect_image_mime_type(url)
 
     @staticmethod
     def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
-        """Convert a multimodal image part to Gemini format."""
-        from src.core.domain.chat import MessageContentPartImage
-
-        if not isinstance(part, MessageContentPartImage) or not part.image_url:
-            return None
-
-        url_str = str(part.image_url.url or "").strip()
-        if not url_str:
-            return None
-
-        # Inline data URIs are allowed
-        if url_str.startswith("data:"):
-            mime_type = Translation._detect_image_mime_type(url_str)
-            try:
-                _, base64_data = url_str.split(",", 1)
-            except ValueError:
-                base64_data = ""
-            return {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": base64_data,
-                }
-            }
-
-        # For non-inline URIs, only allow http/https schemes. Reject file/ftp and local paths.
-        try:
-            from urllib.parse import urlparse
-
-            scheme = (urlparse(url_str).scheme or "").lower()
-        except Exception:
-            scheme = ""
-
-        allowed_schemes = {"http", "https"}
-
-        if scheme not in allowed_schemes:
-            # Also treat Windows/local file paths (no scheme or drive-letter scheme) as invalid
-            return None
-
-        mime_type = Translation._detect_image_mime_type(url_str)
-        return {
-            "file_data": {
-                "mime_type": mime_type,
-                "file_uri": url_str,
-            }
-        }
+        return media_utils._process_gemini_image_part(part)
 
     @staticmethod
     def _normalize_usage_metadata(
         usage: dict[str, Any], source_format: str
     ) -> dict[str, Any]:
-        """Normalize usage metadata from different API formats to a standard structure."""
-        if source_format == "gemini":
-            return {
-                "prompt_tokens": usage.get("promptTokenCount", 0),
-                "completion_tokens": usage.get("candidatesTokenCount", 0),
-                "total_tokens": usage.get("totalTokenCount", 0),
-            }
-        elif source_format == "anthropic":
-            return {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
-                "total_tokens": usage.get("input_tokens", 0)
-                + usage.get("output_tokens", 0),
-            }
-        elif source_format in {"openai", "openai-responses"}:
-            prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            completion_tokens = usage.get(
-                "completion_tokens", usage.get("output_tokens", 0)
-            )
-            total_tokens = usage.get("total_tokens")
-            if total_tokens is None:
-                total_tokens = prompt_tokens + completion_tokens
-
-            result: dict[str, Any] = {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            }
-
-            # Preserve detailed token breakdowns when present (OpenAI API parity)
-            if "prompt_tokens_details" in usage:
-                result["prompt_tokens_details"] = usage["prompt_tokens_details"]
-            if "completion_tokens_details" in usage:
-                result["completion_tokens_details"] = usage["completion_tokens_details"]
-
-            return result
-        else:
-            # Default normalization
-            return {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
-            }
+        return usage_utils._normalize_usage_metadata(usage, source_format)
 
     @staticmethod
     def _normalize_responses_input_to_messages(
@@ -484,13 +342,7 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _safe_string(value: Any) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value
-        if isinstance(value, bytes | bytearray):
-            return value.decode("utf-8", "ignore")
-        return str(value)
+        return _safe_string_value(value)
 
     @staticmethod
     def _map_gemini_finish_reason(finish_reason: str | None) -> str | None:
@@ -525,65 +377,7 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _normalize_tool_arguments(args: Any) -> str:
-        """Normalize tool call arguments to a JSON string."""
-        if args is None:
-            return "{}"
-
-        if isinstance(args, str):
-            stripped = args.strip()
-            if not stripped:
-                return "{}"
-
-            # First, try to load it as-is. It might be a valid JSON string.
-            try:
-                json.loads(stripped)
-                return stripped
-            except json.JSONDecodeError:
-                # If it fails, it might be a string using single quotes.
-                # We will try to fix it, but only if it doesn't create an invalid JSON.
-                pass
-
-            try:
-                # Attempt to replace single quotes with double quotes for JSON compatibility.
-                # This is a common issue with LLM-generated JSON in string format.
-                # However, we must be careful not to corrupt strings that contain single quotes.
-                fixed_string = stripped.replace("'", '"')
-                json.loads(fixed_string)
-                return fixed_string
-            except (json.JSONDecodeError, TypeError):
-                # If replacement fails, it's likely not a simple quote issue.
-                # This can happen if the string contains legitimate single quotes.
-                # Return empty object instead of _raw format to maintain tool calling contract.
-                return "{}"
-
-        if isinstance(args, dict):
-            try:
-                return json.dumps(args)
-            except TypeError:
-                # Handle dicts with non-serializable values
-                sanitized_dict = Translation._sanitize_dict_for_json(args)
-                return json.dumps(sanitized_dict)
-
-        if isinstance(args, list | tuple):
-            try:
-                # PERFORMANCE OPTIMIZATION: Avoid unnecessary list copying
-                # Use args directly if it's already a list, only convert tuples
-                return json.dumps(args if isinstance(args, list) else list(args))
-            except TypeError:
-                # Handle lists with non-serializable items
-                # PERFORMANCE OPTIMIZATION: Avoid unnecessary list copying
-                sanitized_list = Translation._sanitize_list_for_json(
-                    args if isinstance(args, list) else list(args)
-                )
-                return json.dumps(sanitized_list)
-
-        # For primitive types that should be JSON serializable
-        if isinstance(args, int | float | bool):
-            return json.dumps(args)
-
-        # For non-serializable objects, return empty object instead of _raw format
-        # This maintains the tool calling contract while preventing failures
-        return "{}"
+        return tool_utils._normalize_tool_arguments(args)
 
     @staticmethod
     def _is_json_serializable(
@@ -593,59 +387,12 @@ class Translation(BaseTranslator):
         _depth: int = 0,
         _seen: set[int] | None = None,
     ) -> bool:
-        """Best-effort check to determine if a value can be JSON-serialized."""
-
-        if _depth > max_depth:
-            return False
-
-        if value is None or isinstance(value, str | int | float | bool):
-            return True
-
-        if isinstance(value, list | tuple):
-            if _seen is None:
-                _seen = set()
-            obj_id = id(value)
-            if obj_id in _seen:
-                return False
-            _seen.add(obj_id)
-            try:
-                return all(
-                    Translation._is_json_serializable(
-                        item,
-                        max_depth=max_depth,
-                        _depth=_depth + 1,
-                        _seen=_seen,
-                    )
-                    for item in value
-                )
-            finally:
-                _seen.remove(obj_id)
-
-        if isinstance(value, dict):
-            if _seen is None:
-                _seen = set()
-            obj_id = id(value)
-            if obj_id in _seen:
-                return False
-            _seen.add(obj_id)
-            try:
-                for key, item in value.items():
-                    if key is not None and not isinstance(
-                        key, str | int | float | bool
-                    ):
-                        return False
-                    if not Translation._is_json_serializable(
-                        item,
-                        max_depth=max_depth,
-                        _depth=_depth + 1,
-                        _seen=_seen,
-                    ):
-                        return False
-            finally:
-                _seen.remove(obj_id)
-            return True
-
-        return False
+        return json_utils._is_json_serializable(
+            value,
+            max_depth=max_depth,
+            _depth=_depth,
+            _seen=_seen,
+        )
 
     @staticmethod
     def _sanitize_dict_for_json(
@@ -655,59 +402,12 @@ class Translation(BaseTranslator):
         _depth: int = 0,
         _seen: set[int] | None = None,
     ) -> dict[str, Any]:
-        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
-
-        if _depth > max_depth:
-            return {}
-
-        if _seen is None:
-            _seen = set()
-
-        obj_id = id(data)
-        if obj_id in _seen:
-            return {}
-
-        _seen.add(obj_id)
-        try:
-            sanitized: dict[str, Any] = {}
-            sanitized_value: Any = None
-            for key, value in data.items():
-                if key is not None and not isinstance(key, str | int | float | bool):
-                    continue
-
-                if Translation._is_json_serializable(
-                    value,
-                    max_depth=max_depth,
-                    _depth=_depth + 1,
-                    _seen=_seen,
-                ):
-                    sanitized[key] = value
-                    continue
-
-                if isinstance(value, dict):
-                    sanitized_value = Translation._sanitize_dict_for_json(
-                        value,
-                        max_depth=max_depth,
-                        _depth=_depth + 1,
-                        _seen=_seen,
-                    )
-                elif isinstance(value, list | tuple):
-                    sanitized_value = Translation._sanitize_list_for_json(
-                        value if isinstance(value, list) else list(value),
-                        max_depth=max_depth,
-                        _depth=_depth + 1,
-                        _seen=_seen,
-                    )
-                elif isinstance(value, str | int | float | bool) or value is None:
-                    sanitized_value = value
-                else:
-                    continue
-
-                sanitized[key] = sanitized_value
-
-            return sanitized
-        finally:
-            _seen.remove(obj_id)
+        return json_utils._sanitize_dict_for_json(
+            data,
+            max_depth=max_depth,
+            _depth=_depth,
+            _seen=_seen,
+        )
 
     @staticmethod
     def _sanitize_list_for_json(
@@ -717,93 +417,18 @@ class Translation(BaseTranslator):
         _depth: int = 0,
         _seen: set[int] | None = None,
     ) -> list[Any]:
-        """Sanitize a list by removing or converting non-JSON-serializable items."""
-
-        if _depth > max_depth:
-            return []
-
-        if _seen is None:
-            _seen = set()
-
-        obj_id = id(data)
-        if obj_id in _seen:
-            return []
-
-        _seen.add(obj_id)
-        try:
-            sanitized: list[Any] = []
-            for item in data:
-                if Translation._is_json_serializable(
-                    item,
-                    max_depth=max_depth,
-                    _depth=_depth + 1,
-                    _seen=_seen,
-                ):
-                    sanitized.append(item)
-                    continue
-
-                if isinstance(item, dict):
-                    sanitized.append(
-                        Translation._sanitize_dict_for_json(
-                            item,
-                            max_depth=max_depth,
-                            _depth=_depth + 1,
-                            _seen=_seen,
-                        )
-                    )
-                elif isinstance(item, list | tuple):
-                    sanitized.append(
-                        Translation._sanitize_list_for_json(
-                            item if isinstance(item, list) else list(item),
-                            max_depth=max_depth,
-                            _depth=_depth + 1,
-                            _seen=_seen,
-                        )
-                    )
-                elif isinstance(item, str | int | float | bool) or item is None:
-                    sanitized.append(item)
-                else:
-                    continue
-
-            return sanitized
-        finally:
-            _seen.remove(obj_id)
+        return json_utils._sanitize_list_for_json(
+            data,
+            max_depth=max_depth,
+            _depth=_depth,
+            _seen=_seen,
+        )
 
     @staticmethod
     def _process_gemini_function_call(
         function_call: dict[str, Any], part: dict[str, Any] | None = None
     ) -> ToolCall:
-        """Process a Gemini function call part into a ToolCall.
-
-        Args:
-            function_call: The functionCall object from the Gemini response
-            part: The full part containing the functionCall (may include thoughtSignature)
-
-        Returns:
-            ToolCall with preserved thought_signature if present
-        """
-        import uuid
-
-        name = function_call.get("name", "")
-        # Use id from functionCall if present, otherwise generate one
-        call_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:12]}"
-        raw_args = function_call.get("args", function_call.get("arguments"))
-        normalized_args = Translation._normalize_tool_arguments(raw_args)
-
-        # Preserve thoughtSignature for Gemini API multi-turn conversations
-        # The signature is required when sending tool results back
-        extra_content: dict[str, Any] | None = None
-        if part is not None:
-            thought_sig = part.get("thoughtSignature") or part.get("thought_signature")
-            if thought_sig:
-                extra_content = {"google": {"thought_signature": thought_sig}}
-
-        return ToolCall(
-            id=call_id,
-            type="function",
-            function=FunctionCall(name=name, arguments=normalized_args),
-            extra_content=extra_content,
-        )
+        return tool_utils._process_gemini_function_call(function_call, part=part)
 
     @staticmethod
     def gemini_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -2815,8 +2440,14 @@ class Translation(BaseTranslator):
             "contentEncoding",  # Encoding hints not supported
         }
 
-        def _clean(obj: Any) -> Any:
+        def _clean(obj: Any, *, parent_key: str | None = None) -> Any:
             if isinstance(obj, dict):
+                # When cleaning the value of a "properties" key, the dict keys are
+                # *property names* (tool parameter names), not JSON Schema keywords.
+                # Do not apply the blacklist to property names like "pattern".
+                if parent_key == "properties":
+                    return {k: _clean(v, parent_key=None) for k, v in obj.items()}
+
                 cleaned: dict[str, Any] = {}
 
                 # Handle type list (e.g. ["string", "null"]) which is valid in JSON Schema 2020-12
@@ -2844,7 +2475,7 @@ class Translation(BaseTranslator):
                     if key in obj and isinstance(obj[key], list) and obj[key]:
                         # Pick the first option and merge it
                         # We recursively clean the option first
-                        first_option = _clean(obj[key][0])
+                        first_option = _clean(obj[key][0], parent_key=key)
                         if isinstance(first_option, dict):
                             # Update cleaned with the first option's properties
                             # This establishes the base type/structure
@@ -2871,10 +2502,10 @@ class Translation(BaseTranslator):
                         cleaned[k] = {}
                         continue
 
-                    cleaned[k] = _clean(v)
+                    cleaned[k] = _clean(v, parent_key=k)
                 return cleaned
             if isinstance(obj, list):
-                return [_clean(x) for x in obj]
+                return [_clean(x, parent_key=parent_key) for x in obj]
             return obj
 
         def _validate_required(obj: dict[str, Any]) -> dict[str, Any]:
