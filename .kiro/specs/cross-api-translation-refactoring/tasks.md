@@ -212,18 +212,18 @@ This refactoring follows incremental development practices to prevent codebase d
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 8. Implement Gemini translator (TDD)
-  - [ ] 8.1 Write property/unit tests for Gemini translator backward compatibility
+- [x] 8. Implement Gemini translator (TDD)
+  - [x] 8.1 Write property/unit tests for Gemini translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
     - **Validates: Requirements 5.1, 5.2**
     - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
 
-  - [ ] 8.2 Write property/unit tests for Gemini translator correctness
+  - [x] 8.2 Write property/unit tests for Gemini translator correctness
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.3**
     - _Requirements: 1.3, 7.1, 7.2, 7.3_
 
-  - [ ] 8.3 Create GeminiTranslator class
+  - [x] 8.3 Create GeminiTranslator class
     - Create `src/core/domain/translators/gemini_translator.py`
     - Extract `gemini_to_domain_request` logic from Translation class
     - Extract `gemini_to_domain_response` logic from Translation class
@@ -232,11 +232,11 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.3, 6.1, 6.2, 6.3_
 
-  - [ ] 8.4 Run targeted tests after Gemini translator
+  - [x] 8.4 Run targeted tests after Gemini translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "gemini or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 8.5 Phase gate: run full test suite after Gemini translator
+  - [x] 8.5 Phase gate: run full test suite after Gemini translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
