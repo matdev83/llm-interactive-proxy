@@ -20,6 +20,7 @@ Advanced features that enhance the proxy's capabilities:
 - **[Angel Verification System](features/angel-verification.md)** - Real-time response verification using a secondary model
 - **[Tool Access Control](features/tool-access-control.md)** - Fine-grained control over which tools models can access
 - **[Dangerous Command Protection](features/dangerous-command-protection.md)** - Prevent execution of potentially harmful commands
+- **[Dangerous Command Protection (Dev Tools)](features/dangerous-command-protection-dev-tools.md)** - Explain safe developer tool exemptions
 - **[File Access Sandboxing](features/file-sandboxing.md)** - Restrict file system access to specific directories
 
 ### Single Sign-On (SSO)

@@ -185,6 +185,8 @@ class UsageTrackingService(IUsageTrackingService):
         tool_call_count: int = 0,
         tool_names: list[str] | None = None,
         ttft_ms: float | None = None,
+        stream_tps: float | None = None,
+        backend_wait_ms: float | None = None,
         proxy_processing_ms: float = 0,
         total_duration_ms: float = 0,
         backend_reported_prompt_tokens: int | None = None,
@@ -305,6 +307,12 @@ class UsageTrackingService(IUsageTrackingService):
 
             if ttft_ms is not None:
                 record.ttft_ms = ttft_ms
+
+            if stream_tps is not None:
+                record.stream_tps = stream_tps
+
+            if backend_wait_ms is not None:
+                record.backend_wait_ms = backend_wait_ms
 
             record.proxy_processing_ms = proxy_processing_ms
             record.total_duration_ms = total_duration_ms

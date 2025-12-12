@@ -50,6 +50,67 @@ class CommandExtractionService:
     # Pattern to extract subshell contents
     _SUBSHELL_PATTERN = re.compile(r"\$\([^)]+\)")
 
+    # Safe developer tools that should be exempted from dangerous command checks
+    # These are QA tools, linters, formatters, and type checkers that may use
+    # --fix flags but are not destructive in a dangerous way
+    _SAFE_DEV_TOOLS: frozenset[str] = frozenset(
+        {
+            # Python tools
+            "ruff",
+            "black",
+            "isort",
+            "autopep8",
+            "yapf",
+            "mypy",
+            "pylint",
+            "flake8",
+            "bandit",
+            "pyright",
+            "pycodestyle",
+            "pydocstyle",
+            # JavaScript/TypeScript tools
+            "eslint",
+            "prettier",
+            "tslint",
+            "stylelint",
+            # Rust tools
+            "cargo",
+            "rustfmt",
+            "clippy",
+            # Go tools
+            "gofmt",
+            "goimports",
+            "golint",
+            "go",
+            # C/C++ tools
+            "clang-format",
+            "clang-tidy",
+            # General tools
+            "editorconfig",
+            # Testing tools
+            "pytest",
+            "jest",
+            "mocha",
+            "vitest",
+            "cargo test",
+            "go test",
+        }
+    )
+
+    # Pattern to detect dev tool invocations (compiled for performance)
+    # Matches: <tool> [subcommand] [...flags including --fix/format/check]
+    _DEV_TOOL_PATTERN = re.compile(
+        r"(?:^|[\s;&|]|(?:python|python3|python\.exe|node|npm|npx)\s+-m\s+)"
+        r"(ruff|black|isort|autopep8|yapf|mypy|pylint|flake8|"
+        r"eslint|prettier|tslint|stylelint|"
+        r"cargo|rustfmt|clippy|"
+        r"gofmt|goimports|golint|"
+        r"clang-format|clang-tidy|"
+        r"pytest|jest|mocha|vitest)"
+        r"(?:\s|$)",
+        re.IGNORECASE,
+    )
+
     def __init__(self, max_command_length: int = 10000) -> None:
         """Initialize the command extraction service.
 
@@ -283,6 +344,51 @@ class CommandExtractionService:
                     return self._truncate(joined)
 
         return None
+
+    def is_safe_dev_tool_command(self, command: str) -> bool:
+        """Check if a command is a safe developer tool invocation.
+
+        Safe developer tools include linters, formatters, type checkers, and
+        testing tools that may modify files but are not destructive in a
+        dangerous way (e.g., ruff --fix, black, mypy, eslint --fix).
+
+        Args:
+            command: The command string to check.
+
+        Returns:
+            True if the command is a safe developer tool invocation.
+
+        Examples:
+            >>> service = CommandExtractionService()
+            >>> service.is_safe_dev_tool_command("ruff check --fix .")
+            True
+            >>> service.is_safe_dev_tool_command("python -m black src/")
+            True
+            >>> service.is_safe_dev_tool_command("rm -rf /")
+            False
+        """
+        if not command:
+            return False
+
+        # Quick pattern match first (fast path)
+        if self._DEV_TOOL_PATTERN.search(command):
+            return True
+
+        # Fallback: Check if command starts with a known safe tool
+        # (handles cases like ".venv/Scripts/python.exe -m ruff ...")
+        normalized = command.lower().strip()
+        for tool in self._SAFE_DEV_TOOLS:
+            # Check for tool as standalone command or after common prefixes
+            if normalized.startswith((tool + " ", tool + "\t")):
+                return True
+            # Check for python -m <tool> patterns
+            if f" -m {tool} " in normalized or f" -m {tool}\t" in normalized:
+                return True
+            # Check for npx/npm patterns
+            if f"npx {tool} " in normalized or f"npm run {tool} " in normalized:
+                return True
+
+        return False
 
     def _truncate(self, command: str) -> str:
         """Truncate command to max length."""

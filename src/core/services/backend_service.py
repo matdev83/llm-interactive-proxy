@@ -405,6 +405,82 @@ class BackendService(IBackendService):
 
         return _adapter()
 
+    def _is_valid_completion_token(self, chunk: Any) -> bool:
+        """Check if a chunk contains a valid completion token.
+
+        A valid completion token is one that:
+        - Is not empty or whitespace-only
+        - Is not a [DONE] marker
+        - Contains actual content (text delta or tool call)
+
+        Args:
+            chunk: The chunk to validate
+
+        Returns:
+            True if chunk contains valid completion content
+        """
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        # Extract content from ProcessedResponse if needed
+        content = chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+
+        # Handle bytes
+        if isinstance(content, bytes | bytearray):
+            text = content.decode("utf-8", errors="ignore").strip()
+            # Check for [DONE] markers
+            if text in ("[DONE]", '["DONE"]', "data: [DONE]", 'data: ["DONE"]'):
+                return False
+            # Check for empty/keepalive
+            if not text or text.startswith(":"):
+                return False
+            # SSE comments are keepalives
+            if text.startswith("data:"):
+                data_part = text[5:].strip()
+                if not data_part or data_part in ("[DONE]", '["DONE"]'):
+                    return False
+            return True
+
+        # Handle strings
+        if isinstance(content, str):
+            text = content.strip()
+            if text in ("[DONE]", '["DONE"]', "data: [DONE]", 'data: ["DONE"]'):
+                return False
+            if not text or text.startswith(":"):
+                return False
+            if text.startswith("data:"):
+                data_part = text[5:].strip()
+                if not data_part or data_part in ("[DONE]", '["DONE"]'):
+                    return False
+            return True
+
+        # Handle dict (JSON chunk)
+        if isinstance(content, dict):
+            # Check for actual content
+            choices = content.get("choices", [])
+            if choices:
+                for choice in choices:
+                    delta = choice.get("delta", {})
+                    # Has actual text content
+                    if delta.get("content"):
+                        return True
+                    # Has tool calls
+                    if delta.get("tool_calls"):
+                        return True
+                    # Has function call
+                    if delta.get("function_call"):
+                        return True
+            # Check for direct content field
+            return bool(content.get("content") or content.get("text"))
+
+        # For ProcessedResponse, check metadata for content
+        if isinstance(chunk, ProcessedResponse):
+            if chunk.metadata and chunk.metadata.get("tool_calls"):
+                return True
+            # Already extracted content above
+            return bool(content)
+
+        return False
+
     def _wrap_stream_for_usage(
         self,
         stream: Any,
@@ -424,11 +500,15 @@ class BackendService(IBackendService):
 
         async def _usage_wrapper() -> Any:
             accumulated_usage = None
-            first_token_time = None
+            first_token_time: float | None = None
+            end_time: float | None = None
 
             try:
                 async for chunk in stream:
-                    if first_token_time is None:
+                    # Only set first_token_time on first VALID token
+                    if first_token_time is None and self._is_valid_completion_token(
+                        chunk
+                    ):
                         first_token_time = time.time()
 
                     content = (
@@ -444,6 +524,9 @@ class BackendService(IBackendService):
                         accumulated_usage = chunk.usage
 
                     yield chunk
+
+                # Record end time after stream completes
+                end_time = time.time()
             finally:
                 if accumulated_usage:
                     completion_tokens = accumulated_usage.get("completion_tokens", 0)
@@ -454,6 +537,20 @@ class BackendService(IBackendService):
                     )
                     duration_ms = (time.time() - start_time) * 1000
 
+                    # Calculate stream TPS (tokens per second after first token)
+                    stream_tps: float | None = None
+                    if (
+                        first_token_time is not None
+                        and end_time is not None
+                        and completion_tokens > 0
+                    ):
+                        stream_duration = end_time - first_token_time
+                        if stream_duration > 0:
+                            stream_tps = completion_tokens / stream_duration
+
+                    # Calculate backend wait time (time until first token)
+                    backend_wait_ms = ttft_ms  # Same as TTFT for streaming
+
                     try:
                         if ptb_record_id:
                             await usage_service.record_response(
@@ -462,6 +559,8 @@ class BackendService(IBackendService):
                                 backend_reported_usage=accumulated_usage,
                                 http_status_code=200,
                                 ttft_ms=ttft_ms,
+                                stream_tps=stream_tps,
+                                backend_wait_ms=backend_wait_ms,
                                 total_duration_ms=duration_ms,
                             )
 
@@ -472,6 +571,8 @@ class BackendService(IBackendService):
                                 backend_reported_usage=accumulated_usage,
                                 http_status_code=200,
                                 ttft_ms=ttft_ms,
+                                stream_tps=stream_tps,
+                                backend_wait_ms=backend_wait_ms,
                                 total_duration_ms=duration_ms,
                             )
                     except Exception as e:

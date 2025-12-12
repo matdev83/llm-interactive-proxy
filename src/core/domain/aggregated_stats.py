@@ -31,8 +31,12 @@ class AggregatedStats:
         total_tokens_per_second: Throughput for all tokens
 
         total_tool_calls: Total number of tool calls
+        total_native_tool_calls: Total native API tool calls
+        total_vtc_tool_calls: Total VTC (XML-parsed) tool calls
 
         ttft_stats: Time to first token statistics
+        stream_tps_stats: Per-stream tokens per second statistics
+        backend_wait_stats: Backend wait time statistics
         proxy_processing_stats: Proxy processing time statistics
         duration_stats: Total duration statistics
 
@@ -59,9 +63,13 @@ class AggregatedStats:
 
     # Tool metrics
     total_tool_calls: int = 0
+    total_native_tool_calls: int = 0
+    total_vtc_tool_calls: int = 0
 
     # Timing metrics
     ttft_stats: TimingStats | None = None
+    stream_tps_stats: TimingStats | None = None
+    backend_wait_stats: TimingStats | None = None
     proxy_processing_stats: TimingStats | None = None
     duration_stats: TimingStats | None = None
 

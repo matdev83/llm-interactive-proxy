@@ -11,11 +11,22 @@
 
 ### Added
 
+- **Developer Tool Exemptions**: Intelligent exemption system for safe developer tools in dangerous command protection
+  - **Smart Detection**: Automatically exempts common safe tools (linters, formatters, test runners) from dangerous command blocks
+  - **Tool Support**: Includes Python (ruff, black, mypy), JS/TS (eslint, prettier), Rust (cargo), Go, and more
+  - **Safe Workflows**: Allows `ruff --fix`, `cargo fmt`, and other non-destructive file modifications without interruption
+  - **Documentation**: Added comprehensive guide in `docs/user_guide/features/dangerous-command-protection-dev-tools.md`
+
 - **Session Sanitizer**: New `SessionSanitizer` service to ensure session data integrity and security
   - **Sanitization Logic**: Implemented `session_sanitizer.py` to clean and normalize session data
   - **Unit Tests**: Added comprehensive tests in `test_session_sanitizer.py`
 
 ### Changed
+
+- **Usage Tracking Metrics**: Expanded usage tracking with granular performance and traffic metrics
+  - **New Metrics**: Added `stream_tps` (tokens per second), `backend_wait_ms`, and split tool call counts (`native` vs `vtc`)
+  - **Instance Tracking**: Added `backend_instance_id` to usage records for tracking specific backend instances
+  - **Database Optimization**: Added new indexes for backend instance and model performance analysis
 
 - **Spec Cleanup**: Removed obsolete test suite fix specifications from `.kiro/specs/test-suite-fixes/`
 - **Test Suite Updates**: Updated property tests and unit tests to align with new architecture and services

@@ -60,7 +60,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | Manage Alembic config | `./.venv/Scripts/python.exe scripts/manage_alembic_config.py <alembic_args>` |
 | Test (Fast) | `./.venv/Scripts/python.exe -m pytest` (skips slow/integration) |
 | **Test (Full)** | `./.venv/Scripts/python.exe -m pytest -m "integration or unit"` |
-| **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff --fix check .` |
+| **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff check --fix .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
 | **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
 

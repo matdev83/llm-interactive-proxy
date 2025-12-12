@@ -35,6 +35,7 @@ class UsageRecord:
         turn_number: Turn number within the session
 
         backend_type: Backend type (e.g., 'openai', 'anthropic', 'gemini')
+        backend_instance_id: Concrete backend instance (e.g., 'gemini.1', 'openrouter.2')
         model: Model name effectively used
         frontend_type: Frontend type (e.g., 'openai', 'anthropic')
         leg: Traffic leg (CTP, PTB, BTP, PTC)
@@ -48,10 +49,14 @@ class UsageRecord:
         backend_reported_usage: Complete backend-reported usage (for reconciliation)
 
         http_status_code: HTTP status code from response
-        tool_call_count: Number of tool calls in response
+        tool_call_count: Total number of tool calls in response (native + VTC)
+        native_tool_call_count: Tool calls from API response tool_calls field
+        vtc_tool_call_count: Tool calls parsed from XML content (VTC)
         tool_names: Names of tools called
 
-        ttft_ms: Time to first token (milliseconds)
+        ttft_ms: Time to first valid token (milliseconds)
+        stream_tps: Tokens per second for this stream (after first token)
+        backend_wait_ms: Time waiting for backend response (milliseconds)
         proxy_processing_ms: Proxy processing time (milliseconds)
         total_duration_ms: Total request duration (milliseconds)
 
@@ -70,6 +75,7 @@ class UsageRecord:
     model: str
     frontend_type: str
     leg: TrafficLeg
+    backend_instance_id: str | None = None
 
     # PROXY-CALCULATED TOKEN METRICS (verbatim - before mutations)
     verbatim_prompt_tokens: int = 0
@@ -88,10 +94,14 @@ class UsageRecord:
     # Request/response metadata
     http_status_code: int | None = None
     tool_call_count: int = 0
+    native_tool_call_count: int = 0
+    vtc_tool_call_count: int = 0
     tool_names: list[str] = field(default_factory=list)
 
     # Timing metrics
     ttft_ms: float | None = None
+    stream_tps: float | None = None
+    backend_wait_ms: float | None = None
     proxy_processing_ms: float = 0.0
     total_duration_ms: float = 0.0
 
@@ -112,6 +122,7 @@ class UsageRecord:
             "session_id": self.session_id,
             "turn_number": self.turn_number,
             "backend_type": self.backend_type,
+            "backend_instance_id": self.backend_instance_id,
             "model": self.model,
             "frontend_type": self.frontend_type,
             "leg": self.leg.value,
@@ -127,8 +138,12 @@ class UsageRecord:
             ),
             "http_status_code": self.http_status_code,
             "tool_call_count": self.tool_call_count,
+            "native_tool_call_count": self.native_tool_call_count,
+            "vtc_tool_call_count": self.vtc_tool_call_count,
             "tool_names": self.tool_names,
             "ttft_ms": self.ttft_ms,
+            "stream_tps": self.stream_tps,
+            "backend_wait_ms": self.backend_wait_ms,
             "proxy_processing_ms": self.proxy_processing_ms,
             "total_duration_ms": self.total_duration_ms,
             "user_agent": self.user_agent,
@@ -182,6 +197,7 @@ class UsageRecord:
             session_id=data["session_id"],
             turn_number=data["turn_number"],
             backend_type=data["backend_type"],
+            backend_instance_id=data.get("backend_instance_id"),
             model=data["model"],
             frontend_type=data["frontend_type"],
             leg=leg,
@@ -193,8 +209,12 @@ class UsageRecord:
             backend_reported_usage=backend_reported_usage,
             http_status_code=data.get("http_status_code"),
             tool_call_count=data.get("tool_call_count", 0),
+            native_tool_call_count=data.get("native_tool_call_count", 0),
+            vtc_tool_call_count=data.get("vtc_tool_call_count", 0),
             tool_names=data.get("tool_names", []),
             ttft_ms=data.get("ttft_ms"),
+            stream_tps=data.get("stream_tps"),
+            backend_wait_ms=data.get("backend_wait_ms"),
             proxy_processing_ms=data.get("proxy_processing_ms", 0.0),
             total_duration_ms=data.get("total_duration_ms", 0.0),
             user_agent=data.get("user_agent"),

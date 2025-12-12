@@ -6,6 +6,8 @@ The proxy includes built-in protection against dangerous git commands that could
 
 This safety feature detects and blocks destructive git operations before they can cause damage. It uses pattern-based detection to identify dangerous commands at the tool call level and intercepts them in real-time.
 
+**Note**: Developer tools like linters, formatters, and type checkers (ruff, black, mypy, eslint, etc.) are automatically exempted from dangerous command detection. See [Developer Tool Exemptions](./dangerous-command-protection-dev-tools.md) for details.
+
 ## Key Features
 
 - **Pattern-Based Detection**: Uses regex patterns to identify dangerous git commands

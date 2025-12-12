@@ -236,6 +236,12 @@ class DangerousCommandCheck(ISecurityCheck):
         if not command:
             return SecurityCheckResult.allow()
 
+        # Exempt safe developer tools (linters, formatters, type checkers)
+        # These tools may use --fix flags but are not destructive
+        if command_service.is_safe_dev_tool_command(command):
+            logger.debug("Allowing safe dev tool command: %s", command[:200])
+            return SecurityCheckResult.allow()
+
         # Check for project root integrity (explicit deletion/move of root dir)
         if self._session_service:
             root_result = await self._check_project_root_integrity(context, command)

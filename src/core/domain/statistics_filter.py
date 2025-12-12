@@ -22,6 +22,7 @@ class StatisticsFilter:
 
     Attributes:
         backend_type: Filter by backend type (e.g., 'openai', 'anthropic')
+        backend_instance_id: Filter by backend instance (e.g., 'gemini.1')
         model: Filter by model name
         frontend_type: Filter by frontend type
         leg: Filter by traffic leg (CTP, PTB, BTP, PTC)
@@ -37,6 +38,7 @@ class StatisticsFilter:
     """
 
     backend_type: str | None = None
+    backend_instance_id: str | None = None
     model: str | None = None
     frontend_type: str | None = None
     leg: TrafficLeg | None = None
@@ -63,6 +65,13 @@ class StatisticsFilter:
         """
         # Backend type filter
         if self.backend_type is not None and record.backend_type != self.backend_type:
+            return False
+
+        # Backend instance ID filter
+        if (
+            self.backend_instance_id is not None
+            and record.backend_instance_id != self.backend_instance_id
+        ):
             return False
 
         # Model filter

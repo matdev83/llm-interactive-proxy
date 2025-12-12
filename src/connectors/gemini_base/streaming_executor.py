@@ -240,6 +240,8 @@ class StreamingExecutor:
         auth_refresh_policy: IAuthRefreshPolicy | None = None,
         retry_policy: IRetryPolicy | None = None,
         backend_type: str = "gemini",
+        *,
+        session_factory: Any | None = None,
     ) -> None:
         """Initialize the executor.
 
@@ -251,6 +253,7 @@ class StreamingExecutor:
             auth_refresh_policy: Optional auth refresh policy for 401 handling.
             retry_policy: Optional retry policy for rate-limit handling.
             backend_type: The backend type for error reporting.
+            session_factory: Legacy hook retained for compatibility (unused).
         """
         self._translation_service = translation_service
         self._token_estimator = token_estimator or get_default_token_estimator()
@@ -259,6 +262,7 @@ class StreamingExecutor:
         self._auth_refresh_policy = auth_refresh_policy or AuthRefreshPolicy()
         self._retry_policy = retry_policy
         self._backend_type = backend_type
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -926,19 +930,21 @@ class StreamingExecutor:
             retry_decision = retry_policy.should_retry(
                 backend_error, attempt, is_streaming=True
             )
-            if (
+            sleep_seconds = retry_decision.sleep_seconds
+            should_retry = (
                 retry_decision.should_retry
-                and retry_decision.sleep_seconds is not None
+                and sleep_seconds is not None
                 and not _rate_limit_retry_attempted
-            ):
+            )
+            if should_retry:
                 with contextlib.suppress(Exception):
                     response.close()
                 logger.info(
                     "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
-                    retry_decision.sleep_seconds,
+                    sleep_seconds,
                     attempt + 1,
                 )
-                await asyncio.sleep(retry_decision.sleep_seconds)
+                await asyncio.sleep(sleep_seconds)
                 async for retry_chunk in self._stream_generator(
                     prepared=prepared,
                     url=url,
@@ -956,6 +962,23 @@ class StreamingExecutor:
                 ):
                     yield retry_chunk
                 return
+
+        # Handle 400 Bad Request errors (including "Prompt is too long") gracefully
+        # by yielding an error chunk instead of raising, to prevent abrupt connection
+        # termination. This allows the client to receive a proper error response.
+        if response.status_code == 400:
+            with contextlib.suppress(Exception):
+                response.close()
+            error_chunk = processor.build_error_chunk(
+                message=error_message,
+                code=400,
+                error_type=code,  # e.g., "invalid_request_error"
+            )
+            yield ProcessedResponse(
+                content=error_chunk,
+                metadata=self._build_error_metadata(error_chunk),
+            )
+            return
 
         with contextlib.suppress(Exception):
             response.close()

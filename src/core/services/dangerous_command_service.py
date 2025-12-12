@@ -14,13 +14,15 @@ _ENV_PREFIX_PATTERN = re.compile(r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)", re.IGNOR
 
 
 class DangerousCommandService:
-    def __init__(self, config: DangerousCommandConfig):
+    def __init__(self, config: DangerousCommandConfig, command_service=None):
         self.config = config
         # Normalize tool names once so lookups remain case-insensitive while
         # preserving the original configuration for external access.
         self._normalized_tool_names: set[str] = {
             tool_name.lower() for tool_name in self.config.tool_names
         }
+        # Optional command extraction service for safe dev tool checks
+        self._command_service = command_service
 
     def scan_tool_call(
         self, tool_call: ToolCall
@@ -167,6 +169,15 @@ class DangerousCommandService:
 
         command_to_check = self._extract_command_string(arguments)
         if not command_to_check:
+            return None
+
+        # Exempt safe developer tools (linters, formatters, type checkers)
+        if (
+            self._command_service
+            and hasattr(self._command_service, "is_safe_dev_tool_command")
+            and self._command_service.is_safe_dev_tool_command(command_to_check)
+        ):
+            # Safe dev tool - no need to log at warning level
             return None
 
         original_command = command_to_check

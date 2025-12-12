@@ -41,6 +41,7 @@ class UsageRecordTable(SQLModel, table=True):
 
     # Traffic identification
     backend_type: str = Field(nullable=False, max_length=64, index=True)
+    backend_instance_id: str | None = Field(default=None, max_length=128, index=True)
     model: str = Field(nullable=False, max_length=256, index=True)
     frontend_type: str = Field(nullable=False, max_length=64)
     leg: str = Field(nullable=False, max_length=8)  # CTP, PTB, BTP, PTC
@@ -64,12 +65,16 @@ class UsageRecordTable(SQLModel, table=True):
     # Request/response metadata
     http_status_code: int | None = Field(default=None, index=True)
     tool_call_count: int = Field(nullable=False, default=0)
+    native_tool_call_count: int = Field(nullable=False, default=0)
+    vtc_tool_call_count: int = Field(nullable=False, default=0)
     tool_names_json: str | None = Field(
         default=None, sa_column=SAColumn("tool_names_json", Text)
     )
 
     # Timing metrics (in milliseconds)
     ttft_ms: float | None = Field(default=None)
+    stream_tps: float | None = Field(default=None)
+    backend_wait_ms: float | None = Field(default=None)
     proxy_processing_ms: float = Field(nullable=False, default=0.0)
     total_duration_ms: float = Field(nullable=False, default=0.0)
 
@@ -91,6 +96,15 @@ class UsageRecordTable(SQLModel, table=True):
         ),
         Index("idx_usage_records_status_timestamp", "http_status_code", "timestamp"),
         Index("idx_usage_records_proxy_user_timestamp", "proxy_user", "timestamp"),
+        Index(
+            "idx_usage_records_backend_instance",
+            "backend_instance_id",
+        ),
+        Index(
+            "idx_usage_records_backend_instance_model",
+            "backend_instance_id",
+            "model",
+        ),
     )
 
     @classmethod
@@ -121,6 +135,7 @@ class UsageRecordTable(SQLModel, table=True):
             session_id=record.session_id,
             turn_number=record.turn_number,
             backend_type=record.backend_type,
+            backend_instance_id=record.backend_instance_id,
             model=record.model,
             frontend_type=record.frontend_type,
             leg=record.leg.value,
@@ -132,8 +147,12 @@ class UsageRecordTable(SQLModel, table=True):
             backend_reported_usage_json=backend_usage_json,
             http_status_code=record.http_status_code,
             tool_call_count=record.tool_call_count,
+            native_tool_call_count=record.native_tool_call_count,
+            vtc_tool_call_count=record.vtc_tool_call_count,
             tool_names_json=tool_names_json,
             ttft_ms=record.ttft_ms,
+            stream_tps=record.stream_tps,
+            backend_wait_ms=record.backend_wait_ms,
             proxy_processing_ms=record.proxy_processing_ms,
             total_duration_ms=record.total_duration_ms,
             user_agent=record.user_agent,
@@ -168,6 +187,7 @@ class UsageRecordTable(SQLModel, table=True):
             session_id=self.session_id,
             turn_number=self.turn_number,
             backend_type=self.backend_type,
+            backend_instance_id=self.backend_instance_id,
             model=self.model,
             frontend_type=self.frontend_type,
             leg=TrafficLeg(self.leg),
@@ -179,8 +199,12 @@ class UsageRecordTable(SQLModel, table=True):
             backend_reported_usage=backend_usage,
             http_status_code=self.http_status_code,
             tool_call_count=self.tool_call_count,
+            native_tool_call_count=self.native_tool_call_count,
+            vtc_tool_call_count=self.vtc_tool_call_count,
             tool_names=tool_names,
             ttft_ms=self.ttft_ms,
+            stream_tps=self.stream_tps,
+            backend_wait_ms=self.backend_wait_ms,
             proxy_processing_ms=self.proxy_processing_ms,
             total_duration_ms=self.total_duration_ms,
             user_agent=self.user_agent,

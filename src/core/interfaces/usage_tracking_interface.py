@@ -40,6 +40,8 @@ class IUsageTrackingService(abc.ABC):
         tool_call_count: int = 0,
         tool_names: list[str] | None = None,
         ttft_ms: float | None = None,
+        stream_tps: float | None = None,
+        backend_wait_ms: float | None = None,
         proxy_processing_ms: float = 0,
         total_duration_ms: float = 0,
         backend_reported_prompt_tokens: int | None = None,

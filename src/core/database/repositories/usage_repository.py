@@ -108,6 +108,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                         existing.session_id = table_record.session_id
                         existing.turn_number = table_record.turn_number
                         existing.backend_type = table_record.backend_type
+                        existing.backend_instance_id = table_record.backend_instance_id
                         existing.model = table_record.model
                         existing.frontend_type = table_record.frontend_type
                         existing.leg = table_record.leg
@@ -129,8 +130,14 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                         )
                         existing.http_status_code = table_record.http_status_code
                         existing.tool_call_count = table_record.tool_call_count
+                        existing.native_tool_call_count = (
+                            table_record.native_tool_call_count
+                        )
+                        existing.vtc_tool_call_count = table_record.vtc_tool_call_count
                         existing.tool_names_json = table_record.tool_names_json
                         existing.ttft_ms = table_record.ttft_ms
+                        existing.stream_tps = table_record.stream_tps
+                        existing.backend_wait_ms = table_record.backend_wait_ms
                         existing.proxy_processing_ms = table_record.proxy_processing_ms
                         existing.total_duration_ms = table_record.total_duration_ms
                         existing.user_agent = table_record.user_agent
@@ -361,16 +368,17 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
     async def get_status_code_breakdown(
         self, filters: StatisticsFilter | None = None
     ) -> dict[str, dict[int, int]]:
-        """Get status code counts by backend:model.
+        """Get status code counts by backend_instance_id:model.
 
         Args:
             filters: Optional statistics filter
 
         Returns:
-            Dictionary mapping "backend:model" to status code counts
+            Dictionary mapping "backend_instance_id:model" to status code counts
         """
         async with self._engine.session() as session:
             statement = select(
+                UsageRecordTable.backend_instance_id,
                 UsageRecordTable.backend_type,
                 UsageRecordTable.model,
                 UsageRecordTable.http_status_code,
@@ -382,6 +390,11 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 if filters.backend_type:
                     statement = statement.where(
                         UsageRecordTable.backend_type == filters.backend_type
+                    )
+                if filters.backend_instance_id:
+                    statement = statement.where(
+                        UsageRecordTable.backend_instance_id
+                        == filters.backend_instance_id
                     )
                 if filters.model:
                     statement = statement.where(UsageRecordTable.model == filters.model)
@@ -395,6 +408,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                     )
 
             statement = statement.group_by(
+                UsageRecordTable.backend_instance_id,
                 UsageRecordTable.backend_type,
                 UsageRecordTable.model,
                 UsageRecordTable.http_status_code,
@@ -405,12 +419,120 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
             breakdown: dict[str, dict[int, int]] = {}
             for row in rows:
-                key = f"{row.backend_type}:{row.model}"
+                # Prefer backend_instance_id if available, fallback to backend_type
+                instance_id = row.backend_instance_id or row.backend_type
+                key = f"{instance_id}:{row.model}"
                 if key not in breakdown:
                     breakdown[key] = {}
                 breakdown[key][row.http_status_code] = row.count
 
             return breakdown
+
+    async def get_frontend_stats(
+        self, filters: StatisticsFilter | None = None
+    ) -> dict[str, dict[str, int]]:
+        """Get request counts and token totals by frontend type.
+
+        Args:
+            filters: Optional statistics filter
+
+        Returns:
+            Dictionary mapping frontend_type to stats dict with:
+            - total_requests: Total number of requests
+            - successful_requests: Requests with HTTP 200
+            - tokens_sent: Total mutated_prompt_tokens
+            - tokens_received: Total mutated_completion_tokens
+        """
+        async with self._engine.session() as session:
+            statement = select(
+                UsageRecordTable.frontend_type,
+                func.count().label("total_requests"),
+                func.sum(
+                    func.case(
+                        (UsageRecordTable.http_status_code == 200, 1),
+                        else_=0,
+                    )
+                ).label("successful_requests"),
+                func.sum(UsageRecordTable.mutated_prompt_tokens).label("tokens_sent"),
+                func.sum(UsageRecordTable.mutated_completion_tokens).label(
+                    "tokens_received"
+                ),
+            )
+
+            if filters:
+                statement = self._apply_filters(statement, filters)
+
+            statement = statement.group_by(UsageRecordTable.frontend_type)
+
+            result = await session.execute(statement)
+            rows = result.all()
+
+            stats: dict[str, dict[str, int]] = {}
+            for row in rows:
+                stats[row.frontend_type] = {
+                    "total_requests": row.total_requests or 0,
+                    "successful_requests": row.successful_requests or 0,
+                    "tokens_sent": row.tokens_sent or 0,
+                    "tokens_received": row.tokens_received or 0,
+                }
+
+            return stats
+
+    async def get_backend_instance_stats(
+        self, filters: StatisticsFilter | None = None
+    ) -> dict[str, dict[str, int]]:
+        """Get request counts and token totals by backend instance.
+
+        Args:
+            filters: Optional statistics filter
+
+        Returns:
+            Dictionary mapping backend_instance_id to stats dict with:
+            - total_requests: Total number of requests
+            - successful_requests: Requests with HTTP 200
+            - tokens_sent: Total mutated_prompt_tokens
+            - tokens_received: Total mutated_completion_tokens
+        """
+        async with self._engine.session() as session:
+            statement = select(
+                UsageRecordTable.backend_instance_id,
+                UsageRecordTable.backend_type,
+                func.count().label("total_requests"),
+                func.sum(
+                    func.case(
+                        (UsageRecordTable.http_status_code == 200, 1),
+                        else_=0,
+                    )
+                ).label("successful_requests"),
+                func.sum(UsageRecordTable.mutated_prompt_tokens).label("tokens_sent"),
+                func.sum(UsageRecordTable.mutated_completion_tokens).label(
+                    "tokens_received"
+                ),
+            )
+
+            if filters:
+                statement = self._apply_filters(statement, filters)
+
+            statement = statement.group_by(
+                UsageRecordTable.backend_instance_id,
+                UsageRecordTable.backend_type,
+            )
+
+            result = await session.execute(statement)
+            rows = result.all()
+
+            stats: dict[str, dict[str, int]] = {}
+            for row in rows:
+                # Prefer backend_instance_id if available, fallback to backend_type
+                instance_id = row.backend_instance_id or row.backend_type
+                stats[instance_id] = {
+                    "total_requests": row.total_requests or 0,
+                    "successful_requests": row.successful_requests or 0,
+                    "tokens_sent": row.tokens_sent or 0,
+                    "tokens_received": row.tokens_received or 0,
+                }
+
+            return stats
 
     async def delete_older_than(self, cutoff_date: datetime) -> int:
         """Delete records older than the cutoff date.
@@ -451,6 +573,10 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
         if filters.backend_type:
             statement = statement.where(
                 UsageRecordTable.backend_type == filters.backend_type
+            )
+        if filters.backend_instance_id:
+            statement = statement.where(
+                UsageRecordTable.backend_instance_id == filters.backend_instance_id
             )
         if filters.model:
             statement = statement.where(UsageRecordTable.model == filters.model)
