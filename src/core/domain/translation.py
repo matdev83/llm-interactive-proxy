@@ -131,7 +131,7 @@ class Translation(BaseTranslator):
         return media_utils._detect_image_mime_type(url)
 
     @staticmethod
-    def _process_gemini_image_part(part: dict[str, Any]) -> dict[str, Any] | None:
+    def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
         return media_utils._process_gemini_image_part(part)
 
     @staticmethod

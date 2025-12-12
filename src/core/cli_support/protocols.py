@@ -162,6 +162,11 @@ class ErrorHandlerProtocol(Protocol):
         """
         ...
 
+    @abstractmethod
+    def handle_exception(self, exc: BaseException) -> None:
+        """Handle an unexpected exception with user-friendly messaging."""
+        ...
+
 
 # =============================================================================
 # Privilege Checker Protocol

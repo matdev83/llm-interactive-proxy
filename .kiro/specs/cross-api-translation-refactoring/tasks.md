@@ -405,29 +405,29 @@ This refactoring follows incremental development practices to prevent codebase d
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 17. Edge case handling verification
-  - [ ] 17.1 Write property/unit tests for edge case handling preservation (TDD)
+- [x] 17. Edge case handling verification
+  - [x] 17.1 Write property/unit tests for edge case handling preservation (TDD)
     - **Property 6: Edge Case Handling Preservation**
     - **Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5**
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-  - [ ] 17.2 Verify malformed JSON handling
+  - [x] 17.2 Verify malformed JSON handling
     - Test that malformed JSON in tool arguments is handled gracefully
     - Compare behavior with original implementation
     - _Requirements: 10.1_
 
-  - [ ] 17.3 Verify multimodal content handling
+  - [x] 17.3 Verify multimodal content handling
     - Test image content conversion across all translators
     - Compare behavior with original implementation
     - _Requirements: 10.2_
 
-  - [ ] 17.4 Verify reasoning/thinking content handling
+  - [x] 17.4 Verify reasoning/thinking content handling
     - Test extended thinking content preservation
     - Test thought signature preservation
     - Compare behavior with original implementation
     - _Requirements: 10.3, 10.4_
 
-  - [ ] 17.5 Phase gate: run full test suite after edge case verification
+  - [x] 17.5 Phase gate: run full test suite after edge case verification
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 

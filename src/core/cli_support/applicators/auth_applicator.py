@@ -14,7 +14,6 @@ Requirements satisfied:
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -161,10 +160,9 @@ class AuthApplicator:
 
         sso_config_file = Path(sso_config_path)
         if not sso_config_file.exists():
-            logger.error(f"SSO config file not found: {sso_config_path}")
-            sys.exit(1)
+            raise ValueError(f"SSO config file not found: {sso_config_path}")
 
-        with open(sso_config_file) as f:
+        with sso_config_file.open(encoding="utf-8") as f:
             sso_file_config = yaml.safe_load(f)
 
         if sso_file_config:

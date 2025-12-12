@@ -16,7 +16,6 @@ Requirements satisfied:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from src.core.cli_support.protocols import CliArgs, CliOverrides, DomainApplicator
@@ -240,18 +239,17 @@ class ConfigurationApplicator:
             and override_log_file is None
         ):
             # Apply default log file
-            default_log_file = Path("./var/logs/proxy.log")
-            default_log_file.parent.mkdir(parents=True, exist_ok=True)
+            default_log_file = "./var/logs/proxy.log"
 
             # Ensure logging overrides dict exists
             if "logging" not in overrides:
                 overrides["logging"] = {}
             if isinstance(overrides["logging"], dict):
-                overrides["logging"]["log_file"] = str(default_log_file)
+                overrides["logging"]["log_file"] = default_log_file
                 resolution.record(
                     "logging.log_file",
-                    str(default_log_file),
-                    ParameterSource.CLI,
+                    default_log_file,
+                    ParameterSource.DEFAULT,
                     origin="default",
                 )
 

@@ -11,19 +11,100 @@ import logging
 import os
 import socket
 import sys
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI
 
 from src.anthropic_server import create_anthropic_app_async
+from src.core.cli_support.error_handler import ErrorHandler
+from src.core.cli_support.logging_configurator import LoggingConfigurator
+from src.core.cli_support.privilege_checker import PrivilegeChecker
+from src.core.cli_support.protocols import (
+    ErrorHandlerProtocol,
+    LoggingConfiguratorProtocol,
+    PrivilegeCheckerProtocol,
+)
 from src.core.common.uvicorn_logging import get_uvicorn_logging_config
 from src.core.config.app_config import AppConfig
+
+if TYPE_CHECKING:
+    from src.core.config.parameter_resolution import ParameterResolution
 
 logger = logging.getLogger(__name__)
 
 
 class ServerLifecycleManager:
     """Manages server lifecycle events including port checks, daemonization, and startup."""
+
+    def __init__(
+        self,
+        *,
+        privilege_checker: PrivilegeCheckerProtocol | None = None,
+        logging_configurator: LoggingConfiguratorProtocol | None = None,
+        error_handler: ErrorHandlerProtocol | None = None,
+        build_app_async_fn: Callable[[AppConfig], Awaitable[FastAPI]] | None = None,
+    ) -> None:
+        from src.core.app.application_builder import build_app_async
+
+        self._privilege_checker = privilege_checker or PrivilegeChecker()
+        self._logging_configurator = logging_configurator or LoggingConfigurator()
+        self._error_handler = error_handler or ErrorHandler()
+        self._build_app_async_fn = build_app_async_fn or build_app_async
+
+    async def run(
+        self,
+        args: argparse.Namespace,
+        cfg: AppConfig,
+        *,
+        resolution: "ParameterResolution | None" = None,
+        build_app_fn: Callable[[AppConfig], FastAPI] | None = None,
+        enforce_localhost_fn: Callable[[AppConfig], AppConfig] | None = None,
+    ) -> None:
+        """Coordinate startup steps and run servers (Requirement 2.1)."""
+        cfg = self._logging_configurator.apply_pid_suffixes(cfg)
+
+        if self.handle_daemon_mode(args, cfg):
+            return
+
+        try:
+            self._logging_configurator.configure(cfg)
+        except Exception as exc:
+            raise ValueError(f"Logging configuration failed: {exc}") from exc
+
+        if resolution is not None:
+            resolution.log(logging.getLogger("config.resolution"), cfg)
+
+        self._privilege_checker.check_privileges(
+            allow_admin=bool(getattr(args, "allow_admin", False))
+        )
+
+        if enforce_localhost_fn is not None:
+            cfg = enforce_localhost_fn(cfg)
+
+        try:
+            if build_app_fn is not None:
+                app = build_app_fn(cfg)
+            else:
+                app = await self._build_app_async_fn(cfg)
+        except RuntimeError as exc:
+            self._error_handler.handle_build_error(str(exc))
+            raise SystemExit(1) from exc
+        except SystemExit:
+            raise
+        except Exception as exc:
+            self._error_handler.handle_exception(exc)
+            raise SystemExit(1) from exc
+
+        if cfg.auth.trusted_ips:
+            logging.info(
+                "Trusted IPs configured for bypassing authorization: %s",
+                ", ".join(cfg.auth.trusted_ips),
+            )
+
+        self.check_ports(cfg)
+        await self.start_servers(app, cfg)
 
     def is_port_in_use(self, host: str, port: int) -> bool:
         """Check if a port is in use on a given host."""
@@ -112,16 +193,14 @@ class ServerLifecycleManager:
         # Check if port is already in use
         if self.is_port_in_use(cfg.host, cfg.port):
             error_msg = f"Port {cfg.port} is already in use."
-            logger.error(error_msg)
-            sys.stderr.write(f"\nERROR: {error_msg}\n")
-            sys.exit(1)
+            self._error_handler.handle_build_error(error_msg)
+            raise SystemExit(1)
 
         # Check if Anthropic port is already in use
         if cfg.anthropic_port and self.is_port_in_use(cfg.host, cfg.anthropic_port):
             error_msg = f"Anthropic Port {cfg.anthropic_port} is already in use."
-            logger.error(error_msg)
-            sys.stderr.write(f"\nERROR: {error_msg}\n")
-            sys.exit(1)
+            self._error_handler.handle_build_error(error_msg)
+            raise SystemExit(1)
 
     async def start_servers(self, app: FastAPI, cfg: AppConfig) -> None:
         """
@@ -140,7 +219,10 @@ class ServerLifecycleManager:
             app,
             host=cfg.host,
             port=cfg.port,
-            log_config=get_uvicorn_logging_config(use_colors=cfg.logging.use_colors),
+            log_config=get_uvicorn_logging_config(
+                use_colors=cfg.logging.use_colors,
+                log_level=getattr(getattr(cfg.logging, "level", None), "value", "INFO"),
+            ),
         )
         main_server = uvicorn.Server(main_config)
         servers.append(main_server.serve())
@@ -157,7 +239,10 @@ class ServerLifecycleManager:
                 host=cfg.host,
                 port=cfg.anthropic_port,
                 log_config=get_uvicorn_logging_config(
-                    use_colors=cfg.logging.use_colors
+                    use_colors=cfg.logging.use_colors,
+                    log_level=getattr(
+                        getattr(cfg.logging, "level", None), "value", "INFO"
+                    ),
                 ),
             )
             anthropic_server = uvicorn.Server(anthropic_config)

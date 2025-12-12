@@ -188,6 +188,11 @@ class ErrorHandler:
         )
         self._output.write("=" * 60 + "\n")
 
+    def handle_exception(self, exc: BaseException) -> None:
+        """Handle an unexpected exception with consistent formatting."""
+        message = str(exc) or exc.__class__.__name__
+        self.handle_build_error(message)
+
     def format_oauth_expired_message(self, error_msg: str) -> str:
         """Format message for OAuth token expiration.
 

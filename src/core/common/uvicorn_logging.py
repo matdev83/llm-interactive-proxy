@@ -32,7 +32,9 @@ class UvicornEnvironmentTaggingFormatter(logging.Formatter):
         return super().format(record)
 
 
-def get_uvicorn_logging_config(use_colors: bool = False) -> dict[str, Any]:
+def get_uvicorn_logging_config(
+    use_colors: bool = False, *, log_level: str = "INFO"
+) -> dict[str, Any]:
     """
     Generate Uvicorn logging configuration.
 
@@ -56,6 +58,9 @@ def get_uvicorn_logging_config(use_colors: bool = False) -> dict[str, Any]:
         '%(client_addr)s - "%(request_line)s" %(status_code)s'
     )
 
+    level_text = str(log_level).upper()
+    valid_levels = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+    level = level_text if level_text in valid_levels else "INFO"
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -84,12 +89,12 @@ def get_uvicorn_logging_config(use_colors: bool = False) -> dict[str, Any]:
             },
         },
         "loggers": {
-            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-            "uvicorn.error": {"level": "INFO"},
-            "uvicorn.access": {"handlers": [], "level": "INFO", "propagate": False},
+            "uvicorn": {"handlers": ["default"], "level": level, "propagate": False},
+            "uvicorn.error": {"level": level},
+            "uvicorn.access": {"handlers": [], "level": level, "propagate": False},
         },
     }
 
 
 # Backward compatibility for existing imports
-UVICORN_LOGGING_CONFIG = get_uvicorn_logging_config(use_colors=False)
+UVICORN_LOGGING_CONFIG = get_uvicorn_logging_config(use_colors=False, log_level="INFO")

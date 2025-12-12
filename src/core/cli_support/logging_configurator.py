@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,6 +47,13 @@ class LoggingConfigurator:
         >>> configurator.configure(config)
     """
 
+    def __init__(
+        self,
+        *,
+        configure_fn: Callable[..., None] | None = None,
+    ) -> None:
+        self._configure_fn = configure_fn
+
     def configure(self, config: AppConfig) -> None:
         """Configure logging with level, file, and color settings.
 
@@ -60,9 +68,15 @@ class LoggingConfigurator:
 
         Validates: Requirement 4.1 - apply log level, file path, and color settings.
         """
-        configure_logging_with_environment_tagging(
+        log_file = config.logging.log_file
+        if log_file:
+            Path(log_file).expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+        configure_fn = self._configure_fn or configure_logging_with_environment_tagging
+
+        configure_fn(
             level=getattr(logging, config.logging.level.value),
-            log_file=config.logging.log_file,
+            log_file=log_file,
             use_colors=config.logging.use_colors,
         )
 

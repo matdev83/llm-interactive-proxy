@@ -70,11 +70,11 @@ class LoggingApplicator:
     ) -> None:
         """Apply log_file argument."""
         if getattr(args, "log_file", None) is not None:
-            log_path = Path(args.log_file).expanduser()
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            logging_overrides["log_file"] = str(log_path)
+            log_path = str(Path(str(args.log_file)).expanduser())
+            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+            logging_overrides["log_file"] = log_path
             resolution.record(
-                "logging.log_file", str(log_path), ParameterSource.CLI, origin="--log"
+                "logging.log_file", log_path, ParameterSource.CLI, origin="--log"
             )
 
     def _apply_log_level(
