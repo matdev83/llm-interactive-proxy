@@ -2,36 +2,36 @@
 
 This plan follows TDD (Test-Driven Development) methodology: Write tests first (RED), then implement to make tests pass (GREEN), then refactor if needed.
 
-- [ ] 1. Set up package structure and base interfaces
+- [x] 1. Set up package structure and base interfaces
   - _Requirements: 6.1, 8.1, 8.2, 10.1, 10.2, 10.3_
-  - [ ] 1.1 Create `src/core/cli_support/` package directory structure
+  - [x] 1.1 Create `src/core/cli_support/` package directory structure
     - Create `src/core/cli_support/__init__.py` (internal package; no public API changes)
     - Create `src/core/cli_support/applicators/__init__.py` for domain applicators
     - _Requirements: 10.1, 10.2, 10.3_
-  - [ ] 1.2 Define `DomainApplicator` protocol and base types
+  - [x] 1.2 Define `DomainApplicator` protocol and base types
     - Create `src/core/cli_support/protocols.py` with `DomainApplicator` protocol
     - Define common type aliases and constants
     - _Requirements: 6.1, 8.1, 8.2_
 
-- [ ] 2. ArgumentParserBuilder (TDD)
+- [x] 2. ArgumentParserBuilder (TDD)
   - _Requirements: 1.1, 1.4, 1.5, 7.1, 7.5, 9.1_
-  - [ ] 2.1 Write unit tests for ArgumentParserBuilder (RED)
+  - [x] 2.1 Write unit tests for ArgumentParserBuilder (RED)
     - Create `tests/unit/core/cli_support/test_argument_parser_builder.py`
     - Test that all expected arguments are present
     - Test argument groups are correctly organized
     - Tests should fail initially (no implementation yet)
     - _Requirements: 9.1, 1.1_
-  - [ ] 2.2 Create `ArgumentParserBuilder` class (GREEN)
+  - [x] 2.2 Create `ArgumentParserBuilder` class (GREEN)
     - Create `src/core/cli_support/argument_parser_builder.py`
     - Extract `build_cli_parser()` logic into builder methods organized by domain
     - Implement `_add_server_arguments`, `_add_backend_arguments`, `_add_logging_arguments`, etc.
     - Make tests pass
     - _Requirements: 1.1, 1.5_
-  - [ ] 2.3 Update `cli.py` to use `ArgumentParserBuilder`
+  - [x] 2.3 Update `cli.py` to use `ArgumentParserBuilder`
     - Replace `build_cli_parser()` with delegation to `ArgumentParserBuilder().build()`
     - Maintain backward compatibility of `build_cli_parser()` function signature
     - _Requirements: 7.1, 7.5_
-  - [ ] 2.4 Add non-argparse CLI validation service (TDD)
+  - [x] 2.4 Add non-argparse CLI validation service (TDD)
     - Create `tests/unit/core/cli_support/test_cli_args_validator.py`
     - Create `src/core/cli_support/cli_args_validator.py`
     - Move `_validate_llm_loop_assessment_config` and similar validation behind `CliArgsValidator.validate(args)`

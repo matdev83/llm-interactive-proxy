@@ -83,7 +83,32 @@ def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser with full feature parity to original CLI."""
+    """Build the CLI argument parser with full feature parity to original CLI.
+
+    This function delegates to ArgumentParserBuilder for constructing the parser.
+    The delegation maintains backward compatibility while organizing argument
+    construction by domain.
+
+    Returns:
+        Configured ArgumentParser instance with all CLI arguments.
+    """
+    from src.core.cli_support.argument_parser_builder import ArgumentParserBuilder
+
+    return ArgumentParserBuilder().build()
+
+
+# ============================================================================
+# Legacy build_cli_parser implementation preserved for reference
+# (Now handled by ArgumentParserBuilder)
+# ============================================================================
+
+
+def _build_cli_parser_legacy() -> argparse.ArgumentParser:
+    """Legacy implementation preserved for reference - DO NOT USE.
+
+    This function preserves the original implementation for reference.
+    All new code should use build_cli_parser() which delegates to ArgumentParserBuilder.
+    """
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
 
     # Dynamically get registered backends
@@ -1157,12 +1182,28 @@ def _validate_llm_loop_assessment_config(args: argparse.Namespace) -> None:
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments with full feature parity to original CLI."""
+    """Parse command line arguments with full feature parity to original CLI.
+
+    This function delegates argument parsing to ArgumentParserBuilder and
+    validation to CliArgsValidator.
+
+    Args:
+        argv: Command line arguments to parse, or None to use sys.argv
+
+    Returns:
+        Parsed argument namespace
+
+    Raises:
+        ValueError: If validation fails (e.g., invalid LLM assessment configuration)
+    """
+    from src.core.cli_support.cli_args_validator import CliArgsValidator
+
     parser = build_cli_parser()
     parsed_args = parser.parse_args(argv)
 
-    # Validate LLM loop assessment configuration
-    _validate_llm_loop_assessment_config(parsed_args)
+    # Validate using the new CliArgsValidator
+    validator = CliArgsValidator()
+    validator.validate(parsed_args)
 
     return parsed_args
 

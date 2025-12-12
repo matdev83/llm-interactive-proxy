@@ -2,18 +2,18 @@
 
 ## [2025-12-12]
 
-### Refactored
-
-- **Cross-API Translation Specs**: Updated refactoring specifications in `.kiro/specs/cross-api-translation-refactoring/` with refined design, requirements, and tasks.
-- **Translation Domain**: Extracted translation utilities into `src/core/domain/translation_utils/` and refactored `Translation` class to use them.
-- **Translation Infrastructure**: Implemented `TranslatorRegistry`, `TranslatorProtocol`, and dedicated `OpenAITranslator` / `AnthropicTranslator` classes to decouple translation logic from the core service.
-- **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
-- **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
-  - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
-  - **Streaming Executor**: Enhanced `StreamingExecutor` for more robust stream handling and error recovery
-  - **Thought Signature Management**: Improved `ThoughtSignatureManager` and `ThoughtSignatureService` for better persistence and retrieval of thought signatures
-
 ### Added
+
+- **OpenAI Responses API Translator**: Implemented comprehensive Responses API translation support
+  - **ResponsesTranslator**: New `ResponsesTranslator` class implementing `BaseFormatTranslator` and `StreamingTranslatorMixin`
+  - **Translation Modules**: Complete request, response, and streaming translation modules in `src/core/domain/translators/responses/`
+  - **Test Coverage**: Comprehensive tests in `test_responses_translator_phase9.py` with facade verification
+  - **Format Support**: Full support for OpenAI Responses API format including structured output and JSON schema handling
+
+- **OpenRouter Translator**: Implemented `OpenRouterTranslator` with comprehensive request/response/streaming translation
+- **Raw Text Translator**: Implemented `RawTextTranslator` for pass-through text support
+- **Code Assist Translator**: Implemented `CodeAssistTranslator` for specialized code assistance features
+- **CLI Refactoring Implementation**: Implemented `ArgumentParserBuilder` and `CliArgsValidator` to decouple CLI logic from the main entry point
 
 - **CLI Refactoring Specs**: Added initial specifications for CLI God Object refactoring in `.kiro/specs/cli-god-object-refactoring/`.
 - **Code Analysis Tools**: Added `scripts/analyze_codebase.py` for cyclomatic complexity and maintainability index analysis, and `GOD_OBJECTS_REPORT.md` baseline.
@@ -34,6 +34,16 @@
   - **Streaming Support**: Added streaming translation support in `gemini/streaming.py`
   - **Unit Tests**: Added `test_gemini_translator_phase8.py` to verify translator behavior against the facade
 
+### Refactored
+
+- **Cross-API Translation Specs**: Updated refactoring specifications in `.kiro/specs/cross-api-translation-refactoring/` with refined design, requirements, and tasks.
+- **Translation Domain**: Extracted translation utilities into `src/core/domain/translation_utils/` and refactored `Translation` class to use them.
+- **Translation Infrastructure**: Implemented `TranslatorRegistry`, `TranslatorProtocol`, and dedicated `OpenAITranslator` / `AnthropicTranslator` classes to decouple translation logic from the core service.
+- **Backend Service Specs**: Updated refactoring specifications in `.kiro/specs/backend-service-refactoring/` with detailed design, requirements, and tasks.
+- **Gemini Connector Architecture**: Major refactoring of the Gemini connector to improve maintainability and extensibility
+  - **Modular Components**: Split monolithic logic into focused modules: `orchestrator.py` for request orchestration, `policies.py` for retry/error policies, and `backend_compatibility.py` for API compatibility handling
+  - **Streaming Executor**: Enhanced `StreamingExecutor` for more robust stream handling and error recovery
+  - **Thought Signature Management**: Improved `ThoughtSignatureManager` and `ThoughtSignatureService` for better persistence and retrieval of thought signatures
 
 ### Changed
 

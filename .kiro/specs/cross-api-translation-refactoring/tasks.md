@@ -240,19 +240,19 @@ This refactoring follows incremental development practices to prevent codebase d
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-- [ ] 9. Implement Responses API translator (TDD)
-  - [ ] 9.1 Write property/unit tests for Responses translator backward compatibility
+- [x] 9. Implement Responses API translator (TDD)
+  - [x] 9.1 Write property/unit tests for Responses translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
     - Include coverage for `openai-responses` alias routing
     - **Validates: Requirements 5.1, 5.2**
     - _Requirements: 5.1, 5.2, 7.1, 7.2, 7.3_
 
-  - [ ] 9.2 Write property/unit tests for Responses translator correctness
+  - [x] 9.2 Write property/unit tests for Responses translator correctness
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.4**
     - _Requirements: 1.4, 7.1, 7.2, 7.3_
 
-  - [ ] 9.3 Create ResponsesTranslator class
+  - [x] 9.3 Create ResponsesTranslator class
     - Create `src/core/domain/translators/responses_translator.py`
     - Extract `responses_to_domain_request` logic from Translation class
     - Extract `responses_to_domain_response` logic from Translation class
@@ -262,26 +262,26 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.4, 6.1, 6.2, 6.3_
 
-  - [ ] 9.4 Run targeted tests after Responses translator
+  - [x] 9.4 Run targeted tests after Responses translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "responses or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 9.5 Phase gate: run full test suite after Responses translator
+  - [x] 9.5 Phase gate: run full test suite after Responses translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-- [ ] 10. Implement Code Assist translator (TDD)
-  - [ ] 10.1 Write property/unit tests for Code Assist translator backward compatibility
+- [x] 10. Implement Code Assist translator (TDD)
+  - [x] 10.1 Write property/unit tests for Code Assist translator backward compatibility
     - **Property 3: Backward Compatibility Equivalence**
     - **Validates: Requirements 5.1**
     - _Requirements: 5.1, 7.1, 7.2, 7.3_
 
-  - [ ] 10.2 Write property/unit tests for Code Assist translator correctness
+  - [x] 10.2 Write property/unit tests for Code Assist translator correctness
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.5**
     - _Requirements: 1.5, 7.1, 7.2, 7.3_
 
-  - [ ] 10.3 Create CodeAssistTranslator class
+  - [x] 10.3 Create CodeAssistTranslator class
     - Create `src/core/domain/translators/code_assist_translator.py`
     - Extract `code_assist_to_domain_request` logic from Translation class
     - Extract `code_assist_to_domain_response` logic from Translation class
@@ -289,57 +289,57 @@ This refactoring follows incremental development practices to prevent codebase d
     - Implement StreamingTranslatorMixin methods
     - _Requirements: 1.5, 6.1, 6.2, 6.3_
 
-  - [ ] 10.4 Run targeted tests after Code Assist translator
+  - [x] 10.4 Run targeted tests after Code Assist translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "code_assist or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 10.5 Phase gate: run full test suite after Code Assist translator
+  - [x] 10.5 Phase gate: run full test suite after Code Assist translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-- [ ] 11. Checkpoint - Ensure all tests pass
+- [x] 11. Checkpoint - Ensure all tests pass
   - Run `./.venv/Scripts/python.exe -m pytest`
   - Do not proceed unless green
   - _Requirements: 7.5_
 
-- [ ] 12. Implement additional translators (TDD)
-  - [ ] 12.1 Write property/unit tests for OpenRouter translator
+- [x] 12. Implement additional translators (TDD)
+  - [x] 12.1 Write property/unit tests for OpenRouter translator
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.6**
     - _Requirements: 1.6, 5.1, 7.1_
 
-  - [ ] 12.2 Create OpenRouterTranslator class
+  - [x] 12.2 Create OpenRouterTranslator class
     - Create `src/core/domain/translators/openrouter_translator.py`
     - Extract `openrouter_to_domain_request` logic from Translation class
     - _Requirements: 1.6, 5.1_
 
-  - [ ] 12.3 Run targeted tests after OpenRouter translator
+  - [x] 12.3 Run targeted tests after OpenRouter translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "openrouter or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 12.4 Phase gate: run full test suite after OpenRouter translator
+  - [x] 12.4 Phase gate: run full test suite after OpenRouter translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 12.5 Write property/unit tests for Raw Text translator
+  - [x] 12.5 Write property/unit tests for Raw Text translator
     - **Property 1: Translator Module Existence and Correctness**
     - **Validates: Requirements 1.7**
     - _Requirements: 1.7, 5.1, 7.1, 7.2, 7.3_
 
-  - [ ] 12.6 Create RawTextTranslator class
+  - [x] 12.6 Create RawTextTranslator class
     - Create `src/core/domain/translators/raw_text_translator.py`
     - Extract `raw_text_to_domain_request`, `raw_text_to_domain_response`, `raw_text_to_domain_stream_chunk` logic
     - _Requirements: 1.7, 5.1, 6.1, 6.2, 6.3_
 
-  - [ ] 12.7 Run targeted tests after Raw Text translator
+  - [x] 12.7 Run targeted tests after Raw Text translator
     - Run `./.venv/Scripts/python.exe -m pytest -k "raw_text or translation"`
     - _Requirements: 7.5_
 
-  - [ ] 12.8 Phase gate: run full test suite after Raw Text translator
+  - [x] 12.8 Phase gate: run full test suite after Raw Text translator
     - Run `./.venv/Scripts/python.exe -m pytest`
     - _Requirements: 7.5_
 
-  - [ ] 12.9 Final gate: run full test suite after all translators implemented
+  - [x] 12.9 Final gate: run full test suite after all translators implemented
     - Run `./.venv/Scripts/python.exe -m pytest` to verify all tests pass
     - All translators must work correctly before proceeding to facade refactoring
     - _Requirements: 7.5_

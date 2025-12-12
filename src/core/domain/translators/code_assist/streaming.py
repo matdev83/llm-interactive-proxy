@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from typing import Any
+
+from src.core.domain.chat import CanonicalStreamChunk
+from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
+
+
+def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+    """
+    Translate a Code Assist API streaming chunk to a canonical dictionary format.
+
+    Code Assist API uses Server-Sent Events (SSE) format with "data: " prefix.
+    The Antigravity sandbox returns chunks in OpenAI format directly, so we
+    detect and pass through OpenAI-format chunks while still handling native
+    Code Assist format for compatibility.
+    """
+    import time
+    import uuid
+
+    if chunk is None:
+        return {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "code-assist-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    if not isinstance(chunk, dict):
+        return {"error": "Invalid chunk format: expected a dictionary"}
+
+    if "choices" in chunk and "id" in chunk:
+        result = openai_to_domain_stream_chunk(chunk)
+        if isinstance(result, CanonicalStreamChunk):
+            return result.model_dump(exclude_none=True)
+        return result
+
+    response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
+    created = int(time.time())
+    model = "code-assist-model"
+
+    content = ""
+    finish_reason = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+    response_wrapper = chunk.get("response", {})
+    candidates = response_wrapper.get("candidates", [])
+
+    if candidates and len(candidates) > 0:
+        candidate = candidates[0]
+        content_obj = candidate.get("content") or {}
+        parts = content_obj.get("parts", [])
+
+        if parts and len(parts) > 0:
+            text_parts: list[str] = []
+            for part in parts:
+                if isinstance(part, dict) and "text" in part:
+                    text_parts.append(part.get("text", ""))
+                elif isinstance(part, dict) and "functionCall" in part:
+                    try:
+                        if tool_calls is None:
+                            tool_calls = []
+                        tool_calls.append(
+                            _process_gemini_function_call(
+                                part["functionCall"], part=part
+                            ).model_dump()
+                        )
+                    except Exception:
+                        continue
+            content = "".join(text_parts)
+
+        if "finishReason" in candidate:
+            finish_reason = candidate["finishReason"]
+
+    delta: dict[str, Any] = {"role": "assistant"}
+    if tool_calls:
+        delta["tool_calls"] = tool_calls
+        delta.pop("content", None)
+        finish_reason = "tool_calls"
+    elif content:
+        delta["content"] = content
+
+    return {
+        "id": response_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }
+        ],
+    }

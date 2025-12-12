@@ -12,3 +12,11 @@ Requirements satisfied:
 - 10.2: `import src.core.cli` continues to import the `src/core/cli.py` module
 - 10.3: Module structure clearly indicates each service's purpose
 """
+
+from src.core.cli_support.argument_parser_builder import ArgumentParserBuilder
+from src.core.cli_support.cli_args_validator import CliArgsValidator
+
+__all__ = [
+    "ArgumentParserBuilder",
+    "CliArgsValidator",
+]

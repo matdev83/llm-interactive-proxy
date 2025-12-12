@@ -1,0 +1,1100 @@
+"""ArgumentParserBuilder for CLI argument parser construction.
+
+This module provides the ArgumentParserBuilder class which constructs the complete
+argparse.ArgumentParser for the LLM proxy CLI. The builder pattern organizes
+arguments by domain, making it easier to maintain and extend.
+
+Requirements satisfied:
+- 1.1: ArgumentParser is constructed by a dedicated ArgumentParserBuilder class
+- 1.5: Adding new CLI arguments only requires modifying ArgumentParserBuilder
+- 7.1: Backward compatible with existing CLI API
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+
+from src.core.services.backend_registry import backend_registry
+
+
+class ArgumentParserBuilder:
+    """Builder for constructing the CLI argument parser.
+
+    This class extracts the argument parser construction logic from cli.py
+    and organizes it by domain for better maintainability.
+
+    Usage:
+        builder = ArgumentParserBuilder()
+        parser = builder.build()
+        args = parser.parse_args()
+    """
+
+    def __init__(self) -> None:
+        """Initialize the builder."""
+        self._parser: argparse.ArgumentParser | None = None
+
+    def build(self) -> argparse.ArgumentParser:
+        """Build and return the complete argument parser.
+
+        Returns:
+            Configured ArgumentParser instance with all CLI arguments.
+        """
+        parser = argparse.ArgumentParser(description="Run the LLM proxy server")
+
+        # Add arguments organized by domain
+        self._add_backend_arguments(parser)
+        self._add_api_key_arguments(parser)
+        self._add_server_arguments(parser)
+        self._add_logging_arguments(parser)
+        self._add_feature_flag_arguments(parser)
+        self._add_compaction_arguments(parser)
+        self._add_planning_phase_arguments(parser)
+        self._add_edit_precision_arguments(parser)
+        self._add_activity_tracking_arguments(parser)
+        self._add_debugging_override_arguments(parser)
+        self._add_auth_arguments(parser)
+        self._add_pytest_arguments(parser)
+        self._add_session_testing_arguments(parser)
+        self._add_tool_access_arguments(parser)
+        self._add_routing_arguments(parser)
+        self._add_llm_assessment_arguments(parser)
+        self._add_identity_arguments(parser)
+        self._add_memory_arguments(parser)
+        self._add_failure_handling_arguments(parser)
+
+        return parser
+
+    def _add_backend_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add backend selection and configuration arguments."""
+        # Dynamically get registered backends
+        registered_backends: list[str] = backend_registry.get_registered_backends()
+
+        # Backend selection
+        parser.add_argument(
+            "--default-backend",
+            dest="default_backend",
+            choices=registered_backends,  # Dynamically populated
+            default=os.getenv("LLM_BACKEND"),
+            help="Default backend when multiple backends are functional",
+        )
+        parser.add_argument(
+            "--backend",
+            dest="default_backend",
+            choices=registered_backends,  # Dynamically populated
+            help=argparse.SUPPRESS,
+        )
+        parser.add_argument(
+            "--static-route",
+            dest="static_route",
+            metavar="BACKEND:MODEL",
+            help="Force all requests to use this backend:model combination (e.g., gemini-oauth-plan:gemini-2.5-pro)",
+        )
+        parser.add_argument(
+            "--disable-gemini-oauth-fallback",
+            dest="disable_gemini_oauth_fallback",
+            action="store_true",
+            help="Disable automatic Gemini OAuth fallback to gemini-2.5-flash",
+        )
+        parser.add_argument(
+            "--disable-hybrid-backend",
+            dest="disable_hybrid_backend",
+            action="store_true",
+            help="Disable the hybrid backend (enabled by default)",
+        )
+        parser.add_argument(
+            "--hybrid-backend-repeat-messages",
+            dest="hybrid_backend_repeat_messages",
+            action="store_true",
+            help="If set, repeat reasoning output as an artificial message in the session",
+        )
+        parser.add_argument(
+            "--reasoning-injection-probability",
+            "--reasoning_injection_probability",  # Accept both formats
+            dest="reasoning_injection_probability",
+            type=float,
+            help="Probability of using the reasoning model in the hybrid backend (0.0 to 1.0)",
+        )
+        parser.add_argument(
+            "--hybrid-reasoning-model-timeout",
+            dest="hybrid_reasoning_model_timeout",
+            type=int,
+            default=60,
+            metavar="SECONDS",
+            help="Timeout in seconds for the reasoning model call in hybrid scenarios (default: 60)",
+        )
+        parser.add_argument(
+            "--hybrid-reasoning-force-initial-turns",
+            dest="hybrid_reasoning_force_initial_turns",
+            type=int,
+            default=4,
+            metavar="N",
+            help="Number of turns at the beginning of a new session when reasoning model probability is overridden to 1 (default: 1)",
+        )
+
+        parser.add_argument(
+            "--model-alias",
+            dest="model_aliases",
+            action="append",
+            metavar="PATTERN=REPLACEMENT",
+            type=self._validate_model_alias,
+            help="Add a model name rewrite rule. Pattern is a regex, replacement can use capture groups (\\1, \\2, etc.). Can be specified multiple times. Example: --model-alias '^gpt-(.*)=openrouter:openai/gpt-\\1'",
+        )
+
+        # Angel verification model (experimental)
+        parser.add_argument(
+            "--use-angel-model",
+            dest="use_angel_model",
+            metavar="BACKEND:MODEL[?params]",
+            help=(
+                "Enable Angel verification with model spec (e.g., "
+                "anthropic:claude-3-5-sonnet?temperature=1&reasoning_effort=high)"
+            ),
+        )
+        parser.add_argument(
+            "--angel-frequency",
+            dest="angel_frequency",
+            type=int,
+            metavar="N",
+            help="Run Angel verification every N user turns (default: 1)",
+        )
+
+    def _validate_model_alias(self, value: str) -> tuple[str, str]:
+        """Validate model alias format: pattern=replacement."""
+        if "=" not in value:
+            raise argparse.ArgumentTypeError(
+                f"Invalid model alias format '{value}'. Expected 'pattern=replacement'"
+            )
+        pattern, replacement = value.split("=", 1)
+        if not pattern or not replacement:
+            raise argparse.ArgumentTypeError(
+                f"Invalid model alias format '{value}'. Both pattern and replacement must be non-empty"
+            )
+        # Test regex validity
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise argparse.ArgumentTypeError(
+                f"Invalid regex pattern '{pattern}' in model alias: {e}"
+            )
+        return pattern, replacement
+
+    def _add_api_key_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add API keys and URLs arguments."""
+        parser.add_argument("--openrouter-api-key")
+        parser.add_argument("--openrouter-api-base-url")
+        parser.add_argument("--gemini-api-key")
+        parser.add_argument("--gemini-api-base-url")
+        parser.add_argument("--zai-api-key")
+        parser.add_argument("--zenmux-api-base-url")
+
+    def _add_server_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add basic server options arguments."""
+        parser.add_argument("--host")
+        parser.add_argument("--port", type=int)
+        parser.add_argument(
+            "--anthropic-port",
+            type=int,
+            help="Port for Anthropic-compatible endpoints (disabled by default)",
+        )
+        parser.add_argument("--timeout", type=int)
+        parser.add_argument("--command-prefix")
+        parser.add_argument(
+            "--force-context-window",
+            dest="force_context_window",
+            type=int,
+            metavar="TOKENS",
+            help="Override context window size for all models (in tokens, overrides config file settings)",
+        )
+        parser.add_argument(
+            "--thinking-budget",
+            dest="thinking_budget",
+            type=int,
+            metavar="TOKENS",
+            help="Set max reasoning tokens for all requests (-1=dynamic/unlimited, 0=none, >0=limit in tokens)",
+        )
+
+    def _add_logging_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add logging options arguments."""
+        parser.add_argument(
+            "--log",
+            dest="log_file",
+            metavar="FILE",
+            help="Write logs to FILE (default: ./var/logs/proxy.log)",
+        )
+        parser.add_argument(
+            "--capture-file",
+            dest="capture_file",
+            metavar="FILE",
+            help="Write raw LLM requests and replies to FILE (disabled if omitted)",
+        )
+        parser.add_argument(
+            "--capture-max-bytes",
+            dest="capture_max_bytes",
+            type=int,
+            metavar="N",
+            help="Maximum size of capture file in bytes before rotation (env: CAPTURE_MAX_BYTES)",
+        )
+        parser.add_argument(
+            "--capture-truncate-bytes",
+            dest="capture_truncate_bytes",
+            type=int,
+            metavar="N",
+            help="Truncate captures to N bytes per entry (env: CAPTURE_TRUNCATE_BYTES)",
+        )
+        parser.add_argument(
+            "--capture-max-files",
+            dest="capture_max_files",
+            type=int,
+            metavar="N",
+            help="Maximum number of capture files to retain (env: CAPTURE_MAX_FILES)",
+        )
+        parser.add_argument(
+            "--capture-rotate-interval",
+            dest="capture_rotate_interval_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Time-based rotation period in seconds (env: CAPTURE_ROTATE_INTERVAL_SECONDS)",
+        )
+        parser.add_argument(
+            "--capture-total-max-bytes",
+            dest="capture_total_max_bytes",
+            type=int,
+            metavar="N",
+            help="Total disk cap across capture files in bytes (env: CAPTURE_TOTAL_MAX_BYTES)",
+        )
+        parser.add_argument(
+            "--cbor-capture-dir",
+            dest="cbor_capture_dir",
+            metavar="DIR",
+            help="Directory for CBOR byte-precise capture files (enables CBOR capture)",
+        )
+        parser.add_argument(
+            "--cbor-capture-session",
+            dest="cbor_capture_session_id",
+            metavar="ID",
+            help="Fixed session ID for CBOR capture (auto-generated if omitted)",
+        )
+        parser.add_argument(
+            "--config",
+            dest="config_file",
+            metavar="FILE",
+            help="Path to persistent configuration file",
+        )
+        parser.add_argument(
+            "--log-level",
+            dest="log_level",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            default=None,
+            help="Set the logging level (default: use config or INFO)",
+        )
+        parser.add_argument(
+            "--log-colors",
+            dest="log_use_colors",
+            action="store_true",
+            default=None,
+            help="Enable colored logging output (overrides config)",
+        )
+        parser.add_argument(
+            "--no-log-colors",
+            dest="log_use_colors",
+            action="store_false",
+            default=None,
+            help="Disable colored logging output (overrides config)",
+        )
+
+    def _add_feature_flag_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add feature flags arguments."""
+        parser.add_argument(
+            "--disable-interactive-mode",
+            action="store_true",
+            default=None,
+            help="Disable interactive mode by default for new sessions",
+        )
+        parser.add_argument(
+            "--disable-redact-api-keys-in-prompts",
+            action="store_true",
+            default=None,
+            help="Disable API key redaction in prompts",
+        )
+        parser.add_argument(
+            "--disable-sso-captcha",
+            action="store_true",
+            default=None,
+            help="Disable SSO Captcha verification (overrides config)",
+        )
+        parser.add_argument(
+            "--enable-sso",
+            action="store_true",
+            default=None,
+            help="Enable SSO authentication mode (overrides config)",
+        )
+        parser.add_argument(
+            "--sso-config",
+            dest="sso_config_path",
+            metavar="PATH",
+            default=None,
+            help="Path to SSO configuration file (e.g., config/sso_auth.yaml)",
+        )
+        parser.add_argument(
+            "--sso-provider",
+            dest="sso_provider",
+            metavar="PROVIDER",
+            default=None,
+            help="Enable only a specific SSO provider (e.g., google, github, microsoft)",
+        )
+        parser.add_argument(
+            "--sso-auth-mode",
+            dest="sso_auth_mode",
+            metavar="MODE",
+            choices=["single_user", "enterprise"],
+            default=None,
+            help="SSO authorization mode: single_user (confirmation code) or enterprise (external API)",
+        )
+        parser.add_argument(
+            "--disable-auth",
+            action="store_true",
+            default=None,
+            help="Disable client API key authentication (forces binding to 127.0.0.1 for security)",
+        )
+        parser.add_argument(
+            "--force-set-project",
+            action="store_true",
+            default=None,
+            help="Require project name to be set before sending prompts",
+        )
+        parser.add_argument(
+            "--project-dir-resolution-model",
+            dest="project_dir_resolution_model",
+            metavar="BACKEND:MODEL",
+            help=(
+                "Automatically detect an absolute project directory on the first user prompt "
+                "using BACKEND:MODEL"
+            ),
+        )
+        parser.add_argument(
+            "--project-dir-resolution-mode",
+            dest="project_dir_resolution_mode",
+            choices=["deterministic", "llm", "hybrid"],
+            default=None,
+            help="Strategy for resolving project directory: 'deterministic', 'llm', or 'hybrid' (default).",
+        )
+        parser.add_argument(
+            "--disable-interactive-commands",
+            action="store_true",
+            default=None,
+            help="Disable all in-chat command processing",
+        )
+        parser.add_argument(
+            "--disable-accounting",
+            action="store_true",
+            default=None,
+            help="Disable LLM accounting (usage tracking and audit logging)",
+        )
+        parser.add_argument(
+            "--strict-command-detection",
+            action="store_true",
+            default=None,
+            help="Enable strict command detection (requires commands to be at the start of messages)",
+        )
+        parser.add_argument(
+            "--enable-sandboxing",
+            action="store_true",
+            default=None,
+            help="Enable file access sandboxing to restrict file operations to the project directory (env: ENABLE_SANDBOXING)",
+        )
+
+    def _add_compaction_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add history compaction arguments."""
+        compaction_group = parser.add_argument_group(
+            "History Compaction", "Options for tool output compaction"
+        )
+        compaction_group.add_argument(
+            "--enable-context-compaction",
+            dest="enable_context_compaction",
+            action="store_true",
+            default=None,
+            help="Enable history compaction for stale tool outputs (overrides config)",
+        )
+        compaction_group.add_argument(
+            "--compaction-min-tokens",
+            dest="compaction_min_tokens",
+            type=int,
+            metavar="TOKENS",
+            help="Minimum token estimate to trigger compaction (default: 100,000)",
+        )
+
+    def _add_planning_phase_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add planning phase arguments."""
+        parser.add_argument(
+            "--enable-planning-phase",
+            action="store_true",
+            default=None,
+            help="Enable planning phase model routing for initial requests",
+        )
+        parser.add_argument(
+            "--planning-phase-strong-model",
+            type=str,
+            default=None,
+            metavar="BACKEND:MODEL",
+            help="Strong model to use during planning phase (e.g., openai:gpt-4)",
+        )
+        parser.add_argument(
+            "--planning-phase-max-turns",
+            type=int,
+            default=None,
+            metavar="N",
+            help="Maximum number of turns before switching from strong model (default: 10)",
+        )
+        parser.add_argument(
+            "--planning-phase-max-file-writes",
+            type=int,
+            default=None,
+            metavar="N",
+            help="Maximum number of file writes before switching from strong model (default: 1)",
+        )
+        parser.add_argument(
+            "--planning-phase-temperature",
+            type=float,
+            default=None,
+            metavar="FLOAT",
+            help="Temperature override for planning strong model",
+        )
+        parser.add_argument(
+            "--planning-phase-top-p",
+            type=float,
+            default=None,
+            metavar="FLOAT",
+            help="Top-p override for planning strong model",
+        )
+        parser.add_argument(
+            "--planning-phase-reasoning-effort",
+            type=str,
+            default=None,
+            metavar="EFFORT",
+            help="Reasoning effort override for planning strong model",
+        )
+        parser.add_argument(
+            "--planning-phase-thinking-budget",
+            type=int,
+            default=None,
+            metavar="TOKENS",
+            help="Reasoning tokens (thinking budget) override for planning strong model",
+        )
+
+    def _add_edit_precision_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add edit-precision tuning arguments."""
+        edit_precision_toggle_group = parser.add_mutually_exclusive_group()
+        edit_precision_toggle_group.add_argument(
+            "--enable-edit-precision",
+            dest="edit_precision_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable automated edit-precision tuning on failed file edits",
+        )
+        edit_precision_toggle_group.add_argument(
+            "--disable-edit-precision",
+            dest="edit_precision_enabled",
+            action="store_const",
+            const=False,
+            help="Disable automated edit-precision tuning",
+        )
+        parser.add_argument(
+            "--edit-precision-temperature",
+            dest="edit_precision_temperature",
+            type=float,
+            default=None,
+            metavar="TEMP",
+            help="Target temperature for edit-precision tuning (default: 0.1)",
+        )
+        parser.add_argument(
+            "--edit-precision-min-top-p",
+            dest="edit_precision_min_top_p",
+            type=float,
+            default=None,
+            metavar="FLOAT",
+            help="Minimum top_p value for edit-precision tuning (default: 0.3)",
+        )
+        parser.add_argument(
+            "--edit-precision-override-top-p",
+            dest="edit_precision_override_top_p",
+            action="store_true",
+            default=None,
+            help="Enable top_p override for edit-precision tuning",
+        )
+        parser.add_argument(
+            "--edit-precision-target-top-k",
+            dest="edit_precision_target_top_k",
+            type=int,
+            default=None,
+            metavar="N",
+            help="Target top_k value for edit-precision tuning (requires override flag)",
+        )
+        parser.add_argument(
+            "--edit-precision-override-top-k",
+            dest="edit_precision_override_top_k",
+            action="store_true",
+            default=None,
+            help="Enable top_k override for edit-precision tuning",
+        )
+        parser.add_argument(
+            "--edit-precision-exclude-agents",
+            dest="edit_precision_exclude_agents_regex",
+            type=str,
+            default=None,
+            metavar="REGEX",
+            help="Exclude agents matching this regex from edit-precision tuning",
+        )
+
+    def _add_activity_tracking_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add activity tracking and deduplication arguments."""
+        parser.add_argument(
+            "--enable-activity-tracking",
+            dest="enable_activity_tracking",
+            action="store_true",
+            default=None,
+            help="Enable real-time connection activity tracking (RX/TX counters per session)",
+        )
+
+        # Request deduplication options
+        parser.add_argument(
+            "--request-dedup-window",
+            dest="request_dedup_window",
+            type=float,
+            default=None,
+            metavar="SECONDS",
+            help="Request deduplication window in seconds (0 to disable, default: 3.0, env: LLM_REQUEST_DEDUP_WINDOW)",
+        )
+        parser.add_argument(
+            "--disable-request-dedup",
+            dest="disable_request_dedup",
+            action="store_true",
+            default=None,
+            help="Disable request deduplication entirely",
+        )
+
+    def _add_debugging_override_arguments(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Add backend debugging override arguments."""
+        debugging_overrides_group = parser.add_argument_group(
+            "Backend Debugging Overrides",
+            "Options for enabling restricted backend connectors for debugging purposes",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-cline-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Cline backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-antigravity-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Gemini Antigravity backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-gemini-oauth-free-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Gemini OAuth Free backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-gemini-oauth-plan-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Gemini OAuth Plan backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-qwen-oauth-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Qwen OAuth backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-openai-codex-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the OpenAI Codex backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-anthropic-oauth-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Anthropic OAuth backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
+            "--enable-droid-path-fix",
+            action="store_true",
+            dest="droid_path_fix_enabled",
+            default=False,
+            help="Enable automatic path fixing for Droid agent sessions. Converts relative paths to absolute paths.",
+        )
+
+    def _add_auth_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add authentication and security arguments."""
+        brute_force_toggle_group = parser.add_mutually_exclusive_group()
+        brute_force_toggle_group.add_argument(
+            "--enable-brute-force-protection",
+            dest="brute_force_protection_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Explicitly enable API key brute-force protection",
+        )
+        brute_force_toggle_group.add_argument(
+            "--disable-brute-force-protection",
+            dest="brute_force_protection_enabled",
+            action="store_const",
+            const=False,
+            help="Disable API key brute-force protection",
+        )
+        parser.add_argument(
+            "--auth-max-failed-attempts",
+            dest="auth_max_failed_attempts",
+            type=int,
+            help="Number of invalid API key attempts allowed per IP before temporary blocking",
+        )
+        parser.add_argument(
+            "--auth-brute-force-ttl",
+            dest="auth_brute_force_ttl",
+            type=int,
+            metavar="SECONDS",
+            help="Time window for tracking failed API key attempts before reset",
+        )
+        parser.add_argument(
+            "--auth-brute-force-initial-block",
+            dest="auth_initial_block_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Initial block duration applied once the failed attempt threshold is exceeded",
+        )
+        parser.add_argument(
+            "--auth-brute-force-multiplier",
+            dest="auth_block_multiplier",
+            type=float,
+            help="Multiplier applied to each subsequent block duration after repeated failures",
+        )
+        parser.add_argument(
+            "--auth-brute-force-max-block",
+            dest="auth_max_block_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Maximum block duration enforced for repeated invalid API key attempts",
+        )
+
+        # Security and process options
+        parser.add_argument(
+            "--allow-admin",
+            action="store_true",
+            default=False,
+            help="Allow running server with administrative privileges (Windows UAC/admin or root)",
+        )
+        parser.add_argument(
+            "--daemon",
+            action="store_true",
+            default=False,
+            help="Run the server as a daemon (in the background). Requires --log to be set.",
+        )
+        parser.add_argument(
+            "--trusted-ip",
+            action="append",
+            dest="trusted_ips",
+            metavar="IP",
+            help="IP address to trust for bypassing authorization. Can be specified multiple times.",
+        )
+
+    def _add_pytest_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add pytest-related arguments."""
+        pytest_compression_group = parser.add_mutually_exclusive_group()
+        pytest_compression_group.add_argument(
+            "--enable-pytest-compression",
+            action="store_const",
+            const=True,
+            dest="pytest_compression_enabled",
+            default=None,
+            help="Enable pytest output compression (overrides config)",
+        )
+        pytest_compression_group.add_argument(
+            "--disable-pytest-compression",
+            action="store_const",
+            const=False,
+            dest="pytest_compression_enabled",
+            help="Disable pytest output compression (overrides config)",
+        )
+
+        # Pytest full-suite steering
+        pytest_full_suite_group = parser.add_mutually_exclusive_group()
+        pytest_full_suite_group.add_argument(
+            "--enable-pytest-full-suite-steering",
+            action="store_const",
+            const=True,
+            dest="pytest_full_suite_steering_enabled",
+            default=None,
+            help="Enable steering for full pytest suite commands (overrides config)",
+        )
+        pytest_full_suite_group.add_argument(
+            "--disable-pytest-full-suite-steering",
+            action="store_const",
+            const=False,
+            dest="pytest_full_suite_steering_enabled",
+            help="Disable steering for full pytest suite commands (overrides config)",
+        )
+
+        # Pytest context saving
+        parser.add_argument(
+            "--enable-pytest-context-saving",
+            action="store_true",
+            dest="pytest_context_saving_enabled",
+            default=None,
+            help="Enable pytest context saving - adds -r fE and -q flags to pytest commands (overrides config)",
+        )
+
+    def _add_session_testing_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add session and testing arguments."""
+        # Think tags fix
+        parser.add_argument(
+            "--fix-think-tags",
+            action="store_true",
+            dest="fix_think_tags_enabled",
+            default=None,
+            help="Enable correction of improperly formatted <think> tags in model responses",
+        )
+
+        # Test execution reminder
+        test_exec_reminder_group = parser.add_mutually_exclusive_group()
+        test_exec_reminder_group.add_argument(
+            "--test-execution-reminder-enabled",
+            action="store_const",
+            const=True,
+            dest="test_execution_reminder_enabled",
+            default=None,
+            help="Enable test execution reminder steering (overrides config)",
+        )
+        test_exec_reminder_group.add_argument(
+            "--no-test-execution-reminder-enabled",
+            action="store_const",
+            const=False,
+            dest="test_execution_reminder_enabled",
+            help="Disable test execution reminder steering (overrides config)",
+        )
+
+        # Dangerous command protection
+        parser.add_argument(
+            "--disable-dangerous-git-commands-protection",
+            action="store_true",
+            dest="disable_dangerous_git_commands_protection",
+            default=None,
+            help="Disable protection against dangerous git commands (overwrites config file and environment variable)",
+        )
+
+        # Windows double-ampersand fixes
+        parser.add_argument(
+            "--disable-double-ampersand-fixes-for-windows",
+            action="store_true",
+            dest="disable_double_ampersand_fixes_for_windows",
+            default=None,
+            help="Disable automatic && to ; replacement in commands for Windows clients",
+        )
+
+    def _add_tool_access_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add tool access control arguments."""
+        tool_access_group = parser.add_argument_group(
+            "Tool Access Control",
+            "Options for controlling which tools LLMs can access and execute",
+        )
+        tool_access_group.add_argument(
+            "--allowed-tools",
+            dest="tool_access_allowed_tools",
+            type=str,
+            metavar="PATTERNS",
+            help="Comma-separated regex patterns for globally allowed tools (overrides config)",
+        )
+        tool_access_group.add_argument(
+            "--blocked-tools",
+            dest="tool_access_blocked_tools",
+            type=str,
+            metavar="PATTERNS",
+            help="Comma-separated regex patterns for globally blocked tools (overrides config)",
+        )
+        tool_access_group.add_argument(
+            "--default-policy",
+            dest="tool_access_default_policy",
+            choices=["allow", "deny"],
+            help="Global default policy when no patterns match: 'allow' or 'deny' (overrides config)",
+        )
+
+    def _add_routing_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add routing control arguments."""
+        routing_group = parser.add_argument_group(
+            "Routing Control", "Options for restricting routing methods"
+        )
+        routing_group.add_argument(
+            "--disable-routing-with-backend-ids",
+            action="store_true",
+            dest="disable_routing_with_backend_ids",
+            default=None,
+            help="Disable routing using explicit backend identifiers (e.g., openai.1:model)",
+        )
+        routing_group.add_argument(
+            "--disable-routing-with-backend-names",
+            action="store_true",
+            dest="disable_routing_with_backend_names",
+            default=None,
+            help="Disable routing using backend names (e.g., openai:model). Implies --disable-routing-with-backend-ids",
+        )
+        routing_group.add_argument(
+            "--disable-routing-with-only-model-names",
+            action="store_true",
+            dest="disable_routing_with_only_model_names",
+            default=None,
+            help="Disable automatic resolution of backend instances from model name only (e.g., gpt-4)",
+        )
+
+    def _add_llm_assessment_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add LLM assessment arguments."""
+        assessment_group = parser.add_argument_group(
+            "LLM Assessment", "Options for LLM-based conversation assessment"
+        )
+        # Primary enable flag (opt-in design - feature is disabled by default)
+        assessment_group.add_argument(
+            "--enable-llm-assessment",
+            action="store_true",
+            dest="llm_assessment_enabled",
+            help="Enable LLM-based conversation assessment for detecting unproductive patterns",
+        )
+        # Legacy alias for backward compatibility
+        assessment_group.add_argument(
+            "--enable-llm-loop-assessment",
+            action="store_true",
+            dest="llm_assessment_enabled",
+            help=argparse.SUPPRESS,  # Hide from help, kept for backward compatibility
+        )
+        assessment_group.add_argument(
+            "--disable-llm-loop-assessment",
+            action="store_false",
+            dest="llm_assessment_enabled",
+            default=None,
+            help="Disable LLM-based conversation assessment (overrides config)",
+        )
+
+        assessment_group.add_argument(
+            "--llm-assessment-turn-threshold",
+            type=int,
+            help="Number of turns before assessment is activated (default: 30, replicates gemini-cli LLM_CHECK_AFTER_TURNS)",
+        )
+        assessment_group.add_argument(
+            "--llm-assessment-confidence-threshold",
+            type=float,
+            help="Confidence threshold for triggering interventions (default: 0.9)",
+        )
+        assessment_group.add_argument(
+            "--llm-assessment-model",
+            type=str,
+            dest="llm_assessment_model",
+            metavar="BACKEND:MODEL",
+            help="Consolidated backend and model for loop assessment (e.g., openai:gpt-4o-mini)",
+        )
+        assessment_group.add_argument(
+            "--llm-assessment-history-window",
+            type=int,
+            help="Number of recent conversation turns to include in assessment (default: 20, replicates gemini-cli LLM_LOOP_CHECK_HISTORY_COUNT)",
+        )
+
+    def _add_identity_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add client identity override arguments."""
+        identity_group = parser.add_argument_group(
+            "Client Identity Override",
+            "Options for overriding client identification headers sent to LLM backends",
+        )
+        identity_group.add_argument(
+            "--identity-user-agent",
+            dest="identity_user_agent",
+            type=str,
+            metavar="VALUE",
+            help="Override User-Agent header (client name/version, e.g., 'MyApp/1.0.0')",
+        )
+        identity_group.add_argument(
+            "--identity-url",
+            dest="identity_url",
+            type=str,
+            metavar="URL",
+            help="Override HTTP-Referer header (application URL, e.g., 'https://example.com')",
+        )
+        identity_group.add_argument(
+            "--identity-title",
+            dest="identity_title",
+            type=str,
+            metavar="TITLE",
+            help="Override X-Title header (application display name, e.g., 'My Application')",
+        )
+
+    def _add_memory_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add ProxyMem (cross-session memory) arguments."""
+        memory_group = parser.add_argument_group(
+            "ProxyMem (Cross-Session Memory)",
+            "Options for configuring the proxy-based memory layer for LLM agents",
+        )
+        memory_group.add_argument(
+            "--memory-available",
+            action="store_true",
+            dest="memory_available",
+            default=None,
+            help="Enable ProxyMem feature globally (allows activation via commands or default)",
+        )
+        memory_group.add_argument(
+            "--memory-default-enabled",
+            action="store_true",
+            dest="memory_default_enabled",
+            default=None,
+            help="Enable memory gathering by default for new sessions (requires --memory-available)",
+        )
+        memory_group.add_argument(
+            "--memory-summary-model",
+            type=str,
+            dest="memory_summary_model",
+            metavar="BACKEND:MODEL",
+            help="Model for generating session summaries (e.g., openai:gpt-4o)",
+        )
+        memory_group.add_argument(
+            "--memory-context-model",
+            type=str,
+            dest="memory_context_model",
+            metavar="BACKEND:MODEL",
+            help="Model for retrieving relevant context (e.g., openai:gpt-4o-mini)",
+        )
+        memory_group.add_argument(
+            "--memory-summary-prompt",
+            type=str,
+            dest="memory_summary_prompt",
+            metavar="PATH",
+            help="Path to custom summary prompt file (.txt or .md)",
+        )
+        memory_group.add_argument(
+            "--memory-context-prompt",
+            type=str,
+            dest="memory_context_prompt",
+            metavar="PATH",
+            help="Path to custom context retrieval prompt file (.txt or .md)",
+        )
+        memory_group.add_argument(
+            "--memory-database-path",
+            type=str,
+            dest="memory_database_path",
+            metavar="PATH",
+            help="Path to SQLite database for session summaries (default: ./var/memory.sqlite3)",
+        )
+        memory_group.add_argument(
+            "--memory-session-timeout",
+            type=int,
+            dest="memory_session_timeout",
+            metavar="MINUTES",
+            help="Session inactivity timeout before triggering analysis (default: 30)",
+        )
+        memory_group.add_argument(
+            "--memory-retention-days",
+            type=int,
+            dest="memory_retention_days",
+            metavar="DAYS",
+            help="Number of days to retain session summaries (default: 90)",
+        )
+        memory_group.add_argument(
+            "--memory-max-context-tokens",
+            type=int,
+            dest="memory_max_context_tokens",
+            metavar="TOKENS",
+            help="Maximum tokens for injected context (default: 2000)",
+        )
+        memory_group.add_argument(
+            "--memory-context-relevance-threshold",
+            type=float,
+            dest="memory_context_relevance_threshold",
+            metavar="THRESHOLD",
+            help="Minimum relevance score for context injection (0.0-1.0, default: 0.5)",
+        )
+        memory_group.add_argument(
+            "--memory-single-user-mode",
+            action="store_true",
+            dest="memory_single_user_mode",
+            default=None,
+            help="Enable single-user mode (bypass user identity requirements)",
+        )
+        memory_group.add_argument(
+            "--memory-fixed-user-id",
+            type=str,
+            dest="memory_fixed_user_id",
+            metavar="USER_ID",
+            help="Fixed user ID for single-user mode",
+        )
+        memory_group.add_argument(
+            "--memory-redaction-pattern",
+            action="append",
+            dest="memory_redaction_patterns",
+            metavar="REGEX",
+            help="Regex pattern for redacting sensitive data (can be specified multiple times)",
+        )
+        memory_group.add_argument(
+            "--memory-disable-user",
+            action="append",
+            dest="memory_disabled_users",
+            metavar="USER_ID",
+            help="User ID to exclude from memory features (can be specified multiple times)",
+        )
+        memory_group.add_argument(
+            "--memory-disable-client",
+            action="append",
+            dest="memory_disabled_clients",
+            metavar="CLIENT",
+            help="Client/agent name to exclude from memory features (can be specified multiple times)",
+        )
+
+    def _add_failure_handling_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add failure handling arguments."""
+        failure_group = parser.add_argument_group(
+            "Failure Handling",
+            "Configure automatic retry and failover behavior for backend errors",
+        )
+        failure_group.add_argument(
+            "--disable-failure-handling",
+            dest="disable_failure_handling",
+            action="store_true",
+            help="Disable automatic failure handling (retry/failover)",
+        )
+        failure_group.add_argument(
+            "--max-silent-wait",
+            dest="max_silent_wait",
+            type=float,
+            metavar="SECONDS",
+            help="Max seconds to wait before failover (default: 60.0). "
+            "If retry-after <= this, proxy waits silently. If > this, it fails over.",
+        )
+        failure_group.add_argument(
+            "--total-timeout-budget",
+            dest="total_timeout_budget",
+            type=float,
+            metavar="SECONDS",
+            help="Total timeout budget across all failover attempts (default: 90.0)",
+        )
+        failure_group.add_argument(
+            "--keepalive-interval",
+            dest="keepalive_interval",
+            type=float,
+            metavar="SECONDS",
+            help="Seconds between SSE keepalive comments during waits (default: 8.0)",
+        )
+        failure_group.add_argument(
+            "--max-failover-hops",
+            dest="max_failover_hops",
+            type=int,
+            metavar="N",
+            help="Maximum backend instances to try in failover chain (default: 5)",
+        )
+        failure_group.add_argument(
+            "--min-retry-wait",
+            dest="min_retry_wait",
+            type=float,
+            metavar="SECONDS",
+            help="Minimum retry wait even for sub-second retry-after (default: 1.0)",
+        )
