@@ -16,7 +16,7 @@ The refactored architecture follows a layered design with clear separation of co
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     src/core/cli/ Package                       │
+│                 src/core/cli_support/ Package                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
 │  │ ArgumentParser  │  │ Configuration   │  │ ServerLifecycle │  │
@@ -43,11 +43,55 @@ The refactored architecture follows a layered design with clear separation of co
 4. **Template Method Pattern**: `ConfigurationApplicator` defines the skeleton for applying arguments
 5. **Dependency Injection**: All services receive dependencies through constructor injection
 
+### Naming and Packaging Constraints
+
+- Python cannot safely support both `src/core/cli.py` (module) and `src/core/cli/` (package) at the same import path (`src.core.cli`) without import ambiguity and runtime breakage.
+- Therefore, all extracted implementation code MUST live under a non-conflicting package such as `src/core/cli_support/`, while `src/core/cli.py` remains the stable public facade.
+- The existing `src/core/cli_v2.py` compatibility layer must continue to work by delegating to `src/core/cli.py`.
+
+## Invariants and Gotchas to Preserve
+
+These are concrete behaviors from the current `src/core/cli.py` implementation and its tests. Treat them as regression targets while extracting services.
+
+### CLI Surface and Imports
+
+- `src/core/cli.py` remains the canonical implementation; `src/core/cli_v2.py` remains a thin compatibility layer delegating to it.
+- No `src/core/cli/` package directory is created (module/package name collision).
+
+### Argument Parser
+
+- `build_cli_parser()` must preserve the full flag set (guarded by `tests/unit/test_cli_flag_snapshot.py` and `tests/test_cli_flags_documentation.py`).
+- Backend choices for `--default-backend`/`--backend` remain dynamically populated from `backend_registry.get_registered_backends()`.
+- Hidden/suppressed flags (e.g., `--backend` with `argparse.SUPPRESS`) remain hidden.
+- Compatibility aliases remain accepted where present (e.g., both `--reasoning-injection-probability` and `--reasoning_injection_probability`).
+
+### Parsed-Args Validation
+
+- `parse_cli_args()` continues to run non-argparse validation (e.g., LLM loop assessment config) and raises stable, testable exceptions with the same messages.
+
+### Configuration Application (`apply_cli_args`)
+
+- Configuration loading continues via `load_config(config_path, resolution=res)` and all CLI-applied values record `ParameterResolution` entries with the correct path and origin flag.
+- Default log file behavior remains: if neither CLI nor config provides a log file, set `./var/logs/proxy.log` and ensure directories exist.
+- Environment variable side effects remain (examples: `PROXY_PORT`, `COMMAND_PREFIX`, `FORCE_CONTEXT_WINDOW`, `THINKING_BUDGET`, `DISABLE_*` toggles).
+- Merge semantics remain: apply `cli_overrides` onto `cfg.model_dump(mode="json")` via `_merge_dicts`, then `AppConfig.model_validate(...)`.
+- `command_prefix` is never left as `None` after merging (fallback to `DEFAULT_COMMAND_PREFIX`) and is validated via `validate_command_prefix`.
+- Return-type behavior remains: default returns `AppConfig`; with `return_resolution=True` returns `(AppConfig, ParameterResolution)`.
+
+### Startup (`main`)
+
+- `main()` remains `async`, accepts `argv` and optional `build_app_fn`, and continues delegating application build to `build_app_async(cfg)` (or `build_app_fn(cfg)` in tests).
+- Daemon mode behavior remains: requires `--log`/`cfg.logging.log_file`; Windows uses a detached subprocess; Unix uses fork-based daemonization.
+- Privilege check behavior remains: `--allow-admin` bypasses; otherwise refuse elevated privileges via `SystemExit`.
+- When auth is disabled, host binding is forced to `127.0.0.1` for safety.
+- Port checks remain for both main `cfg.port` and optional `cfg.anthropic_port`.
+- When `cfg.anthropic_port` is enabled, startup creates the Anthropic app via `create_anthropic_app_async(cfg, built_app=app)` and runs both uvicorn servers concurrently.
+
 ## Components and Interfaces
 
 ### 1. ArgumentParserBuilder
 
-**Location**: `src/core/cli/argument_parser_builder.py`
+**Location**: `src/core/cli_support/argument_parser_builder.py`
 
 **Responsibility**: Constructs the `argparse.ArgumentParser` with all CLI arguments organized by domain.
 
@@ -95,9 +139,24 @@ class ArgumentParserBuilder:
         ...
 ```
 
+### 1b. CliArgsValidator
+
+**Location**: `src/core/cli_support/cli_args_validator.py`
+
+**Responsibility**: Performs non-argparse validation on already-parsed arguments (e.g., validating LLM loop assessment configuration) and raises stable, testable exceptions on failure.
+
+```python
+class CliArgsValidator:
+    """Validates parsed CLI args beyond argparse's built-in checks."""
+
+    def validate(self, args: argparse.Namespace) -> None:
+        """Raise ValueError/SystemExit with stable messages when invalid."""
+        ...
+```
+
 ### 2. ConfigurationApplicator
 
-**Location**: `src/core/cli/configuration_applicator.py`
+**Location**: `src/core/cli_support/configuration_applicator.py`
 
 **Responsibility**: Coordinates applying parsed CLI arguments to AppConfig using domain-specific applicators.
 
@@ -142,12 +201,12 @@ class ConfigurationApplicator:
 
 ### 3. Domain Applicators
 
-**Location**: `src/core/cli/applicators/`
+**Location**: `src/core/cli_support/applicators/`
 
 Each domain applicator handles a specific configuration section:
 
 ```python
-# src/core/cli/applicators/server_applicator.py
+# src/core/cli_support/applicators/server_applicator.py
 class ServerApplicator:
     """Applies server-related CLI arguments."""
     
@@ -160,7 +219,7 @@ class ServerApplicator:
         """Apply host, port, timeout, command_prefix, etc."""
         ...
 
-# src/core/cli/applicators/logging_applicator.py
+# src/core/cli_support/applicators/logging_applicator.py
 class LoggingApplicator:
     """Applies logging-related CLI arguments."""
     
@@ -173,7 +232,7 @@ class LoggingApplicator:
         """Apply log_file, log_level, capture settings, etc."""
         ...
 
-# src/core/cli/applicators/backend_applicator.py
+# src/core/cli_support/applicators/backend_applicator.py
 class BackendApplicator:
     """Applies backend-related CLI arguments."""
     
@@ -192,7 +251,7 @@ class BackendApplicator:
 
 ### 4. ServerLifecycleManager
 
-**Location**: `src/core/cli/server_lifecycle_manager.py`
+**Location**: `src/core/cli_support/server_lifecycle_manager.py`
 
 **Responsibility**: Manages server startup, shutdown, and daemon mode.
 
@@ -234,7 +293,7 @@ class ServerLifecycleManager:
 
 ### 5. PrivilegeChecker
 
-**Location**: `src/core/cli/privilege_checker.py`
+**Location**: `src/core/cli_support/privilege_checker.py`
 
 **Responsibility**: Cross-platform privilege/admin detection.
 
@@ -269,7 +328,7 @@ class PrivilegeChecker:
 
 ### 6. LoggingConfigurator
 
-**Location**: `src/core/cli/logging_configurator.py`
+**Location**: `src/core/cli_support/logging_configurator.py`
 
 **Responsibility**: Configure logging based on AppConfig.
 
@@ -292,7 +351,7 @@ class LoggingConfigurator:
 
 ### 7. ErrorHandler
 
-**Location**: `src/core/cli/error_handler.py`
+**Location**: `src/core/cli_support/error_handler.py`
 
 **Responsibility**: Format user-friendly error messages.
 
@@ -426,13 +485,13 @@ For more help, see the documentation or check your configuration.
 
 Each service will have dedicated unit tests:
 
-- `test_argument_parser_builder.py`: Test parser construction and argument definitions
-- `test_configuration_applicator.py`: Test argument application with mock applicators
-- `test_domain_applicators.py`: Test each domain applicator in isolation
-- `test_server_lifecycle_manager.py`: Test lifecycle coordination with mocks
-- `test_privilege_checker.py`: Test privilege detection with mock platform detector
-- `test_logging_configurator.py`: Test logging setup with mock handlers
-- `test_error_handler.py`: Test error classification and message formatting
+- `tests/unit/core/cli_support/test_argument_parser_builder.py`: Test parser construction and argument definitions
+- `tests/unit/core/cli_support/test_configuration_applicator.py`: Test argument application with mock applicators
+- `tests/unit/core/cli_support/test_domain_applicators.py`: Test each domain applicator in isolation
+- `tests/unit/core/cli_support/test_server_lifecycle_manager.py`: Test lifecycle coordination with mocks
+- `tests/unit/core/cli_support/test_privilege_checker.py`: Test privilege detection with mock platform detector
+- `tests/unit/core/cli_support/test_logging_configurator.py`: Test logging setup with mock handlers
+- `tests/unit/core/cli_support/test_error_handler.py`: Test error classification and message formatting
 
 ### Property-Based Testing
 
