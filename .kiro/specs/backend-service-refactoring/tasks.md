@@ -2,40 +2,40 @@
 
 ## Phase 1: Foundation - Interfaces and Base Infrastructure
 
-- [ ] 1. Create interfaces for extracted services
-  - [ ] 1.1 Create IStreamFormattingService interface
+- [x] 1. Create interfaces for extracted services
+  - [x] 1.1 Create IStreamFormattingService interface
     - Define interface in `src/core/interfaces/stream_formatting_interface.py`
     - Include methods: `stream_as_sse_bytes`, `is_valid_completion_token`, `format_chunk_as_sse`, `chunk_signals_done`
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
-  - [ ] 1.2 Create IUsageTrackingWrapper interface
+  - [x] 1.2 Create IUsageTrackingWrapper interface
     - Define interface in `src/core/interfaces/usage_tracking_wrapper_interface.py`
     - Include method: `wrap_stream_for_usage`
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
-  - [ ] 1.3 Create IModelAliasResolver interface
+  - [x] 1.3 Create IModelAliasResolver interface
     - Define interface in `src/core/interfaces/model_alias_resolver_interface.py`
     - Include method: `resolve`
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
-  - [ ] 1.4 Create IURIParameterApplicator interface
+  - [x] 1.4 Create IURIParameterApplicator interface
     - Define interface in `src/core/interfaces/uri_parameter_applicator_interface.py`
     - Include method: `apply`
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
-  - [ ] 1.5 Create IReasoningConfigApplicator interface
+  - [x] 1.5 Create IReasoningConfigApplicator interface
     - Define interface in `src/core/interfaces/reasoning_config_applicator_interface.py`
     - Include method: `apply`
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
-  - [ ] 1.6 Create IPlanningPhaseManager interface
+  - [x] 1.6 Create IPlanningPhaseManager interface
     - Define interface in `src/core/interfaces/planning_phase_manager_interface.py`
     - Include methods: `apply_if_needed`, `update_counters`, `count_file_writes`
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
-  - [ ] 1.7 Create IBackendLifecycleManager interface
+  - [x] 1.7 Create IBackendLifecycleManager interface
     - Define interface in `src/core/interfaces/backend_lifecycle_manager_interface.py`
     - Include methods: `get_or_create`, `shutdown`, `discard`, `is_disabled`, `get_active_backends`
     - _Requirements: 11.1, 11.2, 11.3, 11.4_
-  - [ ] 1.8 Create IExceptionNormalizer interface
+  - [x] 1.8 Create IExceptionNormalizer interface
     - Define interface in `src/core/interfaces/exception_normalizer_interface.py`
     - Include method: `normalize`
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
-  - [ ] 1.9 Phase 1 checkpoint: validate interfaces and baseline tests
+  - [x] 1.9 Phase 1 checkpoint: validate interfaces and baseline tests
     - Run ruff/black/mypy on new interface files.
     - Run a quick baseline subset to ensure no accidental breaks: `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service_targeted.py -v`
     - Proceed only if green.

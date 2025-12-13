@@ -21,12 +21,11 @@ from src.core.interfaces.model_bases import DomainModel
 def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str]:
     """Parse model string to extract backend and actual model name.
 
-    Handles multiple formats:
+    Supported formats:
     - backend:model (e.g., "openrouter:gpt-4")
-    - backend/model (e.g., "openrouter/gpt-4")
-    - backend:model:version (e.g., "openrouter:anthropic/claude-3-haiku:beta")
-    - backend/model:version (e.g., "openrouter/anthropic/claude-3-haiku:beta")
-    - model (e.g., "gpt-4" - uses default backend)
+    - backend:model_path (e.g., "openrouter:anthropic/claude-3-haiku:beta")
+    - model (e.g., "gpt-4" - uses default_backend)
+    - vendor/model (e.g., "openai/gpt-4o" - treated as a model identifier, not backend selection)
 
     Args:
         model: Model string in various formats
@@ -35,30 +34,14 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
     Returns:
         Tuple of (backend_type, model_name)
     """
-    # Find the first occurrence of either ':' or '/'
-    colon_pos: int = model.find(":")
-    slash_pos: int = model.find("/")
-
-    # Determine which separator comes first (or if only one exists)
-    separator_pos: int = -1
-    if colon_pos != -1 and slash_pos != -1:
-        # Both exist, use the first one
-        separator_pos = min(colon_pos, slash_pos)
-    elif colon_pos != -1:
-        # Only colon exists
-        separator_pos = colon_pos
-    elif slash_pos != -1:
-        # Only slash exists
-        separator_pos = slash_pos
-
-    if separator_pos != -1:
-        # Split at the first separator
-        backend: str = model[:separator_pos]
-        model_name: str = model[separator_pos + 1 :]
+    # IMPORTANT: Backend selection uses ONLY ":".
+    # "/" is part of the model identifier (e.g., "vendor/model") and must not be
+    # treated as a backend separator.
+    if ":" in model:
+        backend, model_name = model.split(":", 1)
         return backend, model_name
-    else:
-        # No separator found, use default backend
-        return default_backend, model
+
+    return default_backend, model
 
 
 def parse_model_with_params(
@@ -69,8 +52,8 @@ def parse_model_with_params(
     Handles multiple formats with optional query parameters:
     - backend:model?params (e.g., "openai:gpt-4?temperature=0.5")
     - backend:model_group/model?params (e.g., "openai:anthropic/claude?temperature=0.2")
-    - backend/model?params (e.g., "openai/gpt-4?temperature=0.5")
     - model?params (e.g., "gpt-4?temperature=0.5" - uses default backend)
+    - vendor/model?params (e.g., "openai/gpt-4o?temperature=0.5" - treated as a model identifier)
 
     Query parameters are parsed from the portion after '?' using standard URL query syntax.
     Multiple parameters can be specified: ?temperature=0.5&reasoning_effort=high
@@ -209,7 +192,7 @@ class ModelDefaults(DomainModel):
         ),
     )
 
-    # Loop detection default override for this model (backend/model or model)
+    # Loop detection default override for this model (backend:model or model)
     loop_detection_enabled: bool | None = Field(
         None, description="Enable/disable loop detection by default for this model"
     )

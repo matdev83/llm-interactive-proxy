@@ -35,11 +35,11 @@ def test_parse_model_with_model_group_and_parameters() -> None:
 
 
 def test_parse_model_with_slash_separator_and_parameters() -> None:
-    """Test parsing model string with slash separator and URI parameters."""
+    """Test parsing vendor/model string with URI parameters (no backend selection)."""
     backend, model, params = parse_model_with_params("openai/gpt-4?temp=0.5")
 
-    assert backend == "openai"
-    assert model == "gpt-4"
+    assert backend == ""
+    assert model == "openai/gpt-4"
     assert params == {"temp": "0.5"}
 
 
@@ -198,11 +198,11 @@ def test_parse_model_backward_compatibility_colon_separator() -> None:
 
 
 def test_parse_model_backward_compatibility_slash_separator() -> None:
-    """Test backward compatibility with slash separator (no parameters)."""
+    """Test vendor/model-style parsing with slash in model (no parameters)."""
     backend, model, params = parse_model_with_params("openrouter/anthropic/claude-3")
 
-    assert backend == "openrouter"
-    assert model == "anthropic/claude-3"
+    assert backend == ""
+    assert model == "openrouter/anthropic/claude-3"
     assert params == {}
 
 

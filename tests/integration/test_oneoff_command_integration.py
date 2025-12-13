@@ -102,7 +102,7 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
             command_result = CommandResult(
                 name="oneoff",
                 success=True,
-                message="One-off route set to openai/gpt-4.",
+                message="One-off route set to openai:gpt-4.",
             )
 
             # Process the oneoff command (simulated)
@@ -153,7 +153,7 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
                                     "index": 0,
                                     "message": {
                                         "role": "assistant",
-                                        "content": "One-off route set to openai/gpt-4.",
+                                        "content": "One-off route set to openai:gpt-4.",
                                     },
                                     "finish_reason": "stop",
                                 }
@@ -199,7 +199,7 @@ async def test_oneoff_command_integration(app: FastAPI) -> None:
                 "/v1/chat/completions",
                 json={
                     "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": "!/oneoff(openai/gpt-4)"}],
+                    "messages": [{"role": "user", "content": "!/oneoff(openai:gpt-4)"}],
                     "session_id": "test-oneoff-session",
                 },
             )

@@ -32,7 +32,7 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
 
     @property
     def format(self) -> str:
-        return "oneoff(backend/model)"
+        return "oneoff(backend:model)"
 
     @property
     def description(self) -> str:
@@ -42,7 +42,7 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
 
     @property
     def examples(self) -> list[str]:
-        return ["!/oneoff(openrouter/gpt-4)", "!/one-off(gemini/gemini-pro)"]
+        return ["!/oneoff(openrouter:openai/gpt-4o)", "!/oneoff(gemini:gemini-pro)"]
 
     async def execute(
         self, args: Mapping[str, Any], session: Session, context: Any = None
@@ -62,7 +62,7 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
             return CommandResult(
                 name=self.name,
                 success=False,
-                message="oneoff command requires a backend/model argument.",
+                message="oneoff command requires a backend:model argument.",
             )
 
         route_value = self._extract_route_argument(args)
@@ -70,16 +70,16 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
             return CommandResult(
                 name=self.name,
                 success=False,
-                message="Invalid format. Use backend/model or backend:model.",
+                message="Invalid format. Use backend:model.",
             )
 
-        # Use robust parsing that handles both slash and colon syntax
+        # Use backend:model parsing (colon separates backend selection from model identifier).
         backend, model = parse_model_backend(route_value)
         if not backend or not model:
             return CommandResult(
                 name=self.name,
                 success=False,
-                message="Invalid format. Use backend/model or backend:model.",
+                message="Invalid format. Use backend:model.",
             )
 
         backend = backend.strip()
@@ -99,11 +99,11 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
         return CommandResult(
             name=self.name,
             success=True,
-            message=f"One-off route set to {backend}/{model}.",
+            message=f"One-off route set to {backend}:{model}.",
         )
 
     def _extract_route_argument(self, args: Mapping[str, Any]) -> str | None:
-        """Extract the backend/model argument from parsed command args."""
+        """Extract the backend:model argument from parsed command args."""
 
         candidate_keys = ("element", "value", "route", "target")
         for key in candidate_keys:
@@ -114,17 +114,17 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
         for key, value in args.items():
             if isinstance(key, str):
                 key_str = key.strip()
-                if key_str and ("/" in key_str or ":" in key_str):
+                if key_str and ":" in key_str:
                     return key_str
 
             if isinstance(value, str):
                 value_str = value.strip()
-                if value_str and ("/" in value_str or ":" in value_str):
+                if value_str and ":" in value_str:
                     return value_str
 
             if value is True and isinstance(key, str):
                 key_str = key.strip()
-                if key_str and ("/" in key_str or ":" in key_str):
+                if key_str and ":" in key_str:
                     return key_str
 
         return None

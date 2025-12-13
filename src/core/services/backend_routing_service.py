@@ -100,12 +100,29 @@ class BackendRoutingService:
         """Find a backend that supports the given model."""
         candidates = []
 
+        # Match both fully qualified vendor/model and plain model names.
+        # Backend selection is NOT inferred from "/" (only ":" selects a backend);
+        # however many configurations still list plain model names (e.g., "gpt-4")
+        # while requests may use vendor-qualified identifiers (e.g., "openai/gpt-4").
+        model_variants = {model}
+        if "/" in model:
+            # Use the portion after the vendor prefix for backwards-compatible matching.
+            _, tail = model.split("/", 1)
+            if tail:
+                model_variants.add(tail)
+
         # Iterate all available backends
         # usage of _config_provider.iter_backend_names() is appropriate
         if hasattr(self._config_provider, "iter_backend_names"):
             for backend_name in self._config_provider.iter_backend_names():
                 cfg = self._config_provider.get_backend_config(backend_name)
-                if cfg and model in cfg.models and backend_name not in excluded:
+                models = getattr(cfg, "models", None) if cfg else None
+                if (
+                    cfg
+                    and models
+                    and any(variant in models for variant in model_variants)
+                    and backend_name not in excluded
+                ):
                     candidates.append(backend_name)
 
         if not candidates:

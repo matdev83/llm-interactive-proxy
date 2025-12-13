@@ -58,9 +58,20 @@ class TestBackendRoutingService:
         assert "openai.1" in results_gpt4
         assert "openai.2" in results_gpt4
 
+        # vendor/model should match plain model entries too
+        results_vendor_gpt4 = set()
+        for _ in range(10):
+            res = service.resolve_backend_instance(None, "openai/gpt-4")
+            results_vendor_gpt4.add(res)
+        assert "openai.1" in results_vendor_gpt4
+        assert "openai.2" in results_vendor_gpt4
+
         # claude-3 is only on anthropic.1
         res_claude = service.resolve_backend_instance(None, "claude-3")
         assert res_claude == "anthropic.1"
+
+        res_vendor_claude = service.resolve_backend_instance(None, "anthropic/claude-3")
+        assert res_vendor_claude == "anthropic.1"
 
     def test_policy_disable_backend_ids(self, mock_config_provider):
         config = RoutingConfig(disable_backend_ids=True)

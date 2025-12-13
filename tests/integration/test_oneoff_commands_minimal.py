@@ -26,11 +26,11 @@ async def test_oneoff_command_execution():
     command = OneoffCommand()
 
     # Execute the command
-    result = await command.execute({"openai/gpt-4": True}, session)
+    result = await command.execute({"openai:gpt-4": True}, session)
 
     # Verify command succeeded
     assert result.success
-    assert "One-off route set to openai/gpt-4" in result.message
+    assert "One-off route set to openai:gpt-4" in result.message
 
     # Verify session state was updated
     assert session.state.backend_config.oneoff_backend == "openai"
@@ -70,7 +70,7 @@ async def test_oneoff_command_missing_argument():
 
     # Should fail with error message
     assert not result.success
-    assert "requires a backend/model argument" in result.message
+    assert "requires a backend:model argument" in result.message
 
 
 if __name__ == "__main__":

@@ -17,11 +17,13 @@ def _make_command_and_session() -> tuple[OneoffCommand, Session]:
 def test_oneoff_accepts_element_arg() -> None:
     command, session = _make_command_and_session()
 
-    result = asyncio.run(command.execute({"element": "openrouter/gpt-4"}, session))
+    result = asyncio.run(
+        command.execute({"element": "openrouter:openai/gpt-4"}, session)
+    )
 
     assert result.success is True
     assert session.state.backend_config.oneoff_backend == "openrouter"
-    assert session.state.backend_config.oneoff_model == "gpt-4"
+    assert session.state.backend_config.oneoff_model == "openai/gpt-4"
 
 
 def test_oneoff_accepts_value_arg() -> None:

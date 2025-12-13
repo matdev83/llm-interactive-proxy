@@ -18,19 +18,21 @@ def mock_session() -> Mock:
 
 
 @pytest.mark.asyncio
-async def test_oneoff_success_slash_format(command: OneoffCommand, mock_session: Mock):
+async def test_oneoff_success_backend_model_format(
+    command: OneoffCommand, mock_session: Mock
+):
     # Arrange
-    args = {"openrouter/gpt-4": True}
+    args = {"openrouter:openai/gpt-4": True}
 
     # Act
     result = await command.execute(args, mock_session)
 
     # Assert
     assert result.success is True
-    assert result.message == "One-off route set to openrouter/gpt-4."
+    assert result.message == "One-off route set to openrouter:openai/gpt-4."
     # The command modifies session.state directly
     assert mock_session.state.backend_config.oneoff_backend == "openrouter"
-    assert mock_session.state.backend_config.oneoff_model == "gpt-4"
+    assert mock_session.state.backend_config.oneoff_model == "openai/gpt-4"
 
 
 @pytest.mark.asyncio
@@ -43,7 +45,7 @@ async def test_oneoff_success_colon_format(command: OneoffCommand, mock_session:
 
     # Assert
     assert result.success is True
-    assert result.message == "One-off route set to gemini/gemini-pro."
+    assert result.message == "One-off route set to gemini:gemini-pro."
     assert mock_session.state.backend_config.oneoff_backend == "gemini"
     assert mock_session.state.backend_config.oneoff_model == "gemini-pro"
 
@@ -58,7 +60,7 @@ async def test_oneoff_failure_no_args(command: OneoffCommand, mock_session: Mock
 
     # Assert
     assert result.success is False
-    assert "requires a backend/model argument" in result.message
+    assert "requires a backend:model argument" in result.message
 
 
 @pytest.mark.asyncio

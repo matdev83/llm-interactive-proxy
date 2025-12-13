@@ -146,4 +146,3 @@ def test_backward_compatible_exports_anthropic_converters() -> None:
 
     for name in anthropic_converters.__all__:
         assert hasattr(anthropic_converters, name)
-

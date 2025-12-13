@@ -500,7 +500,7 @@ class ConfigManager:
         if not backend_name or not model_name:
             return (
                 None,
-                f"Invalid element format '{elem_str}' in route '{route_name}', must contain '/' or ':' separator.",
+                f"Invalid element format '{elem_str}' in route '{route_name}', must be in 'backend:model' format.",
             )
 
         if self.app_state and backend_name not in set(

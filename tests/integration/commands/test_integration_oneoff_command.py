@@ -18,13 +18,14 @@ async def run_command(command_string: str) -> str:
             self.state = state
 
     result = await OneoffCommand().execute(args, _Session(state))
-    return getattr(result, "message", "")
+    message = getattr(result, "message", "")
+    return f"{message}\n" if message and not message.endswith("\n") else message
 
 
 @pytest.mark.asyncio
 async def test_oneoff_success_snapshot(snapshot):
     """Snapshot test for a successful oneoff command."""
-    command_string = "!/oneoff(gemini/gemini-pro)"
+    command_string = "!/oneoff(gemini:gemini-pro)"
     output_message = await run_command(command_string)
     snapshot.assert_match(output_message, "oneoff_success_output")
 
