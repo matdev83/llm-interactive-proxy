@@ -49,7 +49,6 @@ src/core/
 ├── transport/              # HTTP transport layer
 ├── utils/                  # Utility functions
 ├── cli.py                  # Command-line interface
-├── cli_v2.py               # New CLI implementation
 ├── metadata.py             # Metadata management
 └── persistence.py          # Data persistence
 ```

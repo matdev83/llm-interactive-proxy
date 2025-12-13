@@ -1,5 +1,24 @@
 # Changelog
 
+## [2025-12-13]
+
+### Refactored
+
+- **Cross-API Translation Refactoring**: Major refactoring of cross-API translation system with updated specifications in `.kiro/specs/cross-api-translation-refactoring/tasks.md`
+- **CLI Architecture**: Refactored CLI components with updates to `cli.py` and removal of deprecated `cli_v2.py`
+- **Translation Infrastructure**: Improved translation service architecture with enhanced translators for Anthropic and Gemini APIs
+- **Server Lifecycle Management**: Enhanced server lifecycle management with improvements to the lifecycle manager
+
+### Added
+
+- **Translation System Documentation**: New documentation for the translation system at `docs/development_guide/translation-system.md`
+- **Comprehensive Testing**: Added extensive test coverage for translation functionality including validation of default translator factories, API shape backward compatibility, and converter module delegation
+
+### Changed
+
+- **Development Guides**: Updated development documentation in `docs/development_guide/` to reflect new translation system architecture
+- **Core Module Structure**: Modified core module initialization and imports to align with new translation architecture
+
 ## [2025-12-12]
 
 ### Added

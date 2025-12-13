@@ -7,6 +7,7 @@ It isolates these system-level operations from the main CLI entry point.
 
 import argparse
 import asyncio
+import errno
 import logging
 import os
 import socket
@@ -108,6 +109,9 @@ class ServerLifecycleManager:
 
     def is_port_in_use(self, host: str, port: int) -> bool:
         """Check if a port is in use on a given host."""
+        if host in {"0.0.0.0", "::", ""}:
+            return self._is_port_in_use_wildcard(host, port)
+
         try:
             addr_infos = socket.getaddrinfo(
                 host,
@@ -135,6 +139,42 @@ class ServerLifecycleManager:
                 continue
 
         return False
+
+    def _is_port_in_use_wildcard(self, host: str, port: int) -> bool:
+        """Check port availability for wildcard bind addresses.
+
+        Connecting to wildcard addresses like 0.0.0.0 is not meaningful; instead,
+        probe by attempting to bind and detecting address-in-use errors.
+        """
+
+        def _bind_probe(family: int, sockaddr: object) -> bool:
+            try:
+                with socket.socket(family, socket.SOCK_STREAM) as sock:
+                    sock.bind(sockaddr)  # type: ignore[arg-type]
+                return False
+            except OSError as exc:
+                winerror = getattr(exc, "winerror", None)
+                if exc.errno == errno.EADDRINUSE or winerror == 10048:
+                    return True
+
+                logger.debug(
+                    "Wildcard port bind probe failed for %s:%s using family %s: %s",
+                    host,
+                    port,
+                    family,
+                    exc,
+                )
+                return False
+
+        in_use = False
+
+        if host in {"0.0.0.0", ""}:
+            in_use = in_use or _bind_probe(socket.AF_INET, ("0.0.0.0", port))
+
+        if host in {"::", ""}:
+            in_use = in_use or _bind_probe(socket.AF_INET6, ("::", port))
+
+        return in_use
 
     def _daemonize(self) -> None:
         """Daemonize the process on Unix-like systems."""

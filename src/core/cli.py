@@ -309,8 +309,6 @@ async def main(
         )
 
     except Exception as e:
-        if isinstance(e, SystemExit):
-            raise
         error_handler.handle_exception(e)
         raise SystemExit(1) from e
 

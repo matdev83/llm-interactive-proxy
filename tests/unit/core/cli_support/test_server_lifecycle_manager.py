@@ -64,6 +64,15 @@ class TestServerLifecycleManager:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror):
             assert manager.is_port_in_use("invalid-host", 8000) is False
 
+    def test_is_port_in_use_true_for_wildcard_host(self, manager):
+        """Port checks should work even when host is 0.0.0.0."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+            server_socket.bind(("0.0.0.0", 0))
+            server_socket.listen(1)
+            port = server_socket.getsockname()[1]
+
+            assert manager.is_port_in_use("0.0.0.0", port) is True
+
     def test_daemonize_unix(self, manager):
         """Test daemonization logic on Unix-like systems."""
         with (

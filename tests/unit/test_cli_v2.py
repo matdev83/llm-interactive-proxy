@@ -58,6 +58,10 @@ def test_parse_cli_args_accepts_model_alias(backend_choices: list[str]) -> None:
     ], "Model alias should be parsed into pattern/replacement tuples"
 
 
+def test_cli_v2_has_module_spec() -> None:
+    assert cli_v2.__spec__ is not None
+
+
 def test_parse_cli_args_rejects_invalid_model_alias(backend_choices: list[str]) -> None:
     with pytest.raises(SystemExit):
         parse_cli_args(

@@ -75,10 +75,8 @@ class TestPublicApiProperty:
         assert hasattr(cli_v2, "is_port_in_use")
         assert hasattr(cli_v2, "AppConfig")
 
-        # cli_v2.main should be a synchronous wrapper or compatible entry point
-        # The current implementation in cli_v2.py calls asyncio.run(), so it is NOT async itself.
-        # But let's check what it actually is in cli_v2.py
-        # It is defined as def main(...) -> None
+        # cli_v2.main should be a synchronous wrapper or compatible entry point.
+        # The compatibility module calls asyncio.run(), so it is NOT async itself.
         assert inspect.isfunction(cli_v2.main)
         assert not inspect.iscoroutinefunction(cli_v2.main)
 
