@@ -107,7 +107,7 @@ def _install_cli_v2_compat() -> None:
                 "import asyncio\n"
                 "asyncio.run(_main())\n"
             )
-            return compile(source, "<src.core.cli_v2>", "exec")
+            return compile(source, f"<{fullname}>", "exec")
 
     compat_module.__file__ = "<in-memory src.core.cli_v2>"
 

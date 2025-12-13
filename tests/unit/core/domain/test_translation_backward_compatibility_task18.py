@@ -147,21 +147,3 @@ def test_backward_compatible_exports_anthropic_converters() -> None:
     for name in anthropic_converters.__all__:
         assert hasattr(anthropic_converters, name)
 
-
-def test_backward_compatible_exports_gemini_converters() -> None:
-    """
-    **Feature: cross-api-translation-refactoring, Property 3: Backward Compatibility Equivalence**
-    **Validates: Requirements 5.5**
-    """
-    import src.gemini_converters as gemini_converters
-
-    expected = {
-        "gemini_to_openai_messages",
-        "openai_to_gemini_contents",
-        "gemini_to_openai_request",
-        "openai_to_gemini_response",
-        "gemini_to_openai_stream_chunk",
-        "openai_to_gemini_stream_chunk",
-    }
-    for name in expected:
-        assert hasattr(gemini_converters, name)

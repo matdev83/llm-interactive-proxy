@@ -11,6 +11,7 @@ from src.core.domain.chat import (
     ChatResponse,
     ToolCall,
 )
+from src.core.domain.tool_text_renderer import render_tool_call  # noqa: F401
 from src.core.domain.translation_utils import (
     json_utils,
     media_utils,
@@ -33,6 +34,21 @@ from src.core.domain.translation_utils.structured_output import (
     extract_and_repair_json,
     iter_json_candidates,
 )
+from src.core.domain.translation_utils.tool_call_state import (
+    _codex_function_name_cache as _tool_call_function_name_cache,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    _codex_tool_call_index_base as _tool_call_index_base,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    _codex_tool_call_item_index as _tool_call_item_index,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    assign_tool_call_index,
+    cache_function_name,
+    get_cached_function_name,
+    reset_tool_call_state,
+)
 from src.core.domain.translators.defaults import (
     ensure_default_translator_factories_registered,
 )
@@ -40,7 +56,6 @@ from src.core.domain.translators.registry import (
     TranslatorRegistry,
     get_global_translator_registry,
 )
-from src.core.services.tool_text_renderer import render_tool_call  # noqa: F401
 
 _MAX_SANITIZE_DEPTH = 100
 
@@ -53,9 +68,9 @@ class Translation(BaseTranslator):
     translators registered in a TranslatorRegistry.
     """
 
-    _codex_tool_call_index_base: dict[str, int] = {}
-    _codex_tool_call_item_index: dict[str, dict[str, int]] = {}
-    _codex_function_name_cache: dict[str, str] = {}
+    _codex_tool_call_index_base = _tool_call_index_base
+    _codex_tool_call_item_index = _tool_call_item_index
+    _codex_function_name_cache = _tool_call_function_name_cache
 
     @classmethod
     def _registry(cls) -> TranslatorRegistry:
@@ -69,19 +84,15 @@ class Translation(BaseTranslator):
 
     @classmethod
     def _reset_tool_call_state(cls, response_id: str | None) -> None:
-        if not response_id:
-            return
-        cls._codex_tool_call_index_base.pop(response_id, None)
-        cls._codex_tool_call_item_index.pop(response_id, None)
+        reset_tool_call_state(response_id)
 
     @classmethod
     def _cache_function_name(cls, call_id: str, name: str) -> None:
-        if call_id and name:
-            cls._codex_function_name_cache[call_id] = name
+        cache_function_name(call_id, name)
 
     @classmethod
     def _get_cached_function_name(cls, call_id: str) -> str:
-        return cls._codex_function_name_cache.get(call_id, "")
+        return get_cached_function_name(call_id)
 
     @classmethod
     def _assign_tool_call_index(
@@ -90,29 +101,7 @@ class Translation(BaseTranslator):
         output_index: Any,
         item_id: str | None,
     ) -> int:
-        if not response_id:
-            return 0
-
-        if not isinstance(output_index, int):
-            if item_id:
-                return cls._codex_tool_call_item_index.get(response_id, {}).get(
-                    item_id, 0
-                )
-            return 0
-
-        base = cls._codex_tool_call_index_base.get(response_id)
-        if base is None or output_index < base:
-            cls._codex_tool_call_index_base[response_id] = output_index
-            base = output_index
-
-        index = output_index - base
-        if index < 0:
-            index = 0
-
-        if item_id:
-            cls._codex_tool_call_item_index.setdefault(response_id, {})[item_id] = index
-
-        return index
+        return assign_tool_call_index(response_id, output_index, item_id)
 
     @staticmethod
     def validate_json_against_schema(

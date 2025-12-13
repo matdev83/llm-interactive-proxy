@@ -7,7 +7,15 @@ from typing import Any, cast
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain import translation as translation_module
 from src.core.domain.chat import FunctionCall, ToolCall
-from src.core.domain.translation import Translation
+from src.core.domain.translation_utils.tool_call_state import (
+    assign_tool_call_index,
+    cache_function_name,
+    get_cached_function_name,
+    reset_tool_call_state,
+)
+from src.core.domain.translators.responses.streaming_parse import (
+    parse_responses_stream_chunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +24,6 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     """Translate an OpenAI Responses streaming chunk to canonical format."""
     import time
     import uuid
-
-    def _heartbeat_chunk(finish_reason: str | None = None) -> dict[str, Any]:
-        return {
-            "id": f"resp-{uuid.uuid4().hex[:16]}",
-            "object": "response.chunk",
-            "created": int(time.time()),
-            "model": "unknown",
-            "choices": [
-                {"index": 0, "delta": {}, "finish_reason": finish_reason},
-            ],
-        }
 
     def _extract_text(value: Any) -> str:
         if isinstance(value, str):
@@ -45,67 +42,14 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             return ""
         return str(value)
 
-    if isinstance(chunk, bytes | bytearray):
-        try:
-            chunk = chunk.decode("utf-8")
-        except UnicodeDecodeError:
-            return {"error": "Invalid chunk format: unable to decode bytes"}
-
-    event_type_from_sse: str | None = None
-    if isinstance(chunk, str):
-        stripped_chunk = chunk.strip()
-
-        if not stripped_chunk:
-            return {"error": "Invalid chunk format: empty string"}
-
-        if stripped_chunk.startswith(":"):
-            return _heartbeat_chunk()
-
-        data_parts: list[str] = []
-        has_data_prefix = False
-        for raw_line in chunk.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith(":"):
-                return _heartbeat_chunk()
-            if line.startswith("event:"):
-                event_type_from_sse = line[6:].strip()
-                continue
-            if line.startswith("data:"):
-                has_data_prefix = True
-                payload = line[5:].strip()
-                if payload.startswith("event:") and not event_type_from_sse:
-                    event_type_from_sse = payload[6:].strip()
-                    continue
-                data_parts.append(payload)
-                continue
-            data_parts.append(line)
-
-        stripped_chunk = "\n".join(part for part in data_parts if part).strip()
-
-        if not has_data_prefix:
-            return _heartbeat_chunk()
-
-        if not stripped_chunk:
-            return _heartbeat_chunk()
-
-        if stripped_chunk == "[DONE]":
-            return _heartbeat_chunk(finish_reason="stop")
-
-        try:
-            chunk = json.loads(stripped_chunk)
-        except json.JSONDecodeError as exc:
-            logger.warning(
-                "Responses stream chunk JSON decode failed: %s", stripped_chunk[:300]
-            )
-            return {
-                "error": "Invalid chunk format: expected JSON after 'data:' prefix",
-                "details": {"message": str(exc)},
-            }
-
-    if not isinstance(chunk, dict):
+    parsed = parse_responses_stream_chunk(chunk)
+    if parsed.error is not None:
+        return parsed.error
+    if parsed.chunk is None:
         return {"error": "Invalid chunk format: expected a dictionary"}
+
+    chunk = parsed.chunk
+    event_type_from_sse = parsed.event_type_from_sse
 
     response_payload = chunk.get("response")
     if isinstance(response_payload, dict):
@@ -194,7 +138,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 arguments_fragment = json.dumps(delta_payload)
         if arguments_fragment is None:
             arguments_fragment = ""
-        tool_index = Translation._assign_tool_call_index(
+        tool_index = assign_tool_call_index(
             chunk_id, chunk.get("output_index"), call_id
         )
         function_payload: dict[str, Any] = {"arguments": arguments_fragment}
@@ -216,7 +160,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         call_id = chunk.get("item_id") or chunk.get("call_id")
         name = chunk.get("name") or ""
         if not name and call_id:
-            name = Translation._get_cached_function_name(call_id)
+            name = get_cached_function_name(call_id)
         arguments = chunk.get("arguments")
         if isinstance(arguments, dict | list):
             arguments = json.dumps(arguments)
@@ -224,7 +168,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             arguments = "{}"
         else:
             arguments = str(arguments)
-        tool_index = Translation._assign_tool_call_index(
+        tool_index = assign_tool_call_index(
             chunk_id, chunk.get("output_index"), call_id
         )
         tool_call_obj = ToolCall(
@@ -277,7 +221,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             call_id = (
                 item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:8]}"
             )
-            tool_index = Translation._assign_tool_call_index(
+            tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             tool_call_obj = ToolCall(
@@ -312,7 +256,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 or item.get("id")
                 or f"custom_{uuid.uuid4().hex[:8]}"
             )
-            tool_index = Translation._assign_tool_call_index(
+            tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             tool_call_obj = ToolCall(
@@ -347,7 +291,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             call_id = (
                 item.get("call_id") or item.get("id") or f"shell_{uuid.uuid4().hex[:8]}"
             )
-            tool_index = Translation._assign_tool_call_index(
+            tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             tool_call_obj = ToolCall(
@@ -382,14 +326,14 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         response_id = response_info.get("id") or chunk_id
         if response_id:
             result["response_id"] = response_id
-            Translation._reset_tool_call_state(response_id)
+            reset_tool_call_state(response_id)
         return result
 
     if event_type == "response.created":
         response_info = chunk.get("response") or {}
         response_id = response_info.get("id") or chunk_id
         if response_id:
-            Translation._reset_tool_call_state(response_id)
+            reset_tool_call_state(response_id)
         created_delta: dict[str, Any] = {}
         if response_id:
             created_delta["response_id"] = response_id
@@ -399,7 +343,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     if event_type == "response.failed":
         response_info = chunk.get("response") or {}
         error_payload = response_info.get("error") or chunk.get("error") or {}
-        Translation._reset_tool_call_state(response_info.get("id") or chunk_id)
+        reset_tool_call_state(response_info.get("id") or chunk_id)
         return {"error": "Responses stream reported failure", "details": error_payload}
 
     if event_type == "response.output_item.added":
@@ -412,9 +356,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             )
             name = item.get("name", "")
 
-            Translation._cache_function_name(call_id, name)
+            cache_function_name(call_id, name)
 
-            tool_index = Translation._assign_tool_call_index(
+            tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             delta = {

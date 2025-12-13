@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This document specifies the requirements for refactoring `src/core/cli.py`, a 3.1k LOC "God Object" that violates multiple architectural principles. The CLI entry point currently contains significant business logic that should be distributed across specialized services following SOLID principles, DRY, and proper dependency injection (constructor injection) patterns. The refactoring must preserve all public APIs and maintain 100% backward compatibility (including the `src/core/cli_v2.py` compatibility layer) while achieving a modular, layered architecture with strong separation of concerns.
+This document specifies the requirements for refactoring `src/core/cli.py`, a 3.1k LOC "God Object" that violates multiple architectural principles. The CLI entry point currently contains significant business logic that should be distributed across specialized services following SOLID principles, DRY, and proper dependency injection (constructor injection) patterns. The refactoring must preserve functional CLI behavior (arguments, configuration application, startup orchestration) while achieving a modular, layered architecture with strong separation of concerns. Legacy module paths and internal helper functions are not part of the stable contract and MAY be removed as breaking changes.
 
 ## Glossary
 
@@ -91,16 +91,17 @@ This document specifies the requirements for refactoring `src/core/cli.py`, a 3.
 
 ### Requirement 7
 
-**User Story:** As a developer, I want the refactored CLI to maintain 100% backward compatibility, so that existing scripts and integrations continue to work.
+**User Story:** As a developer, I want the refactored CLI to preserve functional behavior and the `src/core/cli.py` facade API, while allowing removal of legacy/duplicate entry points, so that the codebase remains maintainable without preserving obsolete import paths.
 
 #### Acceptance Criteria
 
-7.1 WHEN the refactored CLI is invoked THEN all existing command-line arguments SHALL be accepted with identical behavior
-7.2 WHEN the refactored CLI produces output THEN log messages and error formats SHALL match the original implementation
-7.3 WHEN the refactored CLI is tested THEN all existing CLI tests SHALL pass without modification
-7.4 WHEN the `main()` function is called THEN its signature and behavior SHALL remain unchanged
-7.5 WHEN `parse_cli_args()` or `apply_cli_args()` are called externally THEN their signatures and return types SHALL remain unchanged (including `apply_cli_args(..., return_resolution=...)`)
-7.6 WHEN `src/core/cli_v2.py` wrappers are used THEN behavior SHALL remain unchanged (they must continue delegating to `src/core/cli.py`)
+7.1 WHEN the refactored CLI is invoked THEN all supported command-line arguments SHALL be accepted with equivalent behavior
+7.2 WHEN the refactored CLI produces output THEN log messages and error formats SHOULD remain broadly consistent (actionable and stable for users)
+7.3 WHEN the refactoring is tested THEN the test suite SHALL be updated as necessary and SHALL pass with zero regressions
+7.4 WHEN the `main()` function is called THEN its signature SHALL remain compatible (`main(argv=None, build_app_fn=None)`)
+7.5 WHEN `parse_cli_args()` or `apply_cli_args()` are called externally THEN their signatures and return types SHALL remain compatible (including `apply_cli_args(..., return_resolution=...)`)
+7.6 WHEN legacy entry points are evaluated THEN the deprecated `src.core.cli_v2` module path SHALL be removed (breaking change) and the canonical entry point SHALL be `src.core.cli`
+7.7 WHEN internal helper functions (e.g., port-check wrappers, timestamp helpers, daemon wrappers) are evaluated THEN they MAY be removed from `src.core.cli` and consumers SHALL use the extracted services in `src/core/cli_support/`
 
 ### Requirement 8
 

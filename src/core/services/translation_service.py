@@ -13,8 +13,6 @@ from src.core.domain.chat import (
     CanonicalChatResponse,
     CanonicalStreamChunk,
     ChatResponse,
-    StreamingChatCompletionChoice,
-    StreamingChatCompletionChoiceDelta,
 )
 from src.core.domain.translation import Translation
 from src.core.domain.translators.defaults import (
@@ -25,6 +23,9 @@ from src.core.domain.translators.registry import (
     get_global_translator_registry,
 )
 from src.core.interfaces.translator_protocol import StreamingTranslatorProtocol
+from src.core.services.translation_service_streaming import (
+    dict_to_canonical_stream_chunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -278,41 +279,6 @@ class TranslationService:
     ) -> dict[str, Any]:
         return self._registry.get("anthropic").from_domain_request(request)
 
-    def _dict_to_canonical_stream_chunk(
-        self, chunk_dict: dict[str, Any]
-    ) -> CanonicalStreamChunk:
-        choices: list[StreamingChatCompletionChoice] = []
-        for choice_dict in chunk_dict.get("choices", []):
-            delta_dict = choice_dict.get("delta", {})
-            delta_data = {
-                "role": delta_dict.get("role"),
-                "content": delta_dict.get("content"),
-                "tool_calls": delta_dict.get("tool_calls"),
-                "refusal": delta_dict.get("refusal"),
-            }
-            for key, value in delta_dict.items():
-                if key not in delta_data:
-                    delta_data[key] = value
-
-            delta = StreamingChatCompletionChoiceDelta(**delta_data)
-            choice = StreamingChatCompletionChoice(
-                index=choice_dict.get("index", 0),
-                delta=delta,
-                finish_reason=choice_dict.get("finish_reason"),
-                logprobs=choice_dict.get("logprobs"),
-            )
-            choices.append(choice)
-
-        return CanonicalStreamChunk(
-            id=chunk_dict.get("id"),
-            object=chunk_dict.get("object", "chat.completion.chunk"),
-            created=chunk_dict.get("created"),
-            model=chunk_dict.get("model"),
-            choices=choices,
-            usage=chunk_dict.get("usage"),
-            system_fingerprint=chunk_dict.get("system_fingerprint"),
-        )
-
     def to_domain_stream_chunk(
         self, chunk: Any, source_format: str, target_format: str = "domain"
     ) -> Any:
@@ -372,7 +338,7 @@ class TranslationService:
             )
 
         if source_format in canonical_formats and isinstance(result, dict):
-            return self._dict_to_canonical_stream_chunk(result)
+            return dict_to_canonical_stream_chunk(result)
         return result
 
     def from_domain_stream_chunk(

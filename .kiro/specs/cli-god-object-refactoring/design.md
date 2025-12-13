@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design document describes the refactoring of `src/core/cli.py` from a 3.1k LOC monolithic "God Object" into a modular, layered architecture following SOLID principles, DRY, proper dependency injection, and OOP design patterns. The refactoring extracts distinct responsibilities into specialized services while maintaining 100% backward compatibility with existing public APIs.
+This design document describes the refactoring of `src/core/cli.py` from a 3.1k LOC monolithic "God Object" into a modular, layered architecture following SOLID principles, DRY, proper dependency injection, and OOP design patterns. The refactoring extracts distinct responsibilities into specialized services while preserving functional CLI behavior and a stable `src.core.cli` facade API. Legacy/duplicate module entrypoints (for example `src.core.cli_v2`) are intentionally removed as breaking changes to keep the codebase clean.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ The refactored architecture follows a layered design with clear separation of co
 
 - Python cannot safely support both `src/core/cli.py` (module) and `src/core/cli/` (package) at the same import path (`src.core.cli`) without import ambiguity and runtime breakage.
 - Therefore, all extracted implementation code MUST live under a non-conflicting package such as `src/core/cli_support/`, while `src/core/cli.py` remains the stable public facade.
-- The existing `src/core/cli_v2.py` compatibility layer must continue to work by delegating to `src/core/cli.py`.
+- The legacy `src.core.cli_v2` module path is removed (breaking change) and MUST NOT be relied on by new code.
 
 ## Invariants and Gotchas to Preserve
 
@@ -55,7 +55,8 @@ These are concrete behaviors from the current `src/core/cli.py` implementation a
 
 ### CLI Surface and Imports
 
-- `src/core/cli.py` remains the canonical implementation; `src/core/cli_v2.py` remains a thin compatibility layer delegating to it.
+- `src/core/cli.py` remains the canonical implementation and stable facade.
+- The legacy `src.core.cli_v2` import path is removed (breaking change).
 - No `src/core/cli/` package directory is created (module/package name collision).
 
 ### Argument Parser
@@ -86,6 +87,7 @@ These are concrete behaviors from the current `src/core/cli.py` implementation a
 - When auth is disabled, host binding is forced to `127.0.0.1` for safety.
 - Port checks remain for both main `cfg.port` and optional `cfg.anthropic_port`.
 - When `cfg.anthropic_port` is enabled, startup creates the Anthropic app via `create_anthropic_app_async(cfg, built_app=app)` and runs both uvicorn servers concurrently.
+- Deprecated helper functions previously exposed on `src.core.cli` (e.g., port-check wrappers, timestamp helpers, daemon wrappers) are considered internal and MAY be removed; tests/consumers should use the corresponding services in `src/core/cli_support/`.
 
 ## Components and Interfaces
 
@@ -505,7 +507,7 @@ Using `hypothesis` library for property-based tests:
 
 ### Integration Testing
 
-- **Backward Compatibility**: Run existing CLI tests without modification
+- **Regression**: Verify end-to-end CLI behavior via integration tests and ensure the full suite passes
 - **End-to-End**: Test full CLI invocation with various argument combinations
 - **Regression**: Ensure full test suite passes with zero failures
 

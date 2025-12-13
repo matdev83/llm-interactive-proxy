@@ -88,3 +88,43 @@ def test_translator_registry_get_unknown_raises_key_error() -> None:
 
     with pytest.raises(KeyError, match="No translator registered for format"):
         registry.get("does-not-exist")
+
+
+@pytest.mark.parametrize(
+    "format_name",
+    [
+        "openai",
+        "OpenAI",
+        " OPENAI ",
+        "openAi",
+    ],
+)
+def test_translator_registry_get_normalizes_openai_format_name(
+    format_name: str,
+) -> None:
+    registry = TranslatorRegistry()
+    translator = _DummyTranslator(format_names={"openai"})
+
+    registry.register(translator)
+
+    assert registry.get(format_name) is translator
+
+
+@pytest.mark.parametrize(
+    "format_name",
+    [
+        "openai-responses",
+        "OpenAI-Responses",
+        " openai-responses ",
+        "OPENAI-RESPONSES",
+    ],
+)
+def test_translator_registry_get_normalizes_openai_responses_alias(
+    format_name: str,
+) -> None:
+    registry = TranslatorRegistry()
+    translator = _DummyTranslator(format_names={"responses"})
+
+    registry.register(translator)
+
+    assert registry.get(format_name) is translator
