@@ -211,26 +211,26 @@
 
 ## Phase 7: Extract PlanningPhaseManager
 
-- [ ] 8. Implement PlanningPhaseManager
-  - [ ] 8.1 Write property test for planning phase transition (red)
+- [x] 8. Implement PlanningPhaseManager
+  - [x] 8.1 Write property test for planning phase transition (red)
     - **Property 10: Planning Phase Transition**
     - **Validates: Requirements 10.1, 10.3**
-  - [ ] 8.2 Write property test for file write counting (red)
+  - [x] 8.2 Write property test for file write counting (red)
     - **Property 11: File Write Counting**
     - **Validates: Requirements 10.4**
-  - [ ] 8.3 Write unit/equivalence tests for PlanningPhaseManager (red)
+  - [x] 8.3 Write unit/equivalence tests for PlanningPhaseManager (red)
     - Test model override application
     - Test turn count tracking
     - Test file write count tracking
     - Test route restoration
     - Compare to current planning-phase helpers on fixtures
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 4.6_
-  - [ ] 8.4 Create PlanningPhaseManager implementation (green)
+  - [x] 8.4 Create PlanningPhaseManager implementation (green)
     - Create `src/core/services/planning_phase_manager.py`
     - Extract `_apply_planning_phase_if_needed`, `_update_planning_phase_counters`, `_restore_planning_phase_route`, `_count_file_writes_in_response` from BackendService
     - Implement IPlanningPhaseManager interface
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 4.6_
-  - [ ] 8.5 Phase 7 checkpoint: run focused tests
+  - [x] 8.5 Phase 7 checkpoint: run focused tests
     - Run the PlanningPhaseManager focused suite (see Incremental Integration Loop)
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
