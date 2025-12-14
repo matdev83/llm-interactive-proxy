@@ -102,6 +102,39 @@ class TestStreamingContentToBytes:
         # Should NOT have [DONE] since is_done=False
         # (Actually, looking at the code, it may still have [DONE] for OpenAI format)
 
+    def test_normalize_chat_completion_payload_to_stream_chunk(self):
+        """Non-streaming `chat.completion` payloads must emit `choices[].delta` in SSE."""
+        completion_payload = {
+            "id": "chatcmpl-proxy-1",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "claude-opus-4-5-thinking",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Blocked"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+        content = StreamingContent(
+            content=completion_payload,
+            metadata={"finish_reason": "stop"},
+            is_done=True,
+        )
+
+        result_str = content.to_bytes().decode("utf-8")
+        first_event = result_str.strip().split("\n\n")[0]
+        assert first_event.startswith("data: ")
+        parsed = json.loads(first_event[6:])
+
+        assert parsed["object"] == "chat.completion.chunk"
+        assert "delta" in parsed["choices"][0]
+        assert "message" not in parsed["choices"][0]
+        assert parsed["choices"][0]["delta"]["content"] == "Blocked"
+
     def test_serialize_text_content(self):
         """Plain text content should serialize to SSE format."""
         content = StreamingContent(

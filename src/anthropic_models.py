@@ -86,6 +86,10 @@ class AnthropicMessagesRequest(DomainModel):
         default=None,
         description="Determines whether to use priority capacity or standard capacity.",
     )
+    anthropic_beta: list[str] | str | None = Field(
+        default=None,
+        description="Optional beta features (e.g. prompt-caching-2024-07-31).",
+    )
     thinking: ThinkingConfig | dict[str, Any] | None = Field(
         default=None,
         description="Configuration for extended thinking. Enables Claude to show reasoning process.",

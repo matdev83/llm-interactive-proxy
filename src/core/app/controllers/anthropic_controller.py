@@ -157,6 +157,11 @@ class AnthropicController:
 
                 anthropic_request = AnthropicMessagesRequest(**(payload or {}))
 
+            # Capture anthropic-beta header for prompt caching support
+            beta_header = request.headers.get("anthropic-beta")
+            if beta_header and not anthropic_request.anthropic_beta:
+                anthropic_request.anthropic_beta = beta_header
+
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     f"Handling Anthropic messages request: model={anthropic_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"

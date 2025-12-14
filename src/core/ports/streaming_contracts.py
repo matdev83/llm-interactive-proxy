@@ -395,6 +395,61 @@ class StreamingContent:
             is serialized at the top level of the SSE chunk, not embedded in
             delta.content. This is critical for proper billing/usage reporting.
         """
+
+        def _normalize_openai_chat_completion_to_stream_chunk(
+            payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            """Normalize `choices[].message` payloads into `choices[].delta` for SSE.
+
+            Some internal proxy paths may generate a non-streaming OpenAI chat payload
+            (`object: chat.completion` with `choices[].message`) but still deliver it
+            over SSE. Streaming clients expect `choices[].delta` to exist on every
+            chunk; emitting `message` inside a stream can crash strict parsers.
+            """
+
+            choices = payload.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return payload
+
+            payload_object = payload.get("object")
+            normalized_choices: list[Any] = []
+            converted_any = False
+
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    normalized_choices.append(choice)
+                    continue
+
+                if "delta" in choice:
+                    normalized_choices.append(choice)
+                    continue
+
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    new_choice = dict(choice)
+                    new_choice.pop("message", None)
+                    delta = dict(message)
+                    if delta.get("content") is None:
+                        delta["content"] = ""
+                    new_choice["delta"] = delta
+                    normalized_choices.append(new_choice)
+                    converted_any = True
+                    continue
+
+                new_choice = dict(choice)
+                new_choice.setdefault("delta", {})
+                normalized_choices.append(new_choice)
+                converted_any = True
+
+            if not converted_any and payload_object != "chat.completion":
+                return payload
+
+            normalized = dict(payload)
+            normalized["choices"] = normalized_choices
+            if payload_object == "chat.completion":
+                normalized["object"] = "chat.completion.chunk"
+            return normalized
+
         # Log SSE serialization at TRACE level for diagnostic tracking
         if logger.isEnabledFor(TRACE_LEVEL):
             content_type = type(self.content).__name__
@@ -488,7 +543,9 @@ class StreamingContent:
                     # CRITICAL: We must avoid modifying self.content deeply/in-place,
                     # as it might be used elsewhere (e.g. history storage).
                     # Shallow copy of the top object is not enough if we modify nested lists/dicts.
-                    content_copy = dict(self.content)
+                    content_copy = dict(
+                        _normalize_openai_chat_completion_to_stream_chunk(self.content)
+                    )
 
                     # Sanitize any existing tool_calls in delta/message (remove extra_content)
                     # This is critical for Gemini responses where extra_content contains
@@ -646,7 +703,11 @@ class StreamingContent:
                     is_virtual_tc = self.metadata.get("_virtual_tool_calls", False)
 
                     # Make a copy of content to potentially modify
-                    content_copy = dict(working_content)
+                    content_copy = dict(
+                        _normalize_openai_chat_completion_to_stream_chunk(
+                            working_content
+                        )
+                    )
 
                     # Sanitize any existing tool_calls in delta/message (remove extra_content)
                     # This is critical for Gemini responses where extra_content contains

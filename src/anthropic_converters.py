@@ -33,46 +33,97 @@ def anthropic_to_openai_request(
 
         tool_calls: list[dict[str, Any]] = []
         tool_result_block: dict[str, Any] | None = None
-        text_parts: list[str] = []
-        passthrough_parts: list[dict[str, Any]] = []
-
+        
+        # New content processing strategy: always build a list of parts first
+        content_parts: list[dict[str, Any]] = []
+        
         content = msg.content
-        image_parts: list[dict[str, Any]] = []
-        document_parts: list[dict[str, Any]] = []
-
         if isinstance(content, list):
+            current_text_accumulator: list[str] = []
+
+            def _flush_text_accumulator():
+                if current_text_accumulator:
+                    combined = "".join(current_text_accumulator)
+                    content_parts.append({"type": "text", "text": combined})
+                    current_text_accumulator.clear()
+
             for block in content:
                 if not isinstance(block, dict):
                     continue
                 btype = block.get("type")
+                
                 if btype == "text":
                     text_value = block.get("text")
                     if isinstance(text_value, str) and text_value:
-                        text_parts.append(text_value)
+                        if "cache_control" in block:
+                            # Flush pending plain text to keep order
+                            _flush_text_accumulator()
+                            # Add this block as structured content with cache_control
+                            content_parts.append({
+                                "type": "text", 
+                                "text": text_value,
+                                "cache_control": block["cache_control"]
+                            })
+                        else:
+                            # Accumulate plain text
+                            current_text_accumulator.append(text_value)
+                            
                 elif btype == "tool_use":
+                    _flush_text_accumulator()
                     tool_calls.append(_convert_tool_use_block(block))
+                    
                 elif btype == "thinking":
+                    _flush_text_accumulator()
                     thinking_val = block.get("thinking")
                     if isinstance(thinking_val, str) and thinking_val:
                         openai_msg["reasoning"] = thinking_val
+                        
                 elif btype == "tool_result":
+                    _flush_text_accumulator()
+                    # Tool results usually stand alone, but if mixed, we handle last one as the role source
                     tool_result_block = block
+                    
                 elif btype == "image":
-                    # Convert Anthropic image block to OpenAI format
+                    _flush_text_accumulator()
                     image_part = _convert_anthropic_image_to_openai(block)
                     if image_part:
-                        image_parts.append(image_part)
+                        # Copy cache_control if present in image block
+                        if "cache_control" in block:
+                            image_part["cache_control"] = block["cache_control"]
+                        content_parts.append(image_part)
+                        
                 elif btype == "document":
-                    # Convert Anthropic document block to passthrough
-                    # OpenAI doesn't natively support documents, pass as metadata
-                    document_parts.append(block)
+                    # Documents are converted to text representation for now
+                    # We flush text first to keep order
+                    doc_text = f"[Document: {block.get('title', 'untitled')}]"
+                    if block.get("context"):
+                        doc_text += f"\nContext: {block['context']}"
+                    # If document has cache_control, we can't easily attach it to the text
+                    # unless we make it a separate block.
+                    if "cache_control" in block:
+                        _flush_text_accumulator()
+                        content_parts.append({
+                            "type": "text", 
+                            "text": doc_text,
+                            "cache_control": block["cache_control"]
+                        })
+                    else:
+                        current_text_accumulator.append(doc_text)
+                        
                 else:
-                    passthrough_parts.append(block)
+                    _flush_text_accumulator()
+                    # Unknown/Passthrough
+                    content_parts.append(block)
+
+            # Flush any remaining text
+            _flush_text_accumulator()
+
         elif isinstance(content, str):
-            text_parts.append(content)
+            content_parts.append({"type": "text", "text": content})
+            
         elif content is not None:
-            # Unknown structured content - best effort pass-through
-            passthrough_parts.append({"type": "unknown", "value": content})
+            # Unknown structured content
+            content_parts.append({"type": "unknown", "value": content})
 
         if tool_result_block is not None:
             openai_msg["role"] = "tool"
@@ -85,45 +136,18 @@ def anthropic_to_openai_request(
                 tool_result_block.get("content")
             )
         else:
-            # Check if we have multimodal content (images or documents)
-            has_multimodal = bool(image_parts or document_parts)
-
-            if has_multimodal:
-                # Build multimodal content array (OpenAI format)
-                multimodal_content: list[dict[str, Any]] = []
-
-                # Add text parts first
-                if text_parts:
-                    combined_text = "".join(text_parts)
-                    multimodal_content.append({"type": "text", "text": combined_text})
-
-                # Add image parts
-                multimodal_content.extend(image_parts)
-
-                # Add document parts as text (best effort - OpenAI doesn't support docs)
-                for doc in document_parts:
-                    doc_text = f"[Document: {doc.get('title', 'untitled')}]"
-                    if doc.get("context"):
-                        doc_text += f"\nContext: {doc['context']}"
-                    multimodal_content.append({"type": "text", "text": doc_text})
-
-                openai_msg["content"] = multimodal_content
-            elif passthrough_parts and not text_parts:
-                try:
-                    openai_msg["content"] = json.dumps(passthrough_parts)
-                except (TypeError, ValueError) as e:
-                    logger.warning(
-                        f"JSON serialization failed for passthrough_parts: {e}"
-                    )
-                    openai_msg["content"] = str(passthrough_parts)
+            # Assign content
+            if not content_parts:
+                openai_msg["content"] = ""
+            elif len(content_parts) == 1 and content_parts[0].get("type") == "text" and "cache_control" not in content_parts[0]:
+                # Simplify single plain text block to string
+                openai_msg["content"] = content_parts[0]["text"]
             else:
-                combined_text = "".join(text_parts)
-                openai_msg["content"] = combined_text
+                # Use list of parts
+                openai_msg["content"] = content_parts
 
             if tool_calls:
                 openai_msg["tool_calls"] = tool_calls
-                if "content" not in openai_msg or openai_msg["content"] is None:
-                    openai_msg["content"] = ""
 
         msg_tool_calls = getattr(msg, "tool_calls", None)
         if msg_tool_calls and not tool_calls:
@@ -214,6 +238,10 @@ def anthropic_to_openai_request(
     # Handle service_tier
     if anthropic_request.service_tier is not None:
         extra_body["service_tier"] = anthropic_request.service_tier
+    
+    # Handle anthropic_beta
+    if anthropic_request.anthropic_beta is not None:
+        extra_body["anthropic_beta"] = anthropic_request.anthropic_beta
 
     result = CanonicalChatRequest(
         model=anthropic_request.model,

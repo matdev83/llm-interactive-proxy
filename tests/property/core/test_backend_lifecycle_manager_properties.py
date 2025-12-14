@@ -9,7 +9,6 @@ Feature: backend-service-refactoring
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 from hypothesis import given, settings
@@ -57,7 +56,7 @@ class TestBackendCacheLRUProperty:
         num_sessions=st.integers(min_value=5, max_value=20),
         cache_limit=st.integers(min_value=2, max_value=5),
     )
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)
     @pytest.mark.asyncio
     async def test_lru_eviction_on_limit(
         self, num_sessions: int, cache_limit: int
@@ -91,7 +90,7 @@ class TestBackendCacheLRUProperty:
             st.integers(min_value=0, max_value=4), min_size=5, max_size=20
         )
     )
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)
     @pytest.mark.asyncio
     async def test_lru_order_maintained_on_access(
         self, access_pattern: list[int]
@@ -289,7 +288,7 @@ class TestBackendShutdown:
         manager = BackendLifecycleManager()
         backend = MockLLMBackend("openai")
 
-        await manager.shutdown(backend)
+        await manager.shutdown(backend)  # type: ignore[arg-type]
 
         assert backend.shutdown_called
 

@@ -16,6 +16,7 @@ class MessageContentPartText(DomainModel):
 
     type: str = "text"
     text: str
+    cache_control: dict[str, Any] | None = None
 
 
 class ImageURL(DomainModel):
@@ -31,6 +32,7 @@ class MessageContentPartImage(DomainModel):
 
     type: str = "image_url"
     image_url: ImageURL
+    cache_control: dict[str, Any] | None = None
 
 
 class InputAudio(DomainModel):

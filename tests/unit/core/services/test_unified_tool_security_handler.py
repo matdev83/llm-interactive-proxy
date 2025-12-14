@@ -118,10 +118,21 @@ class TestCommandExtractionService:
         # UNC paths should be extracted
         assert any("server" in p for p in paths)
 
+    def test_extract_paths_does_not_match_pytest_nodeid_suffix(self) -> None:
+        """Should NOT treat `.py::Test...` as a Windows drive (false positive)."""
+        service = CommandExtractionService()
+        paths = service.extract_paths_from_command(
+            "./.venv/Scripts/python.exe -m pytest "
+            "tests/property/core/test_backend_lifecycle_manager_properties.py::"
+            "TestBackendCacheLRUProperty::test_lru_eviction_on_limit -v"
+        )
+        assert not paths
+
     def test_truncates_long_commands(self) -> None:
         """Should truncate commands exceeding max length."""
         service = CommandExtractionService(max_command_length=10)
         result = service.extract_command_string("short" * 100)
+        assert result is not None
         assert len(result) == 10
 
 
@@ -499,7 +510,9 @@ class TestUnifiedToolSecurityHandler:
         context = self._make_context("bash", {"command": "git reset --hard"})
         result = await handler.handle(context)
         assert result.should_swallow is True
+        assert result.replacement_response is not None
         assert "Security Block" in result.replacement_response
+        assert result.metadata is not None
         assert result.metadata["handler"] == "unified_tool_security_handler"
 
     @pytest.mark.asyncio

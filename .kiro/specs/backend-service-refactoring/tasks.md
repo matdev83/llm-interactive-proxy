@@ -237,11 +237,11 @@
 
 ## Phase 8: Extract BackendLifecycleManager
 
-- [ ] 9. Implement BackendLifecycleManager
-  - [ ] 9.1 Write property test for backend cache LRU (red)
+- [x] 9. Implement BackendLifecycleManager
+  - [x] 9.1 Write property test for backend cache LRU (red)
     - **Property 12: Backend Cache LRU**
     - **Validates: Requirements 11.1**
-  - [ ] 9.2 Write unit/equivalence tests for BackendLifecycleManager (red)
+  - [x] 9.2 Write unit/equivalence tests for BackendLifecycleManager (red)
     - Test backend creation and caching
     - Test LRU eviction
     - Test backend shutdown
@@ -249,12 +249,12 @@
     - Test recovery attempts
     - Compare to lifecycle helpers on fixtures (cache keys, eviction, disablement)
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 4.6_
-  - [ ] 9.3 Create BackendLifecycleManager implementation (green)
+  - [x] 9.3 Create BackendLifecycleManager implementation (green)
     - Create `src/core/services/backend_lifecycle_manager.py`
     - Extract `_get_or_create_backend`, `_shutdown_backend`, `_discard_backend`, `_enforce_per_session_backend_limit`, `_is_per_session_cache_key`, `_resolve_per_session_backend_limit` from BackendService
     - Implement IBackendLifecycleManager interface
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 4.6_
-  - [ ] 9.4 Phase 8 checkpoint: run focused tests
+  - [x] 9.4 Phase 8 checkpoint: run focused tests
     - Run the BackendLifecycleManager focused suite (see Incremental Integration Loop)
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
