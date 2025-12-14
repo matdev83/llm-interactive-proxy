@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import inspect
 import logging
-import re
 import time
 from collections import OrderedDict
 from typing import Any, cast
@@ -38,16 +37,21 @@ from src.core.interfaces.failure_strategy_interface import (
     FailureDecision,
     IFailureHandlingStrategy,
 )
+from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.resilience_interface import (
     IResilienceCoordinator,
 )
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
+from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+from src.core.services.uri_parameter_applicator import URIParameterApplicator
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +78,9 @@ class BackendService(IBackendService):
         resilience_coordinator: IResilienceCoordinator | None = None,
         failure_handling_strategy: IFailureHandlingStrategy | None = None,
         usage_tracking_service: IUsageTrackingService | None = None,
+        stream_formatting_service: IStreamFormattingService | None = None,
+        usage_tracking_wrapper: IUsageTrackingWrapper | None = None,
+        model_alias_resolver: IModelAliasResolver | None = None,
     ):
         """Initialize the backend service.
 
@@ -107,6 +114,36 @@ class BackendService(IBackendService):
             failure_handling_strategy
         )
         self._usage_tracking_service = usage_tracking_service
+        # Stream formatting service - create default if not provided
+        if stream_formatting_service is None:
+            from src.core.services.stream_formatting_service import (
+                StreamFormattingService,
+            )
+
+            self._stream_formatting_service: IStreamFormattingService = (
+                StreamFormattingService()
+            )
+        else:
+            self._stream_formatting_service = stream_formatting_service
+        # Usage tracking wrapper - create default if not provided
+        if usage_tracking_wrapper is None:
+            from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
+
+            self._usage_tracking_wrapper: IUsageTrackingWrapper = UsageTrackingWrapper(
+                usage_tracking_service=usage_tracking_service,
+                stream_formatting_service=self._stream_formatting_service,
+            )
+        else:
+            self._usage_tracking_wrapper = usage_tracking_wrapper
+        # Model alias resolver - create default if not provided
+        if model_alias_resolver is None:
+            from src.core.services.model_alias_resolver import ModelAliasResolver
+
+            self._model_alias_resolver: IModelAliasResolver = ModelAliasResolver(
+                config=config
+            )
+        else:
+            self._model_alias_resolver = model_alias_resolver
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -211,51 +248,10 @@ class BackendService(IBackendService):
 
         Returns:
             The rewritten model name, or the original if no rules match
+
+        Note: This method delegates to ModelAliasResolver for the actual implementation.
         """
-        from src.core.config.app_config import AppConfig
-
-        app_config = cast(AppConfig, self._config)
-
-        # Handle case where config might be a Mock object (in tests)
-        try:
-            model_aliases = getattr(app_config, "model_aliases", [])
-            if not model_aliases:
-                return model
-
-            # Check if model_aliases is iterable (not a Mock)
-            iter(model_aliases)
-        except (AttributeError, TypeError):
-            # If model_aliases is not iterable (e.g., Mock object), return original model
-            return model
-
-        for alias in model_aliases:
-            try:
-                # Handle case where alias might be a Mock object
-                pattern = getattr(alias, "pattern", None)
-                replacement = getattr(alias, "replacement", None)
-
-                if not pattern or not replacement:
-                    continue
-
-                # Anchor patterns to the start of the string by default to
-                # preserve the historical behaviour of ``re.match`` while
-                # still honoring any explicit anchors provided in the
-                # configuration.
-                match = re.match(pattern, model)
-                if match:
-                    # Use match.expand to honor capture groups regardless of match span
-                    new_model = match.expand(replacement)
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
-                    return new_model
-            except (re.error, AttributeError, TypeError) as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Invalid regex pattern in model alias or mock object: {e}"
-                    )
-                continue
-
-        return model
+        return self._model_alias_resolver.resolve(model)
 
     @staticmethod
     def _stream_as_sse_bytes(
@@ -266,144 +262,14 @@ class BackendService(IBackendService):
         Accepts an async iterator that may yield ProcessedResponse, dict, str, or bytes
         and produces an async iterator of bytes suitable for wire capture and direct
         transport to clients.
+
+        Note: This is a static method for backward compatibility. It delegates to
+        StreamFormattingService for the actual implementation.
         """
-        import json
+        from src.core.services.stream_formatting_service import StreamFormattingService
 
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-
-        def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
-            if isinstance(content, bytes | bytearray):
-                text = content.decode("utf-8", errors="ignore").strip()
-                if text == "[DONE]" or text.startswith("data: [DONE]"):
-                    return True
-                if text == '["DONE"]' or text.startswith('data: ["DONE"]'):
-                    return True
-            elif isinstance(content, str):
-                stripped = content.strip()
-                if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
-                    return True
-                if stripped == '["DONE"]' or stripped.startswith('data: ["DONE"]'):
-                    return True
-
-            if metadata and metadata.get("finish_reason"):
-                if content is None or content == "":
-                    return True
-                if isinstance(content, dict):
-                    choices = content.get("choices") or []
-                    if choices:
-                        delta = (
-                            choices[0].get("delta")
-                            if isinstance(choices[0], dict)
-                            else {}
-                        )
-                        if not delta or all(
-                            not delta.get(key)
-                            for key in (
-                                "content",
-                                "tool_calls",
-                                "reasoning_content",
-                                "reasoning",
-                            )
-                        ):
-                            return True
-
-            if isinstance(content, dict):
-                content_metadata = content.get("metadata")
-                if isinstance(content_metadata, dict) and content_metadata.get(
-                    "finish_reason"
-                ):
-                    return True
-                choices = content.get("choices")
-                if isinstance(choices, list):
-                    for choice in choices:
-                        if isinstance(choice, dict) and choice.get("finish_reason"):
-                            return True
-
-            return False
-
-        def _format_as_sse(content: Any) -> bytes:
-            """Normalize arbitrary content to SSE-framed bytes."""
-            if isinstance(content, bytes | bytearray):
-                stripped_bytes = bytes(content).strip()
-                if stripped_bytes.startswith(b"data:"):
-                    return bytes(content)
-                if stripped_bytes in (b"[DONE]", b'["DONE"]'):
-                    return b"data: [DONE]\n\n"
-                text_val = content.decode("utf-8", errors="replace")
-                return f"data: {text_val}\n\n".encode()
-
-            if isinstance(content, str):
-                stripped_text = content.strip()
-                if stripped_text.startswith("data:"):
-                    return content.encode("utf-8")
-                if stripped_text in ("[DONE]", '["DONE"]'):
-                    return b"data: [DONE]\n\n"
-                return f"data: {content}\n\n".encode()
-
-            # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict
-            if hasattr(content, "model_dump") and callable(content.model_dump):
-                return f"data: {json.dumps(content.model_dump())}\n\n".encode()
-
-            if isinstance(content, dict):
-                return f"data: {json.dumps(content)}\n\n".encode()
-
-            # Fallback: try to JSON serialize, otherwise use str representation
-            try:
-                return f"data: {json.dumps(content)}\n\n".encode()
-            except (TypeError, ValueError):
-                return f"data: {content}\n\n".encode()
-
-        async def _adapter() -> Any:
-            done_sent = False
-            async for chunk in it:  # type: ignore
-                content = (
-                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
-                )
-                metadata = (
-                    chunk.metadata if isinstance(chunk, ProcessedResponse) else {}
-                )
-
-                # CRITICAL: Check for StopChunkWithUsage and convert to SSE properly
-                # Use StreamingContent.to_bytes() which knows how to handle it correctly
-                from src.core.ports.streaming_contracts import (
-                    StopChunkWithUsage,
-                    StreamingContent,
-                )
-
-                if isinstance(content, StopChunkWithUsage):
-                    # Create StreamingContent and use its to_bytes() method
-                    # which properly serializes StopChunkWithUsage with usage at top level
-                    streaming_content = StreamingContent(
-                        content=content,
-                        is_done=True,
-                        metadata=metadata,
-                        usage=content.get("usage"),
-                    )
-                    yield streaming_content.to_bytes()
-                    done_sent = True
-                else:
-                    yield _format_as_sse(content)
-
-                if _chunk_signals_done(content, metadata):
-                    done_sent = True
-                    if isinstance(content, bytes | bytearray | str):
-                        text_str = (
-                            content.decode("utf-8", errors="ignore")
-                            if isinstance(content, bytes | bytearray)
-                            else content
-                        )
-                        stripped = text_str.strip()
-                        if stripped in ("[DONE]", '["DONE"]'):
-                            break
-                        if stripped.startswith(("data: [DONE]", 'data: ["DONE"]')):
-                            break
-                    yield b"data: [DONE]\n\n"
-                    break
-
-            if not done_sent:
-                yield b"data: [DONE]\n\n"
-
-        return _adapter()
+        service = StreamFormattingService()
+        return service.stream_as_sse_bytes(it)
 
     def _is_valid_completion_token(self, chunk: Any) -> bool:
         """Check if a chunk contains a valid completion token.
@@ -419,67 +285,7 @@ class BackendService(IBackendService):
         Returns:
             True if chunk contains valid completion content
         """
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-
-        # Extract content from ProcessedResponse if needed
-        content = chunk.content if isinstance(chunk, ProcessedResponse) else chunk
-
-        # Handle bytes
-        if isinstance(content, bytes | bytearray):
-            text = content.decode("utf-8", errors="ignore").strip()
-            # Check for [DONE] markers
-            if text in ("[DONE]", '["DONE"]', "data: [DONE]", 'data: ["DONE"]'):
-                return False
-            # Check for empty/keepalive
-            if not text or text.startswith(":"):
-                return False
-            # SSE comments are keepalives
-            if text.startswith("data:"):
-                data_part = text[5:].strip()
-                if not data_part or data_part in ("[DONE]", '["DONE"]'):
-                    return False
-            return True
-
-        # Handle strings
-        if isinstance(content, str):
-            text = content.strip()
-            if text in ("[DONE]", '["DONE"]', "data: [DONE]", 'data: ["DONE"]'):
-                return False
-            if not text or text.startswith(":"):
-                return False
-            if text.startswith("data:"):
-                data_part = text[5:].strip()
-                if not data_part or data_part in ("[DONE]", '["DONE"]'):
-                    return False
-            return True
-
-        # Handle dict (JSON chunk)
-        if isinstance(content, dict):
-            # Check for actual content
-            choices = content.get("choices", [])
-            if choices:
-                for choice in choices:
-                    delta = choice.get("delta", {})
-                    # Has actual text content
-                    if delta.get("content"):
-                        return True
-                    # Has tool calls
-                    if delta.get("tool_calls"):
-                        return True
-                    # Has function call
-                    if delta.get("function_call"):
-                        return True
-            # Check for direct content field
-            return bool(content.get("content") or content.get("text"))
-
-        # For ProcessedResponse, check metadata for content
-        if isinstance(chunk, ProcessedResponse):
-            if chunk.metadata and chunk.metadata.get("tool_calls"):
-                return True
-            # Already extracted content above
-            return bool(content)
-
-        return False
+        return self._stream_formatting_service.is_valid_completion_token(chunk)
 
     def _wrap_stream_for_usage(
         self,
@@ -488,99 +294,16 @@ class BackendService(IBackendService):
         ptb_record_id: str | None,
         start_time: float,
     ) -> Any:
-        """Wrap stream to track usage metrics on completion."""
-        # Capture service instance locally to satisfy mypy narrowing
-        usage_service = self._usage_tracking_service
+        """Wrap stream to track usage metrics on completion.
 
-        if not usage_service or (not ctp_record_id and not ptb_record_id):
-            return stream
-
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-        from src.core.ports.streaming_contracts import StopChunkWithUsage
-
-        async def _usage_wrapper() -> Any:
-            accumulated_usage = None
-            first_token_time: float | None = None
-            end_time: float | None = None
-
-            try:
-                async for chunk in stream:
-                    # Only set first_token_time on first VALID token
-                    if first_token_time is None and self._is_valid_completion_token(
-                        chunk
-                    ):
-                        first_token_time = time.time()
-
-                    content = (
-                        chunk.content if isinstance(chunk, ProcessedResponse) else chunk
-                    )
-
-                    if isinstance(content, StopChunkWithUsage):
-                        accumulated_usage = content.get("usage")
-                    elif isinstance(content, dict) and "usage" in content:
-                        accumulated_usage = content["usage"]
-
-                    if isinstance(chunk, ProcessedResponse) and chunk.usage:
-                        accumulated_usage = chunk.usage
-
-                    yield chunk
-
-                # Record end time after stream completes
-                end_time = time.time()
-            finally:
-                if accumulated_usage:
-                    completion_tokens = accumulated_usage.get("completion_tokens", 0)
-                    ttft_ms = (
-                        (first_token_time - start_time) * 1000
-                        if first_token_time
-                        else None
-                    )
-                    duration_ms = (time.time() - start_time) * 1000
-
-                    # Calculate stream TPS (tokens per second after first token)
-                    stream_tps: float | None = None
-                    if (
-                        first_token_time is not None
-                        and end_time is not None
-                        and completion_tokens > 0
-                    ):
-                        stream_duration = end_time - first_token_time
-                        if stream_duration > 0:
-                            stream_tps = completion_tokens / stream_duration
-
-                    # Calculate backend wait time (time until first token)
-                    backend_wait_ms = ttft_ms  # Same as TTFT for streaming
-
-                    try:
-                        if ptb_record_id:
-                            await usage_service.record_response(
-                                record_id=ptb_record_id,
-                                completion_tokens=completion_tokens,
-                                backend_reported_usage=accumulated_usage,
-                                http_status_code=200,
-                                ttft_ms=ttft_ms,
-                                stream_tps=stream_tps,
-                                backend_wait_ms=backend_wait_ms,
-                                total_duration_ms=duration_ms,
-                            )
-
-                        if ctp_record_id:
-                            await usage_service.record_response(
-                                record_id=ctp_record_id,
-                                completion_tokens=completion_tokens,
-                                backend_reported_usage=accumulated_usage,
-                                http_status_code=200,
-                                ttft_ms=ttft_ms,
-                                stream_tps=stream_tps,
-                                backend_wait_ms=backend_wait_ms,
-                                total_duration_ms=duration_ms,
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to record stream usage: {e}", exc_info=True
-                        )
-
-        return _usage_wrapper()
+        Note: This method delegates to UsageTrackingWrapper for the actual implementation.
+        """
+        return self._usage_tracking_wrapper.wrap_stream_for_usage(
+            stream=stream,
+            ctp_record_id=ctp_record_id,
+            ptb_record_id=ptb_record_id,
+            start_time=start_time,
+        )
 
     def _normalize_provider_exception(
         self, exc: Exception, backend_type: str
@@ -727,226 +450,12 @@ class BackendService(IBackendService):
         Returns:
             The updated request with reasoning configuration applied
         """
-        try:
-            # Get reasoning configuration from session
-            reasoning_config = getattr(session, "get_reasoning_mode", lambda: None)()
-            if reasoning_config is None:
-                return request
+        applicator = getattr(self, "__dict__", {}).get("_reasoning_config_applicator")
+        if applicator is None:
+            applicator = ReasoningConfigApplicator()
+            self._reasoning_config_applicator = applicator
 
-            # Collect field updates to avoid mutating frozen Pydantic models
-            updates: dict[str, Any] = {}
-
-            extra_body_attr = getattr(request, "extra_body", None)
-            edit_precision_active = False
-            if isinstance(extra_body_attr, dict):
-                try:
-                    edit_precision_active = bool(
-                        extra_body_attr.get("_edit_precision_mode")
-                    )
-                except Exception:
-                    edit_precision_active = False
-            else:
-                edit_precision_active = False
-
-            def _apply_numeric_update(field: str, value: Any) -> None:
-                # Helper to apply numeric overrides while respecting edit precision when active.
-                if value is None:
-                    return
-                numeric_value: Any = value
-                try:
-                    if field in {"temperature", "top_p"}:
-                        numeric_value = float(value)
-                    elif field == "top_k":
-                        numeric_value = int(value)
-                except (TypeError, ValueError):
-                    numeric_value = value
-
-                if edit_precision_active and field in {"temperature", "top_p", "top_k"}:
-                    current_value = getattr(request, field, None)
-                    try:
-                        if current_value is not None:
-                            if field in {"temperature", "top_p"}:
-                                numeric_value = min(
-                                    float(current_value), float(numeric_value)
-                                )
-                            else:
-                                numeric_value = min(
-                                    int(current_value), int(numeric_value)
-                                )
-                    except (TypeError, ValueError):
-                        pass
-
-                updates[field] = numeric_value
-
-            # Apply temperature if set
-            if (
-                hasattr(reasoning_config, "temperature")
-                and reasoning_config.temperature is not None
-            ):
-                _apply_numeric_update("temperature", reasoning_config.temperature)
-
-            # Apply top_p if set (for OpenAI-compatible backends)
-            if (
-                hasattr(reasoning_config, "top_p")
-                and reasoning_config.top_p is not None
-            ):
-                _apply_numeric_update("top_p", reasoning_config.top_p)
-
-            if (
-                hasattr(reasoning_config, "top_k")
-                and reasoning_config.top_k is not None
-            ):
-                _apply_numeric_update("top_k", reasoning_config.top_k)
-
-            # Apply reasoning_effort if set (for OpenAI reasoning models)
-            if (
-                hasattr(reasoning_config, "reasoning_effort")
-                and reasoning_config.reasoning_effort is not None
-            ):
-                updates["reasoning_effort"] = reasoning_config.reasoning_effort
-
-            # Apply thinking_budget if set (for Gemini models)
-            if (
-                hasattr(reasoning_config, "thinking_budget")
-                and reasoning_config.thinking_budget is not None
-            ):
-                updates["thinking_budget"] = reasoning_config.thinking_budget
-
-            # Apply reasoning_config if set
-            if (
-                hasattr(reasoning_config, "reasoning_config")
-                and reasoning_config.reasoning_config is not None
-            ):
-                updates["reasoning"] = reasoning_config.reasoning_config
-
-            # Apply gemini_generation_config if set
-            if (
-                hasattr(reasoning_config, "gemini_generation_config")
-                and reasoning_config.gemini_generation_config is not None
-            ):
-                updates["generation_config"] = reasoning_config.gemini_generation_config
-
-            # Apply planning-phase overrides if active
-            try:
-                planning_cfg = getattr(session.state, "planning_phase_config", None)
-                if planning_cfg and bool(getattr(planning_cfg, "enabled", False)):
-                    overrides = getattr(planning_cfg, "overrides", None)
-                    # overrides may be dict (from AppConfig) or a VO instance (not expected here)
-                    if isinstance(overrides, dict):
-                        if overrides.get("temperature") is not None:
-                            _apply_numeric_update(
-                                "temperature", overrides.get("temperature")
-                            )
-                        if overrides.get("top_p") is not None:
-                            _apply_numeric_update("top_p", overrides.get("top_p"))
-                        if overrides.get("top_k") is not None:
-                            _apply_numeric_update("top_k", overrides.get("top_k"))
-                        if overrides.get("reasoning_effort") is not None:
-                            updates["reasoning_effort"] = overrides.get(
-                                "reasoning_effort"
-                            )
-                        if overrides.get("thinking_budget") is not None:
-                            updates["thinking_budget"] = overrides.get(
-                                "thinking_budget"
-                            )
-                        if overrides.get("reasoning") is not None:
-                            updates["reasoning"] = overrides.get("reasoning")
-                        if overrides.get("generation_config") is not None:
-                            updates["generation_config"] = overrides.get(
-                                "generation_config"
-                            )
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Planning-phase overrides application failed", exc_info=True
-                    )
-
-            if updates:
-                request = request.model_copy(update=updates)
-
-            # Apply prompt prefix and suffix if available in reasoning config
-            # Check if reasoning_config has user_prompt_prefix or user_prompt_suffix attributes
-            prefix = getattr(reasoning_config, "user_prompt_prefix", None)
-            suffix = getattr(reasoning_config, "user_prompt_suffix", None)
-
-            if (
-                (
-                    (prefix is not None and prefix != "")
-                    or (suffix is not None and suffix != "")
-                )
-                and hasattr(request, "messages")
-                and request.messages
-            ):
-                modified_messages = []
-                for message in request.messages:
-                    # Only modify user messages
-                    if getattr(message, "role", "") == "user":
-                        # Handle both string and list content
-                        content = getattr(message, "content", None)
-                        if isinstance(content, str):
-                            new_content = ""
-                            if prefix is not None:
-                                new_content += prefix
-                            new_content += content
-                            if suffix is not None:
-                                new_content += suffix
-                            # Create a new message with modified content
-                            modified_message = message.model_copy(
-                                update={"content": new_content}
-                            )
-                            modified_messages.append(modified_message)
-                        elif isinstance(content, list):
-                            # For multimodal content, modify the first text part
-                            modified_content = []
-                            for part in content:
-                                if (
-                                    hasattr(part, "type")
-                                    and part.type == "text"
-                                    and hasattr(part, "text")
-                                ):
-                                    # Modify the text content
-                                    new_text = ""
-                                    if prefix is not None:
-                                        new_text += prefix
-                                    new_text += part.text
-                                    if suffix is not None:
-                                        new_text += suffix
-                                    modified_part = part.model_copy(
-                                        update={"text": new_text}
-                                    )
-                                    modified_content.append(modified_part)
-                                else:
-                                    modified_content.append(part)
-                            # If no text part was found, add prefix/suffix as a new text part
-                            if not any(
-                                hasattr(part, "type") and part.type == "text"
-                                for part in content
-                            ):
-                                if prefix is not None:
-                                    modified_content.insert(
-                                        0, {"type": "text", "text": prefix}
-                                    )
-                                if suffix is not None:
-                                    modified_content.append(
-                                        {"type": "text", "text": suffix}
-                                    )
-                            modified_message = message.model_copy(
-                                update={"content": modified_content}
-                            )
-                            modified_messages.append(modified_message)
-                        else:
-                            modified_messages.append(message)
-                    else:
-                        modified_messages.append(message)
-                # Update the request with modified messages
-                request = request.model_copy(update={"messages": modified_messages})
-
-        except Exception:
-            # Log but continue if reasoning config application fails
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to apply reasoning config", exc_info=True)
-
-        return request
+        return applicator.apply(request=request, session=session)
 
     def _apply_uri_parameters(
         self,
@@ -975,278 +484,17 @@ class BackendService(IBackendService):
         # Early return if no URI parameters to apply
         if not uri_params:
             return request
+        applicator = getattr(self, "__dict__", {}).get("_uri_parameter_applicator")
+        if applicator is None:
+            applicator = URIParameterApplicator(config=self._config)
+            self._uri_parameter_applicator = applicator
 
-        try:
-
-            def _coerce_parameter(name: str, value: Any) -> Any | None:
-                """Coerce parameter values into canonical types."""
-
-                if value is None:
-                    return None
-
-                try:
-                    if name in {"temperature", "top_p"}:
-                        return float(value)
-                    if name == "top_k":
-                        if isinstance(value, float):
-                            if not value.is_integer():
-                                raise ValueError(f"{value!r} is not an integer value")
-                            return int(value)
-                        if isinstance(value, int):
-                            return value
-
-                        string_value = str(value).strip()
-                        float_value = float(string_value)
-                        if not float_value.is_integer():
-                            raise ValueError(f"{value!r} is not an integer value")
-                        return int(float_value)
-                    if name == "reasoning_effort":
-                        return str(value)
-                except (TypeError, ValueError) as exc:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Failed to coerce raw value {value!r} to type for {name}: {exc}"
-                        )
-                    return None
-
-                return value
-
-            def _assign_param(target: dict[str, Any], name: str, value: Any) -> None:
-                coerced = _coerce_parameter(name, value)
-                if coerced is not None:
-                    target[name] = coerced
-
-            def _assign_from_obj(target: dict[str, Any], obj: Any, name: str) -> None:
-                if obj is None:
-                    return
-                value = getattr(obj, name, None)
-                if value is not None:
-                    _assign_param(target, name, value)
-
-            # Import validation and resolution services
-            from src.core.services.parameter_resolution_service import (
-                ParameterResolutionService,
-            )
-            from src.core.services.uri_parameter_validator import (
-                URIParameterValidator,
-            )
-
-            # Validate and normalize URI parameters
-            try:
-                validator = URIParameterValidator()
-                normalized_uri_params, validation_errors = (
-                    validator.validate_and_normalize(uri_params)
-                )
-
-                # Log validation errors if any
-                if validation_errors and logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"URI parameter validation errors for {backend_type}: {', '.join(validation_errors)}. "
-                        f"Invalid parameters will be excluded from the request."
-                    )
-            except Exception as validation_error:
-                # If validation itself fails, log error and continue without URI params
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"Failed to validate URI parameters for {backend_type}: {validation_error}. "
-                        f"Continuing without URI parameters."
-                    )
-                return request
-
-            # Extract parameters from other sources
-            # 1. Config parameters (from backend config or app config)
-            config_params: dict[str, Any] = {}
-            try:
-                from src.core.config.app_config import AppConfig
-
-                app_config = cast(AppConfig, self._config)
-                backend_config = app_config.backends.get(backend_type)
-                if backend_config:
-                    for param_name in (
-                        "temperature",
-                        "top_p",
-                        "top_k",
-                        "reasoning_effort",
-                    ):
-                        _assign_from_obj(config_params, backend_config, param_name)
-
-                    extra_cfg = getattr(backend_config, "extra", None)
-                    if isinstance(extra_cfg, dict):
-                        for param_name in (
-                            "temperature",
-                            "top_p",
-                            "top_k",
-                            "reasoning_effort",
-                        ):
-                            if param_name in extra_cfg:
-                                _assign_param(
-                                    config_params, param_name, extra_cfg[param_name]
-                                )
-            except Exception as config_error:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Failed to extract config parameters for {backend_type}: {config_error}",
-                        exc_info=True,
-                    )
-
-            # 2. Header parameters (from request extra_body or headers)
-            header_params: dict[str, Any] = {}
-            try:
-                if request.extra_body:
-                    # Check for parameters in extra_body that might come from headers
-                    for param_name in (
-                        "temperature",
-                        "top_p",
-                        "top_k",
-                        "reasoning_effort",
-                    ):
-                        if param_name in request.extra_body:
-                            _assign_param(
-                                header_params,
-                                param_name,
-                                request.extra_body[param_name],
-                            )
-
-                # Also check top-level request fields
-                for param_name in (
-                    "temperature",
-                    "top_p",
-                    "top_k",
-                    "reasoning_effort",
-                ):
-                    value = getattr(request, param_name, None)
-                    if value is not None:
-                        _assign_param(header_params, param_name, value)
-            except Exception as header_error:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Failed to extract header parameters for {backend_type}: {header_error}",
-                        exc_info=True,
-                    )
-
-            # 3. Session parameters (from session reasoning config)
-            session_params: dict[str, Any] = {}
-            if session is not None:
-                try:
-                    reasoning_config = getattr(
-                        session, "get_reasoning_mode", lambda: None
-                    )()
-                    if reasoning_config is not None:
-                        for param_name in (
-                            "temperature",
-                            "top_p",
-                            "top_k",
-                            "reasoning_effort",
-                        ):
-                            _assign_from_obj(
-                                session_params, reasoning_config, param_name
-                            )
-                except Exception as session_error:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Failed to extract session parameters for {backend_type}: {session_error}",
-                            exc_info=True,
-                        )
-
-            # Apply one-shot overrides from edit-precision middleware as session-level overrides
-            try:
-                extra_body = getattr(request, "extra_body", None)
-                if isinstance(extra_body, dict) and extra_body.get(
-                    "_edit_precision_mode"
-                ):
-                    if getattr(request, "temperature", None) is not None:
-                        session_params["temperature"] = request.temperature
-                    if getattr(request, "top_p", None) is not None:
-                        session_params["top_p"] = request.top_p
-                    if getattr(request, "top_k", None) is not None:
-                        session_params["top_k"] = request.top_k
-            except Exception as edit_precision_error:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to apply edit-precision overrides to session parameters: %s",
-                        edit_precision_error,
-                        exc_info=True,
-                    )
-
-            # Resolve parameters using ParameterResolutionService
-            try:
-                resolution_service = ParameterResolutionService()
-                resolved = resolution_service.resolve_parameters(
-                    uri_params=normalized_uri_params,
-                    header_params=header_params,
-                    config_params=config_params,
-                    session_params=session_params,
-                    backend=backend_type,
-                )
-            except Exception as resolution_error:
-                # If parameter resolution fails, log error and continue without URI params
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"Failed to resolve parameters for {backend_type}: {resolution_error}. "
-                        f"Continuing without URI parameters."
-                    )
-                return request
-
-            # Apply resolved parameters to request
-            try:
-                resolved_params = resolved.to_dict()
-                if resolved_params:
-                    # Update request with resolved parameters
-                    updates: dict[str, Any] = {}
-
-                    # Apply temperature
-                    if "temperature" in resolved_params:
-                        updates["temperature"] = resolved_params["temperature"]
-
-                    if "top_p" in resolved_params:
-                        updates["top_p"] = resolved_params["top_p"]
-
-                    if "top_k" in resolved_params:
-                        updates["top_k"] = resolved_params["top_k"]
-
-                    # Apply reasoning_effort
-                    if "reasoning_effort" in resolved_params:
-                        updates["reasoning_effort"] = resolved_params[
-                            "reasoning_effort"
-                        ]
-
-                    # Also update extra_body to ensure parameters are passed through
-                    if request.extra_body:
-                        extra_body = dict(request.extra_body)
-                    else:
-                        extra_body = {}
-
-                    extra_body.update(resolved_params)
-                    updates["extra_body"] = extra_body
-
-                    # Apply updates to request
-                    request = request.model_copy(update=updates)
-
-                    # Emit debug logs showing effective parameter values and sources
-                    debug_info = resolved.get_debug_info()
-                    if debug_info and logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Applied URI parameters to request for {backend_type}: {debug_info}"
-                        )
-            except Exception as apply_error:
-                # If applying parameters fails, log error and return original request
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"Failed to apply resolved parameters to request for {backend_type}: {apply_error}. "
-                        f"Continuing with original request."
-                    )
-                return request
-
-        except Exception as outer_error:
-            # Catch-all for any unexpected errors in URI parameter application
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Unexpected error applying URI parameters to request for {backend_type}: {outer_error}. "
-                    f"Continuing with original request.",
-                    exc_info=True,
-                )
-
-        return request
+        return applicator.apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=session,
+        )
 
     def _get_failover_plan(
         self, model: str, backend_type: str

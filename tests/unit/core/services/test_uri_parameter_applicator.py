@@ -1,0 +1,158 @@
+"""Unit tests for URIParameterApplicator."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.services.backend_service import BackendService
+from src.core.services.uri_parameter_applicator import URIParameterApplicator
+
+
+def _make_config(backend_type: str, extra: dict) -> AppConfig:
+    return AppConfig(
+        backends=BackendSettings(
+            default_backend="openai",
+            **{backend_type: BackendConfig(extra=extra)},
+        )
+    )
+
+
+class TestURIParameterApplicatorPrecedence:
+    """Tests for parameter source precedence."""
+
+    def test_session_overrides_uri(self) -> None:
+        """Session overrides should win over URI parameters for conflicts."""
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={"temperature": 0.9})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            extra_body={"temperature": 0.7},
+        )
+        uri_params = {"temperature": "0.5"}
+
+        session = MagicMock()
+        session.state = SimpleNamespace(planning_phase_config=None)
+        session.get_reasoning_mode = MagicMock(
+            return_value=SimpleNamespace(temperature=0.2)
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=session,
+        )
+
+        assert result.temperature == pytest.approx(0.2)
+
+    def test_uri_overrides_header_and_config_when_no_session(self) -> None:
+        """URI should override header and config in absence of session overrides."""
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={"temperature": 0.9})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            extra_body={"temperature": 0.7},
+        )
+        uri_params = {"temperature": "0.5"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.5)
+
+    def test_edit_precision_promotes_request_sampling_to_session_precedence(
+        self,
+    ) -> None:
+        """Edit-precision mode should treat request sampling as session overrides."""
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            temperature=0.1,
+            extra_body={"_edit_precision_mode": True},
+        )
+        uri_params = {"temperature": "0.9"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.1)
+
+
+class TestURIParameterApplicatorCoercion:
+    """Tests for type coercion behavior."""
+
+    def test_rejects_non_integer_top_k_and_falls_back(self) -> None:
+        """Non-integer top_k values should be ignored."""
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={"top_k": 8})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            extra_body={"top_k": "10.5"},
+        )
+        # Ensure applicator runs, but do not provide top_k via URI
+        uri_params = {"temperature": "0.5"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.top_k == 8
+        assert result.extra_body is not None
+        assert result.extra_body.get("top_k") == 8
+
+
+class TestEquivalenceWithBackendService:
+    """Ensure URIParameterApplicator matches BackendService._apply_uri_parameters."""
+
+    def test_matches_backend_service_on_simple_fixture(self) -> None:
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={"temperature": 0.9})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            extra_body={"temperature": 0.7},
+        )
+        uri_params = {"temperature": "0.5"}
+
+        session = MagicMock()
+        session.state = SimpleNamespace(planning_phase_config=None)
+        session.get_reasoning_mode = MagicMock(
+            return_value=SimpleNamespace(temperature=0.2)
+        )
+
+        backend_service = MagicMock()
+        backend_service._config = config
+
+        backend_result = BackendService._apply_uri_parameters(
+            backend_service, request, uri_params, backend_type, session
+        )
+        applicator_result = URIParameterApplicator(config=config).apply(
+            request, uri_params, backend_type, session
+        )
+
+        assert backend_result.model_dump() == applicator_result.model_dump()

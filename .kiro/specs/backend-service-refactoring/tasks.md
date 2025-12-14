@@ -81,28 +81,28 @@
 
 ## Phase 2: Extract StreamFormattingService
 
-- [ ] 2. Implement StreamFormattingService
-  - [ ] 2.1 Write property test for SSE format consistency (red)
+- [x] 2. Implement StreamFormattingService
+  - [x] 2.1 Write property test for SSE format consistency (red)
     - **Property 1: SSE Format Consistency**
     - **Validates: Requirements 5.1, 5.3**
-  - [ ] 2.2 Write property test for done marker detection (red)
+  - [x] 2.2 Write property test for done marker detection (red)
     - **Property 2: Done Marker Detection**
     - **Validates: Requirements 5.4**
-  - [ ] 2.3 Write property test for valid token identification (red)
+  - [x] 2.3 Write property test for valid token identification (red)
     - **Property 3: Valid Token Identification**
     - **Validates: Requirements 5.2**
-  - [ ] 2.4 Write unit/equivalence tests for StreamFormattingService (red)
+  - [x] 2.4 Write unit/equivalence tests for StreamFormattingService (red)
     - Test SSE encoding for different chunk types
     - Test [DONE] marker handling and pass-through of already framed `data:` chunks
     - Test edge cases (empty chunks, malformed data)
     - Compare `StreamFormattingService` outputs to `BackendService._stream_as_sse_bytes` and `_is_valid_completion_token` on representative fixtures
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 4.6_
-  - [ ] 2.5 Create StreamFormattingService implementation (green)
+  - [x] 2.5 Create StreamFormattingService implementation (green)
     - Create `src/core/services/stream_formatting_service.py`
     - Extract `_stream_as_sse_bytes`, `_is_valid_completion_token`, `_format_as_sse`, `_chunk_signals_done` from BackendService
     - Implement IStreamFormattingService interface
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 4.6_
-  - [ ] 2.6 Phase 2 checkpoint: run focused + smoke tests
+  - [x] 2.6 Phase 2 checkpoint: run focused + smoke tests
     - Run the StreamFormattingService focused suite (see Incremental Integration Loop)
     - Then run a quick BackendService smoke subset: `./.venv/Scripts/python.exe -m pytest tests/unit/transport/test_streaming_done_marker.py tests/unit/core/services/test_backend_service_targeted.py -v`
     - Proceed only if green
@@ -110,22 +110,22 @@
 
 ## Phase 3: Extract UsageTrackingWrapper
 
-- [ ] 3. Implement UsageTrackingWrapper
-  - [ ] 3.1 Write property test for usage accumulation (red)
+- [x] 3. Implement UsageTrackingWrapper
+  - [x] 3.1 Write property test for usage accumulation (red)
     - **Property 4: Usage Accumulation**
     - **Validates: Requirements 6.2, 6.3**
-  - [ ] 3.2 Write unit/equivalence tests for UsageTrackingWrapper (red)
+  - [x] 3.2 Write unit/equivalence tests for UsageTrackingWrapper (red)
     - Test first token time tracking
     - Test usage data accumulation
     - Test TPS calculation
     - Compare wrapper behavior to `BackendService._wrap_stream_for_usage` on fixtures
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 4.6_
-  - [ ] 3.3 Create UsageTrackingWrapper implementation (green)
+  - [x] 3.3 Create UsageTrackingWrapper implementation (green)
     - Create `src/core/services/usage_tracking_wrapper.py`
     - Extract `_wrap_stream_for_usage` from BackendService
     - Implement IUsageTrackingWrapper interface
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 4.6_
-  - [ ] 3.4 Phase 3 checkpoint: run focused + smoke tests
+  - [x] 3.4 Phase 3 checkpoint: run focused + smoke tests
     - Run the UsageTrackingWrapper focused suite (see Incremental Integration Loop)
     - Then run: `./.venv/Scripts/python.exe -m pytest tests/unit/transport/test_streaming_usage_propagation.py -v`
     - Proceed only if green
@@ -133,51 +133,51 @@
 
 ## Phase 4: Extract ModelAliasResolver
 
-- [ ] 4. Implement ModelAliasResolver
-  - [ ] 4.1 Write property test for model alias round-trip (red)
+- [x] 4. Implement ModelAliasResolver
+  - [x] 4.1 Write property test for model alias round-trip (red)
     - **Property 5: Model Alias Round-Trip**
     - **Validates: Requirements 7.1, 7.2**
-  - [ ] 4.2 Write property test for alias graceful degradation (red)
+  - [x] 4.2 Write property test for alias graceful degradation (red)
     - **Property 6: Alias Graceful Degradation**
     - **Validates: Requirements 7.3, 7.4**
-  - [ ] 4.3 Write unit/equivalence tests for ModelAliasResolver (red)
+  - [x] 4.3 Write unit/equivalence tests for ModelAliasResolver (red)
     - Test regex pattern matching
     - Test capture group expansion
     - Test invalid pattern handling
     - Compare to `BackendService._apply_model_aliases` behavior on fixtures
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 4.6_
-  - [ ] 4.4 Create ModelAliasResolver implementation (green)
+  - [x] 4.4 Create ModelAliasResolver implementation (green)
     - Create `src/core/services/model_alias_resolver.py`
     - Extract `_apply_model_aliases` from BackendService
     - Implement IModelAliasResolver interface
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 4.6_
-  - [ ] 4.5 Phase 4 checkpoint: run focused tests
+  - [x] 4.5 Phase 4 checkpoint: run focused tests
     - Run the ModelAliasResolver focused suite (see Incremental Integration Loop)
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
 
 ## Phase 5: Extract URIParameterApplicator
 
-- [ ] 5. Implement URIParameterApplicator
-  - [ ] 5.1 Write property test for parameter precedence (red)
+- [x] 5. Implement URIParameterApplicator
+  - [x] 5.1 Write property test for parameter precedence (red)
     - **Property 7: Parameter Precedence**
     - **Validates: Requirements 8.1, 8.2**
-  - [ ] 5.2 Write property test for parameter type coercion (red)
+  - [x] 5.2 Write property test for parameter type coercion (red)
     - **Property 8: Parameter Type Coercion**
     - **Validates: Requirements 8.3**
-  - [ ] 5.3 Write unit/equivalence tests for URIParameterApplicator (red)
+  - [x] 5.3 Write unit/equivalence tests for URIParameterApplicator (red)
     - Test parameter resolution from multiple sources
     - Test precedence rules
     - Test type coercion
     - Test edit-precision mode handling
     - Compare to `BackendService._apply_uri_parameters` behavior on fixtures
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 4.6_
-  - [ ] 5.4 Create URIParameterApplicator implementation (green)
+  - [x] 5.4 Create URIParameterApplicator implementation (green)
     - Create `src/core/services/uri_parameter_applicator.py`
     - Extract `_apply_uri_parameters` from BackendService
     - Implement IURIParameterApplicator interface
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 4.6_
-  - [ ] 5.5 Phase 5 checkpoint: run focused tests
+  - [x] 5.5 Phase 5 checkpoint: run focused tests
     - Run the URIParameterApplicator focused suite (see Incremental Integration Loop)
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
@@ -188,23 +188,23 @@
 
 ## Phase 6: Extract ReasoningConfigApplicator
 
-- [ ] 7. Implement ReasoningConfigApplicator
-  - [ ] 7.1 Write property test for reasoning config application (red)
+- [x] 7. Implement ReasoningConfigApplicator
+  - [x] 7.1 Write property test for reasoning config application (red)
     - **Property 9: Reasoning Config Application**
     - **Validates: Requirements 9.1, 9.2**
-  - [ ] 7.2 Write unit/equivalence tests for ReasoningConfigApplicator (red)
+  - [x] 7.2 Write unit/equivalence tests for ReasoningConfigApplicator (red)
     - Test temperature, top_p, top_k application
     - Test reasoning_effort and thinking_budget
     - Test prompt prefix/suffix modification
     - Test edit-precision constraints
     - Compare to `BackendService._apply_reasoning_config` behavior on fixtures
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 4.6_
-  - [ ] 7.3 Create ReasoningConfigApplicator implementation (green)
+  - [x] 7.3 Create ReasoningConfigApplicator implementation (green)
     - Create `src/core/services/reasoning_config_applicator.py`
     - Extract `_apply_reasoning_config` from BackendService
     - Implement IReasoningConfigApplicator interface
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 4.6_
-  - [ ] 7.4 Phase 6 checkpoint: run focused tests
+  - [x] 7.4 Phase 6 checkpoint: run focused tests
     - Run the ReasoningConfigApplicator focused suite (see Incremental Integration Loop)
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
