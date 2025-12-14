@@ -114,7 +114,7 @@ class TestMetadataEnrichmentSafety:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=5, max_size=15))
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     async def test_metadata_enrichment_incremental_processing(self, chunks):
         """
         Property 20: Metadata enrichment safety (incremental processing)

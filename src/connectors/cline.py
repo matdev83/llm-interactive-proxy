@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -251,13 +250,6 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         )
         kwargs["headers_override"] = headers_override
 
-        # Extract incoming headers for validation
-        incoming_headers = kwargs.pop("incoming_headers", {}) or {}
-
-        # Validate Cline agent if not overridden
-        if not self._enable_cline_backend_debugging_override:
-            self._validate_cline_agent(incoming_headers)
-
         retry_attempted = False
         while True:
             try:
@@ -280,27 +272,6 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
                 retry_attempted = True
                 await self._invalidate_token_cache()
                 await self._ensure_auth_token(force_reload=True, force_refresh=True)
-
-    def _validate_cline_agent(self, headers: Mapping[str, str]) -> None:
-        """Validate that the request comes from a Cline agent based on headers."""
-        lower_headers = {k.lower(): v for k, v in headers.items()}
-
-        user_agent = lower_headers.get("user-agent", "")
-        x_title = lower_headers.get("x-title", "")
-
-        # Check if "Cline" is present in either User-Agent or X-Title (case-insensitive)
-        is_cline = "cline" in user_agent.lower() or "cline" in x_title.lower()
-
-        if not is_cline:
-            logger.warning(
-                f"Rejected request: missing 'Cline' in User-Agent or X-Title headers. "
-                f"User-Agent: '{user_agent}', X-Title: '{x_title}'. "
-                f"To bypass, use the --enable-cline-backend-debugging-override flag."
-            )
-            raise HTTPException(
-                status_code=403,
-                detail="Forbidden: This backend only accepts requests from Cline clients.",
-            )
 
 
 backend_registry.register_backend("cline", ClineConnector)

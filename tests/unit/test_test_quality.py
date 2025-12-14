@@ -259,18 +259,38 @@ def _run_black_check(directory: Path, project_root: Path) -> dict[str, Any]:
 
 
 def _calculate_directory_hash(directory: Path) -> str:
-    """Calculate a hash of all Python files in the directory for cache invalidation."""
+    """Calculate a hash of all Python files in the directory for cache invalidation.
+
+    Optimized to use directory-level modification time when possible for faster hashing.
+    """
     hasher = hashlib.md5()
 
-    for py_file in directory.rglob("*.py"):
-        try:
-            # Use file path, size, and modification time for hashing
-            file_stat = py_file.stat()
-            file_data = f"{py_file}:{file_stat.st_size}:{file_stat.st_mtime}"
-            hasher.update(file_data.encode())
-        except OSError:
-            # Skip files that can't be accessed
-            continue
+    # First try to use directory modification time as a fast approximation
+    # This is much faster than statting every file
+    try:
+        dir_stat = directory.stat()
+        # Use directory mtime and size as base hash
+        hasher.update(f"{directory}:{dir_stat.st_size}:{dir_stat.st_mtime}".encode())
+    except OSError:
+        pass
+
+    # For more accuracy, sample a subset of files (every 10th file)
+    # This balances speed with cache invalidation accuracy
+    py_files = list(directory.rglob("*.py"))
+    sample_size = min(100, len(py_files))  # Sample up to 100 files
+    step = max(1, len(py_files) // sample_size) if py_files else 1
+
+    for i, py_file in enumerate(py_files):
+        # Sample files for hashing to speed up
+        if i % step == 0:
+            try:
+                file_stat = py_file.stat()
+                # Use relative path, size, and modification time
+                rel_path = py_file.relative_to(directory)
+                file_data = f"{rel_path}:{file_stat.st_size}:{file_stat.st_mtime}"
+                hasher.update(file_data.encode())
+            except OSError:
+                continue
 
     return hasher.hexdigest()
 
@@ -482,26 +502,52 @@ def test_black_formatting_on_src(black_formatting_cache: dict[str, Any]) -> None
         pytest.fail(error_msg)
 
 
-@pytest.mark.quality
-def test_vulture_dead_code_on_src() -> None:
-    """Test that vulture dead code detection passes on the src directory.
+@pytest.fixture(scope="session")
+def vulture_dead_code_cache() -> dict[str, Any]:
+    """Session-scoped cache for vulture dead code scanning results."""
+    project_root = Path(__file__).parent.parent.parent
+    src_dir = project_root / "src"
 
-    This test runs vulture to detect potentially unused/dead code in the src directory.
-    It uses the existing vulture configuration and suppressions to avoid false positives.
-    This helps catch truly unused code that can be safely removed.
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "vulture_dead_code_cache.json"
 
-    The test will fail if any dead code is found with confidence >= 80%.
-    """
-    from pathlib import Path
+    # Calculate hash of src directory for cache invalidation
+    src_hash = _calculate_directory_hash(src_dir)
 
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same directory hash and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
+
+    if (
+        cache.get("src_hash") == src_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "unused_items" in cache
+    ):
+        return cache
+
+    # Run vulture scan
     try:
         import vulture  # type: ignore[import-untyped]
     except ImportError:
-        pytest.skip("vulture package not available. Install with: pip install vulture")
-
-    # Get project root and src directory
-    project_root = Path(__file__).parent.parent.parent
-    src_dir = project_root / "src"
+        cache.update(
+            {
+                "src_hash": src_hash,
+                "timestamp": current_time,
+                "error": "vulture package not available",
+            }
+        )
+        return cache
 
     # Initialize vulture
     v = vulture.Vulture()
@@ -523,7 +569,6 @@ def test_vulture_dead_code_on_src() -> None:
                     # Add non-comment content as suppressed names
                     suppressed_names.add(line)
         except Exception as e:
-            # Use print for warning since logger might not be available in test context
             print(f"Warning: Could not read vulture suppressions file: {e}")
 
     # Scan the src directory
@@ -539,6 +584,88 @@ def test_vulture_dead_code_on_src() -> None:
             and item.name not in suppressed_names
         ):
             unused_items.append(item)
+
+    # Serialize unused items for caching (store minimal info)
+    serialized_items = []
+    for item in unused_items:
+        serialized_items.append(
+            {
+                "filename": item.filename,
+                "name": item.name,
+                "typ": item.typ,
+                "first_lineno": item.first_lineno,
+                "confidence": item.confidence,
+            }
+        )
+
+    # Cache the results
+    cache.update(
+        {
+            "src_hash": src_hash,
+            "timestamp": current_time,
+            "unused_items": serialized_items,
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        # If we can't write cache, continue - not a test failure
+        pass
+
+    return cache
+
+
+@pytest.mark.quality
+def test_vulture_dead_code_on_src(vulture_dead_code_cache: dict[str, Any]) -> None:
+    """Test that vulture dead code detection passes on the src directory.
+
+    This test runs vulture to detect potentially unused/dead code in the src directory.
+    It uses the existing vulture configuration and suppressions to avoid false positives.
+    This helps catch truly unused code that can be safely removed.
+
+    The test will fail if any dead code is found with confidence >= 80%.
+    Uses session-scoped caching for better performance.
+    """
+    # Check if there was an error in the cached result
+    if "error" in vulture_dead_code_cache:
+        if vulture_dead_code_cache["error"] == "vulture package not available":
+            pytest.skip("vulture package not available. Install with: pip install vulture")
+        pytest.fail(f"Vulture scan failed: {vulture_dead_code_cache['error']}")
+
+    # Get unused items from cache
+    serialized_items = vulture_dead_code_cache.get("unused_items", [])
+
+    # If any dead code is found, fail the test
+    if serialized_items:
+        error_lines = []
+        error_lines.append(
+            f"vulture found {len(serialized_items)} potentially dead code items in src/:"
+        )
+
+        # Group by file for better readability
+        files: dict[str, list] = {}
+        for item in serialized_items:
+            filename = item["filename"]
+            if filename not in files:
+                files[filename] = []
+            files[filename].append(item)
+
+        # Format results by file
+        for filename, items in sorted(files.items()):
+            error_lines.append(f"\n{filename}:")
+            for item in sorted(items, key=lambda x: x["first_lineno"]):
+                error_lines.append(
+                    f"  Line {item['first_lineno']}: {item['typ']} '{item['name']}' (confidence: {item['confidence']}%)"
+                )
+
+        error_lines.append(
+            "\nTo suppress false positives, update vulture_suppressions.ini"
+        )
+        error_msg = "\n".join(error_lines)
+        pytest.fail(error_msg)
 
     # If any dead code is found, fail the test
     if unused_items:

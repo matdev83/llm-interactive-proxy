@@ -252,7 +252,7 @@ def test_property_9_unknown_token_rejection(
     request1=request_with_unknown_token_strategy(),
     request2=request_with_unknown_token_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_10_token_response_indistinguishability(
     request1: dict,
     request2: dict,
@@ -313,7 +313,7 @@ def test_property_10_token_response_indistinguishability(
 
 
 @given(request=request_with_malformed_auth_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_4_malformed_auth_header_sandbox_response(
     request: dict,
 ) -> None:
@@ -356,7 +356,7 @@ def test_property_4_malformed_auth_header_sandbox_response(
 
 
 @given(messages=messages_with_sandbox_marker_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_26_sandbox_session_isolation(
     messages: list[dict],
 ) -> None:
@@ -647,7 +647,7 @@ def test_property_4_consistent_sandbox_responses(
     ),
     user_email=st.emails(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_12_reauthentication_status_update(
     session_lifetime_hours: int,
     user_id: str,

@@ -105,11 +105,35 @@ class TestSuiteProtection:
             self.update_stored_test_count(test_count)
 
     def _collect_test_count(self) -> int:
-        """Collect and count all pytest tests using subprocess."""
-        try:
-            # Get project root
-            project_root = Path(__file__).parent.parent
+        """Collect and count all pytest tests using subprocess with caching."""
+        # Get project root
+        project_root = Path(__file__).parent.parent
 
+        # Check cache first - use a cache file based on test file modification times
+        cache_file = self.STATE_FILE_PATH.parent / "test_collection_cache.json"
+        cache_valid = False
+        cached_count = None
+
+        if cache_file.exists():
+            try:
+                with open(cache_file) as f:
+                    cache_data = json.load(f)
+                    # Check if cache is still valid by comparing test directory mtime
+                    tests_dir = project_root / "tests"
+                    if tests_dir.exists():
+                        current_mtime = tests_dir.stat().st_mtime
+                        cached_mtime = cache_data.get("tests_dir_mtime", 0)
+                        if current_mtime == cached_mtime:
+                            cached_count = cache_data.get("test_count")
+                            cache_valid = cached_count is not None
+            except (OSError, json.JSONDecodeError, KeyError):
+                pass
+
+        if cache_valid and cached_count is not None:
+            print(f"Using cached test count: {cached_count}")
+            return cached_count
+
+        try:
             # Run pytest collection with minimal configuration to avoid circular imports
             env = os.environ.copy()
 
@@ -160,26 +184,57 @@ class TestSuiteProtection:
 
                 if test_count > 0:
                     print(f"Parsed test count from collection output: {test_count}")
+                    # Cache the result
+                    self._cache_test_count(test_count, project_root)
                     return test_count
 
             # Fallback: count test functions in Python files
-            return self._count_test_files_manually()
+            manual_count = self._count_test_files_manually()
+            # Cache the result
+            self._cache_test_count(manual_count, project_root)
+            return manual_count
 
         except subprocess.TimeoutExpired:
             print("Warning: pytest collection timed out, using manual counting")
-            return self._count_test_files_manually()
+            manual_count = self._count_test_files_manually()
+            self._cache_test_count(manual_count, project_root)
+            return manual_count
         except Exception as e:
             print(f"Warning: Could not collect tests via subprocess: {e}")
-            return self._count_test_files_manually()
+            manual_count = self._count_test_files_manually()
+            self._cache_test_count(manual_count, project_root)
+            return manual_count
+
+    def _cache_test_count(self, count: int, project_root: Path) -> None:
+        """Cache the test count result."""
+        try:
+            cache_file = self.STATE_FILE_PATH.parent / "test_collection_cache.json"
+            tests_dir = project_root / "tests"
+            tests_dir_mtime = tests_dir.stat().st_mtime if tests_dir.exists() else 0
+
+            cache_data = {
+                "test_count": count,
+                "tests_dir_mtime": tests_dir_mtime,
+            }
+
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w") as f:
+                json.dump(cache_data, f, indent=2)
+        except Exception:
+            # Ignore cache errors - not critical
+            pass
 
     def _count_test_files_manually(self) -> int:
-        """Manual fallback: count test functions in test files."""
+        """Manual fallback: count test functions in test files using regex."""
+        import re
+
         test_count = 0
         tests_dir = (
             Path(__file__).parent.parent / "tests"
         )  # Look in the tests directory
 
-        # Use a more efficient approach that reads files in batches
+        # Use regex to find test function definitions more efficiently
+        test_function_pattern = re.compile(r"^\s*def\s+test_\w+", re.MULTILINE)
 
         for test_file in tests_dir.rglob("test_*.py"):
             if (
@@ -189,14 +244,9 @@ class TestSuiteProtection:
                 try:
                     with open(test_file, encoding="utf-8") as f:
                         content = f.read()
-                        # Count test function definitions more efficiently
-                        # Look for test functions in the file content
-                        lines = content.split("\n")
-                        for line in lines:
-                            if line.strip().startswith("def test_") or (
-                                "def test_" in line and "):" in line
-                            ):
-                                test_count += 1
+                        # Count test function definitions using regex
+                        matches = test_function_pattern.findall(content)
+                        test_count += len(matches)
                 except (UnicodeDecodeError, OSError):
                     continue
 

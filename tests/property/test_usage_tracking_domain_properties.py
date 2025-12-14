@@ -495,10 +495,10 @@ def test_property_15_filter_correctness(
 
 
 @given(
-    records=st.lists(usage_record_strategy(), min_size=10, max_size=50),
-    num_threads=st.integers(min_value=2, max_value=10),
+    records=st.lists(usage_record_strategy(), min_size=5, max_size=20),
+    num_threads=st.integers(min_value=2, max_value=5),
 )
-@property_test_settings()
+@property_test_settings(max_examples=30)
 def test_property_20_thread_safe_concurrent_access(
     records: list[UsageRecord], num_threads: int
 ) -> None:

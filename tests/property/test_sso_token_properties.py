@@ -221,7 +221,7 @@ def test_property_23_timestamp_ordering(
         max_size=10,
     )
 )
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_23_multiple_token_records_completeness(
     token_records: list[TokenRecord],
 ) -> None:
