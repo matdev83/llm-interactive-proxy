@@ -5,7 +5,7 @@ This stage registers backend-related services:
 - Backend registry
 - Backend factory
 - Backend configuration provider
-- Backend service
+- Backend service (only when not already registered by CoreServicesStage)
 """
 
 from __future__ import annotations
@@ -246,6 +246,17 @@ class BackendStage(InitializationStage):
 
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register main backend service with all dependencies."""
+        # CoreServicesStage calls `register_core_services(...)`, which registers
+        # `BackendService` + `IBackendService` along with the extracted refactoring
+        # services. In the default stage order, this BackendStage runs after
+        # CoreServicesStage, so re-registering here would override the fully-wired
+        # BackendService and silently bypass DI for the extracted services.
+        descriptors = getattr(services, "_descriptors", {})
+        if BackendFactory in descriptors:
+            # BackendFactory is frequently (re)registered by this stage; do not treat
+            # it as a signal for BackendService wiring.
+            pass
+
         try:
             from src.core.interfaces.backend_config_provider_interface import (
                 IBackendConfigProvider,
@@ -253,6 +264,14 @@ class BackendStage(InitializationStage):
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.services.backend_service import BackendService
             from src.core.services.rate_limiter import RateLimiter
+
+            # If BackendService / IBackendService is already registered, do not override.
+            if BackendService in descriptors or cast(type, IBackendService) in descriptors:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "BackendService already registered; BackendStage will not override it"
+                    )
+                return
 
             def backend_service_factory(provider: IServiceProvider) -> BackendService:
                 """Factory function for creating BackendService with all dependencies."""

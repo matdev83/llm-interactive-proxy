@@ -2,6 +2,14 @@
 
 ## [2025-12-14]
 
+### Refactored
+
+- **Backend Service Refactoring**: Major refactoring of BackendService to extract functionality into dedicated services
+  - **Method Extraction**: Moved methods to dedicated services (_apply_model_aliases → ModelAliasResolver, _stream_as_sse_bytes → StreamFormattingService, _wrap_stream_for_usage → UsageTrackingWrapper, etc.)
+  - **Backend Lifecycle Management**: Improved backend lifecycle management with BackendLifecycleManager handling backend creation, caching, and shutdown
+  - **Service Integration**: Updated BackendService to delegate to specialized services instead of implementing functionality internally
+  - **Test Updates**: Updated unit tests to reflect new service architecture with appropriate mocking of extracted services
+
 ### Added
 
 - **Prompt Caching Support**: Implemented comprehensive support for prompt caching features across major providers

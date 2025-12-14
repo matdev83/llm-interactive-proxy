@@ -162,7 +162,7 @@ class TestBackendServiceTargeted:
             return_value=("openai", "gpt-4", {})
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(service._backend_lifecycle_manager, "get_or_create", return_value=mock_backend):
             # Act
             response = await service.call_completion(chat_request)
 
@@ -182,7 +182,7 @@ class TestBackendServiceTargeted:
         ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
-                await service._get_or_create_backend("nonexistent-backend")
+                await service._backend_lifecycle_manager.get_or_create("nonexistent-backend")
 
             # Verify the error includes the original message
             assert "Failed to create backend" in str(exc_info.value)
@@ -230,7 +230,7 @@ class TestBackendServiceTargeted:
             patch.object(
                 service._session_service, "get_session", return_value=mock_session
             ),
-            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            patch.object(service._backend_lifecycle_manager, "get_or_create", return_value=mock_backend),
         ):
             # Act
             response = await service.call_completion(chat_request)
@@ -288,9 +288,9 @@ class TestBackendServiceTargeted:
         with patch.object(
             service._factory, "ensure_backend", side_effect=fake_ensure_backend
         ):
-            await service._get_or_create_backend("gemini-cli-acp", session_id="s1")
-            await service._get_or_create_backend("gemini-cli-acp", session_id="s2")
-            await service._get_or_create_backend("gemini-cli-acp", session_id="s3")
+            await service._backend_lifecycle_manager.get_or_create("gemini-cli-acp", session_id="s1")
+            await service._backend_lifecycle_manager.get_or_create("gemini-cli-acp", session_id="s2")
+            await service._backend_lifecycle_manager.get_or_create("gemini-cli-acp", session_id="s3")
 
         assert created_backends[0].shutdown_calls == 1
         
@@ -318,13 +318,13 @@ class TestBackendServiceTargeted:
         ensure_mock = AsyncMock(side_effect=[backend_one, backend_two])
 
         with patch.object(service._factory, "ensure_backend", ensure_mock):
-            resolved_one = await service._get_or_create_backend(
+            resolved_one = await service._backend_lifecycle_manager.get_or_create(
                 "gemini-cli-acp", session_id="session-1"
             )
-            resolved_again = await service._get_or_create_backend(
+            resolved_again = await service._backend_lifecycle_manager.get_or_create(
                 "gemini-cli-acp", session_id="session-1"
             )
-            resolved_two = await service._get_or_create_backend(
+            resolved_two = await service._backend_lifecycle_manager.get_or_create(
                 "gemini-cli-acp", session_id="session-2"
             )
 
@@ -403,7 +403,7 @@ class TestBackendServiceTargeted:
         )
 
         with (
-            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            patch.object(service._backend_lifecycle_manager, "get_or_create", return_value=mock_backend),
             pytest.raises(BackendError) as exc_info,
         ):
             await service.call_completion(chat_request, allow_failover=False)

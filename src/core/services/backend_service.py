@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections import OrderedDict
 from typing import Any, cast
 from uuid import uuid4
 
@@ -62,14 +61,11 @@ from src.core.services.failover_service import FailoverService
 
 logger = logging.getLogger(__name__)
 
-
 class BackendService(IBackendService):
     """Service for interacting with LLM backends.
 
     This service manages backend selection, rate limiting, and failover.
     """
-
-
 
     def __init__(
         self,
@@ -222,12 +218,6 @@ class BackendService(IBackendService):
             )
         else:
             self._uri_parameter_applicator = uri_parameter_applicator
-
-        self._backends: dict[str, LLMBackend] = {}
-        self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
-        # _per_session_backend_limit already calculated above
-        # Registry for permanently disabled backends {backend_type: {reason, timestamp}}
-        self._disabled_backends: dict[str, dict[str, Any]] = {}
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
 
@@ -287,32 +277,6 @@ class BackendService(IBackendService):
     def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
         """Return True when the cache key maps to a session-scoped backend."""
         return cache_key != backend_type
-
-    async def _enforce_per_session_backend_limit(self) -> None:
-        """Ensure the per-session backend cache does not grow without bound."""
-        # Managed by BackendLifecycleManager, no-op in BackendService
-
-    async def _shutdown_backend(self, backend: LLMBackend) -> None:
-        """Shutdown the backend if it has a shutdown method."""
-        await self._backend_lifecycle_manager.shutdown(backend)
-
-    def _apply_model_aliases(self, model: str) -> str:
-        """Applies the first matching model alias rule to the model name.
-
-        Args:
-            model: The original model name
-
-        Returns:
-            The rewritten model name, or the original if no rules match
-
-        Note: This method delegates to ModelAliasResolver for the actual implementation.
-        """
-        return self._model_alias_resolver.resolve(model)
-
-    @staticmethod
-    def _stream_as_sse_bytes(
-        it: Any,
-    ) -> Any:
         """Adapt a stream of domain chunks into SSE-encoded bytes.
 
         Accepts an async iterator that may yield ProcessedResponse, dict, str, or bytes
@@ -323,49 +287,6 @@ class BackendService(IBackendService):
         StreamFormattingService for the actual implementation.
         """
         from src.core.services.stream_formatting_service import StreamFormattingService
-
-        service = StreamFormattingService()
-        return service.stream_as_sse_bytes(it)
-
-    def _is_valid_completion_token(self, chunk: Any) -> bool:
-        """Check if a chunk contains a valid completion token.
-
-        A valid completion token is one that:
-        - Is not empty or whitespace-only
-        - Is not a [DONE] marker
-        - Contains actual content (text delta or tool call)
-
-        Args:
-            chunk: The chunk to validate
-
-        Returns:
-            True if chunk contains valid completion content
-        """
-        return self._stream_formatting_service.is_valid_completion_token(chunk)
-
-    def _wrap_stream_for_usage(
-        self,
-        stream: Any,
-        ctp_record_id: str | None,
-        ptb_record_id: str | None,
-        start_time: float,
-    ) -> Any:
-        """Wrap stream to track usage metrics on completion.
-
-        Note: This method delegates to UsageTrackingWrapper for the actual implementation.
-        """
-        return self._usage_tracking_wrapper.wrap_stream_for_usage(
-            stream=stream,
-            ctp_record_id=ctp_record_id,
-            ptb_record_id=ptb_record_id,
-            start_time=start_time,
-        )
-
-    def _normalize_provider_exception(
-        self, exc: Exception, backend_type: str
-    ) -> Exception:
-        """Translate provider exceptions into domain-specific errors when possible."""
-        return self._exception_normalizer.normalize(exc, backend_type)
 
     def _resolve_stream_session_id(
         self,
@@ -398,53 +319,6 @@ class BackendService(IBackendService):
             return str(context_request_id)
 
         return uuid4().hex
-
-    def _apply_reasoning_config(
-        self, request: ChatRequest, session: Any
-    ) -> ChatRequest:
-        """Apply reasoning configuration from session to the request.
-
-        Args:
-            request: The chat completion request
-            session: The session containing reasoning configuration
-
-
-
-        Returns:
-            The updated request with reasoning configuration applied
-        """
-        return self._reasoning_config_applicator.apply(request=request, session=session)
-
-    def _apply_uri_parameters(
-        self,
-        request: ChatRequest,
-        uri_params: dict[str, Any],
-        backend_type: str,
-        session: Any | None = None,
-    ) -> ChatRequest:
-        """Apply URI parameters to request using parameter resolution service.
-
-        This method resolves parameters from multiple sources with precedence:
-        1. Session commands (highest priority)
-        2. URI parameters
-        3. Request headers
-        4. Configuration file (lowest priority)
-
-        Args:
-            request: The chat completion request
-            uri_params: Parameters extracted from model string URI
-            backend_type: Backend type for logging context
-            session: Session object (for session command overrides)
-
-        Returns:
-            The updated request with resolved parameters applied
-        """
-        return self._uri_parameter_applicator.apply(
-            request=request,
-            uri_params=uri_params,
-            backend_type=backend_type,
-            session=session,
-        )
 
     def _get_failover_plan(
         self, model: str, backend_type: str
@@ -501,18 +375,27 @@ class BackendService(IBackendService):
             return plan
 
         filtered: list[tuple[str, str]] = []
+        disabled_backends = self._backend_lifecycle_manager.get_disabled_backends()
+        active_backends = self._backend_lifecycle_manager.get_active_backends()
         for backend_name, model_name in plan:
             # Check permanently disabled registry first
-            if backend_name in self._disabled_backends:
+            if backend_name in disabled_backends:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Skipping backend %s (permanently disabled: %s) in failover plan",
                         backend_name,
-                        self._disabled_backends[backend_name].get("reason", "unknown"),
+                        disabled_backends[backend_name].get("reason", "unknown"),
                     )
                 continue
 
-            backend = self._backends.get(backend_name)
+            backend = active_backends.get(backend_name)
+            if backend is None:
+                # Some backends are session-scoped and cached under keys like
+                # "<backend>:<session_id>" or "<backend>:default". If we have an
+                # active instance for the requested backend type, reuse it for
+                # health filtering.
+                backend = active_backends.get(f"{backend_name}:default")
+
             if backend is None:
                 # Backend not yet created, include it (health unknown)
                 filtered.append((backend_name, model_name))
@@ -564,7 +447,9 @@ class BackendService(IBackendService):
             if request_failover_routes
             else self._failover_routes
         )
-        disabled_info = self._disabled_backends.get(backend_type)
+        disabled_info = self._backend_lifecycle_manager.get_disabled_backends().get(
+            backend_type
+        )
 
         # Handle complex failover if configured for this model
         if allow_failover and effective_model in effective_failover_routes:
@@ -667,7 +552,7 @@ class BackendService(IBackendService):
 
             # Initialize backend only after passing rate limiting checks
             try:
-                backend = await self._get_or_create_backend(
+                backend = await self._backend_lifecycle_manager.get_or_create(
                     backend_type, session_id=session_id_for_backend
                 )
             except (TypeError, ValueError, AttributeError, KeyError) as e:
@@ -794,7 +679,7 @@ class BackendService(IBackendService):
             # Apply session reasoning configuration if available
             if session is not None:
                 try:
-                    domain_request = self._apply_reasoning_config(
+                    domain_request = self._reasoning_config_applicator.apply(
                         domain_request, session
                     )
                 except Exception:
@@ -812,7 +697,7 @@ class BackendService(IBackendService):
             # Apply URI parameters with precedence resolution
             if uri_params:
                 try:
-                    domain_request = self._apply_uri_parameters(
+                    domain_request = self._uri_parameter_applicator.apply(
                         domain_request, uri_params, backend_type, session
                     )
                 except Exception:
@@ -995,7 +880,7 @@ class BackendService(IBackendService):
                         and self._usage_tracking_service
                         and (ctp_record_id or ptb_record_id)
                     ):
-                        result.content = self._wrap_stream_for_usage(
+                        result.content = self._usage_tracking_wrapper.wrap_stream_for_usage(
                             result.content, ctp_record_id, ptb_record_id, start_time
                         )
                     elif (
@@ -1061,7 +946,7 @@ class BackendService(IBackendService):
                             )
                         backend.mark_auth_invalid(str(exc))
                         self._factory.unregister_backend(backend_type)
-                        self._discard_backend(
+                        self._backend_lifecycle_manager.discard(
                             backend_type, session_id_for_backend, reason=str(exc)
                         )
                     # For non-static (recoverable) backends, just raise.
@@ -1085,7 +970,7 @@ class BackendService(IBackendService):
                             str(getattr(exc, "detail", "Unauthorized"))
                         )
                         self._factory.unregister_backend(backend_type)
-                        self._discard_backend(
+                        self._backend_lifecycle_manager.discard(
                             backend_type,
                             session_id_for_backend,
                             reason=str(getattr(exc, "detail", "Unauthorized")),
@@ -1105,7 +990,7 @@ class BackendService(IBackendService):
                                 )
                             backend.mark_auth_invalid(getattr(be, "message", str(be)))
                             self._factory.unregister_backend(backend_type)
-                            self._discard_backend(
+                            self._backend_lifecycle_manager.discard(
                                 backend_type,
                                 session_id_for_backend,
                                 reason=getattr(be, "message", str(be)),
@@ -1133,7 +1018,7 @@ class BackendService(IBackendService):
 
                         if isinstance(result, StreamingResponseEnvelope):
                             # Adapt domain stream to bytes for capture and transport
-                            byte_stream = self._stream_as_sse_bytes(result.content)
+                            byte_stream = self._stream_formatting_service.stream_as_sse_bytes(result.content)
                             wrapped_stream = self._wire_capture.wrap_inbound_stream(
                                 context=context,
                                 session_id=session_id,
@@ -1260,7 +1145,7 @@ class BackendService(IBackendService):
                         getattr(call_exc, "status_code", None),
                     )
 
-                call_exc = self._normalize_provider_exception(call_exc, backend_type)
+                call_exc = self._exception_normalizer.normalize(call_exc, backend_type)
 
                 # Store retry-after in backend instance if this is a rate limit error
                 if isinstance(call_exc, RateLimitExceededError) and hasattr(
@@ -1516,7 +1401,7 @@ class BackendService(IBackendService):
     ) -> tuple[bool, str | None]:
         """Validate that a backend and model combination is valid"""
         try:
-            backend_instance: LLMBackend = await self._get_or_create_backend(backend)
+            backend_instance: LLMBackend = await self._backend_lifecycle_manager.get_or_create(backend)
 
             available_models: list[str] = backend_instance.get_available_models()
             if model in available_models:
@@ -1533,14 +1418,6 @@ class BackendService(IBackendService):
     # NOTE: Legacy rate limit backoff methods (_enforce_rate_limit_backoff,
     # _register_rate_limit_backoff) have been removed. Rate limiting is now
     # handled by the ResilienceCoordinator via the resilience layer.
-
-    async def _get_or_create_backend(
-        self, backend_type: str, session_id: str | None = None
-    ) -> LLMBackend:
-        """Get an existing backend or create a new one."""
-        return await self._backend_lifecycle_manager.get_or_create(
-            backend_type, session_id
-        )
 
     def get_backend(self, backend_type: str) -> LLMBackend:
         """Get a backend instance synchronously (for testing purposes)."""
@@ -1575,43 +1452,6 @@ class BackendService(IBackendService):
             context=context,
         )
 
-    async def _apply_planning_phase_if_needed(
-        self, session: Any, default_backend: str
-    ) -> None:
-        """Apply planning phase model override if conditions are met.
-
-        Args:
-            session: The current session
-            default_backend: Default backend for model parsing
-        """
-        await self._planning_phase_manager.apply_if_needed(session, default_backend)
-
-    async def _update_planning_phase_counters(
-        self, session_id: str, response: Any
-    ) -> None:
-        """Update planning phase counters after a successful completion.
-
-        Args:
-            session_id: The session ID
-            response: The response envelope containing metadata
-        """
-        await self._planning_phase_manager.update_counters(session_id, response)
-
-    async def _restore_planning_phase_route(self, session: Any) -> None:
-        """Restore the original backend/model after planning phase concludes."""
-        # Managed by PlanningPhaseManager, no-op in BackendService
-
-    def _count_file_writes_in_response(self, response: Any) -> int:
-        """Count file write tool calls in a response.
-
-        Args:
-            response: The response envelope
-
-        Returns:
-            Number of file write operations detected
-        """
-        return self._planning_phase_manager.count_file_writes(response)
-
     async def _resolve_backend_and_model(
         self, request: ChatRequest
     ) -> tuple[str, str, dict[str, Any]]:
@@ -1632,10 +1472,12 @@ class BackendService(IBackendService):
             else "openai"
         )
 
-        await self._apply_planning_phase_if_needed(session, default_backend)
+        await self._planning_phase_manager.apply_if_needed(session, default_backend)
 
         backend_type: str | None = None
-        excluded_backends = set(self._disabled_backends.keys())
+        excluded_backends = set(
+            self._backend_lifecycle_manager.get_disabled_backends().keys()
+        )
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -1653,7 +1495,7 @@ class BackendService(IBackendService):
         effective_model: str = request.model
 
         # Apply model aliases BEFORE parsing backend from model name
-        effective_model = self._apply_model_aliases(effective_model)
+        effective_model = self._model_alias_resolver.resolve(effective_model)
 
         # Parse model string with URI parameters
         uri_params: dict[str, Any] = {}
@@ -1883,8 +1725,6 @@ class BackendService(IBackendService):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Attempt failover using the provided plan.
 
-
-
         Args:
             request: The original request
             plan: List of (backend, model) tuples to attempt
@@ -1893,8 +1733,6 @@ class BackendService(IBackendService):
 
         Returns:
             Response from the first successful attempt
-
-
 
         Raises:
             BackendError: If all attempts fail
@@ -1957,7 +1795,7 @@ class BackendService(IBackendService):
         Returns:
              A dictionary mapping backend instance names to LLMBackend objects.
         """
-        return self._backends.copy()
+        return self._backend_lifecycle_manager.get_active_backends()
 
     async def _apply_failure_strategy(
         self,
@@ -2024,10 +1862,3 @@ class BackendService(IBackendService):
     # Failure handling is now managed by the IFailureHandlingStrategy,
     # which is integrated directly into call_completion().
 
-    def _discard_backend(
-        self, backend_type: str, session_id: str | None, reason: str = "Unknown"
-    ) -> None:
-        """
-        Discard a backend instance from internal caches.
-        """
-        self._backend_lifecycle_manager.discard(backend_type, session_id, reason)

@@ -231,6 +231,10 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         """Check if backend is permanently disabled."""
         return backend_type in self._disabled_backends
 
+    def get_disabled_backends(self) -> dict[str, dict[str, Any]]:
+        """Get the permanently disabled backend registry."""
+        return dict(self._disabled_backends)
+
     def get_active_backends(self) -> dict[str, LLMBackend]:
         """Get all active backend instances."""
         # Merge global and per-session backends
