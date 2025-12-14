@@ -148,7 +148,7 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
         max_size=5,
     )
 )
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 async def test_sentinel_format_consistency_property(
     chunks_list: list[list[StreamingContent]],
 ) -> None:

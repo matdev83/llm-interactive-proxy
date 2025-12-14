@@ -1,4 +1,7 @@
+import hashlib
+import json
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -57,8 +60,86 @@ def run_pymarkdown_scan(file_path: Path) -> tuple[bool, str]:
         return False, f"Error running pymarkdown: {e}"
 
 
+@pytest.fixture(scope="session")
+def markdown_validation_cache() -> dict:
+    """Session-scoped cache for markdown validation results."""
+    project_root = get_project_root()
+
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "markdown_validation_cache.json"
+
+    # Files to check
+    markdown_files = [
+        project_root / "README.md",
+        project_root / "AGENTS.md",
+        project_root / "CONTRIBUTING.md",
+        project_root / "CHANGELOG.md",
+    ]
+
+    # Calculate hash of markdown files for cache invalidation
+    hasher = hashlib.md5()
+    for md_file in markdown_files:
+        if md_file.exists():
+            try:
+                file_stat = md_file.stat()
+                hasher.update(f"{md_file}:{file_stat.st_size}:{file_stat.st_mtime}".encode())
+            except OSError:
+                pass
+    files_hash = hasher.hexdigest()
+
+    # Load existing cache or create empty cache
+    cache: dict = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same file hashes and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
+
+    if (
+        cache.get("files_hash") == files_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "results" in cache
+    ):
+        return cache
+
+    # Run validation and cache results
+    results = {}
+    for md_file in markdown_files:
+        if not md_file.exists():
+            results[md_file.name] = {"success": False, "output": "File not found"}
+            continue
+
+        success, output = run_pymarkdown_scan(md_file)
+        results[md_file.name] = {"success": success, "output": output}
+
+    # Cache the results
+    cache.update(
+        {
+            "files_hash": files_hash,
+            "timestamp": current_time,
+            "results": results,
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
+
+
 @pytest.mark.quality
-def test_markdown_syntax_validation() -> None:
+def test_markdown_syntax_validation(markdown_validation_cache: dict) -> None:
     """
     Test that all documentation Markdown files have valid syntax.
 
@@ -69,32 +150,17 @@ def test_markdown_syntax_validation() -> None:
     - CHANGELOG.md
 
     The test will fail if any formatting issues are detected.
+    Uses session-scoped caching for better performance.
     """
-    project_root = get_project_root()
-
-    # Files to check
-    markdown_files = [
-        project_root / "README.md",
-        project_root / "AGENTS.md",
-        project_root / "CONTRIBUTING.md",
-        project_root / "CHANGELOG.md",
-    ]
+    results = markdown_validation_cache.get("results", {})
 
     # Track all failures
     failures = []
 
-    # Scan each file
-    for md_file in markdown_files:
-        # Check if file exists
-        if not md_file.exists():
-            failures.append(f"{md_file.name}: File not found")
-            continue
-
-        # Run pymarkdown scan
-        success, output = run_pymarkdown_scan(md_file)
-
-        if not success:
-            failures.append(f"{md_file.name}:\n{output}")
+    # Check cached results
+    for filename, result in results.items():
+        if not result.get("success", False):
+            failures.append(f"{filename}:\n{result.get('output', '')}")
 
     # Report all failures together
     if failures:

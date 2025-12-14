@@ -199,12 +199,22 @@ class TestBackendApplicator:
         applicator.apply(empty_args, overrides, resolution)
 
         assert "backends" in overrides
+        # Flags should be nested in backend-specific extra config
+        assert "antigravity" in overrides["backends"]
+        assert "extra" in overrides["backends"]["antigravity"]
         assert (
-            overrides["backends"].get("enable_antigravity_backend_debugging_override")
+            overrides["backends"]["antigravity"]["extra"].get(
+                "enable_antigravity_backend_debugging_override"
+            )
             is True
         )
+        assert "cline" in overrides["backends"]
+        assert "extra" in overrides["backends"]["cline"]
         assert (
-            overrides["backends"].get("enable_cline_backend_debugging_override") is True
+            overrides["backends"]["cline"]["extra"].get(
+                "enable_cline_backend_debugging_override"
+            )
+            is True
         )
 
     def test_no_modifications_when_all_none_or_false(

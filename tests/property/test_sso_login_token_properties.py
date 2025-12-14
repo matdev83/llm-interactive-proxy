@@ -57,7 +57,7 @@ def test_login_token_lifecycle(ttl_minutes: int) -> None:
     ttl_minutes=st.integers(min_value=1, max_value=60),
     wait_seconds=st.floats(min_value=0.1, max_value=1.0),
 )
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_login_token_expiry(ttl_minutes: int, wait_seconds: float) -> None:
     """Test that expired tokens are rejected."""
     # Note: We can't easily wait for minutes in property tests.

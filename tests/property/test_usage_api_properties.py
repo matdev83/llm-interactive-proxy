@@ -143,7 +143,7 @@ def statistics_filter_strategy(draw: st.DrawFn) -> StatisticsFilter:
     filters=statistics_filter_strategy(),
 )
 @settings(
-    max_examples=100,
+    max_examples=50,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

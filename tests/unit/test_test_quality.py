@@ -667,57 +667,53 @@ def test_vulture_dead_code_on_src(vulture_dead_code_cache: dict[str, Any]) -> No
         error_msg = "\n".join(error_lines)
         pytest.fail(error_msg)
 
-    # If any dead code is found, fail the test
-    if unused_items:
-        error_lines = []
-        error_lines.append(
-            f"vulture found {len(unused_items)} potentially dead code items in src/:"
-        )
 
-        # Group by file for better readability
-        files: dict[str, list] = {}
-        for item in unused_items:
-            filename = item.filename
-            if filename not in files:
-                files[filename] = []
-            files[filename].append(item)
+@pytest.fixture(scope="session")
+def vulture_dead_code_strict_cache() -> dict[str, Any]:
+    """Session-scoped cache for vulture strict dead code scanning results."""
+    project_root = Path(__file__).parent.parent.parent
+    src_dir = project_root / "src"
 
-        # Format results by file
-        for filename, items in sorted(files.items()):
-            error_lines.append(f"\n{filename}:")
-            for item in sorted(items, key=lambda x: x.first_lineno):
-                error_lines.append(
-                    f"  Line {item.first_lineno}: {item.typ} '{item.name}' (confidence: {item.confidence}%)"
-                )
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "vulture_dead_code_strict_cache.json"
 
-        error_lines.append(
-            "\nTo suppress false positives, update vulture_suppressions.ini"
-        )
-        error_msg = "\n".join(error_lines)
-        pytest.fail(error_msg)
+    # Calculate hash of src directory for cache invalidation
+    src_hash = _calculate_directory_hash(src_dir)
 
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
 
-@pytest.mark.quality
-def test_vulture_dead_code_on_src_strict() -> None:
-    """Test that vulture dead code detection passes on the src directory with 100% confidence.
+    # Check if cache is valid (same directory hash and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
 
-    This test runs vulture to detect potentially unused/dead code in the src directory
-    with a strict confidence level of 100%. It uses the existing vulture configuration
-    and suppressions to avoid false positives.
+    if (
+        cache.get("src_hash") == src_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "unused_items" in cache
+    ):
+        return cache
 
-    The test will fail if any dead code is found with confidence >= 100%.
-    This is a stricter version of the existing vulture test.
-    """
-    from pathlib import Path
-
+    # Run vulture scan
     try:
         import vulture  # type: ignore[import-untyped]
     except ImportError:
-        pytest.skip("vulture package not available. Install with: pip install vulture")
-
-    # Get project root and src directory
-    project_root = Path(__file__).parent.parent.parent
-    src_dir = project_root / "src"
+        cache.update(
+            {
+                "src_hash": src_hash,
+                "timestamp": current_time,
+                "error": "vulture package not available",
+            }
+        )
+        return cache
 
     # Initialize vulture
     v = vulture.Vulture()
@@ -739,7 +735,6 @@ def test_vulture_dead_code_on_src_strict() -> None:
                     # Add non-comment content as suppressed names
                     suppressed_names.add(line)
         except Exception as e:
-            # Use print for warning since logger might not be available in test context
             print(f"Warning: Could not read vulture suppressions file: {e}")
 
     # Scan the src directory
@@ -756,17 +751,74 @@ def test_vulture_dead_code_on_src_strict() -> None:
         ):
             unused_items.append(item)
 
+    # Serialize unused items for caching
+    serialized_items = []
+    for item in unused_items:
+        serialized_items.append(
+            {
+                "filename": item.filename,
+                "name": item.name,
+                "typ": item.typ,
+                "first_lineno": item.first_lineno,
+                "confidence": item.confidence,
+            }
+        )
+
+    # Cache the results
+    cache.update(
+        {
+            "src_hash": src_hash,
+            "timestamp": current_time,
+            "unused_items": serialized_items,
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
+
+
+@pytest.mark.quality
+def test_vulture_dead_code_on_src_strict(
+    vulture_dead_code_strict_cache: dict[str, Any],
+) -> None:
+    """Test that vulture dead code detection passes on the src directory with 100% confidence.
+
+    This test runs vulture to detect potentially unused/dead code in the src directory
+    with a strict confidence level of 100%. It uses the existing vulture configuration
+    and suppressions to avoid false positives.
+
+    The test will fail if any dead code is found with confidence >= 100%.
+    This is a stricter version of the existing vulture test.
+    Uses session-scoped caching for better performance.
+    """
+    # Check if there was an error in the cached result
+    if "error" in vulture_dead_code_strict_cache:
+        if vulture_dead_code_strict_cache["error"] == "vulture package not available":
+            pytest.skip("vulture package not available. Install with: pip install vulture")
+        pytest.fail(
+            f"Vulture scan failed: {vulture_dead_code_strict_cache['error']}"
+        )
+
+    # Get unused items from cache
+    serialized_items = vulture_dead_code_strict_cache.get("unused_items", [])
+
     # If any dead code is found at 100% confidence, fail the test
-    if unused_items:
+    if serialized_items:
         error_lines = []
         error_lines.append(
-            f"vulture found {len(unused_items)} potentially dead code items in src/ at 100% confidence:"
+            f"vulture found {len(serialized_items)} potentially dead code items in src/ at 100% confidence:"
         )
 
         # Group by file for better readability
         files: dict[str, list] = {}
-        for item in unused_items:
-            filename = item.filename
+        for item in serialized_items:
+            filename = item["filename"]
             if filename not in files:
                 files[filename] = []
             files[filename].append(item)
@@ -774,9 +826,9 @@ def test_vulture_dead_code_on_src_strict() -> None:
         # Format results by file
         for filename, items in sorted(files.items()):
             error_lines.append(f"\n{filename}:")
-            for item in sorted(items, key=lambda x: x.first_lineno):
+            for item in sorted(items, key=lambda x: x["first_lineno"]):
                 error_lines.append(
-                    f"  Line {item.first_lineno}: {item.typ} '{item.name}' (confidence: {item.confidence}%)"
+                    f"  Line {item['first_lineno']}: {item['typ']} '{item['name']}' (confidence: {item['confidence']}%)"
                 )
 
         error_lines.append(

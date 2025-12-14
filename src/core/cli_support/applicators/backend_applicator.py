@@ -317,11 +317,19 @@ class BackendApplicator:
             ("enable_anthropic_oauth_backend_debugging_override", "anthropic_oauth"),
         ]
 
-        for flag_name, _short_name in debug_flags:
+        for flag_name, backend_name in debug_flags:
             if getattr(args, flag_name, False):
-                backend_overrides[flag_name] = True
+                # Put the flag in the backend-specific extra config
+                # e.g., backends.cline.extra.enable_cline_backend_debugging_override
+                backend_key = backend_name.replace("-", "_")
+                if backend_key not in backend_overrides:
+                    backend_overrides[backend_key] = {}
+                if "extra" not in backend_overrides[backend_key]:
+                    backend_overrides[backend_key]["extra"] = {}
+                backend_overrides[backend_key]["extra"][flag_name] = True
+                
                 resolution.record(
-                    f"backends.{flag_name}",
+                    f"backends.{backend_key}.extra.{flag_name}",
                     True,
                     ParameterSource.CLI,
                     origin=f"--{flag_name.replace('_', '-')}",
