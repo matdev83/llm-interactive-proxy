@@ -288,13 +288,13 @@
 
 ## Phase 10: Refactor BackendService
 
-- [ ] 12. Refactor BackendService to use extracted services
-  - [ ] 12.1 Update BackendService constructor
+- [x] 12. Refactor BackendService to use extracted services
+  - [x] 12.1 Update BackendService constructor
     - Add optional parameters for all new service interfaces
     - Create default implementations when not provided
     - Remove inline imports from method bodies
     - _Requirements: 2.3, 2.4, 2.5_
-  - [ ] 12.2 Replace inline implementations with service calls
+  - [x] 12.2 Replace inline implementations with service calls
     - Replace `_stream_as_sse_bytes` with `stream_formatting_service.stream_as_sse_bytes`
     - Replace `_is_valid_completion_token` with `stream_formatting_service.is_valid_completion_token`
     - Replace `_wrap_stream_for_usage` with `usage_tracking_wrapper.wrap_stream_for_usage`
@@ -305,7 +305,7 @@
     - Replace backend lifecycle methods with `backend_lifecycle_manager` calls
     - Replace `_normalize_provider_exception` with `exception_normalizer.normalize`
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7_
-  - [ ] 12.3 Replace extracted methods with delegating wrappers
+  - [x] 12.3 Replace extracted methods with delegating wrappers
     - Keep the existing helper/private method names and signatures in BackendService
     - Replace their bodies to call the corresponding extracted service
     - Ensure existing tests and debugging scripts continue to work unchanged
@@ -321,8 +321,8 @@
 
 ## Phase 11: DI Container Integration
 
-- [ ] 13. Register new services in DI container
-  - [ ] 13.1 Update src/core/di/services.py
+- [x] 13. Register new services in DI container
+  - [x] 13.1 Update src/core/di/services.py
     - Add factory functions for each new service
     - Register services with their interfaces
     - Update BackendService factory to inject new services

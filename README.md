@@ -136,7 +136,7 @@ See [Backends Overview](docs/user_guide/backends/overview.md) for full details a
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU AGPL v3.0 or later](LICENSE).
 
 ## Development
 

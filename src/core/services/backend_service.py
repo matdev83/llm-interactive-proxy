@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import AsyncIterator
 from typing import Any, cast
 from uuid import uuid4
 
@@ -60,6 +61,7 @@ from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
 
 logger = logging.getLogger(__name__)
+
 
 class BackendService(IBackendService):
     """Service for interacting with LLM backends.
@@ -277,6 +279,11 @@ class BackendService(IBackendService):
     def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
         """Return True when the cache key maps to a session-scoped backend."""
         return cache_key != backend_type
+
+    @staticmethod
+    def _stream_as_sse_bytes(
+        stream: AsyncIterator[Any],
+    ) -> AsyncIterator[bytes]:
         """Adapt a stream of domain chunks into SSE-encoded bytes.
 
         Accepts an async iterator that may yield ProcessedResponse, dict, str, or bytes
@@ -287,6 +294,9 @@ class BackendService(IBackendService):
         StreamFormattingService for the actual implementation.
         """
         from src.core.services.stream_formatting_service import StreamFormattingService
+
+        service = StreamFormattingService()
+        return service.stream_as_sse_bytes(stream)
 
     def _resolve_stream_session_id(
         self,
@@ -709,15 +719,18 @@ class BackendService(IBackendService):
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
-                
+
                 # Fetch config from provider instead of relying on side effects in self._backend_configs
                 from src.core.config.app_config import BackendConfig
+
                 provider_backend_config = None
                 if self._backend_config_service:
-                    config_or_app = self._backend_config_service.get_backend_config(backend_type)
+                    config_or_app = self._backend_config_service.get_backend_config(
+                        backend_type
+                    )
                     if isinstance(config_or_app, BackendConfig):
                         provider_backend_config = config_or_app
-                
+
                 # Fallback to cached config if available (legacy support)
                 if provider_backend_config is None:
                     provider_backend_config = self._backend_configs.get(backend_type)
@@ -880,8 +893,10 @@ class BackendService(IBackendService):
                         and self._usage_tracking_service
                         and (ctp_record_id or ptb_record_id)
                     ):
-                        result.content = self._usage_tracking_wrapper.wrap_stream_for_usage(
-                            result.content, ctp_record_id, ptb_record_id, start_time
+                        result.content = (
+                            self._usage_tracking_wrapper.wrap_stream_for_usage(
+                                result.content, ctp_record_id, ptb_record_id, start_time
+                            )
                         )
                     elif (
                         isinstance(result, ResponseEnvelope)
@@ -1018,7 +1033,11 @@ class BackendService(IBackendService):
 
                         if isinstance(result, StreamingResponseEnvelope):
                             # Adapt domain stream to bytes for capture and transport
-                            byte_stream = self._stream_formatting_service.stream_as_sse_bytes(result.content)
+                            byte_stream = (
+                                self._stream_formatting_service.stream_as_sse_bytes(
+                                    result.content
+                                )
+                            )
                             wrapped_stream = self._wire_capture.wrap_inbound_stream(
                                 context=context,
                                 session_id=session_id,
@@ -1401,7 +1420,9 @@ class BackendService(IBackendService):
     ) -> tuple[bool, str | None]:
         """Validate that a backend and model combination is valid"""
         try:
-            backend_instance: LLMBackend = await self._backend_lifecycle_manager.get_or_create(backend)
+            backend_instance: LLMBackend = (
+                await self._backend_lifecycle_manager.get_or_create(backend)
+            )
 
             available_models: list[str] = backend_instance.get_available_models()
             if model in available_models:
@@ -1862,3 +1883,81 @@ class BackendService(IBackendService):
     # Failure handling is now managed by the IFailureHandlingStrategy,
     # which is integrated directly into call_completion().
 
+    # =========================================================================
+    # Delegating wrappers for backward compatibility
+    # These methods delegate to extracted services but preserve the original
+    # method signatures for tests and debugging scripts.
+    # =========================================================================
+
+    def _wrap_stream_for_usage(
+        self,
+        stream: AsyncIterator[Any],
+        ctp_record_id: str | None,
+        ptb_record_id: str | None,
+        start_time: float,
+    ) -> AsyncIterator[Any]:
+        """Wrap stream to track usage metrics.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._usage_tracking_wrapper.wrap_stream_for_usage(
+            stream, ctp_record_id, ptb_record_id, start_time
+        )
+
+    def _apply_model_aliases(self, model: str) -> str:
+        """Apply configured model aliases and return resolved model name.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._model_alias_resolver.resolve(model)
+
+    def _apply_reasoning_config(
+        self, request: ChatRequest, session: Any
+    ) -> ChatRequest:
+        """Apply reasoning configuration from session to request.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._reasoning_config_applicator.apply(request, session)
+
+    def _apply_uri_parameters(
+        self,
+        request: ChatRequest,
+        uri_params: dict[str, Any],
+        backend_type: str,
+        session: Any | None = None,
+    ) -> ChatRequest:
+        """Apply URI parameters to request with precedence resolution.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._uri_parameter_applicator.apply(
+            request, uri_params, backend_type, session
+        )
+
+    def _is_valid_completion_token(self, chunk: Any) -> bool:
+        """Check if chunk contains valid completion content.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._stream_formatting_service.is_valid_completion_token(chunk)
+
+    def _normalize_provider_exception(
+        self, exc: Exception, backend_type: str
+    ) -> Exception:
+        """Translate provider exception to domain error.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return self._exception_normalizer.normalize(exc, backend_type)
+
+    async def _get_or_create_backend(
+        self, backend_type: str, session_id: str | None = None
+    ) -> LLMBackend:
+        """Get existing backend or create new one.
+
+        Delegating wrapper for backward compatibility.
+        """
+        return await self._backend_lifecycle_manager.get_or_create(
+            backend_type, session_id
+        )

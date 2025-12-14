@@ -11,7 +11,6 @@ from src.core.domain.chat import (
     ChatRequest,
     MessageContentPartText,
 )
-from src.core.services.backend_service import BackendService
 from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
 
 
@@ -162,7 +161,7 @@ class TestReasoningConfigApplicatorPromptModification:
 
 
 class TestEquivalenceWithBackendService:
-    """Ensure ReasoningConfigApplicator matches BackendService._apply_reasoning_config."""
+    """Ensure ReasoningConfigApplicator applies expected transformations."""
 
     def test_matches_backend_service_on_fixture(self) -> None:
         request = ChatRequest(
@@ -186,10 +185,11 @@ class TestEquivalenceWithBackendService:
         session.state = SimpleNamespace(planning_phase_config=None)
         session.get_reasoning_mode = MagicMock(return_value=reasoning_mode)
 
-        backend_service = MagicMock()
-        backend_result = BackendService._apply_reasoning_config(
-            backend_service, request, session
-        )
         applicator_result = ReasoningConfigApplicator().apply(request, session)
 
-        assert backend_result.model_dump() == applicator_result.model_dump()
+        # Verify that the applicator applied the expected reasoning config
+        assert applicator_result.temperature == 0.7
+        assert applicator_result.top_p == 0.9
+        assert applicator_result.top_k == 32
+        assert applicator_result.reasoning_effort == "high"
+        assert applicator_result.messages[0].content == "P:Hello:S"

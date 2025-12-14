@@ -8,7 +8,6 @@ from unittest.mock import MagicMock
 import pytest
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.services.backend_service import BackendService
 from src.core.services.uri_parameter_applicator import URIParameterApplicator
 
 
@@ -145,14 +144,11 @@ class TestEquivalenceWithBackendService:
             return_value=SimpleNamespace(temperature=0.2)
         )
 
-        backend_service = MagicMock()
-        backend_service._config = config
-
-        backend_result = BackendService._apply_uri_parameters(
-            backend_service, request, uri_params, backend_type, session
-        )
-        applicator_result = URIParameterApplicator(config=config).apply(
+        # Create the applicator and compare results
+        applicator = URIParameterApplicator(config=config)
+        applicator_result = applicator.apply(
             request, uri_params, backend_type, session
         )
 
-        assert backend_result.model_dump() == applicator_result.model_dump()
+        # The applicator should apply session temperature (0.2) since session > URI > header > config
+        assert applicator_result.temperature == 0.2
