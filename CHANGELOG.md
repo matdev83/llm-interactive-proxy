@@ -9,6 +9,7 @@
   - **Backend Lifecycle Management**: Improved backend lifecycle management with BackendLifecycleManager handling backend creation, caching, and shutdown
   - **Service Integration**: Updated BackendService to delegate to specialized services instead of implementing functionality internally
   - **Test Updates**: Updated unit tests to reflect new service architecture with appropriate mocking of extracted services
+  - **Completion**: Marked backend service refactoring as completed in project specifications
 
 ### Added
 
@@ -18,6 +19,13 @@
   - **Beta Header Handling**: Automatically extracts and forwards `anthropic-beta` headers from client requests
   - **Gemini/OpenAI Compatibility**: Validated support for Gemini's explicit/implicit caching and OpenAI's automatic prefix caching mechanisms via existing passthrough logic
   - **Test Coverage**: Added unit tests for converter logic, controller header handling, and domain serialization to ensure robustness
+
+### Changed
+
+- **Project Documentation**: Updated project steering documents with condensed, high-signal information
+  - **Structure Guide**: Simplified architecture overview focusing on key directories and change locations
+  - **Tech Stack**: Streamlined technology stack documentation with canonical commands and patterns
+  - **Product Overview**: Condensed product features with links to detailed documentation
 
 ## [2025-12-13]
 

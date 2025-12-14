@@ -21,9 +21,8 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 
 ### 2. Multi-Backend Routing
 - **Major Providers**: OpenAI, Anthropic, Google Gemini, OpenRouter
-- **Regional Providers**: ZAI (Zhipu), Qwen (Alibaba), MiniMax (Hailuo)
-- **Specialized**: Hybrid (two-phase reasoning), ZenMux (aggregator)
-- **OAuth Support**: Gemini OAuth (free/paid tiers), Qwen OAuth, Anthropic OAuth
+- **More Providers**: Additional connectors exist (see `docs/user_guide/backends/overview.md`)
+- **OAuth Support**: OAuth flows exist for selected backends (see `docs/user_guide/backends/overview.md`)
 
 ### 3. Intelligence & Safety
 - **Test Execution Reminder**: Automatically reminds agents to run tests (14+ languages)
@@ -74,5 +73,7 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 
 ---
 
-_Generated: 2025-01-XX_
-_Focus on patterns and purpose, not exhaustive feature lists_
+**License**: AGPL-3.0-or-later (see `LICENSE`)
+
+_Updated: 2025-12-14_
+_Focus on patterns and purpose; link out for exhaustive catalogs_
