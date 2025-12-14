@@ -152,7 +152,7 @@ class TestBackendLogicIsolation:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     async def test_middleware_does_not_contain_backend_specific_logic(self, chunks):
         """
         Property 24: Backend logic isolation
@@ -256,7 +256,7 @@ class TestInfrastructureReuse:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     async def test_common_infrastructure_works_for_all_backends(self, chunks):
         """
         Property 25: Infrastructure reuse

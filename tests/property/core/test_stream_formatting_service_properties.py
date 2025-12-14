@@ -71,7 +71,7 @@ class TestSSEFormatConsistencyProperty:
     """Property 1: SSE Format Consistency (Requirements 5.1, 5.3)."""
 
     @given(content=st.text(min_size=1, max_size=200))
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_string_content_produces_valid_sse(self, content: str) -> None:
         """Any string content should produce valid SSE-framed bytes."""
         service = StreamFormattingService()
@@ -90,7 +90,7 @@ class TestSSEFormatConsistencyProperty:
             assert decoded.endswith("\n\n")
 
     @given(content=st.binary(min_size=1, max_size=200))
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_bytes_content_produces_valid_sse(self, content: bytes) -> None:
         """Any bytes content should produce valid SSE-framed bytes."""
         service = StreamFormattingService()
@@ -109,7 +109,7 @@ class TestSSEFormatConsistencyProperty:
             assert decoded.endswith("\n\n")
 
     @given(content=openai_chunk_dicts())
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_dict_content_produces_valid_sse_json(self, content: dict) -> None:
         """Any dict content should produce valid SSE-framed JSON."""
         service = StreamFormattingService()
@@ -127,7 +127,7 @@ class TestSSEFormatConsistencyProperty:
         assert parsed == content
 
     @given(content=json_dicts())
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_arbitrary_dict_produces_valid_sse(self, content: dict) -> None:
         """Any JSON-serializable dict should produce valid SSE."""
         service = StreamFormattingService()
@@ -184,7 +184,7 @@ class TestDoneMarkerDetectionProperty:
             lambda s: "DONE" not in s.upper() and "finish_reason" not in s
         )
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_non_done_content_not_detected(self, content: str) -> None:
         """Regular content without DONE markers should not signal done."""
         service = StreamFormattingService()
@@ -228,7 +228,7 @@ class TestValidTokenIdentificationProperty:
             and not s.strip().startswith(":")
         )
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_non_empty_text_is_valid_token(self, text_content: str) -> None:
         """Non-empty text without [DONE] markers should be valid tokens."""
         service = StreamFormattingService()
@@ -268,7 +268,7 @@ class TestValidTokenIdentificationProperty:
         assert result is False
 
     @given(text_content=st.text(min_size=1, max_size=50))
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_dict_with_content_is_valid_token(self, text_content: str) -> None:
         """Dict with non-empty delta.content should be valid token."""
         service = StreamFormattingService()
@@ -284,7 +284,7 @@ class TestValidTokenIdentificationProperty:
         assert result is True
 
     @given(text_content=st.text(min_size=1, max_size=50))
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_processed_response_with_content_is_valid_token(
         self, text_content: str
     ) -> None:

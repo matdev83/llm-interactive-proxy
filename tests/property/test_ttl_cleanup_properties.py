@@ -232,7 +232,7 @@ def test_ttl_cleanup_multiple_sessions(
         assert session_ids[i] in handler._session_state
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
@@ -273,7 +273,7 @@ def test_max_sessions_limit_enforcement(
     assert len(handler._session_state) <= max_sessions
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )

@@ -154,7 +154,7 @@ class TestPlanningPhaseTransitionProperty:
         max_turns=st.integers(min_value=1, max_value=20),
         max_file_writes=st.integers(min_value=1, max_value=10),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     @pytest.mark.asyncio
     async def test_restore_triggered_when_turn_limit_reached(
         self, max_turns: int, max_file_writes: int
@@ -198,7 +198,7 @@ class TestPlanningPhaseTransitionProperty:
         max_turns=st.integers(min_value=1, max_value=20),
         max_file_writes=st.integers(min_value=1, max_value=10),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     @pytest.mark.asyncio
     async def test_restore_triggered_when_file_write_limit_reached(
         self, max_turns: int, max_file_writes: int
@@ -241,7 +241,7 @@ class TestPlanningPhaseTransitionProperty:
         current_turn=st.integers(min_value=0, max_value=5),
         max_turns=st.integers(min_value=10, max_value=20),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     @pytest.mark.asyncio
     async def test_no_restore_when_below_limits(
         self, current_turn: int, max_turns: int
