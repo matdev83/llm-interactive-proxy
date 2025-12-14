@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 import time
 from collections import OrderedDict
@@ -15,11 +14,10 @@ from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
-    InvalidRequestError,
     LLMProxyError,
     RateLimitExceededError,
 )
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -27,8 +25,12 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
+)
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.failover_interface import (
     IFailoverCoordinator,
     IFailoverStrategy,
@@ -38,20 +40,25 @@ from src.core.interfaces.failure_strategy_interface import (
     IFailureHandlingStrategy,
 )
 from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
+from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
+from src.core.interfaces.reasoning_config_applicator_interface import (
+    IReasoningConfigApplicator,
+)
 from src.core.interfaces.resilience_interface import (
     IResilienceCoordinator,
 )
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.interfaces.uri_parameter_applicator_interface import (
+    IURIParameterApplicator,
+)
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
-from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
-from src.core.services.uri_parameter_applicator import URIParameterApplicator
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +69,7 @@ class BackendService(IBackendService):
     This service manages backend selection, rate limiting, and failover.
     """
 
-    _stream_formatting_service: IStreamFormattingService | None = None
-    _usage_tracking_wrapper: IUsageTrackingWrapper | None = None
-    _model_alias_resolver: IModelAliasResolver | None = None
-    _exception_normalizer: IExceptionNormalizer | None = None
-    _backend_lifecycle_manager: IBackendLifecycleManager | None = None
-    _planning_phase_manager: IPlanningPhaseManager | None = None
-    _reasoning_config_applicator: IReasoningConfigApplicator | None = None
-    _uri_parameter_applicator: IURIParameterApplicator | None = None
+
 
     def __init__(
         self,
@@ -291,7 +291,6 @@ class BackendService(IBackendService):
     async def _enforce_per_session_backend_limit(self) -> None:
         """Ensure the per-session backend cache does not grow without bound."""
         # Managed by BackendLifecycleManager, no-op in BackendService
-        pass
 
     async def _shutdown_backend(self, backend: LLMBackend) -> None:
         """Shutdown the backend if it has a shutdown method."""
@@ -853,7 +852,7 @@ class BackendService(IBackendService):
                     )
 
                 # Populate session turn count if session is available
-                if session and hasattr(session, "history"):
+                if session and hasattr(session, "history") and identity:
                     identity = identity.model_copy(
                         update={"session_turn_count": len(session.history)}
                     )
@@ -1601,7 +1600,6 @@ class BackendService(IBackendService):
     async def _restore_planning_phase_route(self, session: Any) -> None:
         """Restore the original backend/model after planning phase concludes."""
         # Managed by PlanningPhaseManager, no-op in BackendService
-        pass
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.

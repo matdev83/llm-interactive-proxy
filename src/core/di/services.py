@@ -47,6 +47,21 @@ from src.core.interfaces.backend_request_manager_interface import (
     IBackendRequestManager,
 )
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
+)
+from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
+from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
+from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
+from src.core.interfaces.reasoning_config_applicator_interface import (
+    IReasoningConfigApplicator,
+)
+from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.interfaces.uri_parameter_applicator_interface import (
+    IURIParameterApplicator,
+)
+from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
+from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
@@ -107,6 +122,14 @@ from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
+from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+from src.core.services.exception_normalizer import ExceptionNormalizer
+from src.core.services.model_alias_resolver import ModelAliasResolver
+from src.core.services.planning_phase_manager import PlanningPhaseManager
+from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+from src.core.services.stream_formatting_service import StreamFormattingService
+from src.core.services.uri_parameter_applicator import URIParameterApplicator
+from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
 from src.core.services.command_processor import CommandProcessor
 from src.core.services.dangerous_command_service import DangerousCommandService
 from src.core.services.failover_service import FailoverService
@@ -2563,6 +2586,125 @@ def register_core_services(
         implementation_factory=_failure_handling_strategy_factory,
     )
 
+    # Register extracted services for BackendService
+
+    # StreamFormattingService
+    _add_singleton(StreamFormattingService)
+    try:
+        services.add_singleton(cast(type, IStreamFormattingService), StreamFormattingService)
+    except Exception:
+        pass
+
+    # UsageTrackingWrapper
+    def _usage_tracking_wrapper_factory(provider: IServiceProvider) -> UsageTrackingWrapper:
+        usage_service = provider.get_service(IUsageTrackingService)
+        stream_service = provider.get_required_service(IStreamFormattingService)
+        return UsageTrackingWrapper(
+            usage_tracking_service=usage_service,
+            stream_formatting_service=stream_service,
+        )
+
+    _add_singleton(UsageTrackingWrapper, implementation_factory=_usage_tracking_wrapper_factory)
+    try:
+        services.add_singleton(
+            cast(type, IUsageTrackingWrapper),
+            implementation_factory=_usage_tracking_wrapper_factory,
+        )
+    except Exception:
+        pass
+
+    # ModelAliasResolver
+    def _model_alias_resolver_factory(provider: IServiceProvider) -> ModelAliasResolver:
+        config = provider.get_required_service(AppConfig)
+        return ModelAliasResolver(config=config)
+
+    _add_singleton(ModelAliasResolver, implementation_factory=_model_alias_resolver_factory)
+    try:
+        services.add_singleton(
+            cast(type, IModelAliasResolver),
+            implementation_factory=_model_alias_resolver_factory,
+        )
+    except Exception:
+        pass
+
+    # URIParameterApplicator
+    def _uri_parameter_applicator_factory(provider: IServiceProvider) -> URIParameterApplicator:
+        config = provider.get_required_service(AppConfig)
+        return URIParameterApplicator(config=config)
+
+    _add_singleton(URIParameterApplicator, implementation_factory=_uri_parameter_applicator_factory)
+    try:
+        services.add_singleton(
+            cast(type, IURIParameterApplicator),
+            implementation_factory=_uri_parameter_applicator_factory,
+        )
+    except Exception:
+        pass
+
+    # ReasoningConfigApplicator
+    _add_singleton(ReasoningConfigApplicator)
+    try:
+        services.add_singleton(cast(type, IReasoningConfigApplicator), ReasoningConfigApplicator)
+    except Exception:
+        pass
+
+    # PlanningPhaseManager
+    def _planning_phase_manager_factory(provider: IServiceProvider) -> PlanningPhaseManager:
+        session_service = provider.get_required_service(ISessionService)
+        return PlanningPhaseManager(session_service=session_service)
+
+    _add_singleton(PlanningPhaseManager, implementation_factory=_planning_phase_manager_factory)
+    try:
+        services.add_singleton(
+            cast(type, IPlanningPhaseManager),
+            implementation_factory=_planning_phase_manager_factory,
+        )
+    except Exception:
+        pass
+
+    # BackendLifecycleManager
+    def _backend_lifecycle_manager_factory(provider: IServiceProvider) -> BackendLifecycleManager:
+        from src.core.services.backend_factory import BackendFactory
+        
+        factory = provider.get_required_service(BackendFactory)
+        config = provider.get_required_service(AppConfig)
+        backend_config_provider = provider.get_service(IBackendConfigProvider)
+        
+        # Helper to resolve per-session limit (duplicate logic from BackendService for now,
+        # or we could make it a static method on BackendService or move to config utils)
+        default_limit = 32
+        per_session_limit = default_limit
+        try:
+            if hasattr(config, "session"):
+                per_session_limit = getattr(
+                    config.session, "max_per_session_backends", default_limit
+                )
+        except Exception:
+            pass
+
+        return BackendLifecycleManager(
+            factory=factory,
+            config=config,
+            backend_config_provider=backend_config_provider,
+            per_session_limit=per_session_limit,
+        )
+
+    _add_singleton(BackendLifecycleManager, implementation_factory=_backend_lifecycle_manager_factory)
+    try:
+        services.add_singleton(
+            cast(type, IBackendLifecycleManager),
+            implementation_factory=_backend_lifecycle_manager_factory,
+        )
+    except Exception:
+        pass
+
+    # ExceptionNormalizer
+    _add_singleton(ExceptionNormalizer)
+    try:
+        services.add_singleton(cast(type, IExceptionNormalizer), ExceptionNormalizer)
+    except Exception:
+        pass
+
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
         # Import required modules
@@ -2674,6 +2816,17 @@ def register_core_services(
                 "429 retry handling will be disabled."
             )
 
+        # Get extracted services
+        stream_formatting_service = provider.get_required_service(IStreamFormattingService)
+        usage_tracking_wrapper = provider.get_required_service(IUsageTrackingWrapper)
+        model_alias_resolver = provider.get_required_service(IModelAliasResolver)
+        exception_normalizer = provider.get_required_service(IExceptionNormalizer)
+        backend_lifecycle_manager = provider.get_required_service(IBackendLifecycleManager)
+        planning_phase_manager = provider.get_required_service(IPlanningPhaseManager)
+        reasoning_config_applicator = provider.get_required_service(IReasoningConfigApplicator)
+        uri_parameter_applicator = provider.get_required_service(IURIParameterApplicator)
+        usage_tracking_service = provider.get_service(IUsageTrackingService)
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -2688,6 +2841,15 @@ def register_core_services(
             routing_service=routing_service,
             resilience_coordinator=resilience_coordinator,
             failure_handling_strategy=failure_handling_strategy,
+            usage_tracking_service=usage_tracking_service,
+            stream_formatting_service=stream_formatting_service,
+            usage_tracking_wrapper=usage_tracking_wrapper,
+            model_alias_resolver=model_alias_resolver,
+            exception_normalizer=exception_normalizer,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            planning_phase_manager=planning_phase_manager,
+            reasoning_config_applicator=reasoning_config_applicator,
+            uri_parameter_applicator=uri_parameter_applicator,
         )
 
     # Register backend service and bind to interface

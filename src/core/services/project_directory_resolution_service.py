@@ -178,6 +178,13 @@ class ProjectDirectoryResolutionService:
         if pure_path.suffix:
             pure_path = pure_path.parent
 
+        # Heuristic: If the path ends in a common source/test directory (e.g. src, lib, tests),
+        # assume the user meant the parent project root.
+        if pure_path.name.lower() in ("src", "source", "lib", "tests", "test", "bin"):
+            # Ensure we don't strip the root (though unlikely with these names)
+            if len(pure_path.parts) > (1 if path_type in ("windows", "unc") else 1):
+                pure_path = pure_path.parent
+
         normalized = str(pure_path)
         if path_type == "unc":
             normalized = self._normalize_unc_path(normalized)

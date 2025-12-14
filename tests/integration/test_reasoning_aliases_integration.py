@@ -21,6 +21,7 @@ from src.core.domain.configuration.reasoning_aliases_config import (
 )
 from src.core.domain.session import Session
 from src.core.services.backend_service import BackendService
+from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
 
 
 class TestReasoningAliasesIntegration:
@@ -189,6 +190,7 @@ class TestReasoningAliasesIntegration:
 
         # Create backend service (we'll just test the method directly)
         backend_service = MagicMock(spec=BackendService)
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config using our method
         from src.core.services.backend_service import (
@@ -247,6 +249,7 @@ class TestReasoningAliasesIntegration:
 
         # Create backend service (we'll just test the method directly)
         backend_service = MagicMock(spec=BackendService)
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config using our method
         from src.core.services.backend_service import (
@@ -290,6 +293,7 @@ class TestReasoningAliasesIntegration:
 
         # Create backend service (we'll just test the method directly)
         backend_service = MagicMock(spec=BackendService)
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config using our method
         from src.core.services.backend_service import (
