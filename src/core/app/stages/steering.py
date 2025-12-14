@@ -171,7 +171,7 @@ class SteeringStage(InitializationStage):
         )
 
         # Synthesize legacy apply_diff rule if enabled and missing
-        if getattr(reactor_config, "apply_diff_steering_enabled", True):
+        if getattr(reactor_config, "apply_diff_steering_enabled", False):
             has_apply_rule = False
             for r in effective_rules:
                 triggers = (r or {}).get("triggers") or {}

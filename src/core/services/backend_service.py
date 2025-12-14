@@ -62,6 +62,15 @@ class BackendService(IBackendService):
     This service manages backend selection, rate limiting, and failover.
     """
 
+    _stream_formatting_service: IStreamFormattingService | None = None
+    _usage_tracking_wrapper: IUsageTrackingWrapper | None = None
+    _model_alias_resolver: IModelAliasResolver | None = None
+    _exception_normalizer: IExceptionNormalizer | None = None
+    _backend_lifecycle_manager: IBackendLifecycleManager | None = None
+    _planning_phase_manager: IPlanningPhaseManager | None = None
+    _reasoning_config_applicator: IReasoningConfigApplicator | None = None
+    _uri_parameter_applicator: IURIParameterApplicator | None = None
+
     def __init__(
         self,
         factory: BackendFactory,
@@ -158,6 +167,11 @@ class BackendService(IBackendService):
         else:
             self._exception_normalizer = exception_normalizer
 
+        # Resolve per-session limit early for lifecycle manager
+        self._per_session_backend_limit = self._resolve_per_session_backend_limit(
+            config
+        )
+
         # Backend lifecycle manager - create default if not provided
         if backend_lifecycle_manager is None:
             from src.core.services.backend_lifecycle_manager import (
@@ -169,6 +183,7 @@ class BackendService(IBackendService):
                     factory=factory,
                     config=config,
                     backend_config_provider=backend_config_provider,
+                    per_session_limit=self._per_session_backend_limit,
                 )
             )
         else:
@@ -210,9 +225,7 @@ class BackendService(IBackendService):
 
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
-        self._per_session_backend_limit = self._resolve_per_session_backend_limit(
-            config
-        )
+        # _per_session_backend_limit already calculated above
         # Registry for permanently disabled backends {backend_type: {reason, timestamp}}
         self._disabled_backends: dict[str, dict[str, Any]] = {}
         from src.core.config.app_config import AppConfig
@@ -277,32 +290,12 @@ class BackendService(IBackendService):
 
     async def _enforce_per_session_backend_limit(self) -> None:
         """Ensure the per-session backend cache does not grow without bound."""
-        limit = max(self._per_session_backend_limit, 1)
-        while len(self._per_session_backends) > limit:
-            evicted_key, evicted_backend = self._per_session_backends.popitem(
-                last=False
-            )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicting per-session backend %s due to cache limit %d",
-                    evicted_key,
-                    limit,
-                )
-            await self._shutdown_backend(evicted_backend)
+        # Managed by BackendLifecycleManager, no-op in BackendService
+        pass
 
     async def _shutdown_backend(self, backend: LLMBackend) -> None:
         """Shutdown the backend if it has a shutdown method."""
-        shutdown = getattr(backend, "shutdown", None)
-        if shutdown is None:
-            return
-
-        try:
-            if inspect.iscoroutinefunction(shutdown):  # type: ignore[arg-type]
-                await shutdown()
-            else:
-                shutdown()
-        except Exception:
-            logger.exception("Error shutting down backend %s", backend.backend_type)
+        await self._backend_lifecycle_manager.shutdown(backend)
 
     def _apply_model_aliases(self, model: str) -> str:
         """Applies the first matching model alias rule to the model name.
@@ -373,100 +366,7 @@ class BackendService(IBackendService):
         self, exc: Exception, backend_type: str
     ) -> Exception:
         """Translate provider exceptions into domain-specific errors when possible."""
-        if isinstance(exc, BackendError | RateLimitExceededError):
-            return exc
-
-        if isinstance(exc, HTTPException) and getattr(exc, "status_code", None) == 429:
-            detail_payload = getattr(exc, "detail", None)
-            message: str | None = None
-
-            if isinstance(detail_payload, dict):
-                message = detail_payload.get("message")
-                if not message:
-                    error_block = detail_payload.get("error")
-                    if isinstance(error_block, dict):
-                        message = error_block.get("message")
-            if not message and detail_payload is not None:
-                message = str(detail_payload)
-            if not message:
-                message = "Rate limit exceeded"
-
-            headers = getattr(exc, "headers", None)
-            retry_after_seconds: float | None = None
-            if isinstance(headers, dict):
-                retry_after_raw = headers.get("Retry-After") or headers.get(
-                    "retry-after"
-                )
-                if retry_after_raw is not None:
-                    try:
-                        retry_after_seconds = float(retry_after_raw)
-                    except (TypeError, ValueError):
-                        retry_after_seconds = None
-
-            reset_at = (
-                time.time() + retry_after_seconds
-                if isinstance(retry_after_seconds, int | float)
-                else None
-            )
-
-            if isinstance(
-                detail_payload,
-                dict | list | tuple | str | int | float | bool | type(None),
-            ):
-                serialized_detail = detail_payload
-            else:
-                serialized_detail = str(detail_payload)
-
-            details: dict[str, Any] = {
-                "backend": backend_type,
-                "status_code": 429,
-                "detail": serialized_detail,
-            }
-            if isinstance(headers, dict) and headers:
-                details["headers"] = dict(headers)
-
-            return RateLimitExceededError(
-                message=message,
-                details=details,
-                reset_at=reset_at,
-            )
-
-        if isinstance(exc, HTTPException):
-            status_code = getattr(exc, "status_code", None)
-            detail_payload = getattr(exc, "detail", None)
-
-            http_message: str | None = None
-            if isinstance(detail_payload, dict):
-                http_message = detail_payload.get("message") or detail_payload.get(
-                    "error", {}
-                ).get(
-                    "message"
-                )  # type: ignore[index]
-            elif detail_payload is not None:
-                http_message = str(detail_payload)
-
-            http_message = http_message or "Backend request failed"
-            http_details: dict[str, Any] = {
-                "backend": backend_type,
-                "detail": detail_payload,
-            }
-            if isinstance(status_code, int):
-                http_details["status_code"] = status_code
-
-            if isinstance(status_code, int) and 400 <= status_code < 500:
-                return InvalidRequestError(
-                    message=http_message,
-                    details=http_details,
-                )
-
-            return BackendError(
-                message=http_message,
-                backend_name=backend_type,
-                status_code=status_code if isinstance(status_code, int) else 502,
-                details=http_details,
-            )
-
-        return exc
+        return self._exception_normalizer.normalize(exc, backend_type)
 
     def _resolve_stream_session_id(
         self,
@@ -925,7 +825,19 @@ class BackendService(IBackendService):
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
-                provider_backend_config = self._backend_configs.get(backend_type)
+                
+                # Fetch config from provider instead of relying on side effects in self._backend_configs
+                from src.core.config.app_config import BackendConfig
+                provider_backend_config = None
+                if self._backend_config_service:
+                    config_or_app = self._backend_config_service.get_backend_config(backend_type)
+                    if isinstance(config_or_app, BackendConfig):
+                        provider_backend_config = config_or_app
+                
+                # Fallback to cached config if available (legacy support)
+                if provider_backend_config is None:
+                    provider_backend_config = self._backend_configs.get(backend_type)
+
                 if provider_backend_config and getattr(
                     provider_backend_config, "identity", None
                 ):
@@ -1627,86 +1539,15 @@ class BackendService(IBackendService):
         self, backend_type: str, session_id: str | None = None
     ) -> LLMBackend:
         """Get an existing backend or create a new one."""
-
-        if backend_type in self._disabled_backends:
-            reason = self._disabled_backends[backend_type].get(
-                "reason", "permanently disabled"
-            )
-            raise BackendError(
-                message=f"Backend {backend_type} is permanently disabled: {reason}",
-                backend_name=backend_type,
-            )
-
-        # Always use session-specific cache key if session_id is provided
-        # This ensures all backends are isolated per session
-        if session_id:
-            cache_key = f"{backend_type}:{session_id}"
-        elif backend_type == "gemini-cli-acp":
-            # Special case for gemini-cli-acp which requires isolation even without explicit session_id
-            # (though session_id should ideally be provided)
-            cache_key = f"{backend_type}:default"
-        else:
-            cache_key = backend_type
-
-        if self._is_per_session_cache_key(cache_key, backend_type):
-            backend = self._per_session_backends.get(cache_key)
-            if backend is not None:
-                self._per_session_backends.move_to_end(cache_key)
-                return backend
-        else:
-            backend = self._backends.get(cache_key)
-            if backend is not None:
-                return backend
-
-        try:
-            provider_backend_config: BackendConfig | None = None
-            app_config: AppConfig = cast(AppConfig, self._config)
-
-            if self._backend_config_provider:
-                provider_cfg = self._backend_config_provider.get_backend_config(
-                    backend_type
-                )
-
-                if isinstance(provider_cfg, BackendConfig):
-                    provider_backend_config = provider_cfg
-                elif isinstance(provider_cfg, AppConfig):
-                    app_config = provider_cfg
-
-            if provider_backend_config is not None:
-                try:
-                    self._backend_configs[backend_type] = (
-                        provider_backend_config.model_copy(deep=True)
-                    )
-                except AttributeError:
-                    self._backend_configs[backend_type] = provider_backend_config
-            else:
-                self._backend_configs.pop(backend_type, None)
-
-            created_backend: LLMBackend = await self._factory.ensure_backend(
-                backend_type, app_config, provider_backend_config
-            )
-            if self._is_per_session_cache_key(cache_key, backend_type):
-                self._per_session_backends[cache_key] = created_backend
-                self._per_session_backends.move_to_end(cache_key)
-                await self._enforce_per_session_backend_limit()
-            else:
-                self._backends[cache_key] = created_backend
-            return created_backend
-        except (TypeError, ValueError, AttributeError, KeyError) as e:
-            raise BackendError(
-                message=f"Failed to create backend {backend_type}: {e!s}",
-                backend_name=backend_type,
-            ) from e
-        except Exception as e:
-            raise BackendError(
-                f"Failed to create backend '{backend_type}': {e}",
-                backend_name=backend_type,
-            ) from e
+        return await self._backend_lifecycle_manager.get_or_create(
+            backend_type, session_id
+        )
 
     def get_backend(self, backend_type: str) -> LLMBackend:
         """Get a backend instance synchronously (for testing purposes)."""
-        if backend_type in self._backends:
-            return self._backends[backend_type]
+        active_backends = self._backend_lifecycle_manager.get_active_backends()
+        if backend_type in active_backends:
+            return active_backends[backend_type]
 
         # For testing, create a simple backend instance
         from src.core.config.app_config import AppConfig
@@ -1714,9 +1555,8 @@ class BackendService(IBackendService):
         app_config = cast(AppConfig, self._config)
 
         # Create backend using factory
-        backend = self._factory.create_backend(backend_type, app_config)
-        self._backends[backend_type] = backend
-        return backend
+        # Note: This creates a detached backend not managed by lifecycle manager
+        return self._factory.create_backend(backend_type, app_config)
 
     async def chat_completions(
         self,
@@ -2191,57 +2031,5 @@ class BackendService(IBackendService):
     ) -> None:
         """
         Discard a backend instance from internal caches.
-
-        This is used when a backend is permanently disabled (e.g. auth failure)
-        and should be removed from the active pools. It also records the disablement
-        to prevent future recreation.
-
-        Args:
-            backend_type: The type of backend to discard
-            session_id: The session ID if it was a per-session backend
-            reason: The reason for disabling the backend
         """
-        # Record permanent disablement for the backend instance name
-        self._disabled_backends[backend_type] = {
-            "reason": reason,
-            "timestamp": time.time(),
-        }
-
-        instance_key = (
-            backend_type if not session_id else f"{backend_type}:{session_id}"
-        )
-
-        # Remove from global cache first
-        backend = self._backends.pop(instance_key, None)
-        if backend:
-            # Ensure we stop notifying health listeners for this instance
-            with contextlib.suppress(Exception):
-                self._factory.unregister_backend_notifications(backend)
-                self._factory.unregister_backend(instance_key)
-            task = asyncio.create_task(self._shutdown_backend(backend))
-            task.add_done_callback(lambda t: None)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Discarded backend instance: %s", instance_key)
-
-        # Remove matching per-session instances
-        removed_keys: list[str] = []
-        if session_id:
-            removed_keys = [instance_key]
-        else:
-            # When disabling globally, clear any per-session variants
-            removed_keys = [
-                key
-                for key in list(self._per_session_backends)
-                if key.startswith(f"{backend_type}:")
-            ]
-
-        for key in removed_keys:
-            backend = self._per_session_backends.pop(key, None)
-            if backend:
-                with contextlib.suppress(Exception):
-                    self._factory.unregister_backend_notifications(backend)
-                    self._factory.unregister_backend(key)
-                task = asyncio.create_task(self._shutdown_backend(backend))
-                task.add_done_callback(lambda t: None)
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Discarded per-session backend instance: %s", key)
+        self._backend_lifecycle_manager.discard(backend_type, session_id, reason)

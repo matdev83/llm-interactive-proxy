@@ -245,6 +245,9 @@ class TestBackendServiceTargeted:
 
         service = create_backend_service()
         service._per_session_backend_limit = 2
+        # Also update the manager if present
+        if hasattr(service, "_backend_lifecycle_manager"):
+            service._backend_lifecycle_manager._per_session_backend_limit = 2
 
         class SessionScopedBackend(LLMBackend):
             backend_type = "gemini-cli-acp"
@@ -290,10 +293,17 @@ class TestBackendServiceTargeted:
             await service._get_or_create_backend("gemini-cli-acp", session_id="s3")
 
         assert created_backends[0].shutdown_calls == 1
-        assert len(service._per_session_backends) == 2
-        assert "gemini-cli-acp:s1" not in service._per_session_backends
+        
+        # Check against lifecycle manager state if present, otherwise service state
+        if hasattr(service, "_backend_lifecycle_manager"):
+            backends_map = service._backend_lifecycle_manager._per_session_backends
+        else:
+            backends_map = service._per_session_backends
+
+        assert len(backends_map) == 2
+        assert "gemini-cli-acp:s1" not in backends_map
         assert all(
-            key.startswith("gemini-cli-acp") for key in service._per_session_backends
+            key.startswith("gemini-cli-acp") for key in backends_map
         )
 
     @pytest.mark.asyncio

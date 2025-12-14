@@ -50,6 +50,22 @@ class VTCWrapperConfig:
     emit_partial_on_done: bool = True
 
 
+_DEFAULT_BACKEND_STEERING_MESSAGE = (
+    "A tool call was blocked by proxy policy. Do not repeat the blocked tool call. "
+    "Respond to the user with a compliant approach that does not require tools."
+)
+
+_MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS = 4000
+
+
+def _truncate_text(value: str | None, limit: int) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "\n...[truncated]"
+
+
 class VTCResponseStreamWrapper:
     """
     Wraps ProcessedResponse streams with VTC (Virtual Tool Calling) processing.
@@ -332,7 +348,7 @@ class VTCResponseStreamWrapper:
 
     async def _invoke_reactor(
         self, tool_calls: list[dict[str, Any]]
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
         """
         Invoke the tool call reactor for detected tool calls.
 
@@ -343,15 +359,17 @@ class VTCResponseStreamWrapper:
             tool_calls: List of detected tool calls in internal format.
 
         Returns:
-            Tuple of (non_swallowed_tool_calls, replacement_message).
+            Tuple of (non_swallowed_tool_calls, replacement_message, swallowed_any).
             - non_swallowed_tool_calls: Tool calls that were NOT swallowed by handlers
             - replacement_message: Combined replacement message for swallowed calls, or None
+            - swallowed_any: True if any tool call was swallowed (even with empty message)
         """
         if not self._tool_call_reactor or not tool_calls:
-            return tool_calls, None
+            return tool_calls, None, False
 
         non_swallowed: list[dict[str, Any]] = []
         replacement_messages: list[str] = []
+        swallowed_any = False
 
         try:
             import json as json_module
@@ -403,8 +421,12 @@ class VTCResponseStreamWrapper:
                         tool_name,
                         self._session_id,
                     )
-                    if result.replacement_response:
-                        replacement_messages.append(result.replacement_response)
+                    swallowed_any = True
+                    if (
+                        isinstance(result.replacement_response, str)
+                        and result.replacement_response.strip()
+                    ):
+                        replacement_messages.append(result.replacement_response.strip())
                 else:
                     # Tool call was not swallowed, keep it
                     non_swallowed.append(tool_call)
@@ -416,14 +438,14 @@ class VTCResponseStreamWrapper:
                 exc_info=True,
             )
             # On error, return original tool calls unchanged
-            return tool_calls, None
+            return tool_calls, None, False
 
         # Combine replacement messages if any
         combined_replacement = (
             "\n\n".join(replacement_messages) if replacement_messages else None
         )
 
-        return non_swallowed, combined_replacement
+        return non_swallowed, combined_replacement, swallowed_any
 
     async def _process_complete_pattern_async(self) -> ProcessedResponse:
         """
@@ -452,17 +474,14 @@ class VTCResponseStreamWrapper:
                 [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
             )
             # Invoke reactor for detected tool calls and handle swallowing
-            non_swallowed, replacement_msg = await self._invoke_reactor(tool_calls)
+            non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
+                tool_calls
+            )
 
-            # If any tool calls were swallowed, we need to modify the content
-            if replacement_msg:
-                # Some tool calls were swallowed - use cleaned content + replacement
-                # This ensures VTC clients see the steering message instead of blocked tool XML
+            # If any tool calls were swallowed, strip tool XML and mark for backend retry.
+            # IMPORTANT: Never inject steering/replacement messages into client-visible output.
+            if swallowed_any:
                 output_content = cleaned_content.strip()
-                if output_content:
-                    output_content = f"{output_content}\n\n{replacement_msg}"
-                else:
-                    output_content = replacement_msg
 
                 logger.info(
                     "VTC wrapper: %d tool call(s) swallowed, %d passed through",
@@ -470,13 +489,25 @@ class VTCResponseStreamWrapper:
                     len(non_swallowed),
                 )
 
-                # Build metadata indicating swallowing occurred
-                metadata_calls = non_swallowed if non_swallowed else None
                 return self._create_chunk_with_text(
                     output_content,
-                    tool_calls=metadata_calls,
                     swallowed=True,
                     swallowed_count=len(tool_calls) - len(non_swallowed),
+                    extra_metadata={
+                        "tool_call_swallowed": True,
+                        "steering_message": (
+                            replacement_msg
+                            if isinstance(replacement_msg, str)
+                            and replacement_msg.strip()
+                            else _DEFAULT_BACKEND_STEERING_MESSAGE
+                        ),
+                        "swallowed_tool_calls": tool_calls,
+                        "swallowed_original_content": _truncate_text(
+                            buffer_content,
+                            _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
+                        ),
+                        "_steering_replacement": True,
+                    },
                 )
 
             # No tool calls were swallowed - return original content unchanged
@@ -546,16 +577,14 @@ class VTCResponseStreamWrapper:
                 [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
             )
             # Invoke reactor for detected tool calls and handle swallowing
-            non_swallowed, replacement_msg = await self._invoke_reactor(tool_calls)
+            non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
+                tool_calls
+            )
 
-            # If any tool calls were swallowed, we need to modify the content
-            if replacement_msg:
-                # Some tool calls were swallowed - use cleaned content + replacement
+            # If any tool calls were swallowed, strip tool XML and mark for backend retry.
+            # IMPORTANT: Never inject steering/replacement messages into client-visible output.
+            if swallowed_any:
                 output_content = cleaned_content.strip()
-                if output_content:
-                    output_content = f"{output_content}\n\n{replacement_msg}"
-                else:
-                    output_content = replacement_msg
 
                 logger.info(
                     "VTC wrapper flush: %d tool call(s) swallowed, %d passed through",
@@ -563,12 +592,25 @@ class VTCResponseStreamWrapper:
                     len(non_swallowed),
                 )
 
-                metadata_calls = non_swallowed if non_swallowed else None
                 return self._create_chunk_with_text(
                     output_content,
-                    tool_calls=metadata_calls,
                     swallowed=True,
                     swallowed_count=len(tool_calls) - len(non_swallowed),
+                    extra_metadata={
+                        "tool_call_swallowed": True,
+                        "steering_message": (
+                            replacement_msg
+                            if isinstance(replacement_msg, str)
+                            and replacement_msg.strip()
+                            else _DEFAULT_BACKEND_STEERING_MESSAGE
+                        ),
+                        "swallowed_tool_calls": tool_calls,
+                        "swallowed_original_content": _truncate_text(
+                            buffer_content,
+                            _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
+                        ),
+                        "_steering_replacement": True,
+                    },
                 )
 
             # No tool calls were swallowed - return original content unchanged
@@ -614,6 +656,7 @@ class VTCResponseStreamWrapper:
         tool_calls: list[dict[str, Any]] | None = None,
         swallowed: bool = False,
         swallowed_count: int = 0,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
         """
         Create a ProcessedResponse chunk with the given text and optional tool calls.
@@ -638,6 +681,9 @@ class VTCResponseStreamWrapper:
         if swallowed:
             metadata["vtc_tool_calls_swallowed"] = True
             metadata["vtc_swallowed_count"] = swallowed_count
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
 
         if self._last_chunk_template is not None:
             chunk = self._inject_text(self._last_chunk_template, text)

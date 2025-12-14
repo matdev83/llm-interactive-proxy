@@ -50,6 +50,7 @@ def _create_request_with_retry_count(retry_count: int) -> ChatRequest:
     """Create a request with the specified retry count."""
     extra_body = {}
     if retry_count > 0:
+        # Legacy key retained for backward compatibility (manager should read it)
         extra_body["_dangerous_command_retry_count"] = retry_count
         extra_body["_tool_call_reactor_retry"] = True
     return ChatRequest(
@@ -98,6 +99,7 @@ class TestDangerousCommandLoopPrevention:
         retry_request = retry_call.kwargs["request"]
 
         # Check retry count is set
+        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 1
         assert retry_request.extra_body["_dangerous_command_retry_count"] == 1
         assert retry_request.extra_body["_tool_call_reactor_retry"] is True
 
@@ -105,7 +107,7 @@ class TestDangerousCommandLoopPrevention:
         proxy_message = retry_request.messages[-1].content
         assert "Attempt 1/3" in proxy_message
         assert "First Warning" in proxy_message
-        assert "Proxy Security Notice" in proxy_message
+        assert "Proxy Steering Notice" in proxy_message
 
     @pytest.mark.asyncio
     async def test_second_attempt_uses_second_warning_message(self) -> None:
@@ -140,6 +142,7 @@ class TestDangerousCommandLoopPrevention:
         retry_request = retry_call.kwargs["request"]
 
         # Check retry count incremented
+        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 2
         assert retry_request.extra_body["_dangerous_command_retry_count"] == 2
 
         # Check the message contains second warning
@@ -178,6 +181,7 @@ class TestDangerousCommandLoopPrevention:
         retry_call = backend_processor.process_backend_request.await_args
         retry_request = retry_call.kwargs["request"]
 
+        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 3
         assert retry_request.extra_body["_dangerous_command_retry_count"] == 3
 
         proxy_message = retry_request.messages[-1].content
@@ -308,6 +312,7 @@ class TestDangerousCommandLoopPrevention:
         # Third call should have retry count = 3 (the max)
         third_call = backend_processor.process_backend_request.await_args_list[2]
         third_request = third_call.kwargs["request"]
+        assert third_request.extra_body["_tool_call_reactor_retry_count"] == 3
         assert third_request.extra_body["_dangerous_command_retry_count"] == 3
 
 
@@ -332,6 +337,7 @@ class TestStreamingLoopPrevention:
             messages=[ChatMessage(role="user", content="dangerous")],
             stream=True,
             extra_body={
+                "_tool_call_reactor_retry_count": 3,
                 "_dangerous_command_retry_count": 3,
                 "_tool_call_reactor_retry": True,
             },
@@ -395,4 +401,5 @@ class TestStreamingLoopPrevention:
 
         assert isinstance(result, ResponseEnvelope)
         assert result.metadata["dangerous_command_retry_count"] == 2
+        assert result.metadata["tool_call_reactor_retry_count"] == 2
         assert result.metadata["steering_retry_occurred"] is True

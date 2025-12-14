@@ -42,6 +42,25 @@ logger = get_logger(__name__)
 # Marker key used to track if a tool call has been processed
 _TOOL_CALL_PROCESSING_MARKER = "_already_processed"
 
+# Fallback steering used when a handler swallows a tool call but does not provide
+# explicit steering text. This message is intended for the REMOTE LLM backend and
+# must never be shown directly to the client.
+_DEFAULT_BACKEND_STEERING_MESSAGE = (
+    "A tool call was blocked by proxy policy. Do not repeat the blocked tool call. "
+    "Respond to the user with a compliant approach that does not require tools."
+)
+
+# Bound the amount of swallowed assistant content that is kept for retry prompts.
+_MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS = 4000
+
+
+def _truncate_text(value: str | None, limit: int) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "\n...[truncated]"
+
 
 class ToolCallReactorFeature(IResponseFeature):
     """Feature to process tool calls with enforced streaming/non-streaming parity.
@@ -352,20 +371,20 @@ class ToolCallReactorFeature(IResponseFeature):
                         session_id,
                     )
 
-                    if result.replacement_response is not None:
-                        replacement_response = self._create_replacement_response(
-                            response,
-                            result.replacement_response,
-                            tool_call,
-                            result.metadata,
-                        )
-                        return replacement_response
-                    else:
-                        logger.warning(
-                            "Handler swallowed tool call '%s' but provided no "
-                            "replacement response",
-                            tool_context.tool_name,
-                        )
+                    steering_message = result.replacement_response
+                    if (
+                        not isinstance(steering_message, str)
+                        or not steering_message.strip()
+                    ):
+                        steering_message = _DEFAULT_BACKEND_STEERING_MESSAGE
+
+                    replacement_response = self._create_replacement_response(
+                        response,
+                        steering_message,
+                        tool_call,
+                        result.metadata,
+                    )
+                    return replacement_response
 
             except Exception as e:
                 logger.error(
@@ -604,6 +623,8 @@ class ToolCallReactorFeature(IResponseFeature):
                 function_payload = original_tool_call.get("function")
                 if isinstance(function_payload, dict):
                     tool_name = function_payload.get("name")
+                swallowed_tool_calls.append(dict(original_tool_call))
+                swallowed_tool_calls.append(dict(original_tool_call))
 
             merged_metadata.update(
                 {
@@ -617,7 +638,14 @@ class ToolCallReactorFeature(IResponseFeature):
                     "steering_message": replacement_content,
                     "swallowed_tool_calls": swallowed_tool_calls,
                     "swallowed_original_content": (
-                        original_content if isinstance(original_content, str) else None
+                        _truncate_text(
+                            (
+                                original_content
+                                if isinstance(original_content, str)
+                                else None
+                            ),
+                            _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
+                        )
                     ),
                     # CRITICAL: Mark as steering replacement so downstream processors
                     # clear accumulated content instead of appending
@@ -643,7 +671,7 @@ class ToolCallReactorFeature(IResponseFeature):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": replacement_content,
+                            "content": "",
                         },
                         "finish_reason": "stop",
                     }
@@ -1145,20 +1173,20 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         f"in session {session_id}"
                     )
 
-                    # Create a new response with the replacement content
-                    if result.replacement_response is not None:
-                        replacement_response = self._create_replacement_response(
-                            response,
-                            result.replacement_response,
-                            tool_call,
-                            result.metadata,
-                        )
-                        return replacement_response
-                    else:
-                        logger.warning(
-                            f"Handler swallowed tool call '{tool_context.tool_name}' "
-                            f"but provided no replacement response"
-                        )
+                    steering_message = result.replacement_response
+                    if (
+                        not isinstance(steering_message, str)
+                        or not steering_message.strip()
+                    ):
+                        steering_message = _DEFAULT_BACKEND_STEERING_MESSAGE
+
+                    replacement_response = self._create_replacement_response(
+                        response,
+                        steering_message,
+                        tool_call,
+                        result.metadata,
+                    )
+                    return replacement_response
 
             except Exception as e:
                 logger.error(
@@ -1431,7 +1459,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     "steering_message": replacement_content,
                     "swallowed_tool_calls": swallowed_tool_calls,
                     "swallowed_original_content": (
-                        original_content if isinstance(original_content, str) else None
+                        _truncate_text(
+                            (
+                                original_content
+                                if isinstance(original_content, str)
+                                else None
+                            ),
+                            _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
+                        )
                     ),
                     # CRITICAL: Mark as steering replacement so downstream processors
                     # clear accumulated content instead of appending
@@ -1457,7 +1492,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": replacement_content,
+                            "content": "",
                         },
                         "finish_reason": "stop",
                     }

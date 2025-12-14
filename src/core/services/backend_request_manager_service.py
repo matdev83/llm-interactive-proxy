@@ -42,60 +42,53 @@ class BackendRequestManager(IBackendRequestManager):
     _STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
     _MAX_EMPTY_STREAM_RETRIES = 1
 
-    # Dangerous command retry loop prevention (Option 2: Escalating + Hard Limit)
+    # Tool-call swallow retry loop prevention (Escalating + Hard Limit)
     _MAX_DANGEROUS_COMMAND_RETRIES = 3
-    _DANGEROUS_RETRY_KEY = "_dangerous_command_retry_count"
+    _DANGEROUS_RETRY_KEY = "_tool_call_reactor_retry_count"
+    _LEGACY_DANGEROUS_RETRY_KEY = "_dangerous_command_retry_count"
+
+    _DEFAULT_BACKEND_STEERING_MESSAGE = (
+        "A tool call was blocked by proxy policy. Do not repeat the blocked tool call. "
+        "Respond to the user with a compliant approach that does not require tools."
+    )
 
     # Escalating steering messages for each retry attempt
     _DANGEROUS_STEERING_MESSAGES: tuple[str, ...] = (
         # Retry 1: Standard steering
         (
-            "[Proxy Security Notice - First Warning]\n"
-            "Your tool call was intercepted because it contained a potentially destructive "
-            "command. This is a permanent security policy enforced by the proxy.\n\n"
-            "IMPORTANT: The proxy will NEVER execute destructive commands. You cannot "
-            "retry or rephrase to bypass this - all such attempts will be blocked.\n\n"
-            "Your ONLY option: Inform the user that they must manually execute this "
-            "command themselves if they believe it is necessary. Clearly explain the "
-            "potential consequences of the command before the user runs it."
+            "[Proxy Steering Notice - First Warning]\n"
+            "A tool call was blocked by proxy policy. You must comply with the steering "
+            "instruction provided and respond to the user without repeating the blocked "
+            "tool call.\n\n"
+            "If the user still needs the blocked action, explain what they can do manually "
+            "and continue with a safe alternative plan."
         ),
         # Retry 2: Stronger warning
         (
-            "[Proxy Security Notice - SECOND WARNING]\n"
-            "STOP: You have now attempted a destructive command TWICE. Both attempts "
-            "were blocked and will continue to be blocked.\n\n"
-            "This is your FINAL opportunity to proceed correctly. The proxy security "
-            "system is designed to protect users from unintended data loss.\n\n"
-            "DO NOT attempt destructive commands again. Instead:\n"
-            "1. Tell the user exactly what command needs to be run manually\n"
-            "2. Explain the risks involved\n"
-            "3. Wait for the user to confirm they have executed it\n"
-            "4. Continue with your task\n\n"
-            "Any further attempts will result in this session being terminated."
+            "[Proxy Steering Notice - SECOND WARNING]\n"
+            "STOP: You have repeated a blocked tool call. This will continue to be blocked.\n\n"
+            "Do NOT attempt the blocked tool call again. Follow the steering instruction, "
+            "tell the user what they can do manually (if needed), and proceed without tools."
         ),
         # Retry 3: Final warning before termination
         (
-            "[Proxy Security Notice - FINAL WARNING]\n"
-            "CRITICAL: This is your THIRD attempt to execute a destructive command. "
-            "This is the FINAL warning.\n\n"
-            "If you attempt another destructive command, this interaction will be "
-            "immediately terminated with an error to the user.\n\n"
-            "YOU MUST NOW:\n"
-            "1. Acknowledge that you cannot execute destructive commands\n"
-            "2. Provide the user with clear instructions for manual execution\n"
-            "3. Proceed with alternative approaches that do not require destructive commands"
+            "[Proxy Steering Notice - FINAL WARNING]\n"
+            "CRITICAL: This is your THIRD blocked tool call attempt. If you attempt another "
+            "blocked tool call, this interaction will be terminated.\n\n"
+            "You MUST now:\n"
+            "1. Acknowledge you cannot perform the blocked tool call\n"
+            "2. Provide the user a safe manual alternative (if required)\n"
+            "3. Continue with a compliant approach"
         ),
     )
 
     _DANGEROUS_TERMINAL_ERROR = (
-        "[Proxy Security - Session Terminated]\n\n"
-        "This session has been terminated due to repeated attempts to execute "
-        "destructive commands despite multiple warnings.\n\n"
-        "The AI assistant attempted destructive operations {count} times. Each attempt "
-        "was blocked by the proxy security system to protect your data.\n\n"
-        "If you need to execute destructive git commands or file operations, you must "
-        "run them manually in your terminal.\n\n"
-        "Please start a new session to continue with your task."
+        "[Proxy Steering - Session Terminated]\n\n"
+        "This session has been terminated due to repeated attempts to perform blocked "
+        "tool calls despite multiple warnings.\n\n"
+        "The AI assistant attempted blocked tool calls {count} times. Each attempt was "
+        "blocked by the proxy policy.\n\n"
+        "Please start a new session to continue."
     )
 
     def __init__(
@@ -582,18 +575,23 @@ class BackendRequestManager(IBackendRequestManager):
         """
         metadata = backend_response.metadata or {}
         steering_message = metadata.get("steering_message")
-        if not steering_message:
-            return None
+        if not isinstance(steering_message, str) or not steering_message.strip():
+            steering_message = self._DEFAULT_BACKEND_STEERING_MESSAGE
 
         # === LOOP PREVENTION: Track and limit dangerous command retries ===
         extra_body = dict(original_request.extra_body or {})
         current_retry_count: int = extra_body.get(self._DANGEROUS_RETRY_KEY, 0)
+        if not isinstance(current_retry_count, int):
+            current_retry_count = 0
+        legacy_count = extra_body.get(self._LEGACY_DANGEROUS_RETRY_KEY, 0)
+        if isinstance(legacy_count, int) and legacy_count > current_retry_count:
+            current_retry_count = legacy_count
         new_retry_count = current_retry_count + 1
 
         # Check if we've exceeded the maximum retry limit
         if new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES:
             logger.warning(
-                "Dangerous command retry limit exceeded for session %s: "
+                "Tool call retry limit exceeded for session %s: "
                 "%d attempts blocked. Terminating with error.",
                 session_id,
                 new_retry_count,
@@ -605,6 +603,7 @@ class BackendRequestManager(IBackendRequestManager):
             terminal_metadata = {
                 "dangerous_command_limit_exceeded": True,
                 "dangerous_command_retry_count": new_retry_count,
+                "tool_call_reactor_retry_count": new_retry_count,
                 "session_terminated": True,
                 "is_done": True,
                 "finish_reason": "security_limit",
@@ -615,6 +614,7 @@ class BackendRequestManager(IBackendRequestManager):
 
         # Update retry count for the next request
         extra_body[self._DANGEROUS_RETRY_KEY] = new_retry_count
+        extra_body[self._LEGACY_DANGEROUS_RETRY_KEY] = new_retry_count
         extra_body["_tool_call_reactor_retry"] = True
 
         # === SELECT ESCALATING STEERING MESSAGE ===
@@ -626,8 +626,7 @@ class BackendRequestManager(IBackendRequestManager):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                "Dangerous command blocked for session %s (attempt %d/%d), "
-                "applying escalating steering",
+                "Tool call blocked for session %s (attempt %d/%d), applying escalating steering",
                 session_id,
                 new_retry_count,
                 self._MAX_DANGEROUS_COMMAND_RETRIES,
@@ -674,10 +673,14 @@ class BackendRequestManager(IBackendRequestManager):
                 "A previous assistant response attempted a tool call that was blocked by the proxy."
             )
 
-        # Construct the complete proxy prompt with escalating message
+        steering_block = (
+            "Steering instruction (must follow exactly):\n" + steering_message.strip()
+        )
         proxy_prompt = (
             f"[Proxy Notice - Attempt {new_retry_count}/{self._MAX_DANGEROUS_COMMAND_RETRIES}]\n"
             + "\n\n".join(summary_parts)
+            + "\n\n"
+            + steering_block
             + "\n\n"
             + escalating_steering
         )
@@ -706,7 +709,15 @@ class BackendRequestManager(IBackendRequestManager):
             fallback_metadata = dict(metadata)
             fallback_metadata["tool_call_reactor_retry_failed"] = True
             fallback_metadata["dangerous_command_retry_count"] = new_retry_count
-            return ResponseEnvelope(content="", metadata=fallback_metadata)
+            fallback_metadata["tool_call_reactor_retry_count"] = new_retry_count
+            fallback_content = (
+                "[Proxy Notice]\n"
+                "A tool call was blocked by proxy policy and the proxy attempted to recover, "
+                "but the backend retry failed. Please retry your request."
+            )
+            return ResponseEnvelope(
+                content=fallback_content, metadata=fallback_metadata
+            )
 
         # === PROCESS RESPONSE AND CHECK FOR REPEATED DANGEROUS CALLS ===
         # Both streaming and non-streaming use the same processing logic for parity
@@ -753,12 +764,13 @@ class BackendRequestManager(IBackendRequestManager):
         """Process the retry response, handling both streaming and non-streaming.
 
         This unified method ensures parity between streaming and non-streaming paths.
-        It applies middleware to detect if the LLM repeats dangerous calls.
+        It applies middleware to detect if the LLM repeats blocked tool calls.
         """
         # Add retry metadata for downstream tracking
         retry_metadata_update = {
             "steering_retry_occurred": True,
             "dangerous_command_retry_count": retry_count,
+            "tool_call_reactor_retry_count": retry_count,
         }
 
         # === NON-STREAMING PATH ===
@@ -785,12 +797,12 @@ class BackendRequestManager(IBackendRequestManager):
 
                 retry_response.metadata.update(retry_metadata_update)
 
-                # Check if LLM repeated a dangerous call - this will be flagged
+                # Check if LLM repeated a blocked tool call - this will be flagged
                 # in metadata by the tool call reactor middleware
                 if retry_response.metadata.get("tool_call_swallowed"):
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "LLM repeated dangerous command on retry %d for session %s",
+                            "LLM repeated blocked tool call on retry %d for session %s",
                             retry_count,
                             session_id,
                         )
@@ -1019,13 +1031,21 @@ class BackendRequestManager(IBackendRequestManager):
                         current_retry_count = original_extra_body.get(
                             self._DANGEROUS_RETRY_KEY, 0
                         )
+                        legacy_count = original_extra_body.get(
+                            self._LEGACY_DANGEROUS_RETRY_KEY, 0
+                        )
+                        if (
+                            isinstance(legacy_count, int)
+                            and legacy_count > current_retry_count
+                        ):
+                            current_retry_count = legacy_count
 
                     if reactor_retry_active:
                         # Check if we've exceeded the limit - if so, yield terminal error
                         if current_retry_count >= self._MAX_DANGEROUS_COMMAND_RETRIES:
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
-                                    "Streaming: Dangerous command retry limit exceeded "
+                                    "Streaming: Tool call retry limit exceeded "
                                     "for session %s (attempt %d). Terminating.",
                                     session_id,
                                     current_retry_count + 1,
@@ -1051,6 +1071,8 @@ class BackendRequestManager(IBackendRequestManager):
                             terminal_metadata = {
                                 "dangerous_command_limit_exceeded": True,
                                 "dangerous_command_retry_count": current_retry_count
+                                + 1,
+                                "tool_call_reactor_retry_count": current_retry_count
                                 + 1,
                                 "session_terminated": True,
                                 "is_done": True,

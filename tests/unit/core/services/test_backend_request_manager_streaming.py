@@ -284,7 +284,8 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     proxy_notice = retry_request.messages[-1].content
     assert isinstance(proxy_notice, str)
     assert "Proxy Notice" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert "execute_command" in proxy_notice
     assert "pytest" in proxy_notice
     extra_body = retry_request.extra_body or {}
@@ -338,7 +339,9 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
 
     assert backend_processor.process_backend_request.await_count == 2
     assert isinstance(result, ResponseEnvelope)
-    assert result.content == ""
+    assert isinstance(result.content, str)
+    assert result.content
+    assert "backend retry failed" in result.content.lower()
     failure_metadata = result.metadata or {}
     assert failure_metadata.get("tool_call_swallowed") is True
     assert result.content != steering_processed.content
@@ -407,7 +410,8 @@ async def test_streaming_full_suite_swallow_replays_history_and_hides_steering()
     proxy_notice = retry_request.messages[-1].content
     assert isinstance(proxy_notice, str)
     assert "Proxy Notice" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert "execute_command" in proxy_notice
     extra_body = retry_request.extra_body or {}
     assert extra_body.get("_tool_call_reactor_retry") is True
@@ -463,7 +467,9 @@ async def test_streaming_full_suite_swallow_retry_failure_does_not_leak_steering
 
     assert backend_processor.process_backend_request.await_count == 2
     assert len(chunks) == 1
-    assert chunks[0].content == ""
+    assert isinstance(chunks[0].content, str)
+    assert chunks[0].content
+    assert "backend retry failed" in chunks[0].content.lower()
     metadata = getattr(chunks[0], "metadata", {})
     assert metadata.get("tool_call_swallowed") is True
     assert metadata.get("tool_call_reactor_retry_failed") is True
@@ -520,7 +526,8 @@ async def test_dangerous_command_swallow_replays_history_and_hides_steering() ->
     retry_request = retry_args["request"]
     proxy_notice = retry_request.messages[-1].content
     assert "git reset --hard" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating security message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
 
     assert isinstance(result, ResponseEnvelope)
@@ -574,7 +581,8 @@ async def test_tool_access_block_non_streaming_replays_and_hides_steering() -> N
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "deploy_service" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert retry_args["request"].extra_body.get("_tool_call_reactor_retry") is True
     assert isinstance(result, ResponseEnvelope)
     assert result.content == "allowed output"
@@ -629,7 +637,8 @@ async def test_tool_access_block_streaming_replays_and_hides_steering() -> None:
     retry_request = retry_args["request"]
     proxy_notice = retry_request.messages[-1].content
     assert "deploy_service" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert retry_request.extra_body.get("_tool_call_reactor_retry") is True
     assert [chunk.content for chunk in chunks] == ["allowed later"]
     assert all("steering chunk" not in str(chunk.content) for chunk in chunks)
@@ -679,7 +688,9 @@ async def test_config_steering_streaming_retry_failure_does_not_leak() -> None:
     chunks = [chunk async for chunk in result.content]
     assert backend_processor.process_backend_request.await_count == 2
     assert len(chunks) == 1
-    assert chunks[0].content == ""
+    assert isinstance(chunks[0].content, str)
+    assert chunks[0].content
+    assert "backend retry failed" in chunks[0].content.lower()
     metadata = getattr(chunks[0], "metadata", {})
     assert metadata.get("tool_call_swallowed") is True
     assert metadata.get("tool_call_reactor_retry_failed") is True
@@ -732,7 +743,8 @@ async def test_config_steering_non_streaming_replays_and_hides_steering() -> Non
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "apply_diff" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert isinstance(result, ResponseEnvelope)
     assert result.content == "patched"
 
@@ -781,7 +793,9 @@ async def test_file_sandboxing_streaming_retry_failure_does_not_leak() -> None:
     chunks = [chunk async for chunk in result.content]
     assert backend_processor.process_backend_request.await_count == 2
     assert len(chunks) == 1
-    assert chunks[0].content == ""
+    assert isinstance(chunks[0].content, str)
+    assert chunks[0].content
+    assert "backend retry failed" in chunks[0].content.lower()
     metadata = getattr(chunks[0], "metadata", {})
     assert metadata.get("tool_call_swallowed") is True
     assert metadata.get("tool_call_reactor_retry_failed") is True
@@ -837,5 +851,6 @@ async def test_dangerous_command_streaming_replays_and_hides_steering() -> None:
     retry_args = backend_processor.process_backend_request.await_args_list[1].kwargs
     proxy_notice = retry_args["request"].messages[-1].content
     assert "git reset --hard" in proxy_notice
-    assert "Proxy Security Notice" in proxy_notice  # Escalating security message
+    assert "Proxy Steering Notice" in proxy_notice  # Escalating message
+    assert "Steering instruction" in proxy_notice
     assert [chunk.content for chunk in chunks] == ["safer command"]

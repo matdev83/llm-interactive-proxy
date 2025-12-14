@@ -438,7 +438,7 @@ async def test_process_with_tool_calls_swallowed_empty_string(
     tool_call_reactor_middleware: ToolCallReactorMiddleware,
     mock_tool_call_reactor: AsyncMock,
 ) -> None:
-    """Handlers should be able to swallow with an empty replacement payload."""
+    """Empty steering should be replaced with a safe default for backend retry."""
 
     tool_call_response = {
         "choices": [
@@ -488,13 +488,68 @@ async def test_process_with_tool_calls_swallowed_empty_string(
         metadata=result.metadata.copy(),
     )
     assert stream_chunk.metadata.get("tool_call_swallowed") is True
-    assert stream_chunk.metadata.get("steering_message") == ""
+    assert isinstance(stream_chunk.metadata.get("steering_message"), str)
+    assert stream_chunk.metadata.get("steering_message")
     assert result.metadata["tool_call_swallowed"] is True
     assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
     assert result.metadata["role"] == "tool"
     assert result.metadata["tool_call_id"] == "call_124"
-    assert result.metadata["steering_message"] == ""
+    assert isinstance(result.metadata["steering_message"], str)
+    assert result.metadata["steering_message"]
     assert isinstance(result.metadata["swallowed_tool_calls"], list)
+
+
+@pytest.mark.asyncio
+async def test_process_with_tool_calls_swallowed_does_not_leak_replacement_content(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    """Swallowed tool calls must not surface steering text to the client."""
+
+    tool_call_response = {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "id": "call_999",
+                            "type": "function",
+                            "function": {
+                                "name": "test_tool",
+                                "arguments": '{"arg": "value"}',
+                            },
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+    swallow_result = ToolCallReactionResult(
+        should_swallow=True,
+        replacement_response="INTERNAL_STEERING_MESSAGE_DO_NOT_LEAK",
+        metadata={"handler": "test_handler"},
+    )
+
+    mock_tool_call_reactor.process_tool_call.return_value = swallow_result
+
+    result = await tool_call_reactor_middleware.process(
+        response=response,
+        session_id="test_session",
+        context={"backend_name": "test", "model_name": "test"},
+    )
+
+    assert isinstance(result, ProcessedResponse)
+    assert isinstance(result.content, dict)
+    client_visible_content = result.content["choices"][0]["message"]["content"]
+    assert "INTERNAL_STEERING_MESSAGE_DO_NOT_LEAK" not in (client_visible_content or "")
+    assert result.metadata.get("tool_call_swallowed") is True
+    assert (
+        result.metadata.get("steering_message")
+        == "INTERNAL_STEERING_MESSAGE_DO_NOT_LEAK"
+    )
 
 
 @pytest.mark.asyncio

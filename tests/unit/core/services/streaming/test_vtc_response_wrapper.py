@@ -647,8 +647,8 @@ class TestVTCReactorIntegration:
         assert not mock_reactor.process_tool_call.called
 
     @pytest.mark.asyncio
-    async def test_tool_call_swallowed_injects_replacement_message(self):
-        """When reactor swallows a tool call, the replacement message should be injected."""
+    async def test_tool_call_swallowed_does_not_leak_replacement_message(self):
+        """When reactor swallows a tool call, replacement message must not reach the client."""
         from unittest.mock import AsyncMock, MagicMock
 
         from src.core.interfaces.tool_call_reactor_interface import (
@@ -697,19 +697,21 @@ class TestVTCReactorIntegration:
         # Combine all text content
         all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
 
-        # The replacement message should be in the output
-        assert "[BLOCKED]" in all_text, "Replacement message should be injected"
+        # The replacement message must NOT be in the output (it is meant for the remote model)
+        assert (
+            "[BLOCKED]" not in all_text
+        ), "Replacement message must not be client-visible"
 
         # The original XML should NOT be in the output (it was stripped)
         assert "<execute_command>" not in all_text, "Original XML should be stripped"
         assert "rm -rf /" not in all_text, "Original command should be stripped"
 
-        # Check metadata indicates swallowing occurred
+        # Check metadata indicates swallowing occurred and carries steering_message for retry logic
         swallow_found = False
         for chunk in result_chunks:
-            if chunk.metadata and chunk.metadata.get("vtc_tool_calls_swallowed"):
+            if chunk.metadata and chunk.metadata.get("tool_call_swallowed"):
                 swallow_found = True
-                assert chunk.metadata.get("vtc_swallowed_count") == 1
+                assert "steering_message" in chunk.metadata
                 break
         assert swallow_found, "Metadata should indicate tool call was swallowed"
 
@@ -771,8 +773,8 @@ class TestVTCReactorIntegration:
         # Combine all text content
         all_text = "".join(extract_text_from_chunk(c) for c in result_chunks)
 
-        # The replacement message should be present
-        assert "[BLOCKED]" in all_text
+        # Replacement messages must not leak to the client
+        assert "[BLOCKED]" not in all_text
 
         # Verify reactor was called twice (once per tool call)
         assert mock_reactor.process_tool_call.call_count == 2
