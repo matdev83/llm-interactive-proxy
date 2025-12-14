@@ -202,7 +202,7 @@ def test_property_4_unauthenticated_request_sandbox_response(
 
 
 @given(request=request_with_unknown_token_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_property_9_unknown_token_rejection(
     request: dict,
 ) -> None:

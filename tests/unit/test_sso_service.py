@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from src.core.auth.sso.config import AuthorizationConfig, ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
@@ -172,10 +173,16 @@ class TestOAuth2AuthorizationURL:
         sso_config.providers["saml"] = saml_config
         service = SSOService(sso_config)
 
-        with pytest.raises(AuthenticationError, match="Failed to fetch SAML metadata"):
-            await service.create_authorization_url(
-                provider="saml", state="test", redirect_uri="http://localhost/callback"
-            )
+        # Mock httpx to fail immediately instead of waiting for timeout
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+
+            with pytest.raises(AuthenticationError, match="Failed to fetch SAML metadata"):
+                await service.create_authorization_url(
+                    provider="saml", state="test", redirect_uri="http://localhost/callback"
+                )
 
 
 class TestOAuth2Callback:

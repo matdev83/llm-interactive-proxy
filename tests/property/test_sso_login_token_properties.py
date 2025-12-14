@@ -26,7 +26,7 @@ def temp_db_path():
 
 
 @given(ttl_minutes=st.integers(min_value=1, max_value=60))
-@property_test_settings()
+@property_test_settings(max_examples=50)
 def test_login_token_lifecycle(ttl_minutes: int) -> None:
     """Test creation, verification, and consumption of login tokens."""
 

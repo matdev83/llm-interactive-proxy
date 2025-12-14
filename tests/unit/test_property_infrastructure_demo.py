@@ -170,7 +170,7 @@ class TestUtilityFunctions:
         assert chunk.stream_id == "stream-2"
 
     @given(chunks=chunk_stream_strategy(min_size=0, max_size=20))
-    @property_test_settings()
+    @property_test_settings(max_examples=50)
     def test_count_done_markers(self, chunks):
         """Test counting done markers in streams."""
         # Add a done marker

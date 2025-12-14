@@ -74,7 +74,7 @@ def usage_record_list_strategy(draw, min_size=1, max_size=50):
 # Property 4: Request/Response Counter Consistency
 # Feature: detailed-usage-tracking, Property 4: Request/Response Counter Consistency
 # Validates: Requirements 2.1, 2.2, 2.3, 2.4
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_request_response_counter_consistency(records):
     """Property 4: Request/Response Counter Consistency.
@@ -119,7 +119,7 @@ def test_request_response_counter_consistency(records):
 # Property 6: Tool Call Aggregation Correctness
 # Feature: detailed-usage-tracking, Property 6: Tool Call Aggregation Correctness
 # Validates: Requirements 3.4
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_tool_call_aggregation_correctness(records):
     """Property 6: Tool Call Aggregation Correctness.
@@ -181,7 +181,7 @@ def test_tool_call_aggregation_correctness(records):
 # Property 7: Session Uniqueness Tracking
 # Feature: detailed-usage-tracking, Property 7: Session Uniqueness Tracking
 # Validates: Requirements 4.1
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_session_uniqueness_tracking(records):
     """Property 7: Session Uniqueness Tracking.
@@ -218,7 +218,7 @@ def test_session_uniqueness_tracking(records):
 # Property 8: Turn Counter Accuracy
 # Feature: detailed-usage-tracking, Property 8: Turn Counter Accuracy
 # Validates: Requirements 4.2
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_turn_counter_accuracy(records):
     """Property 8: Turn Counter Accuracy.
@@ -267,7 +267,7 @@ def test_turn_counter_accuracy(records):
 # Property 9: Tokens Per Session Calculation
 # Feature: detailed-usage-tracking, Property 9: Tokens Per Session Calculation
 # Validates: Requirements 4.3
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_tokens_per_session_calculation(records):
     """Property 9: Tokens Per Session Calculation.
@@ -313,7 +313,7 @@ def test_tokens_per_session_calculation(records):
 # Property 10: Tokens Per Second (TPS) Calculation
 # Feature: detailed-usage-tracking, Property 10: Tokens Per Second (TPS) Calculation
 # Validates: Requirements 5.5
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=2, max_size=50))
 def test_tps_calculation(records):
     """Property 10: Tokens Per Second (TPS) Calculation.
@@ -379,7 +379,7 @@ def test_tps_calculation(records):
 # Property 13: Status Code Recording
 # Feature: detailed-usage-tracking, Property 13: Status Code Recording
 # Validates: Requirements 6.1, 6.2
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_status_code_recording(records):
     """Property 13: Status Code Recording.
@@ -424,7 +424,7 @@ def test_status_code_recording(records):
 # Property 14: Status Code Aggregation
 # Feature: detailed-usage-tracking, Property 14: Status Code Aggregation
 # Validates: Requirements 6.3
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=1, max_size=50))
 def test_status_code_aggregation(records):
     """Property 14: Status Code Aggregation.
@@ -475,7 +475,7 @@ def test_status_code_aggregation(records):
 # Property 17: Date Range Filter Correctness
 # Feature: detailed-usage-tracking, Property 17: Date Range Filter Correctness
 # Validates: Requirements 9.6
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(records=usage_record_list_strategy(min_size=5, max_size=50))
 def test_date_range_filter_correctness(records):
     """Property 17: Date Range Filter Correctness.

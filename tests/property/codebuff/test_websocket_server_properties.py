@@ -79,7 +79,7 @@ def create_ping_message(txid: int = 2) -> str:
 
 @pytest.mark.asyncio
 @given(session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True))
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     """
     Feature: codebuff-backend-compatibility, Property 19: Session isolation

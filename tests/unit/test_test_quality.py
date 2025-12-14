@@ -838,22 +838,44 @@ def test_vulture_dead_code_on_src_strict(
         pytest.fail(error_msg)
 
 
-@pytest.mark.quality
-def test_vulture_dead_code_on_src_strict_cli() -> None:
-    """Test that vulture CLI finds no dead code in src directory with 100% confidence.
-
-    This test runs the vulture command-line tool directly with --min-confidence=100
-    on the src directory. It fails if vulture reports any unused code at 100% confidence.
-
-    The test will fail if vulture exits with a non-zero code, indicating issues found.
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    # Get project root and src directory
+@pytest.fixture(scope="session")
+def vulture_strict_cli_cache() -> dict[str, Any]:
+    """Session-scoped cache for vulture strict CLI scanning results."""
     project_root = Path(__file__).parent.parent.parent
     src_dir = project_root / "src"
+
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "vulture_strict_cli_cache.json"
+
+    # Calculate hash of src directory for cache invalidation
+    src_hash = _calculate_directory_hash(src_dir)
+
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same directory hash and not expired)
+    current_time = time.time()
+    cache_timeout = 3600  # 1 hour in seconds
+
+    if (
+        cache.get("src_hash") == src_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "result" in cache
+    ):
+        return cache
+
+    # Run vulture CLI scan
+    import subprocess
+    import sys
+
     suppressions_file = project_root / "vulture_suppressions.ini"
 
     # Build the vulture command with 100% confidence
@@ -878,15 +900,69 @@ def test_vulture_dead_code_on_src_strict_cli() -> None:
         cwd=project_root,
     )
 
+    # Cache the result
+    cache.update(
+        {
+            "src_hash": src_hash,
+            "timestamp": current_time,
+            "result": {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
+
+
+@pytest.mark.quality
+def test_vulture_dead_code_on_src_strict_cli(vulture_strict_cli_cache: dict[str, Any]) -> None:
+    """Test that vulture CLI finds no dead code in src directory with 100% confidence.
+
+    This test runs the vulture command-line tool directly with --min-confidence=100
+    on the src directory. It fails if vulture reports any unused code at 100% confidence.
+
+    The test will fail if vulture exits with a non-zero code, indicating issues found.
+    Uses session-scoped caching for better performance.
+    """
+    import sys
+    from pathlib import Path
+
+    cached_result = vulture_strict_cli_cache.get("result", {})
+
     # If vulture found issues (exit code 1) or had an error (exit code != 0),
     # fail the test with the output
-    if result.returncode != 0:
+    if cached_result.get("returncode", 0) != 0:
+        project_root = Path(__file__).parent.parent.parent
+        src_dir = project_root / "src"
+        suppressions_file = project_root / "vulture_suppressions.ini"
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "vulture",
+            "--min-confidence",
+            "100",
+            str(src_dir),
+        ]
+
+        if suppressions_file.exists():
+            cmd.extend(["--ignore-names", _read_suppressions_for_cli(suppressions_file)])
+
         error_msg = (
             f"vulture (100% confidence) found issues in src/:\n"
             f"Command: {' '.join(cmd)}\n"
-            f"Stdout: {result.stdout}\n"
-            f"Stderr: {result.stderr}\n"
-            f"Return code: {result.returncode}"
+            f"Stdout: {cached_result.get('stdout', '')}\n"
+            f"Stderr: {cached_result.get('stderr', '')}\n"
+            f"Return code: {cached_result.get('returncode', 0)}"
         )
         pytest.fail(error_msg)
 
