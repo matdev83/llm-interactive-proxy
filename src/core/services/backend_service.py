@@ -81,6 +81,11 @@ class BackendService(IBackendService):
         stream_formatting_service: IStreamFormattingService | None = None,
         usage_tracking_wrapper: IUsageTrackingWrapper | None = None,
         model_alias_resolver: IModelAliasResolver | None = None,
+        exception_normalizer: IExceptionNormalizer | None = None,
+        backend_lifecycle_manager: IBackendLifecycleManager | None = None,
+        planning_phase_manager: IPlanningPhaseManager | None = None,
+        reasoning_config_applicator: IReasoningConfigApplicator | None = None,
+        uri_parameter_applicator: IURIParameterApplicator | None = None,
     ):
         """Initialize the backend service.
 
@@ -144,6 +149,65 @@ class BackendService(IBackendService):
             )
         else:
             self._model_alias_resolver = model_alias_resolver
+
+        # Exception normalizer - create default if not provided
+        if exception_normalizer is None:
+            from src.core.services.exception_normalizer import ExceptionNormalizer
+
+            self._exception_normalizer: IExceptionNormalizer = ExceptionNormalizer()
+        else:
+            self._exception_normalizer = exception_normalizer
+
+        # Backend lifecycle manager - create default if not provided
+        if backend_lifecycle_manager is None:
+            from src.core.services.backend_lifecycle_manager import (
+                BackendLifecycleManager,
+            )
+
+            self._backend_lifecycle_manager: IBackendLifecycleManager = (
+                BackendLifecycleManager(
+                    factory=factory,
+                    config=config,
+                    backend_config_provider=backend_config_provider,
+                )
+            )
+        else:
+            self._backend_lifecycle_manager = backend_lifecycle_manager
+
+        # Planning phase manager - create default if not provided
+        if planning_phase_manager is None:
+            from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+            self._planning_phase_manager: IPlanningPhaseManager = PlanningPhaseManager(
+                session_service=session_service
+            )
+        else:
+            self._planning_phase_manager = planning_phase_manager
+
+        # Reasoning config applicator - create default if not provided
+        if reasoning_config_applicator is None:
+            from src.core.services.reasoning_config_applicator import (
+                ReasoningConfigApplicator,
+            )
+
+            self._reasoning_config_applicator: IReasoningConfigApplicator = (
+                ReasoningConfigApplicator()
+            )
+        else:
+            self._reasoning_config_applicator = reasoning_config_applicator
+
+        # URI parameter applicator - create default if not provided
+        if uri_parameter_applicator is None:
+            from src.core.services.uri_parameter_applicator import (
+                URIParameterApplicator,
+            )
+
+            self._uri_parameter_applicator: IURIParameterApplicator = (
+                URIParameterApplicator(config=config)
+            )
+        else:
+            self._uri_parameter_applicator = uri_parameter_applicator
+
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backend_limit = self._resolve_per_session_backend_limit(
@@ -450,12 +514,7 @@ class BackendService(IBackendService):
         Returns:
             The updated request with reasoning configuration applied
         """
-        applicator = getattr(self, "__dict__", {}).get("_reasoning_config_applicator")
-        if applicator is None:
-            applicator = ReasoningConfigApplicator()
-            self._reasoning_config_applicator = applicator
-
-        return applicator.apply(request=request, session=session)
+        return self._reasoning_config_applicator.apply(request=request, session=session)
 
     def _apply_uri_parameters(
         self,
@@ -481,15 +540,7 @@ class BackendService(IBackendService):
         Returns:
             The updated request with resolved parameters applied
         """
-        # Early return if no URI parameters to apply
-        if not uri_params:
-            return request
-        applicator = getattr(self, "__dict__", {}).get("_uri_parameter_applicator")
-        if applicator is None:
-            applicator = URIParameterApplicator(config=self._config)
-            self._uri_parameter_applicator = applicator
-
-        return applicator.apply(
+        return self._uri_parameter_applicator.apply(
             request=request,
             uri_params=uri_params,
             backend_type=backend_type,
@@ -1694,98 +1745,7 @@ class BackendService(IBackendService):
             session: The current session
             default_backend: Default backend for model parsing
         """
-        if not session or not session.state:
-            return
-
-        planning_config = getattr(session.state, "planning_phase_config", None)
-        if (
-            not planning_config
-            or not bool(getattr(planning_config, "enabled", False))
-            or not getattr(planning_config, "strong_model", None)
-        ):
-            return
-
-        # Safely extract counters with defaults
-        try:
-            turn_count = int(
-                getattr(session.state, "planning_phase_turn_count", 0) or 0
-            )
-        except Exception:
-            turn_count = 0
-        try:
-            file_write_count = int(
-                getattr(session.state, "planning_phase_file_write_count", 0) or 0
-            )
-        except Exception:
-            file_write_count = 0
-
-        try:
-            _max_turns = int(getattr(planning_config, "max_turns", 0) or 0)
-        except Exception:
-            _max_turns = 0
-        try:
-            _max_writes = int(getattr(planning_config, "max_file_writes", 0) or 0)
-        except Exception:
-            _max_writes = 0
-
-        if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
-            await self._restore_planning_phase_route(session)
-            return
-
-        from src.core.domain.configuration.backend_config import BackendConfiguration
-        from src.core.domain.model_utils import parse_model_backend
-        from src.core.interfaces.configuration_interface import IBackendConfig
-
-        requested_backend, requested_model = parse_model_backend(
-            session.state.backend_config.model or "", default_backend
-        )
-        strong_backend, strong_model = parse_model_backend(
-            planning_config.strong_model, default_backend
-        )
-
-        current_full_model = f"{requested_backend}:{requested_model}"
-        strong_full_model = f"{strong_backend}:{strong_model}"
-
-        if current_full_model == strong_full_model:
-            return
-
-        # Persist the original route so we can restore it when planning phase ends
-        try:
-            has_original_backend = bool(
-                getattr(session.state, "planning_phase_original_backend", None)
-            )
-            has_original_model = bool(
-                getattr(session.state, "planning_phase_original_model", None)
-            )
-        except Exception:
-            has_original_backend = False
-            has_original_model = False
-
-        if not (has_original_backend or has_original_model):
-            new_state = session.state.with_planning_phase_original_route(
-                requested_backend,
-                requested_model,
-            )
-            session.update_state(new_state)
-            await self._session_service.update_session(session)
-
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Planning phase active (turn {turn_count + 1}/{planning_config.max_turns}): "
-                f"routing from {current_full_model} to {strong_full_model}"
-            )
-
-        new_backend_config = BackendConfiguration(
-            backend_type=strong_backend,
-            model=strong_model,
-            interactive_mode=session.state.backend_config.interactive_mode,
-        )
-
-        new_state = session.state.with_backend_config(
-            cast(IBackendConfig, new_backend_config)
-        )
-        session.update_state(new_state)
-        await self._session_service.update_session(session)
+        await self._planning_phase_manager.apply_if_needed(session, default_backend)
 
     async def _update_planning_phase_counters(
         self, session_id: str, response: Any
@@ -1796,116 +1756,12 @@ class BackendService(IBackendService):
             session_id: The session ID
             response: The response envelope containing metadata
         """
-        try:
-            session = await self._session_service.get_session(session_id)
-            if not session or not session.state:
-                return
-
-            planning_config = session.state.planning_phase_config
-            if not planning_config.enabled:
-                return
-
-            turn_count = session.state.planning_phase_turn_count
-            file_write_count = session.state.planning_phase_file_write_count
-
-            if (
-                turn_count >= planning_config.max_turns
-                or file_write_count >= planning_config.max_file_writes
-            ):
-                await self._restore_planning_phase_route(session)
-                return
-
-            new_turn_count = turn_count + 1
-            new_file_write_count = (
-                file_write_count + self._count_file_writes_in_response(response)
-            )
-
-            if new_turn_count != turn_count or new_file_write_count != file_write_count:
-                # Performance optimization: use single model_copy instead of chaining
-                new_state = session.state.with_multiple_updates(
-                    planning_phase_turn_count=new_turn_count,
-                    planning_phase_file_write_count=new_file_write_count,
-                )
-
-                session.update_state(new_state)
-                await self._session_service.update_session(session)
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Updated session %s with planning_phase_turn_count=%d, planning_phase_file_write_count=%d",
-                        session_id,
-                        new_turn_count,
-                        new_file_write_count,
-                    )
-
-                if (
-                    new_turn_count >= planning_config.max_turns
-                    or new_file_write_count >= planning_config.max_file_writes
-                ):
-                    await self._restore_planning_phase_route(session)
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to update planning phase counters: {e}", exc_info=True
-                )
+        await self._planning_phase_manager.update_counters(session_id, response)
 
     async def _restore_planning_phase_route(self, session: Any) -> None:
         """Restore the original backend/model after planning phase concludes."""
-
-        if not session or not session.state:
-            return
-
-        try:
-            original_backend = getattr(
-                session.state, "planning_phase_original_backend", None
-            )
-            original_model = getattr(
-                session.state, "planning_phase_original_model", None
-            )
-        except Exception:
-            return
-
-        if original_backend is None and original_model is None:
-            return
-
-        from src.core.domain.configuration.backend_config import BackendConfiguration
-        from src.core.interfaces.configuration_interface import IBackendConfig
-
-        current_config = session.state.backend_config
-        target_backend = original_backend or current_config.backend_type
-        target_model = (
-            original_model if original_model is not None else current_config.model
-        )
-
-        # Ensure that we are not passing mock objects to the BackendConfiguration
-        if hasattr(target_backend, "_extract_mock_name"):
-            target_backend = str(target_backend)
-        if hasattr(target_model, "_extract_mock_name"):
-            target_model = str(target_model)
-
-        restored_config = BackendConfiguration(
-            backend_type=target_backend,
-            model=target_model,
-            interactive_mode=current_config.interactive_mode,
-        )
-
-        # Performance optimization: use single model_copy instead of chaining
-        new_state = session.state.with_multiple_updates(
-            backend_config=cast(IBackendConfig, restored_config),
-            planning_phase_original_backend=None,
-            planning_phase_original_model=None,
-        )
-
-        session.update_state(new_state)
-        await self._session_service.update_session(session)
-
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Planning phase complete; restored session %s to backend=%s model=%s",
-                getattr(session, "id", None),
-                target_backend,
-                target_model,
-            )
+        # Managed by PlanningPhaseManager, no-op in BackendService
+        pass
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.
@@ -1916,41 +1772,7 @@ class BackendService(IBackendService):
         Returns:
             Number of file write operations detected
         """
-        file_write_tools = {
-            "write_file",
-            "edit_file",
-            "patch_file",
-            "apply_diff",
-            "search_replace",
-            "str_replace_editor",
-            "write_to_file",
-            "create_file",
-            "modify_file",
-            "apply_patch",
-            "edit_notebook",
-        }
-
-        count = 0
-        tool_calls = []
-
-        if hasattr(response, "metadata") and isinstance(response.metadata, dict):
-            tool_calls = response.metadata.get("tool_calls", [])
-        elif hasattr(response, "content") and isinstance(response.content, dict):
-            choices = response.content.get("choices", [])
-            if choices and isinstance(choices[0], dict):
-                message = choices[0].get("message", {})
-                if message and isinstance(message, dict):
-                    tool_calls = message.get("tool_calls", [])
-
-        for tool_call in tool_calls:
-            if isinstance(tool_call, dict):
-                tool_name = tool_call.get("function", {}).get("name") or tool_call.get(
-                    "name"
-                )
-                if tool_name and tool_name.lower() in file_write_tools:
-                    count += 1
-
-        return count
+        return self._planning_phase_manager.count_file_writes(response)
 
     async def _resolve_backend_and_model(
         self, request: ChatRequest
