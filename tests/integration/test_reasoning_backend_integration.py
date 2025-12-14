@@ -42,7 +42,9 @@ class TestBackendIntegration:
 
         # Import the backend service method
         from src.core.services.backend_service import BackendService
-        from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         # We need to create an instance to call the method
@@ -97,7 +99,9 @@ class TestBackendIntegration:
 
         # Import the backend service method
         from src.core.services.backend_service import BackendService
-        from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
@@ -138,7 +142,9 @@ class TestBackendIntegration:
 
         # Import the backend service method
         from src.core.services.backend_service import BackendService
-        from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()

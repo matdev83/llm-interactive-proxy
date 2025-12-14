@@ -263,7 +263,9 @@ class TestReasoningAliasesEndToEnd:
 
         # Apply reasoning config (this is what happens in the backend service)
         from src.core.services.backend_service import BackendService
-        from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         backend_service = MagicMock()
         backend_service._reasoning_config_applicator = ReasoningConfigApplicator()

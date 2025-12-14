@@ -144,24 +144,51 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self, request_data, processed_messages, effective_model, **kwargs
     ) -> StreamingResponseEnvelope:
         """Mock streaming API call that returns a StreamingResponseEnvelope."""
-        # Get the response from the non-streaming method
-        response_envelope = await self._chat_completions_code_assist(
-            request_data, processed_messages, effective_model, **kwargs
-        )
+        # Use retry logic to simulate Orchestrator behavior which was removed from the base connector
+        # but is expected by this test which mocks the connector logic.
+        last_error = None
+        max_attempts = self._degradation_config.max_total_attempts
 
-        # Simulate streaming by yielding a single chunk as a ProcessedResponse
-        processed_response = ProcessedResponse(
-            content=json.dumps(response_envelope.content).encode("utf-8"),
-            metadata=response_envelope.metadata,
-            usage=response_envelope.usage,
-        )
+        for attempt in range(max_attempts):
+            try:
+                # Get the response from the non-streaming method
+                response_envelope = await self._chat_completions_code_assist(
+                    request_data, processed_messages, effective_model, **kwargs
+                )
 
-        return StreamingResponseEnvelope(
-            content=self._create_async_generator([processed_response]),
-            headers=response_envelope.headers,
-            status_code=response_envelope.status_code,
-            metadata=response_envelope.metadata,
-        )
+                # Simulate streaming by yielding a single chunk as a ProcessedResponse
+                processed_response = ProcessedResponse(
+                    content=json.dumps(response_envelope.content).encode("utf-8"),
+                    metadata=response_envelope.metadata,
+                    usage=response_envelope.usage,
+                )
+
+                return StreamingResponseEnvelope(
+                    content=self._create_async_generator([processed_response]),
+                    headers=response_envelope.headers,
+                    status_code=response_envelope.status_code,
+                    metadata=response_envelope.metadata,
+                )
+            except BackendError as e:
+                last_error = e
+                # Only retry on 429/quota errors
+                if e.status_code == 429:
+                    # We need to sleep to allow time to pass as test relies on time.time()
+                    # Use a small default if delays not configured, though fixture sets them
+                    retry_delay = 1.0
+                    if self._degradation_config.retry_delays:
+                        retry_delay = self._degradation_config.retry_delays[
+                            min(attempt, len(self._degradation_config.retry_delays) - 1)
+                        ]
+                    await asyncio.sleep(retry_delay)
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+
+        # Should not be reached
+        raise BackendError("Max attempts reached without success", status_code=429)
 
     async def _discover_project_id(self, auth_session):
         """Mock project ID discovery."""

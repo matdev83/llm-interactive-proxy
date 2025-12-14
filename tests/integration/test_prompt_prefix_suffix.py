@@ -41,11 +41,15 @@ class TestPromptPrefixSuffix:
             temperature=0.5,
         )
 
-        # Import the backend service method
+        # Import the real applicator
         from src.core.services.backend_service import BackendService
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config
         updated_request = BackendService._apply_reasoning_config(
@@ -87,11 +91,15 @@ class TestPromptPrefixSuffix:
             temperature=0.5,
         )
 
-        # Import the backend service method
+        # Import the real applicator
         from src.core.services.backend_service import BackendService
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config
         updated_request = BackendService._apply_reasoning_config(
@@ -130,11 +138,15 @@ class TestPromptPrefixSuffix:
             temperature=0.5,
         )
 
-        # Import the backend service method
+        # Import the real applicator
         from src.core.services.backend_service import BackendService
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config
         updated_request = BackendService._apply_reasoning_config(
@@ -155,6 +167,9 @@ class TestPromptPrefixSuffix:
         reasoning_mode.user_prompt_prefix = "Question: "
         reasoning_mode.user_prompt_suffix = None
         reasoning_mode.temperature = None  # Don't override temperature
+        reasoning_mode.reasoning_config = None
+        reasoning_mode.gemini_generation_config = None
+        reasoning_mode.top_p = None
 
         session.get_reasoning_mode = MagicMock(return_value=reasoning_mode)
 
@@ -165,11 +180,15 @@ class TestPromptPrefixSuffix:
             temperature=0.5,
         )
 
-        # Import the backend service method
+        # Import the real applicator
         from src.core.services.backend_service import BackendService
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config
         updated_request = BackendService._apply_reasoning_config(
@@ -190,6 +209,9 @@ class TestPromptPrefixSuffix:
         reasoning_mode.user_prompt_prefix = None
         reasoning_mode.user_prompt_suffix = " (be concise)"
         reasoning_mode.temperature = None  # Don't override temperature
+        reasoning_mode.reasoning_config = None
+        reasoning_mode.gemini_generation_config = None
+        reasoning_mode.top_p = None
 
         session.get_reasoning_mode = MagicMock(return_value=reasoning_mode)
 
@@ -200,11 +222,15 @@ class TestPromptPrefixSuffix:
             temperature=0.5,
         )
 
-        # Import the backend service method
+        # Import the real applicator
         from src.core.services.backend_service import BackendService
+        from src.core.services.reasoning_config_applicator import (
+            ReasoningConfigApplicator,
+        )
 
         # Test the _apply_reasoning_config method
         backend_service = MagicMock()
+        backend_service._reasoning_config_applicator = ReasoningConfigApplicator()
 
         # Apply reasoning config
         updated_request = BackendService._apply_reasoning_config(

@@ -196,7 +196,7 @@
 - **Core Services Improvements**:
   - **Dependency Injection**: Fixed `ToolCallReactorFeature` detection in `_ensure_tool_call_reactor_services` to correctly identify the feature in `MiddlewareApplicationManager`
   - **Deprecation Warnings**: Downgraded `ToolCallReactorMiddleware` deprecation log from ERROR to WARNING to reduce noise during migration
-  - **Timezone Handling**: Improved ISO date parsing in ` ClineAuthMixin` to robustly handle 'Z' suffix
+  - **Timezone Handling**: Improved ISO date parsing in `ClineAuthMixin` to robustly handle 'Z' suffix
 
 ## [2025-12-08]
 
@@ -734,7 +734,7 @@
   - `list`: List all capture files in a directory
   - `replay`: Replay captured session against a running proxy with validation
 
-### Validation Results**: Comprehensive validation including:
+### Validation Results: Comprehensive validation including
   - Content mismatch detection with byte-level comparison
   - Timing deviation tracking with configurable tolerance
   - Detailed reports with summaries and failure details

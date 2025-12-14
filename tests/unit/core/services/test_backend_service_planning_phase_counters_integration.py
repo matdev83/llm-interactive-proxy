@@ -74,7 +74,9 @@ async def test_call_completion_updates_planning_counters_non_streaming() -> None
     )
 
     service._resolve_backend_and_model = AsyncMock(return_value=("openai", "gpt-4", {}))
-    service._get_or_create_backend = AsyncMock(return_value=_OkBackend())
+    service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=_OkBackend()
+    )
 
     request = ChatRequest(
         model="gpt-4",
@@ -112,7 +114,9 @@ async def test_call_completion_updates_planning_counters_streaming_after_consume
     )
 
     service._resolve_backend_and_model = AsyncMock(return_value=("openai", "gpt-4", {}))
-    service._get_or_create_backend = AsyncMock(return_value=_StreamingOkBackend())
+    service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=_StreamingOkBackend()
+    )
 
     request = ChatRequest(
         model="gpt-4",

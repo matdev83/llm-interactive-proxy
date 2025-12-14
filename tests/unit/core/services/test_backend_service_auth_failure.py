@@ -73,7 +73,9 @@ async def test_auth_failure_permanent_backend_disable(backend_service):
         return_value=("openai", "gpt-4", {})
     )
     # Mock backend creation
-    backend_service._get_or_create_backend = AsyncMock(return_value=backend)
+    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=backend
+    )
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
@@ -98,7 +100,9 @@ async def test_backend_error_401_permanent_disable(backend_service):
     backend_service._resolve_backend_and_model = AsyncMock(
         return_value=("openai", "gpt-4", {})
     )
-    backend_service._get_or_create_backend = AsyncMock(return_value=backend)
+    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=backend
+    )
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
@@ -123,7 +127,9 @@ async def test_http_exception_401_permanent_disable(backend_service):
     backend_service._resolve_backend_and_model = AsyncMock(
         return_value=("openai", "gpt-4", {})
     )
-    backend_service._get_or_create_backend = AsyncMock(return_value=backend)
+    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=backend
+    )
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
@@ -149,7 +155,9 @@ async def test_oauth_backend_not_permanently_disabled(backend_service):
     backend_service._resolve_backend_and_model = AsyncMock(
         return_value=("gemini-oauth", "gemini-2.5-pro", {})
     )
-    backend_service._get_or_create_backend = AsyncMock(return_value=backend)
+    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
+        return_value=backend
+    )
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gemini-2.5-pro"
@@ -166,7 +174,7 @@ async def test_oauth_backend_not_permanently_disabled(backend_service):
 @pytest.mark.asyncio
 async def test_disabled_backend_fails_fast_without_failover(backend_service):
     """Request to a permanently disabled backend fails before creation when no failover exists."""
-    backend_service._disabled_backends["openai"] = {
+    backend_service._backend_lifecycle_manager._disabled_backends["openai"] = {
         "reason": "invalid api key",
         "timestamp": time.time(),
     }

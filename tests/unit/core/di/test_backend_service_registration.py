@@ -1,7 +1,6 @@
 """Tests for BackendService extracted services registration."""
 
 from collections.abc import Iterator
-from unittest.mock import Mock
 
 import pytest
 from src.core.di.container import ServiceCollection
@@ -111,11 +110,19 @@ class TestBackendServiceRegistration:
 
         # Check that dependencies were injected
         # Note: We access private attributes here to verify injection
-        assert isinstance(backend_service._stream_formatting_service, StreamFormattingService)
+        assert isinstance(
+            backend_service._stream_formatting_service, StreamFormattingService
+        )
         assert isinstance(backend_service._usage_tracking_wrapper, UsageTrackingWrapper)
         assert isinstance(backend_service._model_alias_resolver, ModelAliasResolver)
-        assert isinstance(backend_service._uri_parameter_applicator, URIParameterApplicator)
-        assert isinstance(backend_service._reasoning_config_applicator, ReasoningConfigApplicator)
+        assert isinstance(
+            backend_service._uri_parameter_applicator, URIParameterApplicator
+        )
+        assert isinstance(
+            backend_service._reasoning_config_applicator, ReasoningConfigApplicator
+        )
         assert isinstance(backend_service._planning_phase_manager, PlanningPhaseManager)
-        assert isinstance(backend_service._backend_lifecycle_manager, BackendLifecycleManager)
+        assert isinstance(
+            backend_service._backend_lifecycle_manager, BackendLifecycleManager
+        )
         assert isinstance(backend_service._exception_normalizer, ExceptionNormalizer)

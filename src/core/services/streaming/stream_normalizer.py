@@ -66,6 +66,7 @@ class StreamNormalizer(IStreamNormalizer):
         async for chunk in stream:
             # Convert raw chunk to StreamingContent
             content = StreamingContent.from_raw(chunk)
+            is_keepalive = bool(content.metadata.get("_keepalive"))
 
             # Ensure a stable identifier for this stream so that stateful processors
             # can keep their buffers isolated from other concurrent streams.
@@ -75,8 +76,10 @@ class StreamNormalizer(IStreamNormalizer):
             else:
                 metadata["stream_id"] = str(metadata["stream_id"])
 
-            # Skip empty chunks
-            if content.is_empty and not content.is_done:
+            # Skip empty chunks unless they are explicit keepalives.
+            # Keepalives intentionally carry no user-visible content but must be
+            # forwarded to prevent client-side timeouts during upstream waits.
+            if content.is_empty and not content.is_done and not is_keepalive:
                 continue
 
             # Apply processors in sequence
@@ -95,12 +98,12 @@ class StreamNormalizer(IStreamNormalizer):
                             )
                 content = await processor.process(content)
 
-                # Skip if processor made it empty
-                if content.is_empty and not content.is_done:
+                # Skip if processor made it empty (unless it's a keepalive)
+                if content.is_empty and not content.is_done and not is_keepalive:
                     break
 
             # Yield if still has content or is done marker
-            if not content.is_empty or content.is_done:
+            if not content.is_empty or content.is_done or is_keepalive:
                 if output_format == "bytes":
                     yield content.to_bytes()
                 elif output_format == "objects":

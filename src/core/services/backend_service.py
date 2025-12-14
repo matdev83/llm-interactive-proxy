@@ -127,9 +127,19 @@ class BackendService(IBackendService):
         )
         if self._failure_strategy is None:
             failure_handling_settings = getattr(config, "failure_handling", None)
-            if failure_handling_settings is not None and bool(
-                getattr(failure_handling_settings, "enabled", True)
+            enabled_setting = (
+                getattr(failure_handling_settings, "enabled", None)
+                if failure_handling_settings is not None
+                else None
+            )
+            if failure_handling_settings is not None and isinstance(
+                enabled_setting, bool
             ):
+                enabled = enabled_setting
+            else:
+                enabled = False
+
+            if failure_handling_settings is not None and enabled:
                 from src.core.interfaces.failure_strategy_interface import (
                     FailureHandlingConfig,
                 )
@@ -137,29 +147,29 @@ class BackendService(IBackendService):
                     DefaultFailureHandlingStrategy,
                 )
 
+                def _coerce_float(name: str, default: float) -> float:
+                    value = getattr(failure_handling_settings, name, default)
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return default
+
+                def _coerce_int(name: str, default: int) -> int:
+                    value = getattr(failure_handling_settings, name, default)
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        return default
+
                 self._failure_strategy = DefaultFailureHandlingStrategy(
                     config=FailureHandlingConfig(
-                        max_silent_wait=float(
-                            getattr(failure_handling_settings, "max_silent_wait", 60.0)
+                        max_silent_wait=_coerce_float("max_silent_wait", 60.0),
+                        total_timeout_budget=_coerce_float(
+                            "total_timeout_budget", 90.0
                         ),
-                        total_timeout_budget=float(
-                            getattr(
-                                failure_handling_settings,
-                                "total_timeout_budget",
-                                90.0,
-                            )
-                        ),
-                        keepalive_interval=float(
-                            getattr(
-                                failure_handling_settings, "keepalive_interval", 8.0
-                            )
-                        ),
-                        max_failover_hops=int(
-                            getattr(failure_handling_settings, "max_failover_hops", 5)
-                        ),
-                        min_retry_wait=float(
-                            getattr(failure_handling_settings, "min_retry_wait", 1.0)
-                        ),
+                        keepalive_interval=_coerce_float("keepalive_interval", 8.0),
+                        max_failover_hops=_coerce_int("max_failover_hops", 5),
+                        min_retry_wait=_coerce_float("min_retry_wait", 1.0),
                     ),
                     backend_discovery=self._routing_service,
                 )
@@ -678,44 +688,10 @@ class BackendService(IBackendService):
                             error_message,
                         )
 
-                    # If streaming is enabled, return SSE error stream instead of raising
-                    if stream or getattr(request, "stream", False):
-                        from collections.abc import AsyncGenerator
-
-                        from src.core.interfaces.response_processor_interface import (
-                            ProcessedResponse,
-                        )
-                        from src.core.ports.streaming_contracts import (
-                            handle_streaming_error,
-                        )
-
-                        backend_error = BackendError(
-                            message=error_message,
-                            backend_name=backend_type,
-                            details=error_details,
-                        )
-
-                        async def error_stream() -> (
-                            AsyncGenerator[ProcessedResponse, None]
-                        ):
-                            chunk = await handle_streaming_error(
-                                backend_error,
-                                getattr(request, "session_id", None),
-                                backend_type,
-                            )
-                            # Yield as string so response_adapters legacy SSE check passes
-                            yield ProcessedResponse(
-                                content=chunk.to_bytes().decode("utf-8")
-                            )
-
-                        return StreamingResponseEnvelope(
-                            content=error_stream(),
-                            media_type="text/event-stream",
-                            headers={},
-                            status_code=500,
-                        )
-
-                    # Non-streaming: raise as usual
+                    # Raise as usual. For streaming requests, this preserves OpenAI
+                    # behavior: if the backend fails before the stream starts, return an
+                    # HTTP error response (many clients can auto-retry); SSE error chunks
+                    # are only appropriate once the response stream has begun.
                     raise BackendError(
                         message=error_message,
                         backend_name=backend_type,
@@ -1122,6 +1098,16 @@ class BackendService(IBackendService):
                                             ),
                                         )
 
+                                if session_id and self._planning_phase_manager:
+                                    from src.core.interfaces.response_processor_interface import (
+                                        ProcessedResponse,
+                                    )
+
+                                    await self._planning_phase_manager.update_counters(
+                                        session_id,
+                                        ProcessedResponse(content="", metadata={}),
+                                    )
+
                             # Record success for streaming response
                             if self._resilience:
                                 self._resilience.record_success(
@@ -1189,6 +1175,11 @@ class BackendService(IBackendService):
                                     ),
                                 )
 
+                        if session_id and self._planning_phase_manager:
+                            await self._planning_phase_manager.update_counters(
+                                session_id, ProcessedResponse(content="", metadata={})
+                            )
+
                     # Record success for streaming response
                     if self._resilience:
                         self._resilience.record_success(backend_type, effective_model)
@@ -1203,6 +1194,11 @@ class BackendService(IBackendService):
                 # Record success in resilience coordinator
                 if self._resilience:
                     self._resilience.record_success(backend_type, effective_model)
+
+                if session_id_for_backend and self._planning_phase_manager:
+                    await self._planning_phase_manager.update_counters(
+                        session_id_for_backend, result
+                    )
 
                 return result
             except (
@@ -1220,40 +1216,11 @@ class BackendService(IBackendService):
 
                 call_exc = self._exception_normalizer.normalize(call_exc, backend_type)
 
-                is_streaming_request = stream or getattr(request, "stream", False)
                 capture_session_id: str | None = None
                 if context is not None:
                     capture_session_id = getattr(context, "session_id", None)
                 if not capture_session_id:
                     capture_session_id = getattr(request, "session_id", None)
-
-                async def _as_sse_error(exc: Exception) -> StreamingResponseEnvelope:
-                    from collections.abc import AsyncGenerator
-
-                    from src.core.interfaces.response_processor_interface import (
-                        ProcessedResponse,
-                    )
-                    from src.core.ports.streaming_contracts import (
-                        handle_streaming_error,
-                    )
-
-                    async def _error_stream() -> (
-                        AsyncGenerator[ProcessedResponse, None]
-                    ):
-                        chunk = await handle_streaming_error(
-                            exc,
-                            capture_session_id,
-                            current_backend,
-                        )
-                        yield ProcessedResponse(
-                            content=chunk.to_bytes().decode("utf-8")
-                        )
-
-                    return StreamingResponseEnvelope(
-                        content=_error_stream(),
-                        media_type="text/event-stream",
-                        headers={},
-                    )
 
                 # Best-effort wire-capture of error payloads so debugging captures
                 # remain useful even when the backend call fails before streaming begins.
@@ -1316,13 +1283,8 @@ class BackendService(IBackendService):
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
                 if isinstance(call_exc, BackendError | RateLimitExceededError):
                     if not allow_failover:
-                        if is_streaming_request:
-                            if self._resilience:
-                                self._resilience.record_failure(
-                                    current_backend, effective_model, call_exc
-                                )
-                            return await _as_sse_error(call_exc)
-                        # Re-raise the original domain-specific exception
+                        # For streaming requests, preserve HTTP error semantics when
+                        # the backend fails before the stream starts.
                         raise call_exc
                     last_error = call_exc
                 else:
@@ -1332,12 +1294,6 @@ class BackendService(IBackendService):
                             message=f"Backend call failed: {call_exc!s}",
                             backend_name=current_backend,
                         )
-                        if is_streaming_request:
-                            if self._resilience:
-                                self._resilience.record_failure(
-                                    current_backend, effective_model, wrapped_error
-                                )
-                            return await _as_sse_error(wrapped_error)
                         raise wrapped_error from call_exc  # Chain the exception
                     last_error = call_exc  # type: ignore[assignment]
 
@@ -1451,8 +1407,11 @@ class BackendService(IBackendService):
                                         wait_seconds=wait_seconds,
                                         interval_seconds=ka_interval,
                                         include_status=True,
+                                        model=effective_model,
+                                        session_id=capture_session_id,
+                                        stream_id=capture_session_id,
                                     ):
-                                        # Yield raw bytes as keepalive comments
+                                        # Yield keepalive chunks to keep the client connection open
                                         yield chunk
 
                                 # 2. Execute retry
@@ -1482,9 +1441,28 @@ class BackendService(IBackendService):
                                         ProcessedResponse,
                                     )
 
+                                    error_details = {
+                                        "type": type(e).__name__,
+                                        "message": str(e),
+                                        "retryable": False,
+                                    }
                                     yield ProcessedResponse(
-                                        content="",
-                                        metadata={"error": str(e)},
+                                        content={
+                                            "choices": [
+                                                {
+                                                    "delta": {},
+                                                    "finish_reason": "error",
+                                                    "index": 0,
+                                                }
+                                            ],
+                                            "error": error_details,
+                                        },
+                                        metadata={
+                                            "finish_reason": "error",
+                                            "error": error_details,
+                                            "is_done": True,
+                                            "model": effective_model,
+                                        },
                                         usage=None,
                                     )
 
@@ -1536,12 +1514,6 @@ class BackendService(IBackendService):
 
                 # If we get here, re-raise the original error if it's already a domain error,
                 # otherwise wrap it in BackendError
-                if is_streaming_request and last_error is not None:
-                    if self._resilience:
-                        self._resilience.record_failure(
-                            current_backend, effective_model, last_error
-                        )
-                    return await _as_sse_error(last_error)
                 if isinstance(
                     last_error, BackendError | RateLimitExceededError | LLMProxyError
                 ):

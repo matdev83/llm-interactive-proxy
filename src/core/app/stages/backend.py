@@ -266,7 +266,10 @@ class BackendStage(InitializationStage):
             from src.core.services.rate_limiter import RateLimiter
 
             # If BackendService / IBackendService is already registered, do not override.
-            if BackendService in descriptors or cast(type, IBackendService) in descriptors:
+            if (
+                BackendService in descriptors
+                or cast(type, IBackendService) in descriptors
+            ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "BackendService already registered; BackendStage will not override it"

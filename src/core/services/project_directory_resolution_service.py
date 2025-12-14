@@ -180,10 +180,16 @@ class ProjectDirectoryResolutionService:
 
         # Heuristic: If the path ends in a common source/test directory (e.g. src, lib, tests),
         # assume the user meant the parent project root.
-        if pure_path.name.lower() in ("src", "source", "lib", "tests", "test", "bin"):
+        if pure_path.name.lower() in (
+            "src",
+            "source",
+            "lib",
+            "tests",
+            "test",
+            "bin",
+        ) and len(pure_path.parts) > (1 if path_type in ("windows", "unc") else 1):
             # Ensure we don't strip the root (though unlikely with these names)
-            if len(pure_path.parts) > (1 if path_type in ("windows", "unc") else 1):
-                pure_path = pure_path.parent
+            pure_path = pure_path.parent
 
         normalized = str(pure_path)
         if path_type == "unc":
@@ -197,7 +203,10 @@ class ProjectDirectoryResolutionService:
 
         Intentionally avoids hardcoded allow/deny lists. We only require:
         - Absolute path (in its own path style)
-        - At least one directory component after the root/drive/share
+        - At least three directory components after the root/drive/share
+        This rejects root directories, shallow directories like C:\\Users, and
+        system directories like C:\\Windows\\System32 or /usr/bin, while accepting
+        valid project paths like C:\\Users\\test\\project
         """
         try:
             pure_path = (
@@ -209,7 +218,14 @@ class ProjectDirectoryResolutionService:
             return False
 
         parts = pure_path.parts
-        return len(parts) >= 2
+        # Require at least 4 parts total (root + 3 directory levels)
+        # This rejects:
+        # - Root directories (1 part): C:\\ or /
+        # - Shallow directories (2 parts): C:\\Users or /home
+        # - System directories (3 parts): C:\\Windows\\System32 or /usr/bin
+        # While accepting deeper project paths (4+ parts): C:\\Users\\test\\project
+        # For UNC paths, require server\\share\\directory\\subdirectory (4+ parts)
+        return len(parts) >= 4
 
     def _longest_common_directory(
         self, directories: list[str], path_type: _PathType
@@ -396,15 +412,30 @@ class ProjectDirectoryResolutionService:
                     # Only use the common path if it's deeper/better than the best individual
                     # This ensures we prefer C:\Users\Test\ProjectA over C:\Users\Test
                     if best_individual:
-                        # Compare: prefer the deeper, more specific path
-                        if common_depth >= len(
-                            self._get_path_parts(best_individual[1], path_type)
-                        ):
-                            # Common path is at least as deep, use it
-                            candidate = (common_score, common_path)
-                        else:
-                            # Individual path is deeper, use it
+                        # Logic: If all paths are subpaths (prefixes) of the best individual,
+                        # then the best individual is the deepest specific project directory
+                        # that encompasses the user's intent (e.g. they mentioned root and src).
+                        # But if paths diverge (e.g. ProjectA and ProjectB), we must use the common root.
+
+                        all_are_prefixes = True
+                        best_parts = self._get_path_parts(best_individual[1], path_type)
+
+                        for path in paths:
+                            path_parts = self._get_path_parts(path, path_type)
+                            if len(path_parts) > len(best_parts):
+                                all_are_prefixes = False
+                                break
+                            # Check if path_parts is a prefix of best_parts
+                            if best_parts[: len(path_parts)] != path_parts:
+                                all_are_prefixes = False
+                                break
+
+                        if all_are_prefixes:
+                            # Individual path is deeper and contains all others, use it
                             candidate = best_individual
+                        else:
+                            # Paths diverge, use common path
+                            candidate = (common_score, common_path)
                     else:
                         candidate = (common_score, common_path)
 

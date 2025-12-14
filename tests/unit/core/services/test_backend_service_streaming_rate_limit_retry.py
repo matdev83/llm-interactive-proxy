@@ -6,6 +6,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.failure_handling_config import FailureHandlingConfig
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_service import BackendService
 
 
@@ -94,7 +95,12 @@ async def test_streaming_429_with_short_retry_after_emits_keepalive_and_retries(
         chunks.append(item)
 
     assert any(
-        isinstance(c, bytes | bytearray) and bytes(c).startswith(b":") for c in chunks
+        isinstance(c, ProcessedResponse) and bool(c.metadata.get("_keepalive"))
+        for c in chunks
     )
-    assert any(getattr(c, "content", b"") == b"data: ok\n\n" for c in chunks)
+    assert any(
+        (isinstance(c, bytes | bytearray) and bytes(c) == b"data: ok\n\n")
+        or (isinstance(c, ProcessedResponse) and c.content == b"data: ok\n\n")
+        for c in chunks
+    )
     assert mock_backend.chat_completions.call_count == 2

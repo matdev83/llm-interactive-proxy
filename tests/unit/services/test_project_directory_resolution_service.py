@@ -51,7 +51,10 @@ class TestProjectDirectoryResolutionService:
                 "My project is at /home/user/dev/project-x, please help",
                 "/home/user/dev/project-x",
             ),
-            ("Use project \\\\server\\share\\folder", "\\\\server\\share\\folder"),
+            (
+                "Use project \\\\server\\share\\folder\\src\\main",
+                "\\\\server\\share\\folder\\src\\main",
+            ),
         ],
     )
     async def test_deterministic_finds_path(
@@ -203,7 +206,7 @@ class TestProjectDirectoryResolutionService:
     async def test_hybrid_mode_deterministic_wins(
         self, mock_backend_service, mock_session_service, session, caplog
     ):
-        prompt = "Path is C:\\MyProject"
+        prompt = "Path is C:\\Users\\Test\\MyProject"
         request = ChatRequest(
             model="test-model", messages=[ChatMessage(role="user", content=prompt)]
         )
@@ -214,10 +217,10 @@ class TestProjectDirectoryResolutionService:
 
         await service.maybe_resolve_project_directory(session, request)
 
-        assert session.state.project_dir == "C:\\MyProject"
+        assert session.state.project_dir == "C:\\Users\\Test\\MyProject"
         mock_backend_service.call_completion.assert_not_called()
         assert (
-            "Project directory auto-detected (deterministic): C:\\MyProject"
+            "Project directory auto-detected (deterministic): C:\\Users\\Test\\MyProject"
             in caplog.text
         )
 
@@ -377,7 +380,7 @@ class TestProjectDirectoryValidation:
         [
             "C:\\Users\\test\\project",
             "/home/user/project",
-            "\\\\server\\share\\project",
+            "\\\\server\\share\\team\\project\\src",
             "C:\\Users\\some-user\\Desktop\\my-project",
         ],
     )

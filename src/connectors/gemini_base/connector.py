@@ -1685,8 +1685,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     getattr(request_data, "session_id", None),
                     effective_model,
                 )
-                # Yield as string so response_adapters legacy SSE check passes
-                yield ProcessedResponse(content=chunk.to_bytes().decode("utf-8"))
+                error_payload = {
+                    "choices": [{"delta": {}, "finish_reason": "error", "index": 0}],
+                    "error": chunk.metadata.get("error"),
+                }
+                yield ProcessedResponse(content=error_payload)
 
             return StreamingResponseEnvelope(
                 content=auth_error_stream(),

@@ -132,11 +132,16 @@ class TestCircuitBreakerIntegration:
         # Create BackendService with mocked dependencies
         service = BackendService.__new__(BackendService)
         service._config = config
-        service._backends = {
-            "healthy": healthy_backend,
-            "unhealthy": unhealthy_backend,
-        }
-        service._disabled_backends = {}
+
+        # Mock lifecycle manager
+        service._backend_lifecycle_manager = MagicMock()
+        service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
+
+        # Mock get_active_backends returning a dict
+        active_backends = {"healthy": healthy_backend, "unhealthy": unhealthy_backend}
+        service._backend_lifecycle_manager.get_active_backends.return_value = (
+            active_backends
+        )
 
         # Test filtering
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
@@ -161,11 +166,15 @@ class TestCircuitBreakerIntegration:
         # Create BackendService with mocked dependencies
         service = BackendService.__new__(BackendService)
         service._config = config
-        service._backends = {
-            "healthy": healthy_backend,
-            "unhealthy": unhealthy_backend,
-        }
-        service._disabled_backends = {}
+
+        service._backend_lifecycle_manager = MagicMock()
+        service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
+
+        # Mock get_active_backends returning a dict
+        active_backends = {"healthy": healthy_backend, "unhealthy": unhealthy_backend}
+        service._backend_lifecycle_manager.get_active_backends.return_value = (
+            active_backends
+        )
 
         # Test filtering - should return all since circuit breaker is disabled
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
@@ -191,11 +200,15 @@ class TestCircuitBreakerIntegration:
         # Create BackendService with mocked dependencies
         service = BackendService.__new__(BackendService)
         service._config = config
-        service._backends = {
-            "unhealthy1": unhealthy1,
-            "unhealthy2": unhealthy2,
-        }
-        service._disabled_backends = {}
+
+        service._backend_lifecycle_manager = MagicMock()
+        service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
+
+        # Mock get_active_backends returning a dict
+        active_backends = {"unhealthy1": unhealthy1, "unhealthy2": unhealthy2}
+        service._backend_lifecycle_manager.get_active_backends.return_value = (
+            active_backends
+        )
 
         # Test filtering - should fall back to original plan
         plan = [("unhealthy1", "model-a"), ("unhealthy2", "model-b")]
@@ -216,8 +229,10 @@ class TestCircuitBreakerIntegration:
         # Create BackendService with no backends
         service = BackendService.__new__(BackendService)
         service._config = config
-        service._backends = {}
-        service._disabled_backends = {}
+
+        service._backend_lifecycle_manager = MagicMock()
+        service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
+        service._backend_lifecycle_manager.get_active_backends.return_value = {}
 
         # Test filtering - unknown backends should be included
         plan = [("unknown", "model-a")]

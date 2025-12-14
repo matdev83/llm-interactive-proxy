@@ -1492,7 +1492,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": "",
+                            "content": replacement_content,
                         },
                         "finish_reason": "stop",
                     }

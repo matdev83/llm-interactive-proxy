@@ -113,7 +113,7 @@ async def test_call_completion_applies_cooldown_on_429(
     )
 
     backend = _DummyBackend(app_config)
-    service._get_or_create_backend = AsyncMock(return_value=backend)
+    service._backend_lifecycle_manager.get_or_create = AsyncMock(return_value=backend)
     service._resolve_backend_and_model = AsyncMock(
         return_value=(
             backend.backend_type,

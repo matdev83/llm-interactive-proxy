@@ -142,13 +142,17 @@ async def test_streaming_wait_and_retry_emits_keepalives():
         chunks.append(chunk)
 
     # Verification
-    # 1. Should have keepalive chunks (bytes starting with :)
-    keepalives = [c for c in chunks if isinstance(c, bytes) and c.startswith(b":")]
+    # 1. Should have keepalive chunks
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+    keepalives = [
+        c
+        for c in chunks
+        if isinstance(c, ProcessedResponse) and bool(c.metadata.get("_keepalive"))
+    ]
     assert len(keepalives) > 0, "Should emit at least one keepalive"
 
     # 2. Should have content chunk
-    from src.core.interfaces.response_processor_interface import ProcessedResponse
-
     # 2. Should have content chunk
     content_chunks = []
     print("\nDEBUG: Received chunks:")

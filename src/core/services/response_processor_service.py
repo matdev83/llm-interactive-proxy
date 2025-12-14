@@ -411,10 +411,22 @@ class ResponseProcessor(IResponseProcessor):
 
             async def _context_injector(it: AsyncIterator[Any]) -> AsyncIterator[Any]:
                 async for chunk in it:
-                    # Wrap chunk in ProcessedResponse with metadata to carry context
-                    # The StreamingContent.from_raw method handles ProcessedResponse
-                    # by merging its metadata.
-                    yield ProcessedResponse(content=chunk, metadata=context)
+                    # Attach context metadata without nesting ProcessedResponse objects.
+                    # Downstream processors can handle ProcessedResponse directly, but
+                    # nested ProcessedResponse(content=ProcessedResponse(...)) can
+                    # confuse normalizers and lead to empty streams.
+                    if isinstance(chunk, ProcessedResponse):
+                        merged_metadata = dict(chunk.metadata or {})
+                        for key, value in context.items():
+                            merged_metadata.setdefault(key, value)
+                        yield ProcessedResponse(
+                            content=chunk.content,
+                            usage=chunk.usage,
+                            metadata=merged_metadata,
+                        )
+                    else:
+                        # Wrap raw chunks in ProcessedResponse to carry context.
+                        yield ProcessedResponse(content=chunk, metadata=context)
 
             effective_iterator = _context_injector(response_iterator)
 

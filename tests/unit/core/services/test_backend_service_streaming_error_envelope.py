@@ -3,12 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.services.backend_service import BackendService
 
 
 @pytest.mark.asyncio
-async def test_streaming_backend_error_returns_sse_error_envelope():
+async def test_streaming_backend_error_raises_http_error():
     backend_lifecycle_manager = MagicMock()
     backend_lifecycle_manager.get_disabled_backends.return_value = {}
     backend_lifecycle_manager.get_active_backends.return_value = {}
@@ -52,16 +51,7 @@ async def test_streaming_backend_error_returns_sse_error_envelope():
         extra_body={},
     )
 
-    response = await service.call_completion(request, stream=True, allow_failover=True)
-    assert isinstance(response, StreamingResponseEnvelope)
+    with pytest.raises(BackendError) as exc_info:
+        await service.call_completion(request, stream=True, allow_failover=True)
 
-    chunks = []
-    assert response.content is not None
-    async for item in response.content:
-        chunks.append(item)
-
-    assert len(chunks) == 1
-    chunk_content = getattr(chunks[0], "content", "")
-    assert isinstance(chunk_content, str)
-    assert chunk_content.strip()
-    assert "error" in chunk_content.lower()
+    assert exc_info.value.status_code == 500

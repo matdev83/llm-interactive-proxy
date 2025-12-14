@@ -222,7 +222,7 @@ class TestPlanningPhaseEndToEnd:
         service, session_service = backend_service_fixture
 
         # First call should store the original route and switch to strong model
-        await service._apply_planning_phase_if_needed(
+        await service._planning_phase_manager.apply_if_needed(
             planning_enabled_session, "openai"
         )
 
@@ -244,7 +244,7 @@ class TestPlanningPhaseEndToEnd:
             )
         )
 
-        await service._apply_planning_phase_if_needed(
+        await service._planning_phase_manager.apply_if_needed(
             planning_enabled_session, "openai"
         )
 
@@ -271,18 +271,22 @@ class TestPlanningPhaseEndToEnd:
         )
 
         # Activate planning phase to store original route
-        await service._apply_planning_phase_if_needed(
+        await service._planning_phase_manager.apply_if_needed(
             planning_enabled_session, "openai"
         )
 
         session_service.get_session.return_value = planning_enabled_session
 
         # Increment counters below the limit
-        await service._update_planning_phase_counters("test-session", dummy_response)
+        await service._planning_phase_manager.update_counters(
+            "test-session", dummy_response
+        )
         assert planning_enabled_session.state.backend_config.model == "gpt-4"
 
         # Increment counters to meet the limit and trigger restoration
-        await service._update_planning_phase_counters("test-session", dummy_response)
+        await service._planning_phase_manager.update_counters(
+            "test-session", dummy_response
+        )
 
         assert planning_enabled_session.state.backend_config.model == "gpt-3.5-turbo"
         assert planning_enabled_session.state.planning_phase_original_backend is None

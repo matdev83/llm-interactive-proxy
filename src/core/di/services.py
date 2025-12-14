@@ -7,6 +7,7 @@ and resolving services from the container.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Callable
@@ -39,44 +40,35 @@ from src.core.interfaces.agent_response_formatter_interface import (
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.backend_config_provider_interface import (
-    IBackendConfigProvider,
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
 )
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import (
     IBackendRequestManager,
 )
 from src.core.interfaces.backend_service_interface import IBackendService
-from src.core.interfaces.backend_lifecycle_manager_interface import (
-    IBackendLifecycleManager,
-)
-from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
-from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
-from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
-from src.core.interfaces.reasoning_config_applicator_interface import (
-    IReasoningConfigApplicator,
-)
-from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
-from src.core.interfaces.uri_parameter_applicator_interface import (
-    IURIParameterApplicator,
-)
-from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
-from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.failure_strategy_interface import (
     FailureHandlingConfig,
     IFailureHandlingStrategy,
 )
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.memory_service_interface import IMemoryService
+from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
 
 # Note: IMiddlewareApplicationManager interface is no longer used after unified pipeline refactoring
 # MiddlewareApplicationManager is still used to configure the middleware list for streaming processors
 from src.core.interfaces.path_validator_interface import IPathValidator
+from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
+from src.core.interfaces.reasoning_config_applicator_interface import (
+    IReasoningConfigApplicator,
+)
 from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
@@ -95,11 +87,17 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
     ISecureStateModification,
 )
+from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
+from src.core.interfaces.uri_parameter_applicator_interface import (
+    IURIParameterApplicator,
+)
+from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.memory.analysis_worker import AnalysisWorker
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
@@ -119,28 +117,28 @@ from src.core.ports.streaming_processors import (
 from src.core.services.angel_service import AngelService
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
+from src.core.services.backend_config_provider import BackendConfigProvider
+from src.core.services.backend_factory import BackendFactory
+from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 from src.core.services.backend_processor import BackendProcessor
+from src.core.services.backend_registry import BackendRegistry
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.backend_service import BackendService
-from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
-from src.core.services.exception_normalizer import ExceptionNormalizer
-from src.core.services.model_alias_resolver import ModelAliasResolver
-from src.core.services.planning_phase_manager import PlanningPhaseManager
-from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
-from src.core.services.stream_formatting_service import StreamFormattingService
-from src.core.services.uri_parameter_applicator import URIParameterApplicator
-from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
 from src.core.services.command_processor import CommandProcessor
 from src.core.services.dangerous_command_service import DangerousCommandService
+from src.core.services.exception_normalizer import ExceptionNormalizer
 from src.core.services.failover_service import FailoverService
 from src.core.services.file_sandboxing_handler import FileSandboxingHandler
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+from src.core.services.model_alias_resolver import ModelAliasResolver
 from src.core.services.model_replacement_service import ModelReplacementService
 from src.core.services.path_validation_service import PathValidationService
+from src.core.services.planning_phase_manager import PlanningPhaseManager
 from src.core.services.pytest_compression_service import PytestCompressionService
+from src.core.services.reasoning_config_applicator import ReasoningConfigApplicator
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.resilience import RateLimitStateManager, ResilienceCoordinator
 from src.core.services.resilience.handlers import (
@@ -162,6 +160,7 @@ from src.core.services.secure_state_service import SecureStateService
 from src.core.services.session_manager_service import SessionManager
 from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.session_service_impl import SessionService
+from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
@@ -187,6 +186,8 @@ from src.core.services.tool_call_reactor_service import (
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 from src.core.services.translation_service import TranslationService
 from src.core.services.unified_tool_security_handler import UnifiedToolSecurityHandler
+from src.core.services.uri_parameter_applicator import URIParameterApplicator
+from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
 from src.tool_call_loop.lifecycle_registry import ToolCallLifecycleRegistry
 
 T = TypeVar("T")
@@ -2590,86 +2591,196 @@ def register_core_services(
 
     # StreamFormattingService
     _add_singleton(StreamFormattingService)
-    try:
-        services.add_singleton(cast(type, IStreamFormattingService), StreamFormattingService)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IStreamFormattingService), StreamFormattingService
+        )  # type: ignore[type-abstract]
 
     # UsageTrackingWrapper
-    def _usage_tracking_wrapper_factory(provider: IServiceProvider) -> UsageTrackingWrapper:
-        usage_service = provider.get_service(IUsageTrackingService)
-        stream_service = provider.get_required_service(IStreamFormattingService)
+    def _usage_tracking_wrapper_factory(
+        provider: IServiceProvider,
+    ) -> UsageTrackingWrapper:
+        usage_service = provider.get_service(
+            IUsageTrackingService  # type: ignore[type-abstract]
+        )
+        stream_service = provider.get_required_service(
+            IStreamFormattingService  # type: ignore[type-abstract]
+        )
         return UsageTrackingWrapper(
             usage_tracking_service=usage_service,
             stream_formatting_service=stream_service,
         )
 
-    _add_singleton(UsageTrackingWrapper, implementation_factory=_usage_tracking_wrapper_factory)
-    try:
+    _add_singleton(
+        UsageTrackingWrapper, implementation_factory=_usage_tracking_wrapper_factory
+    )
+    with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IUsageTrackingWrapper),
             implementation_factory=_usage_tracking_wrapper_factory,
-        )
-    except Exception:
-        pass
+        )  # type: ignore[type-abstract]
 
     # ModelAliasResolver
-    def _model_alias_resolver_factory(provider: IServiceProvider) -> ModelAliasResolver:
+    def _model_alias_resolver_factory(
+        provider: IServiceProvider,
+    ) -> ModelAliasResolver:
         config = provider.get_required_service(AppConfig)
         return ModelAliasResolver(config=config)
 
-    _add_singleton(ModelAliasResolver, implementation_factory=_model_alias_resolver_factory)
-    try:
+    _add_singleton(
+        ModelAliasResolver, implementation_factory=_model_alias_resolver_factory
+    )
+    with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IModelAliasResolver),
             implementation_factory=_model_alias_resolver_factory,
-        )
-    except Exception:
-        pass
+        )  # type: ignore[type-abstract]
 
     # URIParameterApplicator
-    def _uri_parameter_applicator_factory(provider: IServiceProvider) -> URIParameterApplicator:
+    def _uri_parameter_applicator_factory(
+        provider: IServiceProvider,
+    ) -> URIParameterApplicator:
         config = provider.get_required_service(AppConfig)
         return URIParameterApplicator(config=config)
 
-    _add_singleton(URIParameterApplicator, implementation_factory=_uri_parameter_applicator_factory)
-    try:
+    _add_singleton(
+        URIParameterApplicator,
+        implementation_factory=_uri_parameter_applicator_factory,
+    )
+    with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IURIParameterApplicator),
             implementation_factory=_uri_parameter_applicator_factory,
-        )
-    except Exception:
-        pass
+        )  # type: ignore[type-abstract]
 
     # ReasoningConfigApplicator
     _add_singleton(ReasoningConfigApplicator)
-    try:
-        services.add_singleton(cast(type, IReasoningConfigApplicator), ReasoningConfigApplicator)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IReasoningConfigApplicator), ReasoningConfigApplicator
+        )  # type: ignore[type-abstract]
 
     # PlanningPhaseManager
-    def _planning_phase_manager_factory(provider: IServiceProvider) -> PlanningPhaseManager:
-        session_service = provider.get_required_service(ISessionService)
+    def _planning_phase_manager_factory(
+        provider: IServiceProvider,
+    ) -> PlanningPhaseManager:
+        session_service = provider.get_required_service(
+            ISessionService  # type: ignore[type-abstract]
+        )
         return PlanningPhaseManager(session_service=session_service)
 
-    _add_singleton(PlanningPhaseManager, implementation_factory=_planning_phase_manager_factory)
-    try:
+    _add_singleton(
+        PlanningPhaseManager, implementation_factory=_planning_phase_manager_factory
+    )
+    with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IPlanningPhaseManager),
             implementation_factory=_planning_phase_manager_factory,
+        )  # type: ignore[type-abstract]
+
+    # BackendConfigProvider
+    def _backend_config_provider_factory(
+        provider: IServiceProvider,
+    ) -> BackendConfigProvider:
+        from src.core.services.backend_config_provider import BackendConfigProvider
+
+        config = provider.get_required_service(AppConfig)
+        return BackendConfigProvider(config)
+
+    _add_singleton(
+        BackendConfigProvider, implementation_factory=_backend_config_provider_factory
+    )
+    try:
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
         )
+
+        services.add_singleton(
+            cast(type, IBackendConfigProvider),
+            implementation_factory=_backend_config_provider_factory,
+        )  # type: ignore[type-abstract]
     except Exception:
         pass
 
-    # BackendLifecycleManager
-    def _backend_lifecycle_manager_factory(provider: IServiceProvider) -> BackendLifecycleManager:
+    # BackendRegistry
+    def _backend_registry_factory(provider: IServiceProvider) -> BackendRegistry:
+        from src.core.services.backend_registry import (
+            backend_registry as global_registry,
+        )
+
+        # Ensure connectors are loaded to populate the registry
+        # This triggers the self-registration mechanism in src.connectors
+        try:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to import src.connectors: {e}")
+
+        return global_registry
+
+    _add_singleton(BackendRegistry, implementation_factory=_backend_registry_factory)
+
+    # BackendFactory
+    def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
+        import httpx
+
         from src.core.services.backend_factory import BackendFactory
-        
+
+        # Get or create httpx client
+        httpx_client: httpx.AsyncClient | None = provider.get_service(httpx.AsyncClient)
+        if httpx_client is None:
+            # Create a default client if not registered
+            # Configuration matches the one in BackendService for consistency
+            try:
+                httpx_client = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+            except ImportError:
+                httpx_client = httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+
+        registry = provider.get_required_service(BackendRegistry)
+        config = provider.get_required_service(AppConfig)
+        translation_service = provider.get_required_service(
+            ITranslationService  # type: ignore[type-abstract]
+        )
+
+        return BackendFactory(
+            httpx_client=httpx_client,
+            backend_registry=registry,
+            config=config,
+            translation_service=translation_service,
+        )
+
+    _add_singleton(BackendFactory, implementation_factory=_backend_factory_factory)
+
+    # BackendLifecycleManager
+    def _backend_lifecycle_manager_factory(
+        provider: IServiceProvider,
+    ) -> BackendLifecycleManager:
+        from src.core.services.backend_factory import BackendFactory
+
         factory = provider.get_required_service(BackendFactory)
         config = provider.get_required_service(AppConfig)
-        backend_config_provider = provider.get_service(IBackendConfigProvider)
-        
+        backend_config_provider = provider.get_service(
+            IBackendConfigProvider  # type: ignore[type-abstract]
+        )
+
         # Helper to resolve per-session limit (duplicate logic from BackendService for now,
         # or we could make it a static method on BackendService or move to config utils)
         default_limit = 32
@@ -2689,21 +2800,22 @@ def register_core_services(
             per_session_limit=per_session_limit,
         )
 
-    _add_singleton(BackendLifecycleManager, implementation_factory=_backend_lifecycle_manager_factory)
-    try:
+    _add_singleton(
+        BackendLifecycleManager,
+        implementation_factory=_backend_lifecycle_manager_factory,
+    )
+    with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IBackendLifecycleManager),
             implementation_factory=_backend_lifecycle_manager_factory,
-        )
-    except Exception:
-        pass
+        )  # type: ignore[type-abstract]
 
     # ExceptionNormalizer
     _add_singleton(ExceptionNormalizer)
-    try:
-        services.add_singleton(cast(type, IExceptionNormalizer), ExceptionNormalizer)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IExceptionNormalizer), ExceptionNormalizer
+        )  # type: ignore[type-abstract]
 
     # Register backend service
     def _backend_service_factory(provider: IServiceProvider) -> BackendService:
@@ -2755,12 +2867,16 @@ def register_core_services(
             rate_limiter = RateLimiter()
 
         # Get application state service
-        app_state: IApplicationState = provider.get_required_service(IApplicationState)  # type: ignore[type-abstract]
+        app_state: IApplicationState = provider.get_required_service(
+            IApplicationState  # type: ignore[type-abstract]
+        )
 
         # Get failover coordinator (optional for test environments)
         failover_coordinator = None
         try:
-            failover_coordinator = provider.get_service(IFailoverCoordinator)  # type: ignore[type-abstract]
+            failover_coordinator = provider.get_service(
+                IFailoverCoordinator  # type: ignore[type-abstract]
+            )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"FailoverCoordinator not available: {e}")
@@ -2768,7 +2884,9 @@ def register_core_services(
         # Get backend config provider or create one
         backend_config_provider = None
         try:
-            backend_config_provider = provider.get_service(IBackendConfigProvider)  # type: ignore[type-abstract]
+            backend_config_provider = provider.get_service(
+                IBackendConfigProvider  # type: ignore[type-abstract]
+            )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -2817,15 +2935,33 @@ def register_core_services(
             )
 
         # Get extracted services
-        stream_formatting_service = provider.get_required_service(IStreamFormattingService)
-        usage_tracking_wrapper = provider.get_required_service(IUsageTrackingWrapper)
-        model_alias_resolver = provider.get_required_service(IModelAliasResolver)
-        exception_normalizer = provider.get_required_service(IExceptionNormalizer)
-        backend_lifecycle_manager = provider.get_required_service(IBackendLifecycleManager)
-        planning_phase_manager = provider.get_required_service(IPlanningPhaseManager)
-        reasoning_config_applicator = provider.get_required_service(IReasoningConfigApplicator)
-        uri_parameter_applicator = provider.get_required_service(IURIParameterApplicator)
-        usage_tracking_service = provider.get_service(IUsageTrackingService)
+        stream_formatting_service = provider.get_required_service(
+            IStreamFormattingService  # type: ignore[type-abstract]
+        )
+        usage_tracking_wrapper = provider.get_required_service(
+            IUsageTrackingWrapper  # type: ignore[type-abstract]
+        )
+        model_alias_resolver = provider.get_required_service(
+            IModelAliasResolver  # type: ignore[type-abstract]
+        )
+        exception_normalizer = provider.get_required_service(
+            IExceptionNormalizer  # type: ignore[type-abstract]
+        )
+        backend_lifecycle_manager = provider.get_required_service(
+            IBackendLifecycleManager  # type: ignore[type-abstract]
+        )
+        planning_phase_manager = provider.get_required_service(
+            IPlanningPhaseManager  # type: ignore[type-abstract]
+        )
+        reasoning_config_applicator = provider.get_required_service(
+            IReasoningConfigApplicator  # type: ignore[type-abstract]
+        )
+        uri_parameter_applicator = provider.get_required_service(
+            IURIParameterApplicator  # type: ignore[type-abstract]
+        )
+        usage_tracking_service = provider.get_service(
+            IUsageTrackingService  # type: ignore[type-abstract]
+        )
 
         # Return backend service
         return BackendService(
@@ -2837,7 +2973,9 @@ def register_core_services(
             backend_config_provider=backend_config_provider,
             failover_coordinator=failover_coordinator,
             failover_strategy=failover_strategy,
-            wire_capture=provider.get_required_service(IWireCapture),  # type: ignore[type-abstract]
+            wire_capture=provider.get_service(
+                IWireCapture  # type: ignore[type-abstract]
+            ),
             routing_service=routing_service,
             resilience_coordinator=resilience_coordinator,
             failure_handling_strategy=failure_handling_strategy,
@@ -2955,11 +3093,21 @@ def register_core_services(
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
         # Get required services
-        command_processor = provider.get_required_service(ICommandProcessor)  # type: ignore[type-abstract]
-        session_manager = provider.get_required_service(ISessionManager)  # type: ignore[type-abstract]
-        backend_request_manager = provider.get_required_service(IBackendRequestManager)  # type: ignore[type-abstract]
-        response_manager = provider.get_required_service(IResponseManager)  # type: ignore[type-abstract]
-        app_state = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+        command_processor = provider.get_required_service(
+            ICommandProcessor  # type: ignore[type-abstract]
+        )
+        session_manager = provider.get_required_service(
+            ISessionManager  # type: ignore[type-abstract]
+        )
+        backend_request_manager = provider.get_required_service(
+            IBackendRequestManager  # type: ignore[type-abstract]
+        )
+        response_manager = provider.get_required_service(
+            IResponseManager  # type: ignore[type-abstract]
+        )
+        app_state = provider.get_service(
+            IApplicationState  # type: ignore[type-abstract]
+        )
 
         # Get replacement service (optional)
         replacement_service = provider.get_service(ModelReplacementService)

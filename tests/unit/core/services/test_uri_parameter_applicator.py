@@ -146,9 +146,7 @@ class TestEquivalenceWithBackendService:
 
         # Create the applicator and compare results
         applicator = URIParameterApplicator(config=config)
-        applicator_result = applicator.apply(
-            request, uri_params, backend_type, session
-        )
+        applicator_result = applicator.apply(request, uri_params, backend_type, session)
 
         # The applicator should apply session temperature (0.2) since session > URI > header > config
         assert applicator_result.temperature == 0.2

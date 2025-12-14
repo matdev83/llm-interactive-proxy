@@ -58,7 +58,20 @@ def backend_registry():
     """Create a shared BackendRegistry for all tests."""
     from src.core.services.backend_registry import BackendRegistry
 
-    return BackendRegistry()
+    registry = BackendRegistry()
+
+    # Register a mock factory for 'openai' to handle tests using it
+    # The factory returns a backend instance
+    mock_backend = Mock()
+    mock_backend.initialize = AsyncMock()
+    mock_backend.chat_completions = AsyncMock()
+    mock_backend.get_available_models = Mock(return_value=["model1", "model2"])
+
+    # Factory function returns the backend
+    mock_factory = Mock(return_value=mock_backend)
+    registry.register_backend("openai", mock_factory)
+
+    return registry
 
 
 @pytest.fixture(scope="session")
@@ -251,6 +264,12 @@ class TestBackendServiceBasic:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        mock_backend = MockBackend(client)
+        mock_backend.initialize = AsyncMock()
+        mock_backend.chat_completions = AsyncMock()
+        mock_factory = Mock(return_value=mock_backend)
+        registry.register_backend("openai", mock_factory)
+
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
@@ -269,63 +288,6 @@ class TestBackendServiceBasic:
             app_state,
             failover_coordinator=StubFailoverCoordinator(),
         )
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_backend_cached(self, service):
-        """Test that backends are cached and reused."""
-        # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
-        # Use the proper way to add a backend through the factory
-        with patch.object(
-            service._factory, "ensure_backend", return_value=mock_backend
-        ):
-            # First call to cache the backend
-            await service._get_or_create_backend("openai")
-
-        # Act - Second call should use the cached backend
-        result = await service._get_or_create_backend("openai")
-
-        # Assert
-        assert result is mock_backend
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_backend_new(self, service):
-        """Test creating a new backend when not cached."""
-        # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
-
-        with (
-            patch.object(
-                service._factory, "ensure_backend", return_value=mock_backend
-            ) as mock_ensure,
-        ):
-            # Act
-            result = await service._get_or_create_backend(BackendType.OPENAI)
-
-            # Assert
-            assert result is mock_backend
-            # The service uses its own config, not the factory's config
-            expected_config = service._config
-            mock_ensure.assert_called_once_with(
-                BackendType.OPENAI, expected_config, None
-            )
-            assert "openai" in service._backends  # Used string literal
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_backend_error(self, service):
-        """Test error handling when creating a backend fails."""
-        # Arrange
-        with patch.object(
-            service._factory, "ensure_backend", side_effect=ValueError("Test error")
-        ):
-            # Act & Assert
-            with pytest.raises(BackendError) as exc_info:
-                await service._get_or_create_backend("openai")  # Used string literal
-
-            assert "Failed to create backend" in str(exc_info.value)
-            assert "Test error" in str(exc_info.value)
 
     def test_prepare_messages_removed(self, service):
         """BackendService no longer implements _prepare_messages; handled by backends."""
@@ -356,6 +318,13 @@ class TestBackendServiceCompletions:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        # Mock backend needs async methods
+        mock_backend = MockBackend(client)
+        mock_backend.initialize = AsyncMock()
+        mock_backend.chat_completions = AsyncMock()
+        mock_factory = Mock(return_value=mock_backend)
+        registry.register_backend("openai", mock_factory)
+
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
@@ -400,7 +369,11 @@ class TestBackendServiceCompletions:
             headers={},
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act
             response = await service.call_completion(chat_request)
 
@@ -427,7 +400,11 @@ class TestBackendServiceCompletions:
             headers={},
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act
             response = await service.call_completion(chat_request, stream=True)
 
@@ -456,7 +433,11 @@ class TestBackendServiceCompletions:
         # Make the chat_completions call itself raise an error
         mock_backend.chat_completions_mock.side_effect = ValueError("Streaming error")
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(
@@ -556,7 +537,9 @@ class TestBackendServiceCompletions:
 
         backend = RecordingBackend()
 
-        with patch.object(service, "_get_or_create_backend", return_value=backend):
+        with patch.object(
+            service._backend_lifecycle_manager, "get_or_create", return_value=backend
+        ):
             # With allow_failover=False, 429 errors should raise immediately
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(
@@ -584,7 +567,11 @@ class TestBackendServiceCompletions:
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.side_effect = ValueError("API error")
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(chat_request, allow_failover=False)
@@ -644,7 +631,9 @@ class TestBackendServiceCompletions:
                 return next_response  # type: ignore[return-value]
 
         backend = TrackingBackend()
-        service._get_or_create_backend = AsyncMock(return_value=backend)
+        service._backend_lifecycle_manager.get_or_create = AsyncMock(
+            return_value=backend
+        )
 
         session = SimpleNamespace(
             state=SimpleNamespace(
@@ -697,7 +686,11 @@ class TestBackendServiceCompletions:
             "Invalid response format"
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(chat_request)
@@ -721,7 +714,11 @@ class TestBackendServiceCompletions:
         )
 
         with (
-            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            patch.object(
+                service._backend_lifecycle_manager,
+                "get_or_create",
+                return_value=mock_backend,
+            ),
             pytest.raises(RateLimitExceededError) as exc_info,
         ):
             await service.call_completion(chat_request, allow_failover=False)
@@ -744,7 +741,11 @@ class TestBackendServiceCompletions:
         )
 
         with (
-            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            patch.object(
+                service._backend_lifecycle_manager,
+                "get_or_create",
+                return_value=mock_backend,
+            ),
             pytest.raises(RateLimitExceededError) as exc_info,
         ):
             await service.call_completion(chat_request)
@@ -766,7 +767,11 @@ class TestBackendServiceCompletions:
             "Invalid streaming response format"
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act & Assert
             with pytest.raises(BackendError) as exc_info:
                 await service.call_completion(
@@ -791,7 +796,9 @@ class TestBackendServiceValidation:
         )
 
         with patch.object(
-            backend_service, "_get_or_create_backend", return_value=mock_backend
+            backend_service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
         ):
             # Act
             valid, error = await backend_service.validate_backend_and_model(
@@ -811,7 +818,9 @@ class TestBackendServiceValidation:
         mock_backend = MockBackend(http_client, available_models=["valid-model"])
 
         with patch.object(
-            backend_service, "_get_or_create_backend", return_value=mock_backend
+            backend_service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
         ):
             # Act
             valid, error = await backend_service.validate_backend_and_model(
@@ -827,8 +836,8 @@ class TestBackendServiceValidation:
         """Test validating with a backend error."""
         # Arrange
         with patch.object(
-            backend_service,
-            "_get_or_create_backend",
+            backend_service._backend_lifecycle_manager,
+            "get_or_create",
             side_effect=ValueError("Backend error"),
         ):
             # Act
@@ -849,8 +858,8 @@ class TestBackendServiceValidation:
         backend_error = BackendError(message="boom", backend_name="test")
 
         with patch.object(
-            backend_service,
-            "_get_or_create_backend",
+            backend_service._backend_lifecycle_manager,
+            "get_or_create",
             side_effect=backend_error,
         ):
             valid, error = await backend_service.validate_backend_and_model(
@@ -880,6 +889,13 @@ class TestBackendServiceFailover:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        mock_backend = MockBackend(client)
+        mock_backend.initialize = AsyncMock()
+        mock_backend.chat_completions = AsyncMock()
+        mock_factory = Mock(return_value=mock_backend)
+        registry.register_backend("openai", mock_factory)
+        registry.register_backend("openrouter", mock_factory)
+
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
@@ -916,6 +932,13 @@ class TestBackendServiceFailover:
         from src.core.services.backend_registry import BackendRegistry
 
         registry = BackendRegistry()
+        mock_backend = MockBackend(client)
+        mock_backend.initialize = AsyncMock()
+        mock_backend.chat_completions = AsyncMock()
+        mock_factory = Mock(return_value=mock_backend)
+        registry.register_backend("openai", mock_factory)
+        registry.register_backend("openrouter", mock_factory)
+
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 

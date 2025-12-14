@@ -241,7 +241,11 @@ class TestBackendServiceHypothesis:
             return_value=("openai", model_name, {})
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act
             response = await service.call_completion(chat_request)
 
@@ -290,7 +294,11 @@ class TestBackendServiceHypothesis:
             backend_factory._client, available_models=[model_name, "other-model"]
         )
 
-        with patch.object(service, "_get_or_create_backend", return_value=mock_backend):
+        with patch.object(
+            service._backend_lifecycle_manager,
+            "get_or_create",
+            return_value=mock_backend,
+        ):
             # Act
             valid, error = await service.validate_backend_and_model(
                 backend_type, model_name
@@ -400,7 +408,9 @@ class TestBackendServiceHypothesis:
             )
 
             with patch.object(
-                service, "_get_or_create_backend", return_value=mock_backend
+                service._backend_lifecycle_manager,
+                "get_or_create",
+                return_value=mock_backend,
             ):
                 # Act & Assert
                 # We need to explicitly set allow_failover=False to prevent the service from

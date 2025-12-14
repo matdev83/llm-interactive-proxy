@@ -10,6 +10,7 @@ import contextlib
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -952,7 +953,31 @@ class StreamingExecutor:
                     sleep_seconds,
                     attempt + 1,
                 )
-                await asyncio.sleep(sleep_seconds)
+                # Keep the client connection alive while we wait for the retry window.
+                # The BackendService-level failure strategy may not see this 429 because
+                # the connector retries internally; emit OpenAI-compatible keepalive
+                # chunks so agent loops don't break on short retry-after windows.
+                interval_seconds = 8.0
+                elapsed = 0.0
+                keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
+                created = int(time.time())
+
+                while elapsed < sleep_seconds:
+                    yield ProcessedResponse(
+                        content="",
+                        metadata={
+                            "_keepalive": True,
+                            "id": keepalive_id,
+                            "model": prepared.effective_model,
+                            "created": created,
+                            "session_id": prepared.session_id,
+                            "stream_id": prepared.session_id,
+                        },
+                    )
+                    remaining = sleep_seconds - elapsed
+                    step = min(interval_seconds, remaining)
+                    await asyncio.sleep(step)
+                    elapsed += step
                 async for retry_chunk in self._stream_generator(
                     prepared=prepared,
                     url=url,
