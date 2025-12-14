@@ -1,5 +1,16 @@
 # Changelog
 
+## [2025-12-14]
+
+### Added
+
+- **Prompt Caching Support**: Implemented comprehensive support for prompt caching features across major providers
+  - **Anthropic Support**: Full support for Anthropic's prompt caching via `anthropic-beta: prompt-caching-2024-07-31` header and `cache_control` content blocks
+  - **Request Preservation**: Updated request models and converters to preserve `cache_control` markers in message content instead of flattening them
+  - **Beta Header Handling**: Automatically extracts and forwards `anthropic-beta` headers from client requests
+  - **Gemini/OpenAI Compatibility**: Validated support for Gemini's explicit/implicit caching and OpenAI's automatic prefix caching mechanisms via existing passthrough logic
+  - **Test Coverage**: Added unit tests for converter logic, controller header handling, and domain serialization to ensure robustness
+
 ## [2025-12-13]
 
 ### Refactored
@@ -151,7 +162,7 @@
 - **Core Services Improvements**:
   - **Dependency Injection**: Fixed `ToolCallReactorFeature` detection in `_ensure_tool_call_reactor_services` to correctly identify the feature in `MiddlewareApplicationManager`
   - **Deprecation Warnings**: Downgraded `ToolCallReactorMiddleware` deprecation log from ERROR to WARNING to reduce noise during migration
-  - **Timezone Handling**: Improved ISO date parsing in `ClineAuthMixin` to robustly handle 'Z' suffix
+  - **Timezone Handling**: Improved ISO date parsing in ` ClineAuthMixin` to robustly handle 'Z' suffix
 
 ## [2025-12-08]
 
@@ -689,7 +700,7 @@
   - `list`: List all capture files in a directory
   - `replay`: Replay captured session against a running proxy with validation
 
-- **Validation Results**: Comprehensive validation including:
+### Validation Results**: Comprehensive validation including:
   - Content mismatch detection with byte-level comparison
   - Timing deviation tracking with configurable tolerance
   - Detailed reports with summaries and failure details
@@ -907,7 +918,7 @@
   - **Robust Error Handling**: Invalid regex patterns caught early, malformed JSON logged as warnings, graceful fallback for invalid rules
   - **Comprehensive Testing**: 18 unit tests covering all configuration sources, precedence order, validation, and error scenarios
   - **Production Ready**: Enterprise-grade configuration support with validation and error recovery
-  - **Examples**: Route all GPT models to OpenRouter (`^gpt-(.*)=openrouter:openai/gpt-\\1`), replace expensive models with cheaper alternatives, create catch-all fallbacks
+  - **Examples**: Route all GPT models to OpenRouter (`^gpt-(.*)=openrouter:openai/gpt-\1`), replace expensive models with cheaper alternatives, create catch-all fallbacks
   - **Documentation**: Complete user documentation in README.md with usage examples and integration guidance
 
 - **Feature**: Added configurable strict command detection to reduce false positives when commands are mentioned in conversation

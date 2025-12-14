@@ -14,9 +14,18 @@ T = TypeVar("T", bound=DomainModel)
 class MessageContentPartText(DomainModel):
     """Represents a text content part in a multimodal message."""
 
+    model_config = ConfigDict(extra="forbid")
+
     type: str = "text"
     text: str
-    cache_control: dict[str, Any] | None = None
+    cache_control: dict[str, Any] | None = Field(default=None, exclude=True)
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Override to include cache_control only when set."""
+        result = super().model_dump(**kwargs)
+        if self.cache_control is not None:
+            result["cache_control"] = self.cache_control
+        return result
 
 
 class ImageURL(DomainModel):
@@ -30,9 +39,18 @@ class ImageURL(DomainModel):
 class MessageContentPartImage(DomainModel):
     """Represents an image content part in a multimodal message."""
 
+    model_config = ConfigDict(extra="forbid")
+
     type: str = "image_url"
     image_url: ImageURL
-    cache_control: dict[str, Any] | None = None
+    cache_control: dict[str, Any] | None = Field(default=None, exclude=True)
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Override to include cache_control only when set."""
+        result = super().model_dump(**kwargs)
+        if self.cache_control is not None:
+            result["cache_control"] = self.cache_control
+        return result
 
 
 class InputAudio(DomainModel):
