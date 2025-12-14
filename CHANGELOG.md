@@ -2,6 +2,24 @@
 
 ## [2025-12-14]
 
+### Added
+
+- **Improved Streaming Error Handling**: Enhanced error handling for streaming requests with proper SSE error envelope generation when backend calls fail during streaming
+  - **SSE Error Envelopes**: New `_as_sse_error()` function to generate proper streaming error responses for failed backend calls
+  - **Streaming Error Capture**: Best-effort wire capture of error payloads for debugging when backend calls fail before streaming begins
+  - **New Test Coverage**: Added `test_backend_service_streaming_error_envelope.py` to verify streaming error response behavior
+
+- **Enhanced Rate Limit Handling**: Improved rate limit handling with better retry-after header processing and error payload enrichment
+  - **Retry-After Processing**: Automatic extraction and inclusion of retry-after headers in error responses when available
+  - **Header Capture**: Included full response headers in error payloads for better debugging
+  - **New Test Coverage**: Added `test_backend_service_streaming_rate_limit_retry.py` to verify rate limit retry behavior with streaming requests
+
+### Changed
+
+- **Better Error Logging**: Enhanced error logging in Gemini connectors with more detailed status codes and error information
+  - **Detailed Error Information**: Error logs now include status codes and error codes alongside the original error message
+  - **Improved Debugging**: More context in error messages for troubleshooting backend API call failures
+
 ### Refactored
 
 - **Backend Service Refactoring**: Major refactoring of BackendService to extract functionality into dedicated services

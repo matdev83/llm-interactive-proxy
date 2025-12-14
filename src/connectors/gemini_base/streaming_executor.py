@@ -839,6 +839,15 @@ class StreamingExecutor:
         error_message = "Service temporarily unavailable."
         code = "api_error"
 
+        if response.status_code == 429:
+            retry_after_raw = response.headers.get(
+                "Retry-After"
+            ) or response.headers.get("retry-after")
+            if retry_after_raw is not None and "retry_after" not in detail_payload:
+                with contextlib.suppress(TypeError, ValueError):
+                    detail_payload["retry_after"] = float(retry_after_raw)
+            detail_payload.setdefault("headers", dict(response.headers))
+
         if isinstance(error_detail, dict):
             detail_error = error_detail.get("error") or {}
             status_val = str(detail_error.get("status", "")).upper()

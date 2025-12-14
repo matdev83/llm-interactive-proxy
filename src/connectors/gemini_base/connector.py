@@ -1607,7 +1607,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if self._is_rate_limit_like_error(e):
                 logger.info("Backend rate limited during API call: %s", e)
             else:
-                logger.error(f"Backend error during API call: {e}", exc_info=True)
+                logger.error(
+                    "Backend error during API call: %s (status=%s, code=%s)",
+                    e,
+                    getattr(e, "status_code", None),
+                    getattr(e, "code", None),
+                )
             raise
         except InvalidRequestError as e:
             logger.warning("Request blocked locally: %s", e)
@@ -1696,7 +1701,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )
             else:
                 logger.error(
-                    f"Backend error during streaming API call: {e}", exc_info=True
+                    "Backend error during streaming API call: %s (status=%s, code=%s)",
+                    e,
+                    getattr(e, "status_code", None),
+                    getattr(e, "code", None),
                 )
             raise
         except InvalidRequestError as e:
