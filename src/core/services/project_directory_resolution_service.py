@@ -25,14 +25,40 @@ logger = logging.getLogger(__name__)
 _PathType = Literal["windows", "unc", "unix"]
 
 # Pre-compiled regex patterns for performance optimization
+# Note: Patterns allow spaces within path components (for Unicode paths like "Mi Proyecto")
+# but stop at trailing punctuation. The pattern matches non-forbidden characters including spaces,
+# but the lookahead ensures we stop at punctuation or whitespace that clearly ends the path.
+# Note: Patterns allow spaces within path components (for Unicode paths like "Mi Proyecto")
+# but stop at trailing punctuation. The pattern matches non-forbidden characters including spaces,
+# but the lookahead ensures we stop at punctuation or whitespace that clearly ends the path.
+# We explicitly exclude common punctuation characters from the path components to prevent
+# greedy matching from consuming sentence punctuation (e.g. "path, but...").
+# We also detect double-separators (empty components) to handle concatenation cases.
+
+
+# Regex helper to match allowed chars OR a dot that is NOT followed by a space.
+# This ensures we match "v1.5" but stop at "Start." in "Start. Next sentence."
+def _safe_comp(forbidden: str) -> str:
+    # Forbidden must include . so we can handle it specially
+    return rf"(?:[^{forbidden}.]|\.(?!\s))"
+
+
+_WIN_FORBIDDEN = r":*?<>|\r\n\\/,\"';!?"
+_UNC_FORBIDDEN = r"\\:\r\n,\"';!?"
+_UNIX_FORBIDDEN = r"/\\:\r\n,\"';!?"
+
 _WINDOWS_PATH_PATTERN = re.compile(
-    r"\b([a-zA-Z]:\\(?:[^:*?<>|\r\n\\\s]*(?:\\[^:*?<>|\r\n\\\s]*)*))(?=\s|$|[,;!?])"
+    rf"\b([a-zA-Z]:\\+(?:{_safe_comp(_WIN_FORBIDDEN)}+"
+    rf"(?:\\+{_safe_comp(_WIN_FORBIDDEN)}*)*))(?=[\s,.;!?]|$)"
 )
+# UNC pattern: Match 2+ backslashes at start (will be normalized later), then path components
 _UNC_PATH_PATTERN = re.compile(
-    r"(\\{2}[^\\:\r\n\s]*(?:\\[^\\:\r\n\s]*)*)(?=\s|$|[,;!?])"
+    rf"(?:^|\s)(\\{{2,}}(?:{_safe_comp(_UNC_FORBIDDEN)}+(?:\\+{_safe_comp(_UNC_FORBIDDEN)}*)*))"
+    r"(?=[\s,.;!?]|$)"
 )
 _UNIX_PATH_PATTERN = re.compile(
-    r"(?:^|\s)(/[^/\\\s:\r\n]*(?:/[^/\\\s:\r\n]*)*)(?=\s|$|[,;!?])"
+    rf"(?:^|\s)(/+(?:{_safe_comp(_UNIX_FORBIDDEN)}+(?:/+{_safe_comp(_UNIX_FORBIDDEN)}*)*))"
+    r"(?=[\s,.;!?]|$)"
 )
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 

@@ -5,6 +5,7 @@
 This design document describes the refactoring of the `BackendService` class from a monolithic "God Object" into a set of focused, single-responsibility services. The current `BackendService` (~3200 lines) handles too many concerns including stream formatting, usage tracking, model aliasing, URI parameter resolution, reasoning configuration, planning phase management, backend lifecycle, and exception normalization.
 
 The refactoring follows SOLID principles, particularly:
+
 - **SRP**: Each new service has one clear responsibility
 - **OCP**: Services are open for extension via interfaces
 - **LSP**: All implementations are substitutable for their interfaces
@@ -359,58 +360,72 @@ No new data models are required. The refactoring uses existing domain models:
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
 ### Property 1: SSE Format Consistency
+
 *For any* valid domain chunk (ProcessedResponse, dict, str, or bytes), `format_chunk_as_sse` SHALL: (a) pass through content already framed as SSE (`data:` prefix), (b) normalize raw `[DONE]` / `["DONE"]` to `data: [DONE]\n\n`, and (c) otherwise return bytes framed as `data: {payload}\n\n`.
 **Validates: Requirements 5.1, 5.3**
 
 ### Property 2: Done Marker Detection
+
 *For any* chunk containing raw/sse `[DONE]` / `["DONE"]`, `metadata.finish_reason`, `content.metadata.finish_reason`, or `choices[*].finish_reason`, the formatter SHALL detect it as signaling completion and emit exactly one done marker for the stream.
 **Validates: Requirements 5.4**
 
 ### Property 3: Valid Token Identification
+
 *For any* chunk, the token validator SHALL return true only if the chunk contains actual content (not empty, not [DONE], not keepalive).
 **Validates: Requirements 5.2**
 
 ### Property 4: Usage Accumulation
+
 *For any* stream with usage data in chunks, the usage wrapper SHALL accumulate and report the final usage on completion.
 **Validates: Requirements 6.2, 6.3**
 
 ### Property 5: Model Alias Round-Trip
+
 *For any* model name and configured aliases, the resolver SHALL apply at most one rewrite using the first matching `re.match` rule and `match.expand` replacement semantics.
 **Validates: Requirements 7.1, 7.2**
 
 ### Property 6: Alias Graceful Degradation
+
 *For any* invalid regex pattern in aliases, the resolver SHALL skip it, log at WARNING, and return the original model name when no valid match exists.
 **Validates: Requirements 7.3, 7.4**
 
 ### Property 7: Parameter Precedence
+
 *For any* conflicting parameter values from different sources, the applicator SHALL apply session > URI > headers > config precedence.
 **Validates: Requirements 8.1, 8.2**
 
 ### Property 8: Parameter Type Coercion
+
 *For any* parameter value, the applicator SHALL coerce to the correct type (float for temperature/top_p, int for top_k, str for reasoning_effort).
 **Validates: Requirements 8.3**
 
 ### Property 9: Reasoning Config Application
+
 *For any* session with reasoning configuration, applying it to a request SHALL update the request with the configured parameters.
 **Validates: Requirements 9.1, 9.2**
 
 ### Property 10: Planning Phase Transition
+
 *For any* session in planning phase that exceeds max_turns or max_file_writes, the manager SHALL restore the original route.
 **Validates: Requirements 10.1, 10.3**
 
 ### Property 11: File Write Counting
+
 *For any* response with tool calls, the manager SHALL correctly count file write operations.
 **Validates: Requirements 10.4**
 
 ### Property 12: Backend Cache LRU
+
 *For any* sequence of backend requests exceeding the cache limit, the lifecycle manager SHALL evict the least recently used backend.
 **Validates: Requirements 11.1**
 
 ### Property 13: Exception Translation
+
 *For any* HTTPException with status 429, the normalizer SHALL produce a RateLimitExceededError with preserved retry-after.
 **Validates: Requirements 12.1, 12.4**
 
 ### Property 14: API Signature Preservation
+
 *For any* call to BackendService public methods, the signature and return type SHALL match the IBackendService interface.
 **Validates: Requirements 3.1-3.6**
 

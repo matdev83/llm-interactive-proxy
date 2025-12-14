@@ -27,7 +27,7 @@ async def test_project_directory_resolution_ignores_drive_root():
         messages=[
             ChatMessage(
                 role="user",
-                content="I'm working on a project located at c:\\my-project, but I'm having trouble with c:\\.",
+                content="I'm working on a project located at c:\\users\\test\\my-project, but I'm having trouble with c:\\.",
             )
         ],
     )
@@ -43,4 +43,4 @@ async def test_project_directory_resolution_ignores_drive_root():
     updated_session = await session_service.get_session(session_id)
     assert updated_session is not None
     # The correct project path should be identified, not the drive root.
-    assert updated_session.state.project_dir == "c:\\my-project"
+    assert updated_session.state.project_dir == "c:\\users\\test\\my-project"
