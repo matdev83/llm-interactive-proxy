@@ -3,8 +3,9 @@ from __future__ import annotations
 """Service for resolving project directories from the first user prompt."""
 
 import logging
+import os
 import re
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 from xml.etree import ElementTree
 from xml.etree.ElementTree import ParseError
@@ -35,53 +36,8 @@ _UNIX_PATH_PATTERN = re.compile(
 )
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 
-_COMMON_PROJECT_SUBDIRS = {
-    "src",
-    "lib",
-    "bin",
-    "include",
-    "static",
-    "assets",
-    "public",
-    "docs",
-    "tests",
-}
 _LEADING_STRIP_CHARS = "\"'`([{<"
 _TRAILING_STRIP_CHARS = ",.;:!?)]}`>\"'`"
-
-
-# Directories that are invalid as project roots themselves, but their subdirectories may be valid.
-_INVALID_PROJECT_ROOT_EXACT = {"users", "home"}
-
-# Path prefixes that make the entire subtree invalid as a project root.
-_INVALID_PROJECT_ROOT_PREFIXES_WIN = {
-    "program files",
-    "program files (x86)",
-    "windows",
-    "programdata",
-    ".venv",
-}
-_INVALID_PROJECT_ROOT_PREFIXES_UNIX = {
-    "bin",
-    "boot",
-    "dev",
-    "etc",
-    "lib",
-    "lib64",
-    "media",
-    "mnt",
-    "opt",
-    "proc",
-    "root",
-    "run",
-    "sbin",
-    "srv",
-    "sys",
-    "tmp",
-    "usr",
-    "var",
-    "private",
-}
 
 
 class ProjectDirectoryResolutionService:
@@ -207,19 +163,20 @@ class ProjectDirectoryResolutionService:
         except Exception:
             return None
 
+        # If the path points inside a dot-folder (e.g. `.git/...`, `.vscode/...`),
+        # treat the parent directory as the project root candidate.
+        parts = pure_path.parts
+        start_index = 1 if path_type in ("windows", "unc") else 0
+        for index in range(start_index, len(parts)):
+            part = parts[index]
+            if part.startswith(".") and part not in {".", ".."}:
+                if index > start_index:
+                    pure_path = pure_path.__class__(*parts[:index])
+                break
+
         # Drop filename component if present
         if pure_path.suffix:
             pure_path = pure_path.parent
-
-        # Traverse up from a path to find the project root, which is the parent of a common subdir.
-        search_path = pure_path
-        while len(search_path.parts) > 1 and search_path.parent != search_path:
-            # If a directory name is a common project subdir (e.g., 'src', 'tests'),
-            # we assume its parent is the project root.
-            if search_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
-                pure_path = search_path.parent
-                break  # Found the root, stop searching
-            search_path = search_path.parent
 
         normalized = str(pure_path)
         if path_type == "unc":
@@ -229,7 +186,12 @@ class ProjectDirectoryResolutionService:
     def _is_valid_project_directory_candidate(
         self, path: str, path_type: _PathType
     ) -> bool:
-        """Validate if a path is a plausible project directory."""
+        """Validate whether a candidate directory is structurally plausible.
+
+        Intentionally avoids hardcoded allow/deny lists. We only require:
+        - Absolute path (in its own path style)
+        - At least one directory component after the root/drive/share
+        """
         try:
             pure_path = (
                 PureWindowsPath(path)
@@ -240,77 +202,7 @@ class ProjectDirectoryResolutionService:
             return False
 
         parts = pure_path.parts
-
-        # Check if any part of the path is a virtual environment directory
-        # These should NEVER be valid project roots
-        VENV_DIRS = {".venv", "venv", ".virtualenv", "virtualenv", "env", ".env"}
-        for part in parts[1:]:  # Skip drive/root
-            if part.lower() in VENV_DIRS:
-                return False
-
-        if path_type == "windows":
-            # Path must be at least C:\foo (2 parts)
-            if len(parts) < 2:
-                return False
-            first_dir = parts[1].lower()
-            # Reject C:\Users, C:\Windows, etc.
-            if first_dir in _INVALID_PROJECT_ROOT_PREFIXES_WIN:
-                return False
-            # Reject C:\Users if it's the whole path
-            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
-                return False
-        elif path_type == "unc":
-            # For UNC paths, pathlib.parts behaves differently.
-            # '\\\\server\\share' is the 'drive', and parts are subsequent dirs.
-            # e.g., PureWindowsPath('\\\\server\\share\\project').parts is ('\\\\server\\share', 'project')
-            # A valid project path must have at least one directory after the share.
-            # So, we expect at least 2 parts.
-            if len(parts) < 2:
-                return False
-        elif path_type == "unix":
-            # Path must be at least /foo (2 parts)
-            if len(parts) < 2:
-                return False
-            first_dir = parts[1].lower()
-            # Reject /home, /usr, etc. if they are the whole path (only 2 parts)
-            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
-                return False
-            # Always reject paths starting with core system directories
-            # Allow some common exceptions like var/www for web projects
-            ALWAYS_SYSTEM_DIRS = {
-                "bin",
-                "boot",
-                "dev",
-                "etc",
-                "lib",
-                "lib64",
-                "media",
-                "mnt",
-                "opt",
-                "proc",
-                "root",
-                "run",
-                "sbin",
-                "srv",
-                "sys",
-                "tmp",
-                "usr",
-                "private",
-            }
-            if first_dir in ALWAYS_SYSTEM_DIRS:
-                return False
-
-            # Special handling for /var - reject unless it's a web project
-            if first_dir == "var" and len(parts) >= 2:
-                second_dir = parts[2].lower() if len(parts) > 2 else ""
-                if second_dir != "www":
-                    return False
-
-            # Reject user directories like /home only if they are exactly 2 parts (too shallow)
-            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
-                return False
-
-        return True
+        return len(parts) >= 2
 
     def _longest_common_directory(
         self, directories: list[str], path_type: _PathType
@@ -355,43 +247,61 @@ class ProjectDirectoryResolutionService:
         return common_path, len(common_parts)
 
     def _score_path_candidate(self, directory: str, path_type: _PathType) -> int:
-        """Score an individual path candidate based on depth and characteristics."""
+        """Score an individual path candidate based on depth (more specific wins)."""
         try:
             pure_path = (
                 PureWindowsPath(directory)
                 if path_type in ("windows", "unc")
                 else PurePosixPath(directory)
             )
-
-            # Base score is the depth (number of parts)
-            depth = len(pure_path.parts)
-            score = depth
-
-            # Give extra bonus only for paths that are significantly deeper
-            if depth > 3:
-                score += 1  # Small bonus for very deep paths
-
-            # Penalty if the last part is a common source subdirectory
-            if pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
-                score -= 10  # Heavy penalty for source directories
-
-            # Bonus if the directory name looks like a project name
-            # (not a generic system/user directory)
-            GENERIC_NAMES = {
-                "users",
-                "test",
-                "project",
-                "projects",
-                "code",
-                "dev",
-                "development",
-            }
-            if pure_path.name.lower() not in GENERIC_NAMES:
-                score += 2  # Bonus for specific project names
-
-            return score
+            return len(pure_path.parts)
         except Exception:
             return 0
+
+    def _looks_like_path_list_line(self, line: str) -> bool:
+        """Heuristic to skip environment-like PATH lines without directory allow/deny lists."""
+        if ";" not in line:
+            return False
+
+        match_count = 0
+        for pattern in (_WINDOWS_PATH_PATTERN, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN):
+            match_count += len(list(pattern.finditer(line)))
+            if match_count >= 2:
+                return True
+        return False
+
+    def _dot_entries_status(self, directory: str) -> bool | None:
+        """Return whether directory contains dot entries, or None if unknown/uncheckable."""
+        path_type = self._detect_path_type(directory)
+        if not path_type:
+            return None
+
+        candidate_path = directory
+        if os.name != "nt" and path_type in ("windows", "unc"):
+            # Best-effort translation for WSL-style paths (e.g. /mnt/c/...) used in tests/dev.
+            match = re.match(r"^([A-Za-z]):\\(.*)$", directory)
+            if match:
+                drive = match.group(1).lower()
+                rest = match.group(2).replace("\\", "/")
+                candidate_path = f"/mnt/{drive}/{rest}"
+            else:
+                return None
+        elif os.name == "nt" and path_type == "unix":
+            return None
+
+        try:
+            dir_path = Path(candidate_path)
+            if not dir_path.exists():
+                return None
+            if not dir_path.is_dir():
+                return None
+            for entry in dir_path.iterdir():
+                name = entry.name
+                if name.startswith(".") and name not in {".", ".."}:
+                    return True
+            return False
+        except Exception:
+            return None
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
@@ -399,46 +309,45 @@ class ProjectDirectoryResolutionService:
         When multiple paths are found, prefers the deepest, most specific valid path.
         """
         candidates: list[tuple[str, _PathType]] = []
-        patterns = [
-            _WINDOWS_PATH_PATTERN,
-            _UNC_PATH_PATTERN,
-            _UNIX_PATH_PATTERN,
-        ]
+        patterns = (_WINDOWS_PATH_PATTERN, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN)
 
-        # Step 1: Extract and validate all path candidates
-        for pattern in patterns:
-            for match in pattern.finditer(prompt_text):
-                raw_value = match.group(1) if match.lastindex else match.group(0)
-                cleaned = self._strip_outer_tokens(raw_value)
-                if not cleaned:
-                    continue
+        # Step 1: Extract and validate all path candidates (line-by-line).
+        # This makes it easy to skip PATH-like lines without directory blacklists.
+        for line in prompt_text.splitlines():
+            if self._looks_like_path_list_line(line):
+                continue
 
-                path_type = self._detect_path_type(cleaned)
-                if path_type is None:
-                    continue
+            for pattern in patterns:
+                for match in pattern.finditer(line):
+                    raw_value = match.group(1) if match.lastindex else match.group(0)
+                    cleaned = self._strip_outer_tokens(raw_value)
+                    if not cleaned:
+                        continue
 
-                if path_type == "unc":
-                    cleaned = self._normalize_unc_path(cleaned)
+                    path_type = self._detect_path_type(cleaned)
+                    if path_type is None:
+                        continue
 
-                if not self._looks_like_absolute_path(cleaned):
-                    continue
+                    if path_type == "unc":
+                        cleaned = self._normalize_unc_path(cleaned)
 
-                # We validate the *normalized* directory, not the raw path
-                directory = self._normalize_directory_candidate(cleaned, path_type)
-                if not directory:
-                    continue
+                    if not self._looks_like_absolute_path(cleaned):
+                        continue
 
-                # Re-detect type for the normalized directory, as it might change
-                final_path_type = self._detect_path_type(directory)
-                if not final_path_type:
-                    continue
+                    directory = self._normalize_directory_candidate(cleaned, path_type)
+                    if not directory:
+                        continue
 
-                if not self._is_valid_project_directory_candidate(
-                    directory, final_path_type
-                ):
-                    continue
+                    final_path_type = self._detect_path_type(directory)
+                    if not final_path_type:
+                        continue
 
-                candidates.append((directory, final_path_type))
+                    if not self._is_valid_project_directory_candidate(
+                        directory, final_path_type
+                    ):
+                        continue
+
+                    candidates.append((directory, final_path_type))
 
         if not candidates:
             return None
@@ -593,12 +502,41 @@ class ProjectDirectoryResolutionService:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Deterministic resolution result: {found_path}")
             if found_path:
-                await self._persist_state(
-                    session,
-                    directory=found_path,
-                    message=f"Project directory auto-detected (deterministic): {found_path}",
-                )
-                return
+                dot_status = self._dot_entries_status(found_path)
+                if dot_status is False:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Deterministic project directory candidate rejected (no dot entries): %s",
+                            found_path,
+                        )
+                else:
+                    await self._persist_state(
+                        session,
+                        directory=found_path,
+                        message=f"Project directory auto-detected (deterministic): {found_path}",
+                    )
+                    return
+
+            # If deterministic produced a candidate but it was rejected due to lacking dot
+            # entries, fall back to the server CWD if it looks like a project.
+            #
+            # Only applies to `deterministic` mode; `hybrid` should continue to LLM.
+            if (
+                self._resolution_mode == "deterministic"
+                and found_path
+                and dot_status is False
+            ):
+                cwd_candidate = str(Path.cwd().resolve())
+                if self._dot_entries_status(cwd_candidate) is True:
+                    await self._persist_state(
+                        session,
+                        directory=cwd_candidate,
+                        message=(
+                            "Project directory auto-detected (deterministic fallback): "
+                            f"{cwd_candidate}"
+                        ),
+                    )
+                    return
 
         # LLM resolution (if applicable)
         if self._resolution_mode in ("llm", "hybrid"):

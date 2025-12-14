@@ -528,6 +528,12 @@ class TestDIContainerUsage:
                 in v.get("file", "")
             )
             and not (
+                # ParameterResolutionService is a stateless utility service
+                # instantiated within URIParameterApplicator for parameter resolution
+                v.get("class_name") == "ParameterResolutionService"
+                and "core\\services\\uri_parameter_applicator.py" in v.get("file", "")
+            )
+            and not (
                 # CommandExtractionService is injected with fallback in InlinePythonPolicy
                 # for dependency injection compatibility
                 v.get("class_name") == "CommandExtractionService"

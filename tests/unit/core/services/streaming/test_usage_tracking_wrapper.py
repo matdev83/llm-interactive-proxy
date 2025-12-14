@@ -10,7 +10,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
@@ -29,7 +28,10 @@ class TestWrapStreamForUsage:
 
         original_gen = gen()
         wrapped = wrapper.wrap_stream_for_usage(
-            original_gen, ctp_record_id="ctp-123", ptb_record_id="ptb-456", start_time=1000.0
+            original_gen,
+            ctp_record_id="ctp-123",
+            ptb_record_id="ptb-456",
+            start_time=1000.0,
         )
 
         # Should return the same generator
@@ -133,13 +135,19 @@ class TestWrapStreamForUsage:
             )
 
         wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id="ptb-456", start_time=time.time()
+            gen(),
+            ctp_record_id="ctp-123",
+            ptb_record_id="ptb-456",
+            start_time=time.time(),
         )
 
         _ = [chunk async for chunk in wrapped]
 
         assert mock_service.record_response.call_count == 2
-        record_ids = [call.kwargs["record_id"] for call in mock_service.record_response.call_args_list]
+        record_ids = [
+            call.kwargs["record_id"]
+            for call in mock_service.record_response.call_args_list
+        ]
         assert "ctp-123" in record_ids
         assert "ptb-456" in record_ids
 
@@ -348,7 +356,11 @@ class TestTPSCalculation:
             )
             yield ProcessedResponse(
                 content={"choices": [{"delta": {}}]},
-                usage={"prompt_tokens": 10, "completion_tokens": 100, "total_tokens": 110},
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 100,
+                    "total_tokens": 110,
+                },
             )
 
         wrapped = wrapper.wrap_stream_for_usage(
@@ -379,7 +391,9 @@ class TestIsValidCompletionToken:
         result = wrapper._is_valid_completion_token({"test": "chunk"})
 
         assert result is True
-        mock_formatting.is_valid_completion_token.assert_called_once_with({"test": "chunk"})
+        mock_formatting.is_valid_completion_token.assert_called_once_with(
+            {"test": "chunk"}
+        )
 
     def test_fallback_for_valid_dict_content(self) -> None:
         """Fallback should detect valid dict content."""
@@ -441,7 +455,9 @@ class TestErrorHandling:
     async def test_stream_continues_on_recording_error(self) -> None:
         """Stream should continue even if usage recording fails."""
         mock_service = AsyncMock()
-        mock_service.record_response = AsyncMock(side_effect=Exception("Recording failed"))
+        mock_service.record_response = AsyncMock(
+            side_effect=Exception("Recording failed")
+        )
         wrapper = UsageTrackingWrapper(
             usage_tracking_service=mock_service,
             stream_formatting_service=StreamFormattingService(),

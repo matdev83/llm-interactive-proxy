@@ -97,8 +97,17 @@ class TestProjectDirectoryResolutionService:
         mock_session_service.update_session.assert_called_once_with(session)
 
     async def test_deterministic_no_path(
-        self, mock_backend_service, mock_session_service, session, caplog
+        self,
+        mock_backend_service,
+        mock_session_service,
+        session,
+        caplog,
+        tmp_path,
+        monkeypatch,
     ):
+        # Ensure we don't accidentally set project_dir via deterministic fallback-to-cwd.
+        # The fallback is dot-based, so use an empty temp directory without dot entries.
+        monkeypatch.chdir(tmp_path)
         request = ChatRequest(
             model="test-model",
             messages=[ChatMessage(role="user", content="Hello world")],
@@ -114,6 +123,32 @@ class TestProjectDirectoryResolutionService:
         assert session.state.project_dir_resolution_attempted is True
         mock_backend_service.call_completion.assert_not_called()
         assert "did not identify a directory (deterministic mode)" in caplog.text
+
+    async def test_deterministic_fallbacks_to_cwd_when_candidate_has_no_dot_entries(
+        self, mock_backend_service, mock_session_service, session, tmp_path, monkeypatch
+    ):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / ".git").mkdir()
+        monkeypatch.chdir(workspace)
+
+        non_project_dir = tmp_path / "non_project_dir"
+        non_project_dir.mkdir()
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content=f"Use {non_project_dir}")],
+        )
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == str(workspace.resolve())
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
 
     # LLM Mode Tests
     async def test_llm_mode_success(

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, Mock
 
-import pytest
-
 from src.core.services.model_alias_resolver import ModelAliasResolver
 
 
@@ -50,9 +48,9 @@ class TestResolveMethod:
 
     def test_simple_pattern_replacement(self) -> None:
         """Should apply simple pattern replacement."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^gpt-4o$", "openai:gpt-4o")
-        ])
+        config = mock_config_with_aliases(
+            [mock_alias_rule("^gpt-4o$", "openai:gpt-4o")]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("gpt-4o")
@@ -61,9 +59,9 @@ class TestResolveMethod:
 
     def test_regex_pattern_matching(self) -> None:
         """Should match regex patterns correctly."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^claude-.*$", "anthropic:claude")
-        ])
+        config = mock_config_with_aliases(
+            [mock_alias_rule("^claude-.*$", "anthropic:claude")]
+        )
         resolver = ModelAliasResolver(config=config)
 
         assert resolver.resolve("claude-3-sonnet") == "anthropic:claude"
@@ -71,9 +69,7 @@ class TestResolveMethod:
 
     def test_non_matching_pattern_returns_original(self) -> None:
         """Should return original when pattern doesn't match."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^gpt-.*$", "openai:gpt")
-        ])
+        config = mock_config_with_aliases([mock_alias_rule("^gpt-.*$", "openai:gpt")])
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("claude-3")
@@ -86,9 +82,9 @@ class TestCaptureGroupExpansion:
 
     def test_single_capture_group(self) -> None:
         """Should expand single capture group correctly."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^gpt-(.*)", "openai:gpt-\\1")
-        ])
+        config = mock_config_with_aliases(
+            [mock_alias_rule("^gpt-(.*)", "openai:gpt-\\1")]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("gpt-4o-mini")
@@ -97,9 +93,9 @@ class TestCaptureGroupExpansion:
 
     def test_multiple_capture_groups(self) -> None:
         """Should expand multiple capture groups correctly."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^(.*)-model-(.*)$", "\\1-new-\\2")
-        ])
+        config = mock_config_with_aliases(
+            [mock_alias_rule("^(.*)-model-(.*)$", "\\1-new-\\2")]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("my-model-v2")
@@ -108,9 +104,13 @@ class TestCaptureGroupExpansion:
 
     def test_named_capture_groups(self) -> None:
         """Should expand named capture groups correctly."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^(?P<provider>\\w+):(?P<model>\\w+)$", "\\g<model>@\\g<provider>")
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule(
+                    "^(?P<provider>\\w+):(?P<model>\\w+)$", "\\g<model>@\\g<provider>"
+                )
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("openai:gpt4")
@@ -123,11 +123,13 @@ class TestFirstMatchWins:
 
     def test_first_matching_rule_applied(self) -> None:
         """Should apply first matching rule only."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^gpt-4o$", "first-match"),
-            mock_alias_rule("^gpt-4o$", "second-match"),
-            mock_alias_rule("^gpt-.*$", "third-match"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule("^gpt-4o$", "first-match"),
+                mock_alias_rule("^gpt-4o$", "second-match"),
+                mock_alias_rule("^gpt-.*$", "third-match"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("gpt-4o")
@@ -136,10 +138,12 @@ class TestFirstMatchWins:
 
     def test_earlier_non_matching_rules_skipped(self) -> None:
         """Should skip non-matching rules and apply first match."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^claude-.*$", "claude-match"),
-            mock_alias_rule("^gpt-.*$", "gpt-match"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule("^claude-.*$", "claude-match"),
+                mock_alias_rule("^gpt-.*$", "gpt-match"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("gpt-4o")
@@ -152,10 +156,12 @@ class TestInvalidPatternHandling:
 
     def test_invalid_regex_skipped(self) -> None:
         """Should skip invalid regex patterns without throwing."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("[invalid(regex", "replacement"),
-            mock_alias_rule("^valid-.*$", "valid-replacement"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule("[invalid(regex", "replacement"),
+                mock_alias_rule("^valid-.*$", "valid-replacement"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         # Invalid regex skipped, valid one should match
@@ -168,10 +174,12 @@ class TestInvalidPatternHandling:
 
     def test_none_pattern_skipped(self) -> None:
         """Should skip aliases with None pattern."""
-        config = mock_config_with_aliases([
-            mock_alias_rule(None, "replacement"),
-            mock_alias_rule("^model$", "valid"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule(None, "replacement"),
+                mock_alias_rule("^model$", "valid"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("model")
@@ -180,10 +188,12 @@ class TestInvalidPatternHandling:
 
     def test_none_replacement_skipped(self) -> None:
         """Should skip aliases with None replacement."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("^model$", None),
-            mock_alias_rule("^model$", "valid"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule("^model$", None),
+                mock_alias_rule("^model$", "valid"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("model")
@@ -192,9 +202,11 @@ class TestInvalidPatternHandling:
 
     def test_empty_pattern_skipped(self) -> None:
         """Should skip aliases with empty pattern."""
-        config = mock_config_with_aliases([
-            mock_alias_rule("", "replacement"),
-        ])
+        config = mock_config_with_aliases(
+            [
+                mock_alias_rule("", "replacement"),
+            ]
+        )
         resolver = ModelAliasResolver(config=config)
 
         result = resolver.resolve("model")
@@ -247,7 +259,11 @@ class TestEquivalenceWithBackendService:
 
     def test_claude_to_gemini_alias(self) -> None:
         """Test Claude to Gemini alias pattern."""
-        from src.core.config.app_config import AppConfig, BackendSettings, ModelAliasRule
+        from src.core.config.app_config import (
+            AppConfig,
+            BackendSettings,
+            ModelAliasRule,
+        )
         from src.core.services.backend_service import BackendService
 
         config = AppConfig(
@@ -267,7 +283,9 @@ class TestEquivalenceWithBackendService:
             session_service=Mock(),
             app_state=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("claude-3-sonnet-20240229")
+        backend_result = backend_service._apply_model_aliases(
+            "claude-3-sonnet-20240229"
+        )
 
         resolver = ModelAliasResolver(config=config)
         resolver_result = resolver.resolve("claude-3-sonnet-20240229")
@@ -276,7 +294,11 @@ class TestEquivalenceWithBackendService:
 
     def test_gpt_capture_group_alias(self) -> None:
         """Test GPT capture group alias pattern."""
-        from src.core.config.app_config import AppConfig, BackendSettings, ModelAliasRule
+        from src.core.config.app_config import (
+            AppConfig,
+            BackendSettings,
+            ModelAliasRule,
+        )
         from src.core.services.backend_service import BackendService
 
         config = AppConfig(
@@ -305,7 +327,11 @@ class TestEquivalenceWithBackendService:
 
     def test_catch_all_alias(self) -> None:
         """Test catch-all alias pattern."""
-        from src.core.config.app_config import AppConfig, BackendSettings, ModelAliasRule
+        from src.core.config.app_config import (
+            AppConfig,
+            BackendSettings,
+            ModelAliasRule,
+        )
         from src.core.services.backend_service import BackendService
 
         config = AppConfig(

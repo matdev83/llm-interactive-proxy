@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Any
 
-from fastapi import HTTPException
+from starlette.exceptions import HTTPException
 
 from src.core.common.exceptions import (
     BackendError,

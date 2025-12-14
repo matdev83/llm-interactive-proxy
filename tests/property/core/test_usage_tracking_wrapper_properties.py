@@ -6,13 +6,11 @@ Validates:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
@@ -33,7 +31,9 @@ def chunk_with_content_strategy() -> st.SearchStrategy:
     """Generate chunks with actual content."""
     return st.fixed_dictionaries(
         {
-            "id": st.text(min_size=1, max_size=20, alphabet="abcdefghijklmnopqrstuvwxyz-"),
+            "id": st.text(
+                min_size=1, max_size=20, alphabet="abcdefghijklmnopqrstuvwxyz-"
+            ),
             "object": st.just("chat.completion.chunk"),
             "choices": st.lists(
                 st.fixed_dictionaries(
@@ -78,7 +78,10 @@ class TestUsageAccumulationProperty:
 
         start_time = 1000.0
         wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id="ptb-456", start_time=start_time
+            gen(),
+            ctp_record_id="ctp-123",
+            ptb_record_id="ptb-456",
+            start_time=start_time,
         )
 
         chunks = [chunk async for chunk in wrapped]

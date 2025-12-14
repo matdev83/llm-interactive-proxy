@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 
@@ -240,7 +239,7 @@ class TestIsValidCompletionToken:
         service = StreamFormattingService()
 
         assert service.is_valid_completion_token(b"hello world") is True
-        assert service.is_valid_completion_token(b"data: {\"content\": \"test\"}") is True
+        assert service.is_valid_completion_token(b'data: {"content": "test"}') is True
 
     def test_bytes_done_markers_not_valid(self) -> None:
         """Bytes with [DONE] markers should not be valid."""
@@ -357,8 +356,12 @@ class TestEquivalenceWithBackendService:
         async def gen_for_backend():
             yield ProcessedResponse(content=chunk)
 
-        service_result = [c async for c in service.stream_as_sse_bytes(gen_for_service())]
-        backend_result = [c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())]
+        service_result = [
+            c async for c in service.stream_as_sse_bytes(gen_for_service())
+        ]
+        backend_result = [
+            c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())
+        ]
 
         assert service_result == backend_result
 
@@ -375,8 +378,12 @@ class TestEquivalenceWithBackendService:
         async def gen_for_backend():
             yield ProcessedResponse(content="data: [DONE]\n\n")
 
-        service_result = [c async for c in service.stream_as_sse_bytes(gen_for_service())]
-        backend_result = [c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())]
+        service_result = [
+            c async for c in service.stream_as_sse_bytes(gen_for_service())
+        ]
+        backend_result = [
+            c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())
+        ]
 
         assert service_result == backend_result
 
@@ -400,7 +407,11 @@ class TestEquivalenceWithBackendService:
         async def gen_for_backend():
             yield ProcessedResponse(content=error_chunk)
 
-        service_result = [c async for c in service.stream_as_sse_bytes(gen_for_service())]
-        backend_result = [c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())]
+        service_result = [
+            c async for c in service.stream_as_sse_bytes(gen_for_service())
+        ]
+        backend_result = [
+            c async for c in BackendService._stream_as_sse_bytes(gen_for_backend())
+        ]
 
         assert service_result == backend_result
