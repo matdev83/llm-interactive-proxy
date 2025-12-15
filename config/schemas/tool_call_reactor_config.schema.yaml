@@ -26,6 +26,12 @@ properties:
     type:
       - string
       - "null"
+  binary_file_edit_steering_enabled:
+    type: boolean
+  binary_file_edit_steering_message:
+    type:
+      - string
+      - "null"
   test_execution_reminder_enabled:
     type: boolean
   test_execution_reminder_message:

@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Binary File Edit Steering Policy**: Implemented comprehensive binary file edit steering functionality
+  - **New Policy**: Added `BinaryFileEditPolicy` to handle binary file operations safely
+  - **Configuration Support**: Added configuration options for binary file editing in app settings
+  - **CLI Integration**: Extended CLI argument parser to support binary file edit options
+  - **Unified Handler**: Updated unified steering handler to support binary file edit operations
+  - **Test Coverage**: Added comprehensive unit and integration tests for binary file edit functionality
+  - **Environment Configuration**: Updated sample environment configuration with binary file edit settings
+
 ## [2025-12-14]
 
 ### Added
