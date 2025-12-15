@@ -2,315 +2,208 @@
 
 ## Introduction
 
-This document specifies the requirements for refactoring the `BackendService` class (`src/core/services/backend_service.py`) which has grown into a "God Object" anti-pattern. The current implementation is approximately 2109 lines long and violates multiple SOLID principles, contains mixed responsibilities, and is difficult to test and maintain. The refactoring aims to decompose this monolithic class into smaller, focused services while preserving all existing public APIs and ensuring zero regressions in the test suite.
+This document specifies requirements for refactoring `BackendService` (`src/core/services/backend_service.py`) to remove the “God Object” anti-pattern and SOLID violations while preserving all runtime behavior and external contracts.
 
-**Project Context**: Universal LLM Proxy - Traffic routing, failover, accounting for multiple LLM backends with async FastAPI architecture.
+**Baseline (current code)**:
+- `src/core/services/backend_service.py` is 2109 lines (`wc -l`)
+- `BackendService.call_completion` has cyclomatic complexity 180 (radon via `scripts/analyze_complexity.py`)
+- Multiple responsibilities are mixed in a single class: backend/model target resolution, per-session backend selection, failover planning/execution, resilience and retry policy, usage tracking, wire capture integration, and streaming adaptation
+
+**Project Context**: Universal LLM Proxy - traffic routing, failover, accounting, and wire capture for multiple LLM backends with async FastAPI architecture.
 
 **Stakeholders**:
-- Developers integrating LLM capabilities via unified API
-- Operators managing backend configurations and monitoring
-- End-users consuming LLM responses through client applications
+- Developers maintaining backend orchestration
+- Operators relying on predictable routing/failover behavior and observability
+- Users consuming OpenAI/Anthropic/Gemini-compatible APIs
 
 ## Glossary
 
-- **BackendService**: The current monolithic service class responsible for LLM backend interactions, failover, rate limiting, usage tracking, wire capture, and request/response transformation.
-- **God Object**: An anti-pattern where a single class knows too much or does too much, violating the Single Responsibility Principle.
-- **SRP (Single Responsibility Principle)**: A class should have only one reason to change.
-- **OCP (Open/Closed Principle)**: Software entities should be open for extension but closed for modification.
-- **LSP (Liskov Substitution Principle)**: Objects of a superclass should be replaceable with objects of subclasses without affecting correctness.
-- **ISP (Interface Segregation Principle)**: Clients should not be forced to depend on interfaces they do not use.
-- **DIP (Dependency Inversion Principle)**: High-level modules should not depend on low-level modules; both should depend on abstractions.
-- **DI Container**: Dependency Injection container (`ServiceCollection`) used for managing service lifecycles and dependencies.
-- **Wire Capture**: The mechanism for capturing request/response traffic for debugging and replay (CBOR-encoded).
-- **Failover**: The process of switching to an alternative backend when the primary fails.
-- **SSE (Server-Sent Events)**: A protocol for streaming responses from server to client.
+- **BackendService**: `IBackendService` implementation that orchestrates backend calls, including failover, usage tracking, and optional wire capture.
+- **God Object**: A class that owns too many unrelated responsibilities, making it hard to test, change, and reason about.
+- **SOLID**: SRP, OCP, LSP, ISP, DIP.
+- **DI container**: `ServiceCollection` / `IServiceProvider` wiring (`src/core/di/` and `src/core/di/services.py`).
+- **Wire capture**: Byte-precise CBOR capture pipeline (`var/wire_captures_cbor/`) and related services.
+- **Streaming**: Async iterator-based streaming, with SSE formatting via `IStreamFormattingService`.
 
 ## Requirements
 
-### Requirement 1: Single Responsibility Principle Compliance
+### Requirement 1: God Object Mitigation and Maintainability Targets
 
-**Objective:** As a developer, I want the BackendService to follow the Single Responsibility Principle, so that each component has one clear purpose and is easier to understand, test, and maintain.
+**Objective:** As a developer, I want the BackendService responsibilities decomposed into focused collaborators, so that complexity is reduced without changing behavior.
 
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
 
-1. WHEN the BackendService is refactored THEN the system SHALL separate backend lifecycle management (creation, caching, per-session limits) into a dedicated BackendLifecycleManager service
-2. WHEN the BackendService is refactored THEN the system SHALL separate failover coordination logic into a dedicated FailoverCoordinator service
-3. WHEN the BackendService is refactored THEN the system SHALL separate backend and model resolution logic into a dedicated BackendModelResolver service
-4. WHEN the BackendService is refactored THEN the system SHALL separate request transformation logic (model aliases, reasoning config, URI parameters) into a dedicated RequestTransformer service
-5. WHEN the BackendService is refactored THEN the system SHALL separate exception normalization logic into a dedicated ExceptionNormalizer service
-6. WHEN the BackendService is refactored THEN the system SHALL separate stream processing logic (SSE encoding, chunk validation, session ID resolution) into a dedicated StreamProcessor service
-7. WHEN the BackendService is refactored THEN the system SHALL separate failure handling strategy execution into a dedicated FailureStrategyExecutor service
-8. WHEN the BackendService is refactored THEN the system SHALL reduce BackendService to orchestration responsibilities only (coordinating the extracted services)
+1.1 When the refactoring is complete, the system shall move the bulk of completion orchestration out of `BackendService.call_completion` into a dedicated collaborator, leaving `BackendService.call_completion` as a thin delegating wrapper.
+
+1.2 When the refactoring is complete, the system shall reduce the maximum cyclomatic complexity reported for `src/core/services/backend_service.py` to ≤ 25 and increase its maintainability index to ≥ 20 (as reported by `scripts/analyze_complexity.py`).
+
+1.3 When the refactoring is complete, the system shall reduce `src/core/services/backend_service.py` to ≤ 500 lines (`wc -l`).
+
+1.4 When new collaborators are introduced, the system shall ensure no new single method exceeds cyclomatic complexity 50 (radon CC) and no new service module exceeds 1000 lines.
 
 #### Technical Constraints
 
-- Async compatibility: Must use `async/await` patterns
-- DI integration: Services registered via `ServiceCollection`
-- Error hierarchy: Exceptions extend `LLMProxyError`
-- Config precedence: CLI > ENV > YAML
+- Async correctness: no blocking I/O in async paths.
+- Staged init + DI: services registered through the existing DI composition root.
+- Error model: domain/service code raises `LLMProxyError` subclasses.
 
 ### Requirement 2: Dependency Injection and Loose Coupling
 
-**Objective:** As a developer, I want the refactored services to use proper dependency injection, so that components are loosely coupled and easily testable.
+**Objective:** As a developer, I want dependency construction to be centralized in DI wiring, so that BackendService and its collaborators do not instantiate their own dependencies.
 
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
 
-1. WHEN new services are created THEN the system SHALL define interfaces for each new service in the `src/core/interfaces/` directory following the `I*` naming convention
-2. WHEN new services are created THEN the system SHALL register all new services in the DI container (`ServiceCollection` in `src/core/di/container.py`)
-3. WHEN the BackendService is refactored THEN the system SHALL inject all dependencies through the constructor (no optional parameters with inline instantiation)
-4. WHEN the BackendService is refactored THEN the system SHALL remove all inline imports and service instantiation from method bodies
-5. WHEN services depend on other services THEN the system SHALL depend on interfaces rather than concrete implementations
-6. WHEN the BackendService constructor is refactored THEN the system SHALL remove all conditional service creation logic (no `if service is None: create_default()` patterns)
-7. WHEN services are registered THEN the system SHALL use factory functions or direct registration in the DI container stage (`src/core/app/stages/core_services.py`)
+2.1 When the refactoring is complete, the system shall remove conditional dependency creation from `BackendService.__init__` (no “if dependency is None then create default” patterns).
+
+2.2 When services depend on other services, the system shall depend on interfaces from `src/core/interfaces/` rather than concrete types where practical.
+
+2.3 When the refactoring introduces new collaborators, the system shall register them and their interfaces in the existing DI composition root so production wiring does not rely on runtime fallbacks.
 
 #### Technical Constraints
 
-- DI container: Use `ServiceCollection` from `src/core/di/container.py`
-- Interface location: `src/core/interfaces/` directory
-- Registration location: `src/core/di/services.py` or stage files in `src/core/app/stages/`
+- DI implementation: `ServiceCollection` / `IServiceProvider`.
+- Registration location: `src/core/di/services.py` (invoked by staged initialization).
 
-### Requirement 3: Public API Preservation
+### Requirement 3: Public Contract and Test Seam Preservation
 
-**Objective:** As a developer, I want the public API of BackendService to remain unchanged, so that existing code continues to work without modification.
+**Objective:** As a developer, I want existing callers and tests to keep working, so that refactoring does not force behavior changes or widespread rewrites.
 
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
 
-1. WHEN the refactoring is complete THEN the `IBackendService` interface SHALL remain unchanged (no method signature modifications)
-2. WHEN the refactoring is complete THEN the `call_completion` method signature SHALL remain unchanged
-3. WHEN the refactoring is complete THEN the `chat_completions` method signature SHALL remain unchanged
-4. WHEN the refactoring is complete THEN the `validate_backend_and_model` method signature SHALL remain unchanged
-5. WHEN the refactoring is complete THEN the `get_backend` method signature SHALL remain unchanged
-6. WHEN the refactoring is complete THEN the `get_active_backends` method signature SHALL remain unchanged
-7. WHEN helper methods are extracted THEN BackendService SHALL retain existing private helper methods (`_stream_as_sse_bytes`, `_wrap_stream_for_usage`, `_apply_model_aliases`, `_apply_reasoning_config`, `_apply_uri_parameters`, `_normalize_provider_exception`, etc.) as thin delegating wrappers so existing tests and scripts do not require changes
-8. WHEN methods are delegated THEN the system SHALL preserve observable behavior and return values identical to the current implementation
+3.1 When the refactoring is complete, `IBackendService` shall remain unchanged (method names and signatures).
 
-#### Technical Constraints
+3.2 When the refactoring is complete, the observable behavior of `call_completion`, `chat_completions`, `validate_backend_and_model`, `get_backend`, and `get_active_backends` shall remain unchanged.
 
-- Interface location: `src/core/interfaces/backend_service.py`
-- Backward compatibility: All existing callers must work without modification
-- Test compatibility: Existing tests must pass without modification
+3.3 When responsibilities are extracted, `BackendService` shall keep the existing helper methods that are referenced by tests as thin delegating wrappers with the same semantics, including:
+- `_resolve_backend_and_model`
+- `_synchronize_request_with_target`
+- `_get_failover_plan`
+- `_filter_unhealthy_backends`
+- `_execute_complex_failover`
+- `_attempt_failover_plan`
+- `_apply_failure_strategy`
+- `_stream_as_sse_bytes`
+- `_resolve_stream_session_id`
 
-### Requirement 4: Test Coverage and Regression Prevention
+3.4 When streaming is used, `BackendService._stream_as_sse_bytes` shall continue to produce the same SSE byte stream for the same input chunks.
 
-**Objective:** As a developer, I want the refactored code to maintain full test coverage, so that I can be confident the refactoring introduces no regressions.
+### Requirement 4: Regression Prevention via Tests
+
+**Objective:** As a developer, I want strong regression protection, so that behavior remains stable during large structural refactors.
 
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
 
-1. WHEN the refactoring is complete THEN the system SHALL pass all existing unit tests in `tests/unit/core/services/test_backend_service*.py` without modification
-2. WHEN the refactoring is complete THEN the system SHALL pass all existing integration tests that use BackendService without modification
-3. WHEN new services are created THEN the system SHALL include unit tests for each new service in `tests/unit/core/services/`
-4. WHEN the refactoring is complete THEN the test suite SHALL achieve zero test failures
-5. WHEN responsibilities are extracted THEN the system SHALL create characterization tests for extracted services to verify behavior preservation
-6. WHEN helper methods are delegated THEN the system SHALL verify that delegation preserves observable invariants and side effects
+4.1 When the refactoring is complete, the system shall pass the full automated test suite (unit, integration, property, regression) with zero failures.
 
-#### Technical Constraints
+4.2 When core responsibilities are extracted, the system shall add characterization and unit tests that lock in behavior for backend/model resolution, failover planning/execution, streaming formatting, and failure-handling decisions.
 
-- Test framework: pytest with markers defined in `pyproject.toml`
-- Test location: `tests/unit/core/services/` for unit tests
-- Test execution: `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service*.py`
+### Requirement 5: Backend Lifecycle Boundaries
 
-### Requirement 5: Backend Lifecycle Management Extraction
-
-**Objective:** As a developer, I want backend lifecycle management to be isolated, so that backend creation, caching, and per-session limits can be managed independently.
+**Objective:** As a developer, I want backend instance lifecycle to remain owned by the lifecycle manager, so that caching and per-session behavior stay correct.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN a BackendLifecycleManager service is created THEN the system SHALL provide a method to get or create backend instances with caching
-2. WHEN a BackendLifecycleManager service is created THEN the system SHALL enforce per-session backend limits
-3. WHEN a BackendLifecycleManager service is created THEN the system SHALL handle backend instance lifecycle (creation, caching, cleanup)
-4. WHEN a BackendLifecycleManager service is created THEN the system SHALL resolve per-session backend limits from configuration
-5. WHEN backend lifecycle logic is extracted THEN BackendService SHALL delegate `_get_or_create_backend` calls to BackendLifecycleManager
-6. WHEN backend lifecycle logic is extracted THEN BackendService SHALL delegate `_resolve_per_session_backend_limit` calls to BackendLifecycleManager
+5.1 When a backend instance is needed, the system shall use `IBackendLifecycleManager` for backend creation/caching and per-session backend limits.
 
-#### Technical Constraints
+5.2 If a backend is permanently disabled, the system shall preserve the existing fail-fast behavior and error messages (unless failover rules apply).
 
-- Interface: `IBackendLifecycleManager` in `src/core/interfaces/`
-- Existing service: May already exist but needs integration verification
-- Configuration: Must respect CLI > ENV > YAML precedence
+### Requirement 6: Backend and Model Target Resolution
 
-### Requirement 6: Failover Coordination Extraction
-
-**Objective:** As a developer, I want failover coordination logic to be isolated, so that failover strategies can be tested and modified independently.
+**Objective:** As a developer, I want backend/model resolution to be isolated and testable, so that routing behavior can evolve without affecting unrelated concerns.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN failover coordination is extracted THEN the system SHALL separate failover plan generation logic (`_get_failover_plan`) into a dedicated service
-2. WHEN failover coordination is extracted THEN the system SHALL separate unhealthy backend filtering logic (`_filter_unhealthy_backends`) into a dedicated service
-3. WHEN failover coordination is extracted THEN the system SHALL separate complex failover execution logic (`_execute_complex_failover`, `_attempt_failover_plan`) into a dedicated service
-4. WHEN failover coordination is extracted THEN the system SHALL maintain integration with existing `IFailoverCoordinator` interface
-5. WHEN failover logic is extracted THEN BackendService SHALL delegate failover operations to the failover coordinator service
+6.1 When resolving request targets, the system shall preserve current resolution behavior: session-derived backend/model, parsing backend prefixes, parsing URI parameters, backend discovery/routing, and static route overrides.
 
-#### Technical Constraints
+6.2 When resolving request targets, the system shall preserve the current ordering constraint: model aliases are resolved before backend/model parsing and routing.
 
-- Interface: `IFailoverCoordinator` in `src/core/interfaces/failover_interface.py`
-- Existing service: `FailoverCoordinator` may already exist but needs integration verification
-- Integration: Must work with `FailoverService` and `BackendRoutingService`
+### Requirement 7: Failover Planning and Execution
 
-### Requirement 7: Backend and Model Resolution Extraction
-
-**Objective:** As a developer, I want backend and model resolution logic to be isolated, so that routing decisions can be tested and modified independently.
+**Objective:** As a developer, I want failover planning/execution isolated, so that complex failover behavior is testable and changes are localized.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN backend and model resolution is extracted THEN the system SHALL separate `_resolve_backend_and_model` logic into a dedicated BackendModelResolver service
-2. WHEN backend and model resolution is extracted THEN the system SHALL separate request synchronization logic (`_synchronize_request_with_target`) into the resolver service
-3. WHEN backend and model resolution is extracted THEN the system SHALL integrate with existing `BackendRoutingService` and `ModelAliasResolver`
-4. WHEN resolution logic is extracted THEN BackendService SHALL delegate resolution calls to the BackendModelResolver service
-5. WHEN resolution logic is extracted THEN the system SHALL preserve existing routing behavior and model alias transformations
+7.1 When failover planning is requested, the system shall preserve current behavior: use `IFailoverStrategy` when enabled, otherwise use `IFailoverCoordinator`, then apply health filtering when circuit breaker is enabled.
 
-#### Technical Constraints
+7.2 When filtering unhealthy backends, the system shall preserve current behavior: exclude permanently disabled backends, exclude unhealthy active backends, and fall back to the original plan when filtering would remove all options.
 
-- Integration: Must work with `BackendRoutingService` and `ModelAliasResolver`
-- Configuration: Must respect backend config provider and routing service settings
-- Error handling: Must preserve existing error types and messages
+7.3 When complex failover routes apply, the system shall preserve current behavior: attempt the plan in order and prevent recursive re-entry into complex failover loops.
 
-### Requirement 8: Request Transformation Extraction
+### Requirement 8: Streaming Session Identity DRY
 
-**Objective:** As a developer, I want request transformation logic to be isolated, so that model aliases, reasoning config, and URI parameters can be applied independently.
+**Objective:** As a developer, I want streaming session-id resolution logic centralized, so that capture/buffering uses consistent session identifiers and avoids duplication.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN request transformation is extracted THEN the system SHALL create a RequestTransformer service that coordinates model alias application, reasoning config application, and URI parameter application
-2. WHEN request transformation is extracted THEN the system SHALL integrate with existing `ModelAliasResolver`, `ReasoningConfigApplicator`, and `URIParameterApplicator` services
-3. WHEN request transformation is extracted THEN BackendService SHALL delegate `_apply_model_aliases`, `_apply_reasoning_config`, and `_apply_uri_parameters` calls to RequestTransformer
-4. WHEN transformation logic is extracted THEN the system SHALL preserve the order of transformations (aliases → reasoning → URI parameters)
-5. WHEN transformation logic is extracted THEN the system SHALL preserve existing transformation behavior and side effects
+8.1 When the system needs a stable session identifier for streaming capture/buffering, it shall apply a single shared algorithm used consistently across BackendService and buffered wire capture logic.
 
-#### Technical Constraints
+8.2 When session identifiers are missing, the system shall preserve current fallback behavior to a generated UUID.
 
-- Integration: Must coordinate with `ModelAliasResolver`, `ReasoningConfigApplicator`, `URIParameterApplicator`
-- Order preservation: Transformation order must match current implementation
-- Error handling: Must preserve existing error types and messages
+### Requirement 9: Exception Normalization and Error Semantics
 
-### Requirement 9: Stream Processing Extraction
-
-**Objective:** As a developer, I want stream processing logic to be isolated, so that SSE encoding, chunk validation, and session ID resolution can be tested independently.
+**Objective:** As a developer, I want provider exceptions normalized consistently, so that callers receive stable error types and messages.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN stream processing is extracted THEN the system SHALL separate SSE encoding logic (`_stream_as_sse_bytes`) into a dedicated StreamProcessor service
-2. WHEN stream processing is extracted THEN the system SHALL separate stream session ID resolution (`_resolve_stream_session_id`) into the StreamProcessor service
-3. WHEN stream processing is extracted THEN the system SHALL separate completion token validation (`_is_valid_completion_token`) into the StreamProcessor service
-4. WHEN stream processing is extracted THEN the system SHALL integrate with existing `IStreamFormattingService` and `IUsageTrackingWrapper`
-5. WHEN stream processing is extracted THEN BackendService SHALL delegate stream processing calls to StreamProcessor
-6. WHEN stream processing is extracted THEN the system SHALL preserve existing SSE encoding format and chunk handling behavior
+9.1 When provider exceptions are raised, the system shall preserve current normalization/mapping to domain errors (including `BackendError`, `RateLimitExceededError`, and `AuthenticationError`).
 
-#### Technical Constraints
+### Requirement 10: Failure Handling Strategy Semantics
 
-- Integration: Must work with `IStreamFormattingService` and `IUsageTrackingWrapper`
-- Format preservation: SSE encoding format must match current implementation
-- Session handling: Stream session ID resolution must preserve existing behavior
-
-### Requirement 10: Exception Normalization Extraction
-
-**Objective:** As a developer, I want exception normalization logic to be isolated, so that provider-specific exceptions can be normalized independently.
+**Objective:** As a developer, I want failure-handling decisions preserved, so that retry/failover behavior remains predictable.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN exception normalization is extracted THEN the system SHALL separate `_normalize_provider_exception` logic into a dedicated ExceptionNormalizer service
-2. WHEN exception normalization is extracted THEN the system SHALL integrate with existing `IExceptionNormalizer` interface
-3. WHEN exception normalization is extracted THEN BackendService SHALL delegate exception normalization calls to ExceptionNormalizer
-4. WHEN exception normalization is extracted THEN the system SHALL preserve existing exception type mappings and error messages
-5. WHEN exception normalization is extracted THEN the system SHALL preserve existing error hierarchy (BackendError, RateLimitExceededError, AuthenticationError, etc.)
+10.1 When a backend call fails, the system shall preserve current decision semantics derived from `IFailureHandlingStrategy` (retry wait, alternate backend selection, or surfacing the error).
 
-#### Technical Constraints
+### Requirement 11: Observability Preservation
 
-- Interface: `IExceptionNormalizer` in `src/core/interfaces/exception_normalizer_interface.py`
-- Error hierarchy: Must preserve `LLMProxyError` subclasses
-- Provider mapping: Must preserve existing provider-to-exception mappings
-
-### Requirement 11: Failure Strategy Execution Extraction
-
-**Objective:** As a developer, I want failure strategy execution logic to be isolated, so that failure handling can be tested and modified independently.
+**Objective:** As an operator, I want captures/logs/usage tracking preserved, so that refactoring does not reduce debuggability or accounting correctness.
 
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
 
-1. WHEN failure strategy execution is extracted THEN the system SHALL separate `_apply_failure_strategy` logic into a dedicated FailureStrategyExecutor service
-2. WHEN failure strategy execution is extracted THEN the system SHALL integrate with existing `IFailureHandlingStrategy` interface
-3. WHEN failure strategy execution is extracted THEN BackendService SHALL delegate failure strategy calls to FailureStrategyExecutor
-4. WHEN failure strategy execution is extracted THEN the system SHALL preserve existing failure decision logic and retry behavior
-5. WHEN failure strategy execution is extracted THEN the system SHALL preserve integration with resilience coordinator and failover coordinator
+11.1 When wire capture is enabled, the system shall preserve current capture behavior and CBOR wire format.
 
-#### Technical Constraints
+11.2 When usage tracking is enabled, the system shall preserve current usage tracking behavior and recorded values.
 
-- Interface: `IFailureHandlingStrategy` in `src/core/interfaces/failure_strategy_interface.py`
-- Integration: Must work with `IResilienceCoordinator` and `IFailoverCoordinator`
-- Decision preservation: Failure decisions must match current implementation
+### Requirement 12: Non-Functional Requirements
 
-### Requirement 12: Code Organization and Maintainability
-
-**Objective:** As a developer, I want the refactored code to be well-organized and maintainable, so that future changes are easier to implement.
+**Objective:** As a user and operator, I want refactoring to be safe, performant, and secure.
 
 **Priority:** P2 (Medium)
 
 #### Acceptance Criteria
 
-1. WHEN the refactoring is complete THEN BackendService SHALL be reduced to less than 500 lines of code (orchestration only)
-2. WHEN the refactoring is complete THEN each extracted service SHALL have a single, clear responsibility
-3. WHEN the refactoring is complete THEN each extracted service SHALL be independently testable
-4. WHEN the refactoring is complete THEN the system SHALL follow consistent naming conventions across all extracted services
-5. WHEN the refactoring is complete THEN the system SHALL have clear separation between orchestration (BackendService) and implementation (extracted services)
-6. WHEN the refactoring is complete THEN the system SHALL have comprehensive docstrings for all public methods and classes
+12.1 The system shall not introduce measurable latency overhead for non-streaming requests (target: < 1ms per request in local benchmarks).
 
-#### Technical Constraints
+12.2 The system shall not delay first-byte time for streaming responses.
 
-- Code organization: Follow patterns in `src/core/services/` directory
-- Documentation: Use Python docstrings following project conventions
-- Naming: Follow `PascalCase` for classes, `snake_case` for methods
-
-## Non-Functional Requirements
-
-### NFR 1: Performance
-
-- Response latency: Refactoring SHALL not introduce measurable latency overhead (< 1ms per request)
-- Streaming first-byte: Refactoring SHALL not delay first byte of streaming responses
-- Throughput: Refactoring SHALL maintain existing request throughput capabilities
-
-### NFR 2: Reliability
-
-- Backend failover: Refactoring SHALL preserve existing failover behavior and timing
-- Error handling: Refactoring SHALL preserve existing error handling and recovery mechanisms
-- Rate limiting: Refactoring SHALL preserve existing rate limiting behavior
-
-### NFR 3: Observability
-
-- Wire captures: Refactoring SHALL preserve existing wire capture behavior and format
-- Logging: Refactoring SHALL preserve existing logging levels and messages
-- Health checks: Refactoring SHALL not affect health check endpoints
-
-### NFR 4: Security
-
-- API key handling: Refactoring SHALL preserve existing API key redaction and security measures
-- Input validation: Refactoring SHALL preserve existing input validation boundaries
-- Authentication: Refactoring SHALL preserve existing authentication requirements
+12.3 The system shall preserve existing security properties: API key handling/redaction, input validation boundaries, and authentication/authorization behavior.
 
 ## Out of Scope
 
-- Modifying the public API of BackendService
-- Changing the behavior of existing features
-- Adding new features or capabilities
-- Modifying the wire capture format
-- Changing the error hierarchy or exception types
-- Modifying configuration schemas or precedence
+- Adding new features or changing existing behavior
+- Changing API schemas, config schemas, or config precedence
+- Changing wire capture format or capture storage layout
+- Refactoring unrelated God Objects outside the BackendService boundary
