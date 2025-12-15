@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+
+# Tests updated for refactored RequestProcessor architecture
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -93,11 +95,59 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
         lambda *args, **kwargs: DummyEditPrecision(),
     )
 
+    from src.core.interfaces.request_processor_internal import (
+        IBackendExecutor,
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        ISessionEnricher,
+    )
+
+    # Create mocks for new required dependencies
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    session_enricher.enrich.return_value = (
+        Session(session_id="session-123"),
+        ChatRequest(
+            model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+        ),
+    )
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.return_value = ChatRequest(
+        model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[ChatMessage(role="user", content="Hello")],
+        command_executed=False,
+        command_results=[],
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.return_value = ChatRequest(
+        model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    # Use real transform pipeline to test command prefix
+    from src.core.services.request_transform_pipeline import RequestTransformPipeline
+
+    transform_pipeline = RequestTransformPipeline(app_state=app_state)
+
+    backend_executor = AsyncMock(spec=IBackendExecutor)
+    backend_executor.execute.return_value = ResponseEnvelope(content={"ok": True})
+
     processor = RequestProcessor(
         command_processor=DummyCommandProcessor(),
         session_manager=DummySessionManager(),
         backend_request_manager=DummyBackendRequestManager(),
         response_manager=DummyResponseManager(),
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
         app_state=app_state,
     )
 
@@ -105,7 +155,7 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
         model="gpt-test",
         messages=[ChatMessage(role="user", content="Hello")],
     )
-    context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
+    context = RequestContext(headers={}, cookies={}, state={}, app_state=app_state)
 
     await processor.process_request(context, request)
 
@@ -197,11 +247,59 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
         lambda *args, **kwargs: DummyEditPrecision(),
     )
 
+    from src.core.interfaces.request_processor_internal import (
+        IBackendExecutor,
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        ISessionEnricher,
+    )
+
+    # Create mocks for new required dependencies
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    session_enricher.enrich.return_value = (
+        session_override,
+        ChatRequest(
+            model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+        ),
+    )
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.return_value = ChatRequest(
+        model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[ChatMessage(role="user", content="Hello")],
+        command_executed=False,
+        command_results=[],
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.return_value = ChatRequest(
+        model="gpt-test", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    # Use real transform pipeline to test command prefix
+    from src.core.services.request_transform_pipeline import RequestTransformPipeline
+
+    transform_pipeline = RequestTransformPipeline(app_state=app_state)
+
+    backend_executor = AsyncMock(spec=IBackendExecutor)
+    backend_executor.execute.return_value = ResponseEnvelope(content={"ok": True})
+
     processor = RequestProcessor(
         command_processor=DummyCommandProcessor(),
         session_manager=DummySessionManager(),
         backend_request_manager=DummyBackendRequestManager(),
         response_manager=DummyResponseManager(),
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
         app_state=app_state,
     )
 
@@ -209,7 +307,7 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
         model="gpt-test",
         messages=[ChatMessage(role="user", content="Hello")],
     )
-    context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
+    context = RequestContext(headers={}, cookies={}, state={}, app_state=app_state)
 
     await processor.process_request(context, request)
 

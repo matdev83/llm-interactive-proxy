@@ -343,9 +343,23 @@ def pytest_cmdline_parse(pluginmanager, args):
     """
     config = yield
 
-    # Skip argument modification in xdist workers to avoid collection mismatches
-    if os.environ.get("PYTEST_XDIST_WORKER"):
-        return
+    # Skip argument modification when xdist is active (master or workers)
+    # to avoid collection mismatches and deadlocks
+    # Check for xdist usage via:
+    # 1. Environment variable (worker processes)
+    # 2. Config option (after config is created)
+    # 3. Plugin registration (fallback)
+    if HAS_PYTEST_XDIST:
+        is_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER") is not None
+        # Check if xdist is configured (numprocesses option is set)
+        has_xdist_config = (
+            hasattr(config.option, "numprocesses")
+            and config.option.numprocesses is not None
+        )
+        xdist_plugin_registered = pluginmanager.hasplugin("xdist")
+
+        if is_xdist_worker or has_xdist_config or xdist_plugin_registered:
+            return
 
     modified_args = args.copy()  # Don't modify original args
 
@@ -397,6 +411,16 @@ def pytest_cmdline_main(config):
     """
     Backward compatibility function for testing pytest_cmdline_main.
     """
+    # Skip argument modification when xdist is active to avoid conflicts
+    if HAS_PYTEST_XDIST:
+        is_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER") is not None
+        has_xdist_config = (
+            hasattr(config.option, "numprocesses")
+            and config.option.numprocesses is not None
+        )
+        if is_xdist_worker or has_xdist_config:
+            return
+
     has_test_paths = any(arg for arg in config.args if not arg.startswith("-"))
     has_maxfail = any(arg.startswith("--maxfail") for arg in config.args)
     has_lf = "--lf" in config.args

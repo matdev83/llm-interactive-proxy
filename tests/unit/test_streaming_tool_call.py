@@ -109,15 +109,27 @@ async def test_streaming_tool_call_in_first_chunk():
     mock_session_manager.update_session_agent = AsyncMock(return_value=MagicMock())
     mock_session_manager.update_session_history = AsyncMock()
     mock_response_manager = MagicMock()
-    mock_response_processor = MagicMock(spec=IResponseProcessor)
+    MagicMock(spec=IResponseProcessor)
+
+    # Create a real response processor that processes the stream
+    from src.core.services.response_parser_service import ResponseParser
+    from src.core.services.response_processor_service import ResponseProcessor
+    from src.core.services.streaming.content_accumulation_processor import (
+        ContentAccumulationProcessor,
+    )
+    from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
+    response_parser = ResponseParser()
+    stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
+    real_response_processor = ResponseProcessor(
+        response_parser=response_parser,
+        stream_normalizer=stream_normalizer,
+    )
 
     backend_request_manager = BackendRequestManager(
         backend_processor=mock_backend_processor,
-        response_processor=mock_response_processor,
+        response_processor=real_response_processor,
         angel_service_factory=AngelFactoryStub(),
-    )
-    mock_response_processor.process_streaming_response = (
-        lambda stream, _session_id, **kwargs: stream
     )
 
     from src.core.services import tool_text_renderer
@@ -126,11 +138,68 @@ async def test_streaming_tool_call_in_first_chunk():
         return_value="<read_file><path>README.md</path></read_file>"
     )
 
+    # Create required mocks for refactored RequestProcessor
+    from src.core.interfaces.request_processor_internal import (
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        IRequestTransformPipeline,
+        ISessionEnricher,
+    )
+
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    session_enricher.enrich.return_value = (
+        MagicMock(),
+        ChatRequest(
+            model="test_model", messages=[ChatMessage(role="user", content="test")]
+        ),
+    )
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.return_value = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="test")]
+    )
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[ChatMessage(role="user", content="test")],
+        command_executed=False,
+        command_results=[],
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.return_value = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="test")]
+    )
+
+    transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
+    transform_pipeline.transform.return_value = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="test")]
+    )
+
+    # Use real BackendExecutor that calls through to backend_request_manager
+    from src.core.interfaces.session_manager_interface import ISessionManager
+    from src.core.services.backend_executor import BackendExecutor
+
+    mock_session_manager_for_executor = AsyncMock(spec=ISessionManager)
+    mock_session_manager_for_executor.update_session_history = AsyncMock()
+    backend_executor = BackendExecutor(
+        backend_request_manager=backend_request_manager,
+        session_manager=mock_session_manager_for_executor,
+        replacement_service=None,
+    )
+
     request_processor = RequestProcessor(
         command_processor=mock_command_processor,
         session_manager=mock_session_manager,
         backend_request_manager=backend_request_manager,
         response_manager=mock_response_manager,
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
     )
 
     chat_controller = ChatController(request_processor=request_processor)

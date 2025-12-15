@@ -7,6 +7,7 @@ Validates: Requirements 7.1
 
 from __future__ import annotations
 
+# Tests updated for refactored RequestProcessor architecture
 from unittest.mock import AsyncMock, Mock
 
 from hypothesis import given
@@ -88,6 +89,62 @@ def create_mock_response_manager() -> AsyncMock:
         )
     )
     return manager
+
+
+def create_mock_decomposed_services(model="test-model"):
+    """Create mocks for the new decomposed RequestProcessor services."""
+    from src.core.interfaces.request_processor_internal import (
+        IBackendExecutor,
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        IRequestTransformPipeline,
+        ISessionEnricher,
+    )
+
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    mock_session = Mock()
+    mock_session.agent = None
+    mock_session.state = Mock()
+    mock_session.state.project_dir_resolution_attempted = False
+    session_enricher.enrich.return_value = (
+        mock_session,
+        ChatRequest(model=model, messages=[]),
+    )
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.return_value = ChatRequest(model=model, messages=[])
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[],
+        command_executed=False,
+        command_results=[],
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.return_value = ChatRequest(model=model, messages=[])
+
+    transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
+    transform_pipeline.transform.return_value = ChatRequest(model=model, messages=[])
+
+    backend_executor = AsyncMock(spec=IBackendExecutor)
+    backend_executor.execute.return_value = ResponseEnvelope(
+        content={"choices": [], "model": model},
+        headers=None,
+        status_code=200,
+        media_type="application/json",
+        usage=None,
+    )
+
+    return {
+        "session_enricher": session_enricher,
+        "request_side_effects": request_side_effects,
+        "command_handler": command_handler,
+        "backend_preparer": backend_preparer,
+        "transform_pipeline": transform_pipeline,
+        "backend_executor": backend_executor,
+    }
 
 
 def create_test_replacement_service(
@@ -183,12 +240,68 @@ async def test_property_26_command_processing_order(
 
     replacement_service.should_replace = track_should_replace
 
+    # Create mocks for new required dependencies
+    from src.core.interfaces.request_processor_internal import (
+        IBackendExecutor,
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        IRequestTransformPipeline,
+        ISessionEnricher,
+    )
+
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    mock_session = Mock()
+    mock_session.agent = None
+    mock_session.state = Mock()
+    session_enricher.enrich.return_value = (
+        mock_session,
+        ChatRequest(model=original_model, messages=[]),
+    )
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.return_value = ChatRequest(
+        model=original_model, messages=[]
+    )
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[],
+        command_executed=False,
+        command_results=[],
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.return_value = ChatRequest(
+        model=original_model, messages=[]
+    )
+
+    transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
+    transform_pipeline.transform.return_value = ChatRequest(
+        model=original_model, messages=[]
+    )
+
+    backend_executor = AsyncMock(spec=IBackendExecutor)
+    backend_executor.execute.return_value = ResponseEnvelope(
+        content={"choices": [], "model": "test-model"},
+        headers=None,
+        status_code=200,
+        media_type="application/json",
+        usage=None,
+    )
+
     # Create request processor with all mocks
     processor = RequestProcessor(
         command_processor=command_processor,
         session_manager=session_manager,
         backend_request_manager=backend_request_manager,
         response_manager=response_manager,
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
         app_state=None,
         replacement_service=replacement_service,
     )
@@ -287,12 +400,21 @@ async def test_property_38_streaming_turn_completion(
 
     replacement_service = ModelReplacementService(config, registry)
 
+    # Create mocks for new required dependencies
+    decomposed = create_mock_decomposed_services(model=original_model)
+
     # Create request processor
     processor = RequestProcessor(
         command_processor=command_processor,
         session_manager=session_manager,
         backend_request_manager=backend_request_manager,
         response_manager=response_manager,
+        session_enricher=decomposed["session_enricher"],
+        request_side_effects=decomposed["request_side_effects"],
+        command_handler=decomposed["command_handler"],
+        backend_preparer=decomposed["backend_preparer"],
+        transform_pipeline=decomposed["transform_pipeline"],
+        backend_executor=decomposed["backend_executor"],
         app_state=None,
         replacement_service=replacement_service,
     )
@@ -419,12 +541,21 @@ async def test_turn_completion_on_error(
 
     replacement_service = ModelReplacementService(config, registry)
 
+    # Create mocks for new required dependencies
+    decomposed = create_mock_decomposed_services(model=original_model)
+
     # Create request processor
     processor = RequestProcessor(
         command_processor=command_processor,
         session_manager=session_manager,
         backend_request_manager=backend_request_manager,
         response_manager=response_manager,
+        session_enricher=decomposed["session_enricher"],
+        request_side_effects=decomposed["request_side_effects"],
+        command_handler=decomposed["command_handler"],
+        backend_preparer=decomposed["backend_preparer"],
+        transform_pipeline=decomposed["transform_pipeline"],
+        backend_executor=decomposed["backend_executor"],
         app_state=None,
         replacement_service=replacement_service,
     )

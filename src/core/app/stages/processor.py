@@ -52,6 +52,27 @@ class ProcessorStage(InitializationStage):
         # Register command processor
         self._register_command_processor(services)
 
+        # Register artifact service (request processor dependency)
+        self._register_artifact_service(services)
+
+        # Register command handler (request processor internal phase)
+        self._register_command_handler(services)
+
+        # Register backend preparer (request processor internal phase)
+        self._register_backend_preparer(services)
+
+        # Register session enricher (request processor dependency)
+        self._register_session_enricher(services)
+
+        # Register request side effects (request processor dependency)
+        self._register_request_side_effects(services)
+
+        # Register request transformation pipeline (request processor dependency)
+        self._register_request_transform_pipeline(services)
+
+        # Register backend executor (request processor internal phase)
+        self._register_backend_executor(services)
+
         # Register backend processor
         self._register_backend_processor(services)
 
@@ -101,6 +122,317 @@ class ProcessorStage(InitializationStage):
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register command processor: {e}")
+
+    def _register_artifact_service(self, services: ServiceCollection) -> None:
+        """Register artifact service for tool output preview management."""
+        try:
+            from src.core.services.artifact_service import ArtifactService
+
+            # ArtifactService has no dependencies, register with factory
+            services.add_singleton(
+                ArtifactService,
+                implementation_factory=lambda provider: ArtifactService(),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered artifact service")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register artifact service: {e}")
+
+    def _register_command_handler(self, services: ServiceCollection) -> None:
+        """Register command handler (request processor internal phase)."""
+        try:
+            from src.core.interfaces.command_processor_interface import (
+                ICommandProcessor,
+            )
+            from src.core.interfaces.request_processor_internal import ICommandHandler
+            from src.core.interfaces.response_manager_interface import (
+                IResponseManager,
+            )
+            from src.core.interfaces.session_manager_interface import (
+                ISessionManager,
+            )
+            from src.core.services.artifact_service import ArtifactService
+            from src.core.services.command_handler import CommandHandler
+
+            def command_handler_factory(
+                provider: IServiceProvider,
+            ) -> CommandHandler:
+                """Factory function for creating CommandHandler."""
+                from typing import cast
+
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
+
+                command_processor: ICommandProcessor = provider.get_required_service(
+                    cast(type, ICommandProcessor)
+                )
+                session_manager: ISessionManager = provider.get_required_service(
+                    cast(type, ISessionManager)
+                )
+                response_manager: IResponseManager = provider.get_required_service(
+                    cast(type, IResponseManager)
+                )
+                app_state: IApplicationState | None = provider.get_service(
+                    cast(type, IApplicationState)
+                )
+                artifact_service: ArtifactService | None = provider.get_service(
+                    ArtifactService
+                )
+                return CommandHandler(
+                    command_processor=command_processor,
+                    session_manager=session_manager,
+                    response_manager=response_manager,
+                    app_state=app_state,
+                    artifact_service=artifact_service,
+                )
+
+            # Register concrete implementation
+            services.add_singleton(
+                CommandHandler, implementation_factory=command_handler_factory
+            )
+
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
+                cast(type, ICommandHandler),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    CommandHandler
+                ),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered command handler")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register command handler: {e}")
+
+    def _register_backend_preparer(self, services: ServiceCollection) -> None:
+        """Register backend preparer (request processor internal phase)."""
+        try:
+            from src.core.interfaces.backend_request_manager_interface import (
+                IBackendRequestManager,
+            )
+            from src.core.interfaces.request_processor_internal import IBackendPreparer
+            from src.core.services.backend_preparer import BackendPreparer
+
+            def backend_preparer_factory(
+                provider: IServiceProvider,
+            ) -> BackendPreparer:
+                """Factory function for creating BackendPreparer."""
+                from typing import cast
+
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
+
+                backend_request_manager: IBackendRequestManager = (
+                    provider.get_required_service(cast(type, IBackendRequestManager))
+                )
+                app_state: IApplicationState | None = provider.get_service(
+                    cast(type, IApplicationState)
+                )
+                return BackendPreparer(
+                    backend_request_manager=backend_request_manager, app_state=app_state
+                )
+
+            # Register concrete implementation
+            services.add_singleton(
+                BackendPreparer, implementation_factory=backend_preparer_factory
+            )
+
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
+                cast(type, IBackendPreparer),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    BackendPreparer
+                ),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered backend preparer")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register backend preparer: {e}")
+
+    def _register_session_enricher(self, services: ServiceCollection) -> None:
+        """Register session enricher (request processor internal phase)."""
+        try:
+            from src.core.interfaces.request_processor_internal import ISessionEnricher
+            from src.core.interfaces.session_manager_interface import (
+                ISessionManager,
+            )
+            from src.core.services.session_enricher import SessionEnricher
+
+            def session_enricher_factory(
+                provider: IServiceProvider,
+            ) -> SessionEnricher:
+                """Factory function for creating SessionEnricher."""
+                from typing import cast
+
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
+
+                session_manager: ISessionManager = provider.get_required_service(
+                    cast(type, ISessionManager)
+                )
+                app_state: IApplicationState | None = provider.get_service(
+                    cast(type, IApplicationState)
+                )
+                return SessionEnricher(
+                    session_manager=session_manager, app_state=app_state
+                )
+
+            # Register concrete implementation
+            services.add_singleton(
+                SessionEnricher, implementation_factory=session_enricher_factory
+            )
+
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
+                cast(type, ISessionEnricher),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    SessionEnricher
+                ),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered session enricher")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register session enricher: {e}")
+
+    def _register_request_side_effects(self, services: ServiceCollection) -> None:
+        """Register request side effects (request processor internal phase)."""
+        try:
+            from src.core.interfaces.request_processor_internal import (
+                IRequestSideEffects,
+            )
+            from src.core.services.request_side_effects import RequestSideEffects
+
+            def request_side_effects_factory(
+                provider: IServiceProvider,
+            ) -> RequestSideEffects:
+                """Factory function for creating RequestSideEffects."""
+                from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+                from src.core.memory.injection_middleware import (
+                    ContextInjectionMiddleware,
+                )
+
+                context_injector: ContextInjectionMiddleware | None = (
+                    provider.get_service(ContextInjectionMiddleware)
+                )
+                memory_capture: MemoryCaptureMiddleware | None = provider.get_service(
+                    MemoryCaptureMiddleware
+                )
+                return RequestSideEffects(
+                    context_injector=context_injector, memory_capture=memory_capture
+                )
+
+            # Register concrete implementation
+            services.add_singleton(
+                RequestSideEffects, implementation_factory=request_side_effects_factory
+            )
+
+            # Register interface binding that reuses the concrete singleton
+            services.add_singleton_factory(
+                cast(type, IRequestSideEffects),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    RequestSideEffects
+                ),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered request side effects")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register request side effects: {e}")
+
+    def _register_request_transform_pipeline(self, services: ServiceCollection) -> None:
+        """Register request transformation pipeline."""
+        try:
+            from src.core.interfaces.application_state_interface import (
+                IApplicationState,
+            )
+            from src.core.interfaces.request_processor_internal import (
+                IRequestTransformPipeline,
+            )
+            from src.core.services.request_transform_pipeline import (
+                RequestTransformPipeline,
+            )
+
+            def transform_pipeline_factory(
+                provider: IServiceProvider,
+            ) -> RequestTransformPipeline:
+                """Factory function for creating RequestTransformPipeline."""
+                import contextlib
+
+                app_state: IApplicationState | None = None
+                with contextlib.suppress(Exception):
+                    app_state = provider.get_service(cast(type, IApplicationState))
+
+                return RequestTransformPipeline(app_state=app_state)
+
+            # Register interface binding
+            services.add_singleton_factory(
+                cast(type, IRequestTransformPipeline),
+                implementation_factory=transform_pipeline_factory,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered request transformation pipeline")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Could not register request transformation pipeline: {e}"
+                )
+
+    def _register_backend_executor(self, services: ServiceCollection) -> None:
+        """Register backend executor (backend invocation and persistence side effects)."""
+        try:
+            from src.core.interfaces.backend_request_manager_interface import (
+                IBackendRequestManager,
+            )
+            from src.core.interfaces.model_replacement_service_interface import (
+                IModelReplacementService,
+            )
+            from src.core.interfaces.request_processor_internal import IBackendExecutor
+            from src.core.interfaces.session_manager_interface import ISessionManager
+            from src.core.services.backend_executor import BackendExecutor
+
+            def backend_executor_factory(
+                provider: IServiceProvider,
+            ) -> IBackendExecutor:
+                """Factory function for creating BackendExecutor."""
+                backend_request_manager: IBackendRequestManager = (
+                    provider.get_required_service(cast(type, IBackendRequestManager))
+                )
+                session_manager: ISessionManager = provider.get_required_service(
+                    cast(type, ISessionManager)
+                )
+                replacement_service: IModelReplacementService | None = (
+                    provider.get_service(cast(type, IModelReplacementService))
+                )
+
+                return BackendExecutor(
+                    backend_request_manager=backend_request_manager,
+                    session_manager=session_manager,
+                    replacement_service=replacement_service,
+                )
+
+            # Register interface binding
+            services.add_singleton_factory(
+                cast(type, IBackendExecutor),
+                implementation_factory=backend_executor_factory,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered backend executor")
+        except ImportError as e:  # type: ignore[misc]
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register backend executor: {e}")
 
     def _register_backend_processor(self, services: ServiceCollection) -> None:
         """Register backend processor with backend and session service dependencies."""
@@ -244,14 +576,61 @@ class ProcessorStage(InitializationStage):
                     provider.get_service(ContextInjectionMiddleware)
                 )
 
+                # Get internal phase handlers (optional for backwards compatibility)
+                from src.core.interfaces.model_replacement_service_interface import (
+                    IModelReplacementService,
+                )
+                from src.core.interfaces.request_processor_internal import (
+                    IArtifactService,
+                    IBackendExecutor,
+                    IBackendPreparer,
+                    ICommandHandler,
+                    IRequestSideEffects,
+                    IRequestTransformPipeline,
+                    ISessionEnricher,
+                )
+
+                command_handler: ICommandHandler = provider.get_required_service(
+                    cast(type, ICommandHandler)
+                )
+                backend_preparer: IBackendPreparer = provider.get_required_service(
+                    cast(type, IBackendPreparer)
+                )
+                session_enricher: ISessionEnricher = provider.get_required_service(
+                    cast(type, ISessionEnricher)
+                )
+                request_side_effects: IRequestSideEffects = (
+                    provider.get_required_service(cast(type, IRequestSideEffects))
+                )
+                artifact_service: IArtifactService | None = provider.get_service(
+                    cast(type, IArtifactService)
+                )
+                transform_pipeline: IRequestTransformPipeline = (
+                    provider.get_required_service(cast(type, IRequestTransformPipeline))
+                )
+                backend_executor: IBackendExecutor = provider.get_required_service(
+                    cast(type, IBackendExecutor)
+                )
+                replacement_service: IModelReplacementService | None = (
+                    provider.get_service(cast(type, IModelReplacementService))
+                )
+
                 return RequestProcessor(  # noqa: DI-bypass
                     command_processor,
                     session_manager,
                     backend_request_manager,
                     response_manager,
                     app_state=app_state,
+                    replacement_service=replacement_service,
                     memory_capture=memory_capture,
                     context_injector=context_injector,
+                    command_handler=command_handler,
+                    backend_preparer=backend_preparer,
+                    session_enricher=session_enricher,
+                    request_side_effects=request_side_effects,
+                    artifact_service=artifact_service,
+                    transform_pipeline=transform_pipeline,
+                    backend_executor=backend_executor,
                 )
 
             # Register concrete implementation
