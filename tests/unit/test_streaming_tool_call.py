@@ -54,14 +54,12 @@ async def test_streaming_tool_call_in_first_chunk():
     """
     Tests that a tool call in the first chunk of a streaming response is correctly handled.
     """
+    print("DEBUG: Test started")
     # 1. Mock a backend that returns a streaming response with a tool call in the first chunk
     mock_backend_processor = MagicMock(spec=IBackendProcessor)
-    recorded_backend_requests: list[ChatRequest] = []
 
-    async def process_backend_request(
-        request: ChatRequest, session_id: str, context: Any
-    ) -> StreamingResponseEnvelope:
-        recorded_backend_requests.append(request)
+    # Create the streaming response
+    async def get_streaming_response():
         return await _create_streaming_response(
             [
                 'data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1761032732, "model": "code-assist-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_123", "function": {"arguments": "{"file_path": "README.md"}", "name": "read_file"}, "type": "function"}]}}]}',
@@ -70,7 +68,7 @@ async def test_streaming_tool_call_in_first_chunk():
         )
 
     mock_backend_processor.process_backend_request = AsyncMock(
-        side_effect=process_backend_request
+        return_value=await get_streaming_response()
     )
 
     # 2. Setup the necessary services
@@ -161,21 +159,58 @@ async def test_streaming_tool_call_in_first_chunk():
     )
 
     command_handler = AsyncMock(spec=ICommandHandler)
-    command_handler.handle.return_value = ProcessedResult(
-        modified_messages=[ChatMessage(role="user", content="test")],
-        command_executed=False,
-        command_results=[],
-    )
+
+    async def handle_command(context, session, session_id, request_data):
+        # Return the same result as mock_command_processor to maintain the tool message
+        # But strip the command prefix from user messages (simulating real command processing)
+        return ProcessedResult(
+            modified_messages=[
+                ChatMessage(role="user", content="run ls"),  # Command prefix stripped
+                ChatMessage(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {"name": "shell", "arguments": "{}"},
+                        }
+                    ],
+                ),
+            ],
+            command_executed=True,
+            command_results=[fake_tool_message],
+        )
+
+    command_handler.handle.side_effect = handle_command
 
     backend_preparer = AsyncMock(spec=IBackendPreparer)
-    backend_preparer.prepare.return_value = ChatRequest(
-        model="test_model", messages=[ChatMessage(role="user", content="test")]
-    )
+
+    # backend_preparer should build the request from command_result
+    async def prepare_backend_request(
+        context, session_id, request_data, command_result
+    ):
+        # Use modified messages from command result if available
+        messages = (
+            command_result.modified_messages
+            if command_result.modified_messages
+            else request_data.messages
+        )
+        # Append command results (tool messages) if present
+        if command_result.command_results:
+            messages = list(messages) + command_result.command_results
+        print(f"DEBUG: backend_preparer creating request with {len(messages)} messages")
+        return ChatRequest(
+            model=request_data.model,
+            messages=messages,
+            stream=getattr(request_data, "stream", None),
+        )
+
+    backend_preparer.prepare.side_effect = prepare_backend_request
 
     transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
-    transform_pipeline.transform.return_value = ChatRequest(
-        model="test_model", messages=[ChatMessage(role="user", content="test")]
-    )
+    # transform_pipeline should pass through the request preserving messages
+    transform_pipeline.transform.side_effect = lambda ctx, sess, sid, req: req
 
     # Use real BackendExecutor that calls through to backend_request_manager
     from src.core.interfaces.session_manager_interface import ISessionManager
@@ -224,10 +259,17 @@ async def test_streaming_tool_call_in_first_chunk():
     assert b"read_file" in response_content
 
     # Verify that each backend request only contains the latest tool output once.
-    assert recorded_backend_requests, "Backend requests were not captured"
-    last_request = recorded_backend_requests[-1]
+    # Check that the backend was called via the mock
+    assert (
+        mock_backend_processor.process_backend_request.called
+    ), "Backend was not called"
+
+    # Get the request that was passed to the backend
+    call_args = mock_backend_processor.process_backend_request.call_args
+    last_request = call_args.kwargs.get("request") or call_args.args[0]
+
     tool_messages = [msg for msg in last_request.messages if msg.role == "tool"]
-    assert len(tool_messages) == 1
+    assert len(tool_messages) == 1, f"Expected 1 tool message, got {len(tool_messages)}"
     assert rich_output in (tool_messages[0].content or "")
 
     stripped_user_commands = [

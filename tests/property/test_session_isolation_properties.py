@@ -21,7 +21,6 @@ session_ids = st.text(
     alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),
 )
 
-
 # Strategy for generating file modification tool names
 file_modification_tools = st.sampled_from(
     [

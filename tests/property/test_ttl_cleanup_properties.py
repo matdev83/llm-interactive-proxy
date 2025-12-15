@@ -23,10 +23,8 @@ session_ids = st.text(
     alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),
 )
 
-
 # Strategy for generating TTL values (in seconds)
 ttl_seconds = st.integers(min_value=1, max_value=3600)
-
 
 # Strategy for generating time offsets
 time_offsets = st.integers(min_value=0, max_value=7200)

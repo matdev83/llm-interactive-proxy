@@ -23,7 +23,6 @@ from hypothesis import strategies as st
 if TYPE_CHECKING:
     from src.core.cli_support.error_handler import ErrorHandler
 
-
 # =============================================================================
 # Strategies for Error Message Generation
 # =============================================================================

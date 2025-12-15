@@ -17,7 +17,6 @@ except ImportError:
     PrivilegeChecker = None  # type: ignore
     PlatformDetector = None  # type: ignore
 
-
 # ============================================================================
 # Test Fixtures and Mocks
 # ============================================================================

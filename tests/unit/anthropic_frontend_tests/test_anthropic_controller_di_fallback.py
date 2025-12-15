@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-# Skip until RequestProcessor tests updated for refactored architecture
-pytestmark = __import__("pytest").mark.skip(
-    reason="RequestProcessor refactoring - needs component mocks"
-)
-
-
 import types
 from collections.abc import AsyncIterator
 from typing import Any
@@ -302,8 +296,38 @@ def test_fallback_request_processor_receives_app_state(monkeypatch: pytest.Monke
         services.add_instance(ApplicationStateService, sentinel_app_state)
         services.add_instance(IApplicationState, sentinel_app_state)
 
+        # Register internal request processor interfaces that the factory needs
+        from src.core.interfaces.request_processor_internal import (
+            IBackendExecutor,
+            IBackendPreparer,
+            ICommandHandler,
+            IRequestSideEffects,
+            IRequestTransformPipeline,
+            ISessionEnricher,
+        )
+
+        # Register internal services as singletons
+        services.add_singleton(ISessionEnricher, MagicMock(spec=ISessionEnricher))
+        services.add_singleton(IRequestSideEffects, MagicMock(spec=IRequestSideEffects))
+        services.add_singleton(ICommandHandler, MagicMock(spec=ICommandHandler))
+        services.add_singleton(IBackendPreparer, MagicMock(spec=IBackendPreparer))
+        services.add_singleton(
+            IRequestTransformPipeline, MagicMock(spec=IRequestTransformPipeline)
+        )
+        services.add_singleton(IBackendExecutor, MagicMock(spec=IBackendExecutor))
+
         # Add the RequestProcessor factory that will use the real ApplicationStateService
         def _request_processor_factory(provider):
+            from typing import cast
+
+            from src.core.interfaces.request_processor_internal import (
+                IBackendExecutor,
+                IBackendPreparer,
+                ICommandHandler,
+                IRequestSideEffects,
+                IRequestTransformPipeline,
+                ISessionEnricher,
+            )
             from src.core.services.request_processor_service import RequestProcessor
 
             command_processor = provider.get_required_service(ICommandProcessor)
@@ -314,11 +338,35 @@ def test_fallback_request_processor_receives_app_state(monkeypatch: pytest.Monke
             response_manager = provider.get_required_service(IResponseManager)
             app_state = provider.get_service(IApplicationState)
 
+            # Get decomposed services
+            session_enricher = provider.get_required_service(
+                cast(type, ISessionEnricher)
+            )
+            request_side_effects = provider.get_required_service(
+                cast(type, IRequestSideEffects)
+            )
+            command_handler = provider.get_required_service(cast(type, ICommandHandler))
+            backend_preparer = provider.get_required_service(
+                cast(type, IBackendPreparer)
+            )
+            transform_pipeline = provider.get_required_service(
+                cast(type, IRequestTransformPipeline)
+            )
+            backend_executor = provider.get_required_service(
+                cast(type, IBackendExecutor)
+            )
+
             return RequestProcessor(
                 command_processor,
                 session_manager,
                 backend_request_manager,
                 response_manager,
+                session_enricher=session_enricher,
+                request_side_effects=request_side_effects,
+                command_handler=command_handler,
+                backend_preparer=backend_preparer,
+                transform_pipeline=transform_pipeline,
+                backend_executor=backend_executor,
                 app_state=app_state,
             )
 

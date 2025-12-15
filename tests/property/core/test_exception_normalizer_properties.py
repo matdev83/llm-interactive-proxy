@@ -18,7 +18,6 @@ from starlette.exceptions import HTTPException
 http_4xx_codes = st.integers(min_value=400, max_value=499).filter(lambda x: x != 429)
 http_5xx_codes = st.integers(min_value=500, max_value=599)
 
-
 # Strategy for generating error messages
 error_messages = st.text(
     min_size=1,
@@ -28,7 +27,6 @@ error_messages = st.text(
         whitelist_characters=" ",
     ),
 )
-
 
 # Strategy for generating backend types
 backend_types = st.sampled_from(
@@ -41,7 +39,6 @@ backend_types = st.sampled_from(
         "local",
     ]
 )
-
 
 # Strategy for generating retry-after values
 retry_after_values = st.one_of(

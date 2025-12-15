@@ -334,7 +334,8 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     # Invalid pattern; ignore exclusion
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Invalid regex in edit_precision.exclude_agents_regex: %s", e
+                            "Invalid regex in edit_precision.exclude_agents_regex: %s",
+                            e,
                         )
 
         # If previous response flagged a pending precision tune, apply once

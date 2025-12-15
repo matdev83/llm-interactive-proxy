@@ -6,12 +6,6 @@ request-response pipeline with real backend integrations.
 """
 
 import asyncio
-
-# Skip until RequestProcessor tests updated for refactored architecture
-pytestmark = __import__("pytest").mark.skip(
-    reason="RequestProcessor refactoring - needs component mocks"
-)
-
 from unittest.mock import AsyncMock, patch
 
 import pytest

@@ -17,7 +17,10 @@ def create_test_results_xml(failures: int):
     tree.write("test-results.xml")
 
 
-def test_pytest_cmdline_main():
+def test_pytest_cmdline_main(monkeypatch):
+    # Ensure xdist detection is disabled so the hook runs
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+
     # 1. No test-results.xml file
     if os.path.exists("test-results.xml"):
         os.remove("test-results.xml")
@@ -25,6 +28,9 @@ def test_pytest_cmdline_main():
     config = Mock()
     config.args = []
     config.getini.return_value = ["tests"]
+    # Mock xdist attributes to disable xdist logic in the hook
+    config.option = Mock()
+    config.option.numprocesses = None
     pytest_cmdline_main(config)
     assert "--maxfail=1" in config.args
     assert "--ff" not in config.args

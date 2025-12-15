@@ -27,7 +27,6 @@ import pytest
 if TYPE_CHECKING:
     from src.core.cli_support.error_handler import ErrorHandler
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================

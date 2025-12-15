@@ -138,7 +138,10 @@ def create_mock_decomposed_services(model="test-model"):
     )
 
     backend_executor = AsyncMock(spec=IBackendExecutor)
-    async def execute_with_turn_completion(context, session, session_id, backend_request, original_request):
+
+    async def execute_with_turn_completion(
+        context, session, session_id, backend_request, original_request
+    ):
         # Simulate turn completion for replacement service
         result = ResponseEnvelope(
             content={"choices": [], "model": model},
@@ -148,6 +151,7 @@ def create_mock_decomposed_services(model="test-model"):
             usage=None,
         )
         return result
+
     backend_executor.execute.side_effect = execute_with_turn_completion
 
     return {
@@ -262,6 +266,7 @@ async def test_property_26_command_processing_order(
     )
 
     command_handler = AsyncMock(spec=ICommandHandler)
+
     async def track_command_handler(context, session, session_id, request):
         operation_order.append("command_processing")
         return ProcessedResult(
@@ -269,14 +274,15 @@ async def test_property_26_command_processing_order(
             command_executed=False,
             command_results=[],
         )
+
     command_handler.handle.side_effect = track_command_handler
 
     backend_preparer = AsyncMock(spec=IBackendPreparer)
+
     async def track_backend_preparer(context, session_id, request, command_result):
         operation_order.append("backend_request_preparation")
-        return ChatRequest(
-            model=original_model, messages=[default_message]
-        )
+        return ChatRequest(model=original_model, messages=[default_message])
+
     backend_preparer.prepare.side_effect = track_backend_preparer
 
     transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
@@ -405,9 +411,10 @@ async def test_property_38_streaming_turn_completion(
 
     # Create mocks for new required dependencies
     decomposed = create_mock_decomposed_services(model=original_model)
-    
+
     # Use real BackendExecutor to ensure turn completion happens
     from src.core.services.backend_executor import BackendExecutor
+
     backend_executor = BackendExecutor(
         backend_request_manager=backend_request_manager,
         session_manager=session_manager,
@@ -551,9 +558,10 @@ async def test_turn_completion_on_error(
 
     # Create mocks for new required dependencies
     decomposed = create_mock_decomposed_services(model=original_model)
-    
+
     # Use real BackendExecutor to ensure turn completion happens
     from src.core.services.backend_executor import BackendExecutor
+
     backend_executor = BackendExecutor(
         backend_request_manager=backend_request_manager,
         session_manager=session_manager,

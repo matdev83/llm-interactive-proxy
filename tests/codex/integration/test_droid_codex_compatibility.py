@@ -19,7 +19,6 @@ try:
 except ImportError:
     cbor2 = None
 
-
 # Expected Droid tools from captured session
 EXPECTED_DROID_TOOLS = [
     "Read",

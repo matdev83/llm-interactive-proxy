@@ -12,7 +12,6 @@ from tests.utils.command_service_utils import build_new_command_service
 # Avoid global backend mocking for these focused unit tests
 pytestmark = [pytest.mark.no_global_mock]
 
-
 # --- Tests for CommandParser.process_messages ---
 
 

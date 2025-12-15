@@ -479,11 +479,9 @@ def test_realistic_cline_hello_request(interactive_client: TestClient) -> None:
 
     Your goal is to be helpful, accurate, and efficient. When the user asks you to do something, you should break it down into steps and execute them carefully.
 
-
     You should always think step by step and explain your reasoning. If you need to use tools or run commands, you should do so.
 
     Make sure to handle errors gracefully and provide clear feedback to the user about what you're doing and why.
-
 
     Remember to be concise but thorough in your explanations. The user is relying on you to get things done effectively.
 

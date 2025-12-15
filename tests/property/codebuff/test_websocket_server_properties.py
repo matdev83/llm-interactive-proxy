@@ -29,7 +29,6 @@ session_id_strategy = st.text(
     max_size=50,
 )
 
-
 # Strategy for generating message content
 message_content_strategy = st.text(min_size=0, max_size=100)
 

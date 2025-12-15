@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-# Skip until RequestProcessor tests updated for refactored architecture
-pytestmark = __import__("pytest").mark.skip(
-    reason="RequestProcessor refactoring - needs component mocks"
-)
-
-
 from collections.abc import AsyncIterator
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock

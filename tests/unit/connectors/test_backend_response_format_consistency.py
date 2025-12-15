@@ -26,7 +26,6 @@ from src.core.services.translation_service import TranslationService
 if TYPE_CHECKING:
     pass
 
-
 # Standard OpenAI response format - this is the expected format for all connectors
 STANDARD_OPENAI_RESPONSE = {
     "id": "chatcmpl-test-123",

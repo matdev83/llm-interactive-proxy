@@ -44,7 +44,6 @@ async def app() -> AsyncGenerator[FastAPI, None]:
 
 # No integration bridge needed - using SOLID architecture directly
 
-
 from typing import Any
 
 

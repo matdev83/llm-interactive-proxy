@@ -54,7 +54,6 @@ if HAS_PYTEST_ASYNCIO:
 
     pytest_asyncio_plugin._get_event_loop_no_warn = _safe_get_event_loop_no_warn
 
-
 if not HAS_PYTEST_ASYNCIO:
     module = types.ModuleType("pytest_asyncio")
 
@@ -70,12 +69,10 @@ if not HAS_PYTEST_ASYNCIO:
     module.fixture = _asyncio_fixture  # type: ignore[assignment,attr-defined]
     sys.modules.setdefault("pytest_asyncio", module)  # type: ignore[assignment]
 
-
 if not HAS_PYTEST_HTTPX:
     module = types.ModuleType("pytest_httpx")
     module.HTTPXMock = Any  # type: ignore[assignment,attr-defined]
     sys.modules.setdefault("pytest_httpx", module)  # type: ignore[assignment]
-
 
 if not HAS_PYTEST_HTTPX:
 

@@ -581,7 +581,6 @@ class ProcessorStage(InitializationStage):
                     IModelReplacementService,
                 )
                 from src.core.interfaces.request_processor_internal import (
-                    IArtifactService,
                     IBackendExecutor,
                     IBackendPreparer,
                     ICommandHandler,

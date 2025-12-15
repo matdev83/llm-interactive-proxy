@@ -1,10 +1,4 @@
 from typing import Any
-
-# Skip until RequestProcessor tests updated for refactored architecture
-pytestmark = __import__("pytest").mark.skip(
-    reason="RequestProcessor refactoring - needs component mocks"
-)
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,11 +70,57 @@ async def test_top_p_fix_with_actual_request() -> None:
         messages=[ChatMessage(role="user", content="Hello")],
     )
 
+    # Create mocks for decomposed RequestProcessor services
+    from src.core.domain.processed_result import ProcessedResult
+    from src.core.interfaces.request_processor_internal import (
+        IBackendExecutor,
+        IBackendPreparer,
+        ICommandHandler,
+        IRequestSideEffects,
+        IRequestTransformPipeline,
+        ISessionEnricher,
+    )
+
+    session_enricher = AsyncMock(spec=ISessionEnricher)
+    session_enricher.enrich.side_effect = lambda ctx, req: (MagicMock(), req)
+
+    request_side_effects = AsyncMock(spec=IRequestSideEffects)
+    request_side_effects.apply.side_effect = lambda ctx, sid, req: req
+
+    command_handler = AsyncMock(spec=ICommandHandler)
+    command_handler.handle.return_value = ProcessedResult(
+        modified_messages=[], command_executed=False, command_results=[]
+    )
+
+    backend_preparer = AsyncMock(spec=IBackendPreparer)
+    backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd: req
+
+    transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
+    transform_pipeline.transform.side_effect = lambda ctx, sess, sid, req: req
+
+    backend_executor = AsyncMock(spec=IBackendExecutor)
+
+    async def execute_backend(
+        context, session, session_id, backend_request, original_request
+    ):
+        # Actually call backend_request_manager to test the full flow
+        return await backend_request_manager.process_backend_request(
+            backend_request, session_id, context
+        )
+
+    backend_executor.execute.side_effect = execute_backend
+
     processor = RequestProcessor(
         mock_command_processor,
         mock_session_manager,
         backend_request_manager,
         mock_response_manager,
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
     )
 
     # Call the process_request method
