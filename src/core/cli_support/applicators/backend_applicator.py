@@ -327,7 +327,7 @@ class BackendApplicator:
                 if "extra" not in backend_overrides[backend_key]:
                     backend_overrides[backend_key]["extra"] = {}
                 backend_overrides[backend_key]["extra"][flag_name] = True
-                
+
                 resolution.record(
                     f"backends.{backend_key}.extra.{flag_name}",
                     True,

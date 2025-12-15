@@ -364,5 +364,3 @@ class TestSyntheticUsageChunkSerialization:
         proc_resp = simulate_connector_output(chunk)
         success, error_msg = verify_no_usage_leak(proc_resp)
         assert success, error_msg
-
-

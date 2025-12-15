@@ -153,7 +153,7 @@ class TestHTTP429Translation:
         assert result.reset_at is None
 
     def test_http_429_includes_headers_in_details(self) -> None:
-        """Should include headers in details when present."""
+        """Should include allowlisted headers in details when present."""
         normalizer = ExceptionNormalizer()
         exc = HTTPException(status_code=429, detail="Rate limited")
         exc.headers = {"Retry-After": "60", "X-RateLimit-Reset": "1234567890"}
@@ -163,6 +163,7 @@ class TestHTTP429Translation:
         assert isinstance(result, RateLimitExceededError)
         assert "headers" in result.details
         assert result.details["headers"].get("Retry-After") == "60"
+        assert "X-RateLimit-Reset" not in result.details["headers"]
 
 
 class TestHTTP4xxTranslation:

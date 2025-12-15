@@ -43,7 +43,7 @@
 
 ## Cross-Cutting: Incremental Integration Loop (repeat per extracted service)
 
-- [ ] For each extracted service, follow TDD (red‑green‑refactor):
+- [x] For each extracted service, follow TDD (red‑green‑refactor):
   - **Red:** Write new unit/property/equivalence tests against the new service API. Use the current BackendService helper output as the oracle to lock in behavior.
   - **Green:** Implement the extracted service by moving code from BackendService until the new tests pass.
   - **Refactor:** Replace the corresponding BackendService helper body with a thin delegating wrapper to the new service.
@@ -61,19 +61,19 @@
 
 ## Cross-Cutting: Safety and Recovery Practices
 
-- [ ] Work in small, reviewable slices:
+- [x] Work in small, reviewable slices:
   - One extracted service + its delegating wrappers per PR/commit.
   - Avoid mixing multiple phases in a single change.
   - _Requirements: 4.4, 4.6_
-- [ ] Create rollback points:
+- [x] Create rollback points:
   - Commit after each phase checkpoint passes so `git bisect`/revert is trivial.
   - Keep commits mechanical (move code, add tests, wire DI).
   - _Requirements: 4.4_
-- [ ] Keep production path stable throughout:
+- [x] Keep production path stable throughout:
   - Delegating wrappers must be in place before removing inline logic.
   - BackendService must remain fully functional between phases.
   - _Requirements: 4.5, 4.6_
-- [ ] Run per-file QA on new/changed Python files:
+- [x] Run per-file QA on new/changed Python files:
   - `./.venv/Scripts/python.exe -m ruff check --fix <file>`
   - `./.venv/Scripts/python.exe -m black <file>`
   - `./.venv/Scripts/python.exe -m mypy <file>`
@@ -182,7 +182,7 @@
     - Proceed only if green
     - _Requirements: 4.1, 4.4, 4.6_
 
-- [ ] 6. Checkpoint - Ensure all tests pass
+- [x] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 4.4_
 
@@ -310,10 +310,10 @@
     - Replace their bodies to call the corresponding extracted service
     - Ensure existing tests and debugging scripts continue to work unchanged
     - _Requirements: 4.5_
-  - [ ] 12.4 Write property test for API signature preservation
+- [x] 12.4 Write property test for API signature preservation
     - **Property 14: API Signature Preservation**
     - **Validates: Requirements 3.1-3.6**
-  - [ ] 12.5 Phase 10 checkpoint: run BackendService regression suite
+  - [x] 12.5 Phase 10 checkpoint: run BackendService regression suite
     - Run all existing BackendService unit tests: `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service*.py -v`
     - Run high-signal integration subset: `./.venv/Scripts/python.exe -m pytest tests/integration/test_uri_parameters_e2e.py tests/integration/test_reasoning_*.py -v`
     - Proceed only if green.
@@ -327,27 +327,29 @@
     - Register services with their interfaces
     - Update BackendService factory to inject new services
     - _Requirements: 2.1, 2.2_
-  - [ ] 13.2 Write integration tests for DI wiring
+  - [x] 13.2 Write integration tests for DI wiring
     - Test that all services are resolvable from container
     - Test that BackendService receives injected services
     - _Requirements: 2.2_
-  - [ ] 13.3 Phase 11 checkpoint: run container + BackendService smoke
+  - [x] 13.3 Phase 11 checkpoint: run container + BackendService smoke
     - Run DI wiring tests plus BackendService targeted suite: `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service_targeted.py tests/integration/test_models_endpoints.py -v`
     - Proceed only if green.
     - _Requirements: 2.2, 4.4_
 
 ## Phase 12: Verification and Cleanup
 
-- [ ] 14. Run full test suite and fix any regressions
-  - [ ] 14.1 Run all existing BackendService tests
+- [x] 14. Run full test suite and fix any regressions
+  - Verification evidence:
+    - Full suite (unit+integration) was run manually after fixes: `0 failed, 9380 passed, 93 skipped in 149.52s (0:02:29)` (reported by maintainer).
+  - [x] 14.1 Run all existing BackendService tests
     - Execute `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service*.py -v`
     - Fix any failures without modifying test expectations
     - _Requirements: 4.1, 4.4_
-  - [ ] 14.2 Run integration tests
+  - [x] 14.2 Run integration tests
     - Execute `./.venv/Scripts/python.exe -m pytest tests/integration/ -v`
     - Fix any failures
     - _Requirements: 4.2, 4.4_
-  - [ ] 14.3 Run full test suite
+  - [x] 14.3 Run full test suite
     - Execute `./.venv/Scripts/python.exe -m pytest -m "unit or integration" -v`
     - Ensure zero failures
     - _Requirements: 4.4_

@@ -147,6 +147,11 @@ class MockBackendService(IBackendService, IBackendProcessor):
         """Get all active backend instances."""
         return {}
 
+    def get_backend(self, backend_type: str) -> LLMBackend:
+        raise KeyError(
+            f"MockBackendService has no backend registered for: {backend_type}"
+        )
+
     def add_response(
         self, response: ResponseEnvelope | StreamingResponseEnvelope | Exception
     ) -> None:

@@ -228,7 +228,9 @@ def test_property_7_summary_is_immutable(summary: SessionSummary) -> None:
 
 
 @given(summary=session_summary_strategy())
-@property_test_settings(max_examples=50, suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=50, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_7_summary_serializable(summary: SessionSummary) -> None:
     """
     Property 7: Summary serialization.

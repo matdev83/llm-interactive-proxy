@@ -58,7 +58,7 @@ async def test_reactor_swallows_dangerous_command_and_steers() -> None:
     # The content is now a full OpenAI-compatible response structure as dict
     # (not JSON string) to avoid content accumulation issues
     assert isinstance(result.content, dict)
-    assert result.content["choices"][0]["message"]["content"] == ""
+    assert result.content["choices"][0]["message"]["content"] == "steering"
     assert result.metadata["steering_message"] == "steering"
 
 

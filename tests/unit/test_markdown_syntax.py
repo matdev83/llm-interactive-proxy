@@ -84,7 +84,9 @@ def markdown_validation_cache() -> dict:
         if md_file.exists():
             try:
                 file_stat = md_file.stat()
-                hasher.update(f"{md_file}:{file_stat.st_size}:{file_stat.st_mtime}".encode())
+                hasher.update(
+                    f"{md_file}:{file_stat.st_size}:{file_stat.st_mtime}".encode()
+                )
             except OSError:
                 pass
     files_hash = hasher.hexdigest()

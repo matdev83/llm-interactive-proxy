@@ -240,6 +240,10 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         identity: IAppIdentityConfig | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        incoming_headers = kwargs.pop("incoming_headers", None)
+        if not self._enable_cline_backend_debugging_override:
+            self._validate_cline_agent(incoming_headers)
+
         await self._ensure_auth_token()
         session_identifier = getattr(request_data, "session_id", None)
         headers_override = dict(kwargs.pop("headers_override", {}) or {})
@@ -272,6 +276,41 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
                 retry_attempted = True
                 await self._invalidate_token_cache()
                 await self._ensure_auth_token(force_reload=True, force_refresh=True)
+
+    def _validate_cline_agent(self, headers: dict[str, Any] | None) -> None:
+        """
+        Restrict Cline backend usage to the Cline clients.
+
+        Cline's API key/token is typically sourced from a user's editor auth store. If
+        this backend is exposed publicly it can be accidentally used by non-Cline
+        clients. We enforce that the incoming request looks like it originated from
+        Cline (User-Agent or X-Title contains "Cline"), unless the debugging override
+        is enabled.
+        """
+
+        normalized: dict[str, str] = {}
+        if headers:
+            for key, value in headers.items():
+                normalized[str(key).lower()] = str(value)
+
+        user_agent = normalized.get("user-agent", "")
+        title = normalized.get("x-title", "")
+        haystack = f"{user_agent} {title}".lower()
+
+        if "cline" in haystack:
+            return
+
+        logger.warning(
+            "Rejected request to Cline backend: missing 'Cline' marker in User-Agent/X-Title. "
+            "To bypass for local debugging use --enable-cline-backend-debugging-override."
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Forbidden: Cline backend is restricted to Cline clients. "
+                "Missing 'Cline' marker in 'User-Agent' or 'X-Title'."
+            ),
+        )
 
 
 backend_registry.register_backend("cline", ClineConnector)

@@ -365,17 +365,18 @@ class TestDiscardBackend:
         assert len(manager._per_session_backends) == 0
 
     @pytest.mark.asyncio
-    async def test_discard_with_session_id_removes_specific(self) -> None:
-        """discard with session_id should only remove that specific backend."""
+    async def test_discard_with_session_id_purges_all_variants(self) -> None:
+        """discard with session_id should still purge global and all per-session variants."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
         manager = BackendLifecycleManager(factory=factory, per_session_limit=10)  # type: ignore
 
+        await manager.get_or_create("openai")
         await manager.get_or_create("openai", session_id="session-1")
         await manager.get_or_create("openai", session_id="session-2")
 
         manager.discard("openai", "session-1", "test reason")
 
-        assert "openai:session-1" not in manager._per_session_backends
-        assert "openai:session-2" in manager._per_session_backends
+        assert "openai" not in manager._backends
+        assert len(manager._per_session_backends) == 0

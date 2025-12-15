@@ -624,7 +624,6 @@ class ToolCallReactorFeature(IResponseFeature):
                 if isinstance(function_payload, dict):
                     tool_name = function_payload.get("name")
                 swallowed_tool_calls.append(dict(original_tool_call))
-                swallowed_tool_calls.append(dict(original_tool_call))
 
             merged_metadata.update(
                 {
@@ -671,7 +670,7 @@ class ToolCallReactorFeature(IResponseFeature):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": "",
+                            "content": replacement_content,
                         },
                         "finish_reason": "stop",
                     }
@@ -1492,7 +1491,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": "",
+                            "content": replacement_content,
                         },
                         "finish_reason": "stop",
                     }

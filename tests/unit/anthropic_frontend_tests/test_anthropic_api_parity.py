@@ -315,5 +315,3 @@ class TestToolChoiceEnhancements:
         )
         assert request.tool_choice["type"] == "any"
         assert request.tool_choice["disable_parallel_tool_use"] is True
-
-

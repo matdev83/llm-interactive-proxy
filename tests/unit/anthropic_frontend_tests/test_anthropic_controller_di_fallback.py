@@ -82,8 +82,18 @@ class _StubBackendService(IBackendService):
     ) -> tuple[bool, str | None]:
         return True, None
 
-    async def get_active_backends(self) -> list[str]:
-        return []
+    async def chat_completions(
+        self, request: ChatRequest, **kwargs: Any
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        return await self.call_completion(
+            request, stream=bool(getattr(request, "stream", False))
+        )
+
+    def get_backend(self, backend_type: str):
+        raise KeyError(backend_type)
+
+    def get_active_backends(self):
+        return {}
 
 
 class _StubResponseProcessor(IResponseProcessor):

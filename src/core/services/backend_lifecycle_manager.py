@@ -187,45 +187,34 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             "timestamp": time.time(),
         }
 
-        instance_key = (
-            backend_type if not session_id else f"{backend_type}:{session_id}"
-        )
+        global_cache_keys_to_remove = [backend_type]
+        per_session_keys_to_remove = [
+            key
+            for key in list(self._per_session_backends)
+            if key.startswith(f"{backend_type}:")
+        ]
 
-        # Remove from global cache first
-        backend = self._backends.pop(instance_key, None)
-        if backend:
+        def _unregister_and_shutdown(cache_key: str, backend: LLMBackend) -> None:
             with contextlib.suppress(Exception):
                 if self._factory:
                     self._factory.unregister_backend_notifications(backend)
-                    self._factory.unregister_backend(instance_key)
+                    self._factory.unregister_backend(cache_key)
             task = asyncio.create_task(self.shutdown(backend))
             task.add_done_callback(lambda t: None)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Discarded backend instance: %s", instance_key)
 
-        # Remove matching per-session instances
-        removed_keys: list[str] = []
-        if session_id:
-            removed_keys = [instance_key]
-        else:
-            # When disabling globally, clear any per-session variants
-            removed_keys = [
-                key
-                for key in list(self._per_session_backends)
-                if key.startswith(f"{backend_type}:")
-            ]
-
-        for key in removed_keys:
-            backend = self._per_session_backends.pop(key, None)
+        for cache_key in global_cache_keys_to_remove:
+            backend = self._backends.pop(cache_key, None)
             if backend:
-                with contextlib.suppress(Exception):
-                    if self._factory:
-                        self._factory.unregister_backend_notifications(backend)
-                        self._factory.unregister_backend(key)
-                task = asyncio.create_task(self.shutdown(backend))
-                task.add_done_callback(lambda t: None)
+                _unregister_and_shutdown(cache_key, backend)
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("Discarded per-session backend instance: %s", key)
+                    logger.info("Discarded backend instance: %s", cache_key)
+
+        for cache_key in per_session_keys_to_remove:
+            backend = self._per_session_backends.pop(cache_key, None)
+            if backend:
+                _unregister_and_shutdown(cache_key, backend)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Discarded per-session backend instance: %s", cache_key)
 
     def is_disabled(self, backend_type: str) -> bool:
         """Check if backend is permanently disabled."""

@@ -177,11 +177,17 @@ class TestOAuth2AuthorizationURL:
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+            mock_client.get = AsyncMock(
+                side_effect=httpx.ConnectError("Connection failed")
+            )
 
-            with pytest.raises(AuthenticationError, match="Failed to fetch SAML metadata"):
+            with pytest.raises(
+                AuthenticationError, match="Failed to fetch SAML metadata"
+            ):
                 await service.create_authorization_url(
-                    provider="saml", state="test", redirect_uri="http://localhost/callback"
+                    provider="saml",
+                    state="test",
+                    redirect_uri="http://localhost/callback",
                 )
 
 

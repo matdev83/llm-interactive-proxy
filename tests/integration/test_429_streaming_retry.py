@@ -321,5 +321,3 @@ async def test_streaming_429_failover_when_wait_too_long(
     # Should failover since wait is too long and alternative exists
     assert result.decision == FailureDecision.FAILOVER_IMMEDIATE
     assert result.next_backend == "alternative-backend"
-
-

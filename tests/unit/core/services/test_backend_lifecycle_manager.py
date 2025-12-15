@@ -8,6 +8,7 @@ Feature: backend-service-refactoring
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -255,18 +256,30 @@ class TestBackendLifecycleManagerDiscard:
         assert len(manager._per_session_backends) == 0
 
     @pytest.mark.asyncio
-    async def test_removes_specific_per_session(self) -> None:
-        """Discard with session_id should only remove that specific backend."""
+    async def test_discard_with_session_id_purges_all_variants(self) -> None:
+        """Discard with session_id should still purge global and all per-session variants."""
         factory = MockBackendFactory()
         manager = BackendLifecycleManager(factory=factory, per_session_limit=10)  # type: ignore
 
-        await manager.get_or_create("openai", session_id="s1")
-        await manager.get_or_create("openai", session_id="s2")
+        global_backend = await manager.get_or_create("openai")
+        session_backend_1 = await manager.get_or_create("openai", session_id="s1")
+        session_backend_2 = await manager.get_or_create("openai", session_id="s2")
 
         manager.discard("openai", "s1", "test")
 
-        assert "openai:s1" not in manager._per_session_backends
-        assert "openai:s2" in manager._per_session_backends
+        assert "openai" not in manager._backends
+        assert (
+            len([k for k in manager._per_session_backends if k.startswith("openai:")])
+            == 0
+        )
+        assert {"openai", "openai:s1", "openai:s2"}.issubset(
+            set(factory.unregistered_backends)
+        )
+
+        await asyncio.sleep(0)
+        assert global_backend.shutdown_called  # type: ignore[attr-defined]
+        assert session_backend_1.shutdown_called  # type: ignore[attr-defined]
+        assert session_backend_2.shutdown_called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_unregisters_from_factory(self) -> None:

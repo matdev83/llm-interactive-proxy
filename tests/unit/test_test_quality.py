@@ -632,7 +632,9 @@ def test_vulture_dead_code_on_src(vulture_dead_code_cache: dict[str, Any]) -> No
     # Check if there was an error in the cached result
     if "error" in vulture_dead_code_cache:
         if vulture_dead_code_cache["error"] == "vulture package not available":
-            pytest.skip("vulture package not available. Install with: pip install vulture")
+            pytest.skip(
+                "vulture package not available. Install with: pip install vulture"
+            )
         pytest.fail(f"Vulture scan failed: {vulture_dead_code_cache['error']}")
 
     # Get unused items from cache
@@ -800,10 +802,10 @@ def test_vulture_dead_code_on_src_strict(
     # Check if there was an error in the cached result
     if "error" in vulture_dead_code_strict_cache:
         if vulture_dead_code_strict_cache["error"] == "vulture package not available":
-            pytest.skip("vulture package not available. Install with: pip install vulture")
-        pytest.fail(
-            f"Vulture scan failed: {vulture_dead_code_strict_cache['error']}"
-        )
+            pytest.skip(
+                "vulture package not available. Install with: pip install vulture"
+            )
+        pytest.fail(f"Vulture scan failed: {vulture_dead_code_strict_cache['error']}")
 
     # Get unused items from cache
     serialized_items = vulture_dead_code_strict_cache.get("unused_items", [])
@@ -924,7 +926,9 @@ def vulture_strict_cli_cache() -> dict[str, Any]:
 
 
 @pytest.mark.quality
-def test_vulture_dead_code_on_src_strict_cli(vulture_strict_cli_cache: dict[str, Any]) -> None:
+def test_vulture_dead_code_on_src_strict_cli(
+    vulture_strict_cli_cache: dict[str, Any]
+) -> None:
     """Test that vulture CLI finds no dead code in src directory with 100% confidence.
 
     This test runs the vulture command-line tool directly with --min-confidence=100
@@ -955,7 +959,9 @@ def test_vulture_dead_code_on_src_strict_cli(vulture_strict_cli_cache: dict[str,
         ]
 
         if suppressions_file.exists():
-            cmd.extend(["--ignore-names", _read_suppressions_for_cli(suppressions_file)])
+            cmd.extend(
+                ["--ignore-names", _read_suppressions_for_cli(suppressions_file)]
+            )
 
         error_msg = (
             f"vulture (100% confidence) found issues in src/:\n"

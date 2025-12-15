@@ -84,7 +84,16 @@ class ExceptionNormalizer(IExceptionNormalizer):
                 "detail": serialized_detail,
             }
             if isinstance(headers, dict) and headers:
-                details["headers"] = dict(headers)
+                allowed_header_names = {"retry-after"}
+                allowlisted_headers: dict[str, Any] = {
+                    key: value
+                    for key, value in headers.items()
+                    if isinstance(key, str)
+                    and key.lower() in allowed_header_names
+                    and isinstance(value, str | int | float | bool | type(None))
+                }
+                if allowlisted_headers:
+                    details["headers"] = allowlisted_headers
 
             return RateLimitExceededError(
                 message=message,

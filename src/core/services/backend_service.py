@@ -5,6 +5,7 @@ import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator
+from functools import lru_cache
 from typing import Any, cast
 from uuid import uuid4
 
@@ -59,8 +60,14 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverService
+from src.core.services.stream_formatting_service import StreamFormattingService
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _legacy_stream_formatting_service() -> StreamFormattingService:
+    return StreamFormattingService()
 
 
 class BackendService(IBackendService):
@@ -341,10 +348,7 @@ class BackendService(IBackendService):
         Note: This is a static method for backward compatibility. It delegates to
         StreamFormattingService for the actual implementation.
         """
-        from src.core.services.stream_formatting_service import StreamFormattingService
-
-        service = StreamFormattingService()
-        return service.stream_as_sse_bytes(stream)
+        return _legacy_stream_formatting_service().stream_as_sse_bytes(stream)
 
     def _resolve_stream_session_id(
         self,
@@ -804,6 +808,22 @@ class BackendService(IBackendService):
                         project_dir_value = getattr(session.state, "project_dir", None)
                         if isinstance(project_dir_value, str) and project_dir_value:
                             backend_call_kwargs["project_dir"] = project_dir_value
+                    except Exception:
+                        pass
+
+                if context is not None and backend_type == "cline":
+                    try:
+                        incoming_headers = getattr(context, "headers", None)
+                        headers_dict: dict[str, Any] | None = None
+
+                        to_dict = getattr(incoming_headers, "to_dict", None)
+                        if callable(to_dict):
+                            headers_dict = cast(dict[str, Any], to_dict())
+                        elif incoming_headers:
+                            headers_dict = dict(incoming_headers)
+
+                        if headers_dict is not None:
+                            backend_call_kwargs["incoming_headers"] = headers_dict
                     except Exception:
                         pass
 
@@ -1579,13 +1599,18 @@ class BackendService(IBackendService):
     async def chat_completions(
         self,
         request: ChatRequest,
-        *,
-        stream: bool = False,
-        allow_failover: bool = True,
-        context: RequestContext | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore[override]
         """Handle chat completions with the LLM."""
+
+        stream_raw = kwargs.get("stream", False)
+        stream = bool(stream_raw) if stream_raw is not None else False
+
+        allow_failover_raw = kwargs.get("allow_failover", True)
+        allow_failover = (
+            bool(allow_failover_raw) if allow_failover_raw is not None else True
+        )
+        context = cast(RequestContext | None, kwargs.get("context"))
 
         return await self.call_completion(
             request,

@@ -7,6 +7,7 @@ and equivalence with BackendService helper methods.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -142,7 +143,7 @@ class TestChunkSignalsDone:
         """Empty delta with finish_reason should signal done."""
         service = StreamFormattingService()
 
-        content = {"choices": [{"delta": {}}]}
+        content: dict[str, Any] = {"choices": [{"delta": {}}]}
         assert service.chunk_signals_done(content, {"finish_reason": "stop"}) is True
 
     def test_openai_finish_reason_in_choices(self) -> None:
@@ -219,7 +220,7 @@ class TestIsValidCompletionToken:
         """Dict with empty delta should not be valid."""
         service = StreamFormattingService()
 
-        chunk = {"choices": [{"delta": {}}]}
+        chunk: dict[str, Any] = {"choices": [{"delta": {}}]}
         assert service.is_valid_completion_token(chunk) is False
 
     def test_processed_response_extracts_content(self) -> None:
@@ -279,6 +280,35 @@ class TestStreamAsSSEBytes:
 
         async def gen():
             yield ProcessedResponse(content="data: [DONE]\n\n")
+
+        result = [chunk async for chunk in service.stream_as_sse_bytes(gen())]
+
+        full_output = b"".join(result)
+        done_count = full_output.count(b"data: [DONE]\n\n")
+        assert done_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stop_chunk_with_usage_emits_single_done(self) -> None:
+        """StopChunkWithUsage serialization should emit exactly one [DONE] marker."""
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        service = StreamFormattingService()
+
+        stop_chunk = StopChunkWithUsage(
+            {
+                "id": "chatcmpl-stop",
+                "object": "chat.completion.chunk",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3,
+                },
+            }
+        )
+
+        async def gen():
+            yield ProcessedResponse(content=stop_chunk)
 
         result = [chunk async for chunk in service.stream_as_sse_bytes(gen())]
 

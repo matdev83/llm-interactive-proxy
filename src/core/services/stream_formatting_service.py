@@ -57,6 +57,9 @@ class StreamFormattingService(IStreamFormattingService):
                     )
                     yield streaming_content.to_bytes()
                     done_sent = True
+                    # StreamingContent.to_bytes() already includes the terminating [DONE]
+                    # marker for StopChunkWithUsage, so we must not append another one.
+                    break
                 else:
                     yield self.format_chunk_as_sse(content)
 

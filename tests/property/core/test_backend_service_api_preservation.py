@@ -62,8 +62,9 @@ class TestBackendServiceAPIPreservation:
                 assert (
                     i_param.kind == impl_param.kind
                 ), f"Parameter kind mismatch in {name}: {i_param.name}"
-                # Note: We don't check default values as implementation might change them (though usually shouldn't)
-                # but type hints should generally match if they exist in interface
+                assert (
+                    i_param.default == impl_param.default
+                ), f"Parameter default mismatch in {name}: {i_param.name}"
 
             # Check return type hints if present in interface
             interface_hints = get_type_hints(interface_method)
