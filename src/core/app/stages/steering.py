@@ -106,6 +106,7 @@ class SteeringStage(InitializationStage):
         """Register steering policies as singletons."""
         try:
             from src.services.steering.policies import (
+                BinaryFileEditPolicy,
                 InlinePythonPolicy,
                 PytestFullSuitePolicy,
             )
@@ -124,6 +125,22 @@ class SteeringStage(InitializationStage):
                     ),
                     prompt_override_path=Path(
                         "config/prompts/steering_inline_python.md"
+                    ),
+                ),
+            )
+
+            # Register BinaryFileEditPolicy
+            services.add_singleton(
+                BinaryFileEditPolicy,
+                implementation_factory=lambda provider: BinaryFileEditPolicy(
+                    message=getattr(
+                        reactor_config, "binary_file_edit_steering_message", None
+                    ),
+                    enabled=getattr(
+                        reactor_config, "binary_file_edit_steering_enabled", True
+                    ),
+                    prompt_override_path=Path(
+                        "config/prompts/steering_binary_file_edit.md"
                     ),
                 ),
             )
@@ -239,6 +256,7 @@ class SteeringStage(InitializationStage):
         try:
             from src.services.steering import UnifiedSteeringHandler
             from src.services.steering.policies import (
+                BinaryFileEditPolicy,
                 InlinePythonPolicy,
                 PytestFullSuitePolicy,
             )
@@ -247,6 +265,7 @@ class SteeringStage(InitializationStage):
                 """Factory for creating unified steering handler with policies."""
                 policies = [
                     provider.get_required_service(InlinePythonPolicy),
+                    provider.get_required_service(BinaryFileEditPolicy),
                     provider.get_required_service(PytestFullSuitePolicy),
                     provider.get_required_service(ConfiguredRulesPolicy),
                 ]

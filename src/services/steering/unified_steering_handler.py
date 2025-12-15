@@ -84,10 +84,7 @@ class UnifiedSteeringHandler(IToolCallHandler):
             return False
 
         command = extract_command_from_arguments(context.tool_arguments)
-        if not command:
-            return False
-
-        normalized = normalize_whitespace(command)
+        normalized = normalize_whitespace(command) if command else ""
 
         # Check if any policy would trigger
         for policy in self._policies:
@@ -115,11 +112,7 @@ class UnifiedSteeringHandler(IToolCallHandler):
 
         start_time = self._monotonic()
         command = extract_command_from_arguments(context.tool_arguments)
-
-        if not command:
-            return ToolCallReactionResult(should_swallow=False)
-
-        normalized = normalize_whitespace(command)
+        normalized = normalize_whitespace(command) if command else ""
         evaluated_policies: list[str] = []
         matched_policy: str | None = None
         result: SteeringResult | None = None

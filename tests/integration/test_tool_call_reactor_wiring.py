@@ -303,6 +303,7 @@ async def test_unified_steering_policy_priority_overrides():
     """
     # Arrange: Define policies with default priorities
     # InlinePythonPolicy has priority 80
+    # BinaryFileEditPolicy has priority 90 (default)
     # ConfiguredRulesPolicy has priority 90
     # PytestFullSuitePolicy has priority 70
     # We want to override them such that InlinePythonPolicy runs first (highest priority)
@@ -314,6 +315,7 @@ async def test_unified_steering_policy_priority_overrides():
                     "steering_policy_priorities": {
                         "inline_python": 100,  # Override to make it highest
                         "configured_rules": 80,  # Override to make it lower than inline_python
+                        "binary_file_edit": 75,  # Override to lower priority
                         "pytest_full_suite": 70,  # Keep default or override explicitly
                     },
                 },
@@ -333,8 +335,8 @@ async def test_unified_steering_policy_priority_overrides():
 
     # Assert that policies are sorted by the overridden priorities
     policies = unified_handler._policies
-    # We expect 3 policies: InlinePythonPolicy, ConfiguredRulesPolicy, PytestFullSuitePolicy
-    assert len(policies) == 3
+    # We expect 4 policies: InlinePythonPolicy, ConfiguredRulesPolicy, BinaryFileEditPolicy, PytestFullSuitePolicy
+    assert len(policies) == 4
 
     # Find the policies by name and check their order based on overridden priorities
     policy_names_in_order = [p.name for p in policies]
@@ -343,8 +345,10 @@ async def test_unified_steering_policy_priority_overrides():
     assert policy_names_in_order[0] == "inline_python"
     # Expect ConfiguredRulesPolicy to be second due to priority 80
     assert policy_names_in_order[1] == "configured_rules"
-    # Expect PytestFullSuitePolicy to be third due to priority 70
-    assert policy_names_in_order[2] == "pytest_full_suite"
+    # Expect BinaryFileEditPolicy to be third due to priority 75
+    assert policy_names_in_order[2] == "binary_file_edit"
+    # Expect PytestFullSuitePolicy to be fourth due to priority 70
+    assert policy_names_in_order[3] == "pytest_full_suite"
 
 
 @pytest.mark.asyncio

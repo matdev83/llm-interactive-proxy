@@ -760,6 +760,15 @@ class ArgumentParserBuilder:
             help="Enable pytest context saving - adds -r fE and -q flags to pytest commands (overrides config)",
         )
 
+        # Binary file edit steering
+        parser.add_argument(
+            "--disable-binary-file-edit-steering",
+            action="store_true",
+            dest="disable_binary_file_edit_steering",
+            default=None,
+            help="Disable binary file edit steering (overrides config)",
+        )
+
     def _add_session_testing_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add session and testing arguments."""
         # Think tags fix

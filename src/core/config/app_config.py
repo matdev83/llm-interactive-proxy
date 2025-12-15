@@ -413,6 +413,12 @@ class ToolCallReactorConfig(DomainModel):
     inline_python_steering_message: str | None = None
     """Optional custom steering message for inline Python execution."""
 
+    binary_file_edit_steering_enabled: bool = True
+    """Whether binary file edit steering is enabled."""
+
+    binary_file_edit_steering_message: str | None = None
+    """Optional custom steering message for binary file edit attempts."""
+
     pytest_context_saving_enabled: bool = False
     """Whether pytest context-saving command rewrites are enabled."""
 
@@ -1824,6 +1830,23 @@ class AppConfig(DomainModel, IConfig):
                     100,
                     env,
                     path="session.streaming_sampler.max_samples",
+                    resolution=resolution,
+                ),
+            },
+            # Tool call reactor configuration
+            "tool_call_reactor": {
+                "binary_file_edit_steering_enabled": not _env_to_bool(
+                    "DISABLE_BINARY_FILE_EDIT_STEERING",
+                    False,
+                    env,
+                    path="session.tool_call_reactor.binary_file_edit_steering_enabled",
+                    resolution=resolution,
+                ),
+                "binary_file_edit_steering_message": _get_env_value(
+                    env,
+                    "BINARY_FILE_EDIT_STEERING_MESSAGE",
+                    None,
+                    path="session.tool_call_reactor.binary_file_edit_steering_message",
                     resolution=resolution,
                 ),
             },
