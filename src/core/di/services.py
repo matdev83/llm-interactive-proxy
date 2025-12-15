@@ -929,8 +929,6 @@ def register_core_services(
         )
         from src.core.interfaces.response_manager_interface import IResponseManager
         from src.core.interfaces.session_manager_interface import ISessionManager
-        from src.core.memory.capture_middleware import MemoryCaptureMiddleware
-        from src.core.memory.injection_middleware import ContextInjectionMiddleware
 
         command_processor: ICommandProcessor = provider.get_required_service(
             cast(type, ICommandProcessor)
@@ -949,12 +947,6 @@ def register_core_services(
         )
         replacement_service: IModelReplacementService | None = provider.get_service(
             cast(type, IModelReplacementService)
-        )
-        memory_capture: MemoryCaptureMiddleware | None = provider.get_service(
-            MemoryCaptureMiddleware
-        )
-        context_injector: ContextInjectionMiddleware | None = provider.get_service(
-            ContextInjectionMiddleware
         )
         session_enricher: ISessionEnricher = provider.get_required_service(
             cast(type, ISessionEnricher)
@@ -988,8 +980,6 @@ def register_core_services(
             backend_executor=backend_executor,
             app_state=app_state,
             replacement_service=replacement_service,
-            memory_capture=memory_capture,
-            context_injector=context_injector,
         )
 
     # Register loop detector and bind to interface

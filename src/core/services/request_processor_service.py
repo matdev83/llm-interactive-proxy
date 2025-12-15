@@ -30,9 +30,6 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.memory.capture_middleware import MemoryCaptureMiddleware
-from src.core.memory.injection_middleware import ContextInjectionMiddleware
-from src.core.services.artifact_service import ArtifactService
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +51,6 @@ class RequestProcessor(IRequestProcessor):
         backend_executor: IBackendExecutor,
         app_state: IApplicationState | None = None,
         replacement_service: IModelReplacementService | None = None,
-        memory_capture: MemoryCaptureMiddleware | None = None,
-        context_injector: ContextInjectionMiddleware | None = None,
-        artifact_service: ArtifactService | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services.
 
@@ -73,9 +67,6 @@ class RequestProcessor(IRequestProcessor):
             backend_executor: Backend execution and persistence side effects (required)
             app_state: Application state for configuration and service access (optional)
             replacement_service: Model replacement service for fallback models (optional)
-            memory_capture: Memory capture middleware (optional)
-            context_injector: Memory context injection middleware (optional)
-            artifact_service: Tool artifact preview management (optional)
         """
         self._command_processor = command_processor
         self._session_manager = session_manager
@@ -89,9 +80,6 @@ class RequestProcessor(IRequestProcessor):
         self._backend_executor = backend_executor
         self._app_state = app_state
         self._replacement_service = replacement_service
-        self._memory_capture = memory_capture
-        self._context_injector = context_injector
-        self._artifact_service = artifact_service
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -131,6 +119,11 @@ class RequestProcessor(IRequestProcessor):
         command_result = result
 
         # Apply model replacement if enabled
+        # Note: Model replacement logic remains in RequestProcessor orchestrator rather than
+        # being extracted to a dedicated component. This is intentional per research.md:
+        # "In staged initialization wiring, the replacement service is currently not injected
+        # into RequestProcessor, so this code path is typically inactive." If this feature
+        # becomes more active or complex, consider extracting to a ModelReplacementHandler component.
         original_backend = getattr(context, "backend", None)
         original_model = request_data.model
 
@@ -172,27 +165,10 @@ class RequestProcessor(IRequestProcessor):
             )
 
         # Apply request transformations using pipeline
-        if backend_request is not None:
-            backend_request = await self._transform_pipeline.transform(
-                context, session, session_id, backend_request
-            )
-
-        if backend_request is None:
-            # Skip backend call and return command result directly
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Command executed without backend call, processing command result for session {session_id}"
-                )
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Command executed without backend call, processing command result for session {session_id}"
-                )
-            await self._session_manager.record_command_in_session(
-                request_data, session_id
-            )
-            return await self._response_manager.process_command_result(
-                command_result, session
-            )
+        # Note: transform() always returns ChatRequest (never None) per IRequestTransformPipeline contract
+        backend_request = await self._transform_pipeline.transform(
+            context, session, session_id, backend_request
+        )
 
         # Execute backend and perform persistence side effects
         return await self._backend_executor.execute(

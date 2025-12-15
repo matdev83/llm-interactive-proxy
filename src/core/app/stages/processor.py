@@ -564,17 +564,6 @@ class ProcessorStage(InitializationStage):
                     cast(type, IApplicationState)
                 )
                 # project_dir_resolution_service removed from RequestProcessor constructor
-                from src.core.memory.capture_middleware import MemoryCaptureMiddleware
-                from src.core.memory.injection_middleware import (
-                    ContextInjectionMiddleware,
-                )
-
-                memory_capture: MemoryCaptureMiddleware | None = provider.get_service(
-                    MemoryCaptureMiddleware
-                )
-                context_injector: ContextInjectionMiddleware | None = (
-                    provider.get_service(ContextInjectionMiddleware)
-                )
 
                 # Get internal phase handlers (optional for backwards compatibility)
                 from src.core.interfaces.model_replacement_service_interface import (
@@ -601,11 +590,6 @@ class ProcessorStage(InitializationStage):
                 request_side_effects: IRequestSideEffects = (
                     provider.get_required_service(cast(type, IRequestSideEffects))
                 )
-                from src.core.services.artifact_service import ArtifactService
-
-                artifact_service: ArtifactService | None = provider.get_service(
-                    ArtifactService
-                )
                 transform_pipeline: IRequestTransformPipeline = (
                     provider.get_required_service(cast(type, IRequestTransformPipeline))
                 )
@@ -623,13 +607,10 @@ class ProcessorStage(InitializationStage):
                     response_manager,
                     app_state=app_state,
                     replacement_service=replacement_service,
-                    memory_capture=memory_capture,
-                    context_injector=context_injector,
                     command_handler=command_handler,
                     backend_preparer=backend_preparer,
                     session_enricher=session_enricher,
                     request_side_effects=request_side_effects,
-                    artifact_service=artifact_service,
                     transform_pipeline=transform_pipeline,
                     backend_executor=backend_executor,
                 )
