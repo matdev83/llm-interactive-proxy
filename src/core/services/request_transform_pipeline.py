@@ -322,18 +322,20 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 app_config = None
 
         # Respect agent exclusion regex if configured
-        if cfg_enabled and exclude_agents_regex and getattr(session, "agent", None):
-            try:
-                import re
+        if cfg_enabled and exclude_agents_regex:
+            agent = getattr(session, "agent", None)
+            if agent:
+                try:
+                    import re
 
-                if re.search(exclude_agents_regex, str(session.agent), re.IGNORECASE):
-                    cfg_enabled = False
-            except Exception as e:
-                # Invalid pattern; ignore exclusion
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Invalid regex in edit_precision.exclude_agents_regex: %s", e
-                    )
+                    if re.search(exclude_agents_regex, str(agent), re.IGNORECASE):
+                        cfg_enabled = False
+                except Exception as e:
+                    # Invalid pattern; ignore exclusion
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Invalid regex in edit_precision.exclude_agents_regex: %s", e
+                        )
 
         # If previous response flagged a pending precision tune, apply once
         force_apply = False

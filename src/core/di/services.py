@@ -919,6 +919,14 @@ def register_core_services(
         from src.core.interfaces.model_replacement_service_interface import (
             IModelReplacementService,
         )
+        from src.core.interfaces.request_processor_internal import (
+            IBackendExecutor,
+            IBackendPreparer,
+            ICommandHandler,
+            IRequestSideEffects,
+            IRequestTransformPipeline,
+            ISessionEnricher,
+        )
         from src.core.interfaces.response_manager_interface import IResponseManager
         from src.core.interfaces.session_manager_interface import ISessionManager
         from src.core.memory.capture_middleware import MemoryCaptureMiddleware
@@ -948,12 +956,36 @@ def register_core_services(
         context_injector: ContextInjectionMiddleware | None = provider.get_service(
             ContextInjectionMiddleware
         )
+        session_enricher: ISessionEnricher = provider.get_required_service(
+            cast(type, ISessionEnricher)
+        )
+        request_side_effects: IRequestSideEffects = provider.get_required_service(
+            cast(type, IRequestSideEffects)
+        )
+        command_handler: ICommandHandler = provider.get_required_service(
+            cast(type, ICommandHandler)
+        )
+        backend_preparer: IBackendPreparer = provider.get_required_service(
+            cast(type, IBackendPreparer)
+        )
+        transform_pipeline: IRequestTransformPipeline = provider.get_required_service(
+            cast(type, IRequestTransformPipeline)
+        )
+        backend_executor: IBackendExecutor = provider.get_required_service(
+            cast(type, IBackendExecutor)
+        )
 
         return RequestProcessor(
             command_processor=command_processor,
             session_manager=session_manager,
             backend_request_manager=backend_request_manager,
             response_manager=response_manager,
+            session_enricher=session_enricher,
+            request_side_effects=request_side_effects,
+            command_handler=command_handler,
+            backend_preparer=backend_preparer,
+            transform_pipeline=transform_pipeline,
+            backend_executor=backend_executor,
             app_state=app_state,
             replacement_service=replacement_service,
             memory_capture=memory_capture,
@@ -3092,6 +3124,15 @@ def register_core_services(
 
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
+        from src.core.interfaces.request_processor_internal import (
+            IBackendExecutor,
+            IBackendPreparer,
+            ICommandHandler,
+            IRequestSideEffects,
+            IRequestTransformPipeline,
+            ISessionEnricher,
+        )
+
         # Get required services
         command_processor = provider.get_required_service(
             ICommandProcessor  # type: ignore[type-abstract]
@@ -3112,12 +3153,38 @@ def register_core_services(
         # Get replacement service (optional)
         replacement_service = provider.get_service(ModelReplacementService)
 
+        # Get new required dependencies
+        session_enricher = provider.get_required_service(
+            ISessionEnricher  # type: ignore[type-abstract]
+        )
+        request_side_effects = provider.get_required_service(
+            IRequestSideEffects  # type: ignore[type-abstract]
+        )
+        command_handler = provider.get_required_service(
+            ICommandHandler  # type: ignore[type-abstract]
+        )
+        backend_preparer = provider.get_required_service(
+            IBackendPreparer  # type: ignore[type-abstract]
+        )
+        transform_pipeline = provider.get_required_service(
+            IRequestTransformPipeline  # type: ignore[type-abstract]
+        )
+        backend_executor = provider.get_required_service(
+            IBackendExecutor  # type: ignore[type-abstract]
+        )
+
         # Return request processor with decomposed services
         return RequestProcessor(
             command_processor,
             session_manager,
             backend_request_manager,
             response_manager,
+            session_enricher=session_enricher,
+            request_side_effects=request_side_effects,
+            command_handler=command_handler,
+            backend_preparer=backend_preparer,
+            transform_pipeline=transform_pipeline,
+            backend_executor=backend_executor,
             app_state=app_state,
             replacement_service=replacement_service,
         )

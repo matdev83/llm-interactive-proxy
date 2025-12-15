@@ -602,8 +602,10 @@ class ProcessorStage(InitializationStage):
                 request_side_effects: IRequestSideEffects = (
                     provider.get_required_service(cast(type, IRequestSideEffects))
                 )
-                artifact_service: IArtifactService | None = provider.get_service(
-                    cast(type, IArtifactService)
+                from src.core.services.artifact_service import ArtifactService
+
+                artifact_service: ArtifactService | None = provider.get_service(
+                    ArtifactService
                 )
                 transform_pipeline: IRequestTransformPipeline = (
                     provider.get_required_service(cast(type, IRequestTransformPipeline))
