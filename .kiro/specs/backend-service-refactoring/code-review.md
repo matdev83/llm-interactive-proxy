@@ -5,6 +5,7 @@ This document is the spec-aligned review record for the `backend-service-refacto
 ### Validation summary (what was actually executed)
 
 Targeted tests executed and passing:
+
 - `./.venv/Scripts/python.exe -m pytest -q tests/unit/core/services/streaming/test_stream_formatting_service.py::TestStreamAsSSEBytes::test_stop_chunk_with_usage_emits_single_done`
 - `./.venv/Scripts/python.exe -m pytest -q tests/unit/core/services/test_backend_lifecycle_manager.py::TestBackendLifecycleManagerDiscard::test_discard_with_session_id_purges_all_variants`
 - `./.venv/Scripts/python.exe -m pytest -q tests/unit/core/services/test_exception_normalizer.py::TestHTTP429Translation::test_http_429_includes_headers_in_details`

@@ -78,69 +78,70 @@
 1. RequestProcessor.process_request() receives RequestContext + ChatRequest
 2. Session resolution and state management
 3. Client detection (OS, VTC)
-4. Command processing
-5. Artifact expansion/compression
-6. Model replacement
-7. Backend request preparation
-8. Context window enforcement
-9. Request redaction middleware
-10. Edit precision tuning middleware
-11. Tool access control filtering
-12. Backend call via BackendRequestManager
-13. Response processing via ResponseManager
+4. Streaming tool registry update (allowed tools list)
+5. Project directory auto-resolution (best-effort)
+6. Memory context injection and request capture (best-effort)
+7. Command processing
+8. Artifact expansion/compression
+9. Model replacement (conditional; only when replacement service is available)
+10. Backend request preparation
+11. Context window enforcement
+12. Request redaction middleware
+13. Edit precision tuning middleware
+14. Tool access control filtering
+15. Backend call via BackendRequestManager
+16. Session history update (and best-effort fingerprint update)
 
 ## 2. Requirements Feasibility Analysis
 
 ### Technical Needs from Requirements
 
 **New Components Required:**
-1. **SessionRequestHandler** - Extract session management logic (lines 84-136)
-2. **CommandRequestHandler** - Extract command processing logic (lines 227-244, 1216-1244)
-3. **BackendRequestPreparator** - Extract backend preparation logic (lines 278-529)
-4. **MiddlewareApplicator** - Extract middleware application logic (lines 530-990)
-5. **ArtifactProcessor** - Extract artifact processing logic (lines 1246-1485)
-6. **ClientDetectionService** - Extract client detection logic (lines 97-113, 1160-1210)
-7. **MiddlewareChainManager** - New component for middleware chain pattern
-8. **ProjectDirectoryResolver** - Extract project directory resolution (lines 178-199)
+1. **SessionEnricher** - Session resolution and client context enrichment (agent, OS detection, VTC, project directory eligibility)
+2. **RequestSideEffects** - Best-effort streaming registry and memory integrations (tool registry, context injection, capture)
+3. **CommandHandler** - Command processing and command-only early returns
+4. **ArtifactService** - Tool artifact preview expansion and compression
+5. **BackendPreparer** - Backend request preparation and token-limit enforcement (fail-fast on InvalidRequestError, fail-open on unexpected errors)
+6. **TransformPipeline** - Outbound request transformations (redaction, edit precision, tool filtering) with fixed ordering and fail-open behavior
+7. **BackendExecutor** - Backend invocation and required persistence side effects (session history, fingerprint best-effort, turn completion in finally)
 
 **New Interfaces Required:**
-- `ISessionRequestHandler` - Interface for session handling component
-- `ICommandRequestHandler` - Interface for command handling component
-- `IBackendRequestPreparator` - Interface for backend preparation component
-- `IMiddlewareApplicator` - Interface for middleware application component
-- `IArtifactProcessor` - Interface for artifact processing component
-- `IClientDetectionService` - Interface for client detection component
-- `IMiddlewareChainManager` - Interface for middleware chain management
+- `ISessionEnricher` - Interface for session enrichment component
+- `IRequestSideEffects` - Interface for streaming/memory side effects component
+- `ICommandHandler` - Interface for command processing component
+- `IArtifactService` - Interface for artifact preview handling component
+- `IBackendPreparer` - Interface for backend preparation and validation component
+- `IRequestTransformPipeline` - Interface for request transformation pipeline component
+- `IBackendExecutor` - Interface for backend invocation and persistence component
 
 **Patterns to Implement:**
-- Middleware Chain Pattern - Ordered execution of middleware
-- Strategy Pattern - For component selection and conditional logic
-- Composition Pattern - RequestProcessor composes handler components
+- Orchestrator plus phase handlers - RequestProcessor delegates to phase-specific components
+- Transformation pipeline - Ordered application of redaction, edit precision, and tool filtering
+- Composition - RequestProcessor composes components via DI wiring (prefer constructor injection)
 
 ### Gaps Identified
 
 **Missing Capabilities:**
-1. **Middleware Chain Manager** - No existing middleware chain implementation for request middleware
-   - Current: Middleware applied inline in process_request()
-   - Needed: Chain pattern with ordered execution, error handling, short-circuiting
+1. **Phase Boundaries** - No dedicated request-pipeline phase components exist
+   - Current: Most responsibilities are implemented inside RequestProcessor
+   - Needed: SessionEnricher, SideEffects, CommandHandler, BackendPreparer, TransformPipeline, BackendExecutor
 
-2. **Focused Handler Components** - No dedicated handler components exist
-   - Current: All logic in RequestProcessor class
-   - Needed: SessionRequestHandler, CommandRequestHandler, BackendRequestPreparator, etc.
+2. **Side Effect Isolation** - Streaming registry and memory integrations are embedded in orchestration
+   - Current: Best-effort operations are interleaved with core flow
+   - Needed: Dedicated side-effects component to isolate failure handling and ordering
 
-3. **Client Detection Service** - Logic exists but embedded in RequestProcessor
-   - Current: `_detect_client_os()` method in RequestProcessor
-   - Needed: Extracted ClientDetectionService component
+3. **Artifact Preview Isolation** - Artifact preview logic exists but is embedded
+   - Current: Multiple private methods for expansion/compression inside RequestProcessor
+   - Needed: Extracted ArtifactService component with focused tests
 
-4. **Artifact Processor** - Logic exists but embedded in RequestProcessor
-   - Current: Multiple private methods (_expand_truncated_tool_outputs, _normalize_tool_message, etc.)
-   - Needed: Extracted ArtifactProcessor component
+4. **Transformation Pipeline Boundary** - Redaction, precision tuning, and tool filtering are embedded inline
+   - Current: Hardcoded ordering inside RequestProcessor
+   - Needed: TransformPipeline to preserve ordering and fail-open semantics while enabling future extension
 
 **Unknowns (Research Needed):**
-1. Middleware chain execution order dependencies - Need to analyze middleware dependencies
-2. Error handling strategy for middleware chain failures - Current behavior needs preservation
-3. Performance impact of component decomposition - Need to measure overhead
-4. Test migration strategy - How to migrate existing tests to new component structure
+1. Performance impact of component decomposition - Measure overhead and ensure no material regression
+2. Test strategy - Characterize current behavior not explicitly covered by tests
+3. DI lifetimes - Confirm the effective lifetimes of processor dependencies under staged initialization and legacy container wiring
 
 **Constraints:**
 1. **Interface Preservation** - `IRequestProcessor.process_request()` signature must remain unchanged
@@ -187,45 +188,45 @@
 
 **New Components to Create:**
 
-1. **SessionRequestHandler** (`src/core/services/session_request_handler.py`)
-   - Responsibility: Session resolution, agent updates, state management
-   - Dependencies: ISessionManager, IApplicationState, ClientDetectionService
-   - Integration: Called by RequestProcessor.process_request()
+1. **SessionEnricher** (`src/core/services/session_enricher.py`)
+   - Responsibility: Session resolution and request-context enrichment (agent, OS, VTC, project directory eligibility)
+   - Dependencies: ISessionManager, IApplicationState (for config/service access)
+   - Integration: Called by RequestProcessor
 
-2. **CommandRequestHandler** (`src/core/services/command_request_handler.py`)
-   - Responsibility: Command processing, artifact expansion, command-only path detection
-   - Dependencies: ICommandProcessor, ArtifactProcessor
-   - Integration: Called by RequestProcessor.process_request()
+2. **RequestSideEffects** (`src/core/services/request_side_effects.py`)
+   - Responsibility: Best-effort streaming registry updates and memory injection/capture
+   - Dependencies: Application state (for registry access), MemoryCaptureMiddleware, ContextInjectionMiddleware
+   - Integration: Called by RequestProcessor after SessionEnricher
 
-3. **BackendRequestPreparator** (`src/core/services/backend_request_preparator.py`)
-   - Responsibility: Model replacement, context window enforcement, backend preparation
-   - Dependencies: IModelReplacementService, IBackendRequestManager, IApplicationState
-   - Integration: Called by RequestProcessor.process_request()
+3. **CommandHandler** (`src/core/services/command_handler.py`)
+   - Responsibility: Command processing, command-only early returns, artifact normalization
+   - Dependencies: ICommandProcessor, IResponseManager, ArtifactService, ISessionManager (for recording)
+   - Integration: Called by RequestProcessor
 
-4. **MiddlewareApplicator** (`src/core/services/middleware_applicator.py`)
-   - Responsibility: Apply request middleware in chain
-   - Dependencies: IMiddlewareChainManager, IRequestMiddleware implementations
-   - Integration: Called by RequestProcessor.process_request()
-
-5. **ArtifactProcessor** (`src/core/services/artifact_processor.py`)
+4. **ArtifactService** (`src/core/services/artifact_service.py`)
    - Responsibility: Expand/compress artifact previews in tool outputs
-   - Dependencies: None (pure utility)
-   - Integration: Called by CommandRequestHandler
+   - Dependencies: None (pure utility aside from file access)
+   - Integration: Used by CommandHandler
 
-6. **ClientDetectionService** (`src/core/services/client_detection_service.py`)
-   - Responsibility: Detect client OS and VTC mode
-   - Dependencies: IApplicationState
-   - Integration: Called by SessionRequestHandler
+5. **BackendPreparer** (`src/core/services/backend_preparer.py`)
+   - Responsibility: Prepare backend request and enforce model/token limits
+   - Dependencies: IBackendRequestManager, IApplicationState (model defaults), optional IModelReplacementService
+   - Integration: Called by RequestProcessor
 
-7. **MiddlewareChainManager** (`src/core/services/middleware_chain_manager.py`)
-   - Responsibility: Manage middleware chain execution
-   - Dependencies: IRequestMiddleware implementations
-   - Integration: Used by MiddlewareApplicator
+6. **TransformPipeline** (`src/core/services/request_transform_pipeline.py`)
+   - Responsibility: Apply redaction, edit precision, and tool filtering in fixed order (fail-open)
+   - Dependencies: Application state (config and services), existing middleware/services
+   - Integration: Called by RequestProcessor after BackendPreparer
+
+7. **BackendExecutor** (`src/core/services/backend_executor.py`)
+   - Responsibility: Execute backend request, update session history, update fingerprint best-effort, complete replacement turn in finally
+   - Dependencies: IBackendRequestManager, ISessionManager, optional IModelReplacementService
+   - Integration: Called by RequestProcessor
 
 **Integration Points:**
 - RequestProcessor composes handler components via constructor injection
-- Handler components implement focused interfaces (ISessionRequestHandler, etc.)
-- Middleware chain manager supports ordered execution and error handling
+- Handler components implement focused interfaces (ISessionEnricher, IRequestSideEffects, etc.)
+- Transform pipeline preserves current ordering and fail-open behavior for transformations
 - All components registered in DI container (`src/core/di/services.py`)
 
 **Responsibility Boundaries:**
@@ -251,19 +252,19 @@
 **When to consider**: Phased migration strategy
 
 **Combination strategy:**
-- **Phase 1**: Extract most independent components (ArtifactProcessor, ClientDetectionService)
-- **Phase 2**: Extract handlers (SessionRequestHandler, CommandRequestHandler)
-- **Phase 3**: Extract remaining handlers (BackendRequestPreparator, MiddlewareApplicator)
-- **Phase 4**: Implement middleware chain pattern
-- **Phase 5**: Refactor RequestProcessor to orchestrate components
+-- **Phase 1**: Extract ArtifactService (most independent, best test isolation)
+-- **Phase 2**: Extract SessionEnricher and SideEffects (session and side effect boundaries)
+-- **Phase 3**: Extract CommandHandler (command-only flows, response manager integration)
+-- **Phase 4**: Extract BackendPreparer and TransformPipeline (backend preparation and transformations)
+-- **Phase 5**: Extract BackendExecutor and reduce RequestProcessor to orchestration only
 
 **Phased implementation:**
-- **Initial phase**: Extract utility components (ArtifactProcessor, ClientDetectionService)
+- **Initial phase**: Extract utility component (ArtifactService)
   - Low risk, high value
   - Can be tested independently
   - Minimal impact on RequestProcessor
 
-- **Subsequent phases**: Extract handler components incrementally
+- **Subsequent phases**: Extract phase components incrementally
   - Each phase reduces RequestProcessor complexity
   - Allows incremental testing and validation
   - Reduces risk of breaking changes
@@ -332,125 +333,93 @@
 ### Preferred Approach: **Option B (Create New Components)**
 
 **Key Decisions:**
-1. **Component Extraction Strategy**: Extract all handler components as new services
-2. **Interface Design**: Create focused interfaces for each handler component
-3. **Middleware Chain**: Implement chain pattern with ordered execution support
-4. **Orchestration Pattern**: RequestProcessor becomes thin orchestrator
-5. **Test Strategy**: Migrate existing tests to component-level tests + integration tests
+1. **Component Extraction Strategy**: Extract phase components as new services (session enrichment, side effects, commands, preparation, transformations, backend execution)
+2. **Interface Design**: Use focused internal interfaces to enable test doubles and DI wiring
+3. **Transformation Pipeline**: Preserve the existing transformation ordering (redaction, edit precision, tool filtering) and fail-open semantics
+4. **Orchestration Pattern**: RequestProcessor becomes a thin coordinator that preserves public contracts
+5. **Test Strategy**: Prefer characterization and regression tests; add component-level tests without modifying existing tests
 
 **Research Items for Design Phase:**
-1. **Middleware Dependencies**: Analyze execution order requirements
-   - Current order: Redaction → Edit Precision → Tool Access Control
-   - Need to document dependencies and ordering constraints
-
-2. **Error Handling Strategy**: Define error propagation through middleware chain
-   - Current: Fail-open (log and continue) for most middleware
-   - Need to formalize error handling contract
-
-3. **Performance Impact**: Measure overhead of component decomposition
-   - Benchmark current RequestProcessor.process_request() execution time
-   - Measure impact of additional method calls and abstraction layers
-
-4. **Test Migration Strategy**: Plan test reorganization
-   - Map existing tests to new component structure
-   - Identify integration test requirements
-   - Plan component-level unit test coverage
-
-5. **DI Registration Pattern**: Design component registration strategy
-   - Determine if handlers should be registered as singletons or scoped
-   - Plan factory pattern if needed for complex initialization
-
-6. **Backward Compatibility Verification**: Define compatibility test suite
-   - Identify critical test cases that must pass unchanged
-   - Plan regression test execution strategy
+1. **Transformation ordering**: Confirm ordering constraints and document them as a contract
+2. **Fail-open vs fail-fast boundaries**: Formalize which failures must block vs must not block
+3. **Performance impact**: Measure overhead of component decomposition
+4. **DI lifetime compatibility**: Confirm staged initialization and legacy container wiring remain safe
+5. **Complexity measurement tooling**: Ensure a repeatable metric approach is runnable in this repo
 
 ### Implementation Phases (if using Option C):
 
 **Phase 1: Utility Components** (Low Risk)
-- Extract ArtifactProcessor
-- Extract ClientDetectionService
-- Update RequestProcessor to use extracted components
+- Extract ArtifactService
+- Update RequestProcessor to delegate artifact normalization to the extracted component
 - Validate: All tests pass
 
-**Phase 2: Handler Components** (Medium Risk)
-- Extract SessionRequestHandler
-- Extract CommandRequestHandler
-- Update RequestProcessor to use handlers
+**Phase 2: Session and Side Effects** (Medium Risk)
+- Extract SessionEnricher
+- Extract RequestSideEffects
+- Update RequestProcessor to delegate session enrichment and side effects
 - Validate: All tests pass
 
-**Phase 3: Remaining Handlers** (Medium Risk)
-- Extract BackendRequestPreparator
-- Extract MiddlewareApplicator
-- Implement MiddlewareChainManager
-- Update RequestProcessor to use handlers
+**Phase 3: Commands and Preparation** (Medium Risk)
+- Extract CommandHandler
+- Extract BackendPreparer
+- Update RequestProcessor to delegate command processing and backend preparation
 - Validate: All tests pass
 
 **Phase 4: Final Refactoring** (Low Risk)
-- Refactor RequestProcessor.process_request() to orchestrate components
-- Reduce complexity to < 20
-- Final validation and documentation
+- Extract TransformPipeline and BackendExecutor
+- Refactor RequestProcessor.process_request() to orchestrate components only
+- Validate complexity reduction via the selected tooling approach
+- Validate: All tests pass
 
 ## 6. Requirement-to-Asset Mapping
 
-### Requirement 1: Request Processor Decomposition
-- **Existing**: RequestProcessor class, IRequestProcessor interface
-- **Gap**: Handler components (SessionRequestHandler, CommandRequestHandler, etc.)
-- **Status**: Missing - Need to create new components
+### 1. Compatibility and External Behavior Preservation
+- **Existing**: `IRequestProcessor`, controllers resolve RequestProcessor via DI, broad test coverage
+- **Gap**: Guardrails to prevent behavioral drift during extraction (characterization where coverage is missing)
 
-### Requirement 2: Middleware Chain Pattern
-- **Existing**: IRequestMiddleware interface, RedactionMiddleware, EditPrecisionTuningMiddleware
-- **Gap**: MiddlewareChainManager implementation
-- **Status**: Missing - Need to create chain manager
+### 2. Decomposition and SOLID Boundary Enforcement
+- **Existing**: Some responsibilities delegated to existing services, but most logic remains inside RequestProcessor
+- **Gap**: Dedicated phase components and internal contracts
 
-### Requirement 3: Complexity Reduction
-- **Existing**: Current implementation with complexity 214
-- **Gap**: Refactored implementation with complexity < 20
-- **Status**: Constraint - Achieved through component extraction
+### 3. Complexity and Maintainability Targets
+- **Existing**: High complexity in a single orchestration method
+- **Gap**: Decomposed phases plus a runnable complexity measurement approach
 
-### Requirement 4: Session Management Extraction
-- **Existing**: ISessionManager interface, session management logic in RequestProcessor
-- **Gap**: SessionRequestHandler component
-- **Status**: Missing - Need to extract to new component
+### 4. Session and Client Context Enrichment
+- **Existing**: Session resolution and enrichment are embedded in RequestProcessor
+- **Gap**: SessionEnricher extraction and isolated tests for enrichment behavior
 
-### Requirement 5: Command Processing Extraction
-- **Existing**: ICommandProcessor interface, command processing logic in RequestProcessor
-- **Gap**: CommandRequestHandler component
-- **Status**: Missing - Need to extract to new component
+### 5. Context Augmentation Side Effects
+- **Existing**: Streaming registry and memory middleware are invoked inline
+- **Gap**: RequestSideEffects extraction with preserved ordering and fail-open behavior
 
-### Requirement 6: Backend Request Preparation Extraction
-- **Existing**: IBackendRequestManager interface, preparation logic in RequestProcessor
-- **Gap**: BackendRequestPreparator component
-- **Status**: Missing - Need to extract to new component
+### 6. Command Processing and Early Returns
+- **Existing**: Command handling and early returns are embedded in RequestProcessor
+- **Gap**: CommandHandler extraction with explicit outcomes (continue vs early response)
 
-### Requirement 7: Middleware Application Extraction
-- **Existing**: IRequestMiddleware implementations, middleware application logic in RequestProcessor
-- **Gap**: MiddlewareApplicator component, MiddlewareChainManager
-- **Status**: Missing - Need to create new components
+### 7. Tool Artifact Preview Expansion and Compression
+- **Existing**: Artifact preview logic implemented as private helpers in RequestProcessor
+- **Gap**: ArtifactService extraction and focused tests
 
-### Requirement 8: Artifact Processing Extraction
-- **Existing**: Artifact processing logic in RequestProcessor (private methods)
-- **Gap**: ArtifactProcessor component
-- **Status**: Missing - Need to extract to new component
+### 8. Backend Request Preparation and Validation
+- **Existing**: Backend preparation plus token enforcement embedded in RequestProcessor
+- **Gap**: BackendPreparer extraction with explicit fail-fast and fail-open paths
 
-### Requirement 9: Client Detection Extraction
-- **Existing**: Client detection logic in RequestProcessor (_detect_client_os method), detect_vtc_client function
-- **Gap**: ClientDetectionService component
-- **Status**: Missing - Need to extract to new component
+### 9. Request Transformation Pipeline
+- **Existing**: Redaction, edit precision, tool filtering applied inline
+- **Gap**: TransformPipeline extraction preserving ordering and fail-open semantics
 
-### Requirement 10: Backward Compatibility
-- **Existing**: IRequestProcessor interface, existing tests
-- **Gap**: None - Must preserve interface and behavior
-- **Status**: Constraint - Must be maintained throughout refactoring
+### 10. Backend Execution and Session Persistence
+- **Existing**: Backend execution, session updates, fingerprint update best-effort embedded inline
+- **Gap**: BackendExecutor extraction and explicit `finally`-based turn completion
 
-### Requirement 11: Testability Improvements
-- **Existing**: Existing test structure, mocking patterns
-- **Gap**: Component-level interfaces for better mocking
-- **Status**: Missing - Need to create interfaces for new components
+### 11. Dependency Injection Integration
+- **Existing**: Staged init factory wiring and legacy container registration exist
+- **Gap**: Registration and constructor wiring for new components without breaking direct instantiation
 
-### Requirement 12: Component Integration
-- **Existing**: RequestProcessor orchestration logic
-- **Gap**: Refactored orchestration using handler components
-- **Status**: Constraint - Achieved through component composition
+### 12. Testing and Regression Safety
+- **Existing**: Extensive unit and property tests
+- **Gap**: Component-level coverage where existing tests do not directly pin behavior
 
 ## Summary
 

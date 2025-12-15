@@ -20,43 +20,47 @@
    - Client OS detection (if not detected)
    - VTC detection (if not enabled)
 
-3. **Project Directory Resolution** (lines 178-199)
+3. **Streaming Tool Registry Update** (best-effort)
+   - Extract allowed tool names from the inbound request (when present)
+   - Store allowed tool names in the global streaming context registry for the session
+
+4. **Project Directory Resolution** (lines 178-199)
    - Auto-detect project directory if needed
    - Uses ProjectDirectoryResolutionService
 
-4. **Memory Context Injection** (lines 201-210)
+5. **Memory Context Injection** (lines 201-210)
    - Inject memory context via ContextInjectionMiddleware
    - Captures user request via MemoryCaptureMiddleware
 
-5. **Command Processing** (lines 227-244)
+6. **Command Processing** (lines 227-244)
    - Process commands via ICommandProcessor
    - Expand truncated tool outputs
    - Handle command-only path
 
-6. **Model Replacement** (lines 278-307)
-   - Apply model replacement if configured
-   - Resolve effective backend and model
+7. **Model Replacement** (conditional)
+   - Apply model replacement only when a replacement service is available to RequestProcessor
+   - Note: In staged initialization wiring, the replacement service is currently not injected into RequestProcessor, so this code path is typically inactive.
 
-7. **Context Window Enforcement** (lines 314-529)
+8. **Context Window Enforcement** (lines 314-529)
    - Enforce per-model token limits
    - Validate input tokens and total tokens
    - Apply CLI context window override
 
-8. **Request Redaction** (lines 530-675)
+9. **Request Redaction** (lines 530-675)
    - Apply RedactionMiddleware
    - Redact API keys and proxy commands
    - Session-level caching for performance
 
-9. **Edit Precision Tuning** (lines 676-868)
+10. **Edit Precision Tuning** (lines 676-868)
    - Apply EditPrecisionTuningMiddleware
    - Adjust temperature and top_p parameters
    - Handle hybrid reasoning overrides
 
-10. **Tool Access Control** (lines 887-989)
+11. **Tool Access Control** (lines 887-989)
     - Filter tool definitions via ToolAccessPolicyService
     - Update tool_choice if referenced tool is filtered
 
-11. **Backend Call** (lines 1002-1036)
+12. **Backend Call** (lines 1002-1036)
     - Process backend request via IBackendRequestManager
     - Update session history
     - Update session fingerprint
@@ -81,7 +85,7 @@
 - Interface binding via `add_singleton_factory`
 
 **Error Handling Pattern**:
-- Fail-open for middleware (log and continue)
+- Fail-open for middleware and best-effort enrichments (log and continue)
 - Fail-fast for validation (raise InvalidRequestError)
 - Structured exceptions via LLMProxyError hierarchy
 - Error propagation through async chains
@@ -104,7 +108,7 @@
 - `ICommandProcessor` - Command processing
 - `ISessionManager` - Session management
 - `IBackendRequestManager` - Backend request preparation
-- `IResponseManager` - Response handling
+- `IResponseManager` - Command result response handling (command-only flows)
 - `IModelReplacementService` - Model replacement
 - `ProjectDirectoryResolutionService` - Project directory resolution
 - `ToolAccessPolicyService` - Tool access control
@@ -118,6 +122,12 @@
 **Utility Functions** (to be extracted):
 - `detect_vtc_client()` in `src/core/services/vtc_detection.py`
 - Client OS detection logic (embedded in RequestProcessor)
+
+## Tooling Notes
+
+### Complexity Tooling Compatibility
+
+The refactoring goals reference cyclomatic complexity and maintainability index metrics. In the current repository configuration, the installed `radon`/`xenon` tooling may fail when parsing `pyproject.toml` due to config interpolation issues. The implementation tasks should include selecting a repeatable measurement approach (tool version/configuration) that is runnable in this repo and can be used to validate complexity reduction over time.
 
 ## Technology Alignment
 
@@ -217,10 +227,10 @@
 **Rationale**: RequestProcessor is already a God Object; extension would worsen it
 **Impact**: 8-10 new service files, improved testability
 
-### Decision 2: Middleware Chain Pattern
-**Decision**: Implement chain pattern with ordered execution
-**Rationale**: Enables extensibility without modifying core code
-**Impact**: New MiddlewareChainManager component
+### Decision 2: Request Transformation Pipeline
+**Decision**: Implement a dedicated transformation pipeline component with fixed ordering
+**Rationale**: Preserves current ordering and fail-open behavior while isolating cross-cutting concerns
+**Impact**: New TransformPipeline component (redaction, edit precision, tool filtering)
 
 ### Decision 3: Interface Design
 **Decision**: Create focused interfaces for each handler

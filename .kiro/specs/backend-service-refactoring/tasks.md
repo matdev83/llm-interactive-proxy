@@ -311,8 +311,8 @@
     - Ensure existing tests and debugging scripts continue to work unchanged
     - _Requirements: 4.5_
 - [x] 12.4 Write property test for API signature preservation
-    - **Property 14: API Signature Preservation**
-    - **Validates: Requirements 3.1-3.6**
+  - **Property 14: API Signature Preservation**
+  - **Validates: Requirements 3.1-3.6**
   - [x] 12.5 Phase 10 checkpoint: run BackendService regression suite
     - Run all existing BackendService unit tests: `./.venv/Scripts/python.exe -m pytest tests/unit/core/services/test_backend_service*.py -v`
     - Run high-signal integration subset: `./.venv/Scripts/python.exe -m pytest tests/integration/test_uri_parameters_e2e.py tests/integration/test_reasoning_*.py -v`
