@@ -133,7 +133,7 @@ async def test_openai_codex_reload_scheduled_from_thread(
         # that is set by the coroutine that the thread schedules.
         # A generous timeout is used to prevent flakes on slow systems.
         await asyncio.wait_for(reload_event.wait(), timeout=5.0)
-        thread.join()
+        await asyncio.to_thread(thread.join)
         load_mock.assert_awaited()
 
         # Allow callbacks to run so the pending task/future clears
@@ -172,8 +172,14 @@ async def test_start_file_watching_success(auth_dir: Path):
         assert backend._file_observer is not None
         assert backend._file_observer.is_alive()
 
-        # Clean up
-        backend._stop_file_watching()
+        # Clean up - run blocking _stop_file_watching() in thread pool
+        # to avoid blocking the event loop. Add timeout to prevent stalling
+        # if the observer's join() call hangs.
+        await asyncio.wait_for(
+            asyncio.to_thread(backend._stop_file_watching), timeout=5.0
+        )
+        # Verify it's been cleaned up
+        assert backend._file_observer is None
 
 
 @pytest.mark.asyncio
@@ -217,8 +223,12 @@ async def test_stop_file_watching_success(auth_dir: Path):
 
         assert backend._file_observer is not None
 
-        # Stop file watching
-        backend._stop_file_watching()
+        # Stop file watching - run blocking _stop_file_watching() in thread pool
+        # to avoid blocking the event loop. Add timeout to prevent stalling
+        # if the observer's join() call hangs.
+        await asyncio.wait_for(
+            asyncio.to_thread(backend._stop_file_watching), timeout=5.0
+        )
 
         # Verify observer is stopped and cleaned up
         assert backend._file_observer is None
