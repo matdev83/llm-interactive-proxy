@@ -23,11 +23,13 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, cast
-from uuid import uuid4
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
+from src.core.interfaces.stream_session_id_resolver_interface import (
+    IStreamSessionIdResolver,
+)
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
 
@@ -163,13 +165,29 @@ class BufferedWireCapture(IWireCapture):
     - Configurable buffer size and flush intervals
     """
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        stream_session_id_resolver: IStreamSessionIdResolver | None = None,
+    ) -> None:
         self._config = config
         logging_cfg = getattr(config, "logging", None)
         raw_file_path = (
             getattr(logging_cfg, "capture_file", None) if logging_cfg else None
         )
         self._file_path: str | None = _coerce_path(raw_file_path)
+
+        # Stream session ID resolver - create default if not provided
+        if stream_session_id_resolver is None:
+            from src.core.services.stream_session_id_resolver import (
+                StreamSessionIdResolver,
+            )
+
+            self._stream_session_id_resolver: IStreamSessionIdResolver = (
+                StreamSessionIdResolver()
+            )
+        else:
+            self._stream_session_id_resolver = stream_session_id_resolver
 
         # Buffer configuration
         capture_buffer_size = (
@@ -684,15 +702,14 @@ class BufferedWireCapture(IWireCapture):
             for key, value in metadata.items():
                 entry_metadata[key] = _sanitize_metadata_value(value)
 
-        resolved_session_id = session_id
-        if not resolved_session_id or not str(resolved_session_id).strip():
-            resolved_session_id = None
-            request_id = None
-            if context is not None:
-                request_id = getattr(context, "request_id", None)
-                if _is_mock(request_id):
-                    request_id = None
-            resolved_session_id = request_id or uuid4().hex
+        # Use centralized session ID resolver for consistency
+        resolved_session_id = (
+            self._stream_session_id_resolver.resolve_stream_session_id(
+                session_id=session_id,
+                context=context,
+                request=None,
+            )
+        )
 
         # Get next sequence number for stable ordering
         self._sequence_counter += 1
@@ -1019,16 +1036,16 @@ class BufferedWireCapture(IWireCapture):
     def _resolve_stream_session_id(
         self, session_id: str | None, context: RequestContext | None
     ) -> str:
-        """Return a stable session identifier for streaming capture."""
-        if session_id and str(session_id).strip():
-            return str(session_id)
+        """Return a stable session identifier for streaming capture.
 
-        request_id: str | None = None
-        if context is not None:
-            request_id = getattr(context, "request_id", None)
-            if _is_mock(request_id):
-                request_id = None
-        if request_id and str(request_id).strip():
-            return str(request_id)
+        This is a thin wrapper method that delegates to the injected
+        IStreamSessionIdResolver. Preserved for backward compatibility.
 
-        return uuid4().hex
+        Note: This method does not have access to the ChatRequest, so it
+        cannot check request.session_id or request.extra_body.session_id.
+        """
+        return self._stream_session_id_resolver.resolve_stream_session_id(
+            session_id=session_id,
+            context=context,
+            request=None,  # BufferedWireCapture doesn't have request access
+        )

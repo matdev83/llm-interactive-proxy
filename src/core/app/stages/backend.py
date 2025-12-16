@@ -277,15 +277,72 @@ class BackendStage(InitializationStage):
                 return
 
             def backend_service_factory(provider: IServiceProvider) -> BackendService:
-                """Factory function for creating BackendService with all dependencies."""
+                """Factory function for creating BackendService with all dependencies.
+
+                This factory mirrors the dependency resolution pattern from
+                register_core_services._backend_service_factory to ensure
+                consistent wiring across composition roots (Requirement 2.4).
+                """
                 import contextlib
                 from typing import cast
 
                 from src.core.config.app_config import AppConfig
-                from src.core.interfaces.failover_interface import IFailoverCoordinator
+                from src.core.interfaces.backend_completion_flow_interface import (
+                    IBackendCompletionFlow,
+                )
+                from src.core.interfaces.backend_lifecycle_manager_interface import (
+                    IBackendLifecycleManager,
+                )
+                from src.core.interfaces.backend_model_resolver_interface import (
+                    IBackendModelResolver,
+                )
+                from src.core.interfaces.exception_normalizer_interface import (
+                    IExceptionNormalizer,
+                )
+                from src.core.interfaces.failover_interface import (
+                    IFailoverCoordinator,
+                    IFailoverStrategy,
+                )
+                from src.core.interfaces.failover_planner_interface import (
+                    IFailoverPlanner,
+                )
+                from src.core.interfaces.failure_strategy_interface import (
+                    IFailureHandlingStrategy,
+                )
+                from src.core.interfaces.model_alias_resolver_interface import (
+                    IModelAliasResolver,
+                )
+                from src.core.interfaces.planning_phase_manager_interface import (
+                    IPlanningPhaseManager,
+                )
+                from src.core.interfaces.reasoning_config_applicator_interface import (
+                    IReasoningConfigApplicator,
+                )
+                from src.core.interfaces.stream_formatting_interface import (
+                    IStreamFormattingService,
+                )
+                from src.core.interfaces.stream_session_id_resolver_interface import (
+                    IStreamSessionIdResolver,
+                )
+                from src.core.interfaces.uri_parameter_applicator_interface import (
+                    IURIParameterApplicator,
+                )
+                from src.core.interfaces.usage_tracking_interface import (
+                    IUsageTrackingService,
+                )
+                from src.core.interfaces.usage_tracking_wrapper_interface import (
+                    IUsageTrackingWrapper,
+                )
                 from src.core.interfaces.wire_capture_interface import IWireCapture
                 from src.core.services.backend_factory import BackendFactory
+                from src.core.services.backend_routing_service import (
+                    BackendRoutingService,
+                )
+                from src.core.services.resilience.coordinator import (
+                    ResilienceCoordinator,
+                )
 
+                # Required services
                 backend_factory: BackendFactory = provider.get_required_service(
                     BackendFactory
                 )
@@ -301,18 +358,93 @@ class BackendStage(InitializationStage):
                     cast(type, IApplicationState)
                 )
 
-                # Get optional failover coordinator
+                # Optional failover services
                 failover_coordinator: IFailoverCoordinator | None = None
                 with contextlib.suppress(Exception):
                     failover_coordinator = provider.get_service(
                         cast(type, IFailoverCoordinator)
                     )
 
-                # Get wire capture service
-                wire_capture: IWireCapture = provider.get_required_service(
+                failover_strategy: IFailoverStrategy | None = None
+                try:
+                    if (
+                        app_state.get_use_failover_strategy()
+                        and failover_coordinator is not None
+                    ):
+                        from src.core.services.failover_strategy import (
+                            DefaultFailoverStrategy,
+                        )
+
+                        failover_strategy = DefaultFailoverStrategy(
+                            failover_coordinator
+                        )
+                except (AttributeError, ImportError, TypeError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to enable failover strategy: %s", e, exc_info=True
+                        )
+
+                # Optional infrastructure services
+                wire_capture: IWireCapture | None = provider.get_service(
                     cast(type, IWireCapture)
                 )
+                routing_service: BackendRoutingService | None = provider.get_service(
+                    BackendRoutingService
+                )
+                resilience_coordinator: ResilienceCoordinator | None = (
+                    provider.get_service(ResilienceCoordinator)
+                )
+                # Resolve failure handling strategy from DI or construct from config (Phase 4B)
+                from src.core.di.services import _resolve_failure_strategy
 
+                failure_handling_strategy: IFailureHandlingStrategy | None = (
+                    _resolve_failure_strategy(provider, app_config, routing_service)
+                )
+                usage_tracking_service: IUsageTrackingService | None = (
+                    provider.get_service(cast(type, IUsageTrackingService))
+                )
+
+                # Required extracted services (Phase 1-3 collaborators)
+                stream_formatting_service: IStreamFormattingService = (
+                    provider.get_required_service(cast(type, IStreamFormattingService))
+                )
+                usage_tracking_wrapper: IUsageTrackingWrapper = (
+                    provider.get_required_service(cast(type, IUsageTrackingWrapper))
+                )
+                model_alias_resolver: IModelAliasResolver = (
+                    provider.get_required_service(cast(type, IModelAliasResolver))
+                )
+                exception_normalizer: IExceptionNormalizer = (
+                    provider.get_required_service(cast(type, IExceptionNormalizer))
+                )
+                backend_lifecycle_manager: IBackendLifecycleManager = (
+                    provider.get_required_service(cast(type, IBackendLifecycleManager))
+                )
+                planning_phase_manager: IPlanningPhaseManager = (
+                    provider.get_required_service(cast(type, IPlanningPhaseManager))
+                )
+                reasoning_config_applicator: IReasoningConfigApplicator = (
+                    provider.get_required_service(
+                        cast(type, IReasoningConfigApplicator)
+                    )
+                )
+                uri_parameter_applicator: IURIParameterApplicator = (
+                    provider.get_required_service(cast(type, IURIParameterApplicator))
+                )
+                stream_session_id_resolver: IStreamSessionIdResolver = (
+                    provider.get_required_service(cast(type, IStreamSessionIdResolver))
+                )
+                backend_model_resolver: IBackendModelResolver = (
+                    provider.get_required_service(cast(type, IBackendModelResolver))
+                )
+                failover_planner: IFailoverPlanner = provider.get_required_service(
+                    cast(type, IFailoverPlanner)
+                )
+                backend_completion_flow: IBackendCompletionFlow = (
+                    provider.get_required_service(cast(type, IBackendCompletionFlow))
+                )
+
+                # Construct BackendService with all explicit dependencies (Requirement 2.4)
                 return BackendService(  # noqa: DI-bypass (factory construction)
                     backend_factory,
                     rate_limiter,
@@ -321,7 +453,24 @@ class BackendStage(InitializationStage):
                     app_state,
                     backend_config_provider=backend_config_provider,
                     failover_coordinator=failover_coordinator,
+                    failover_strategy=failover_strategy,
                     wire_capture=wire_capture,
+                    routing_service=routing_service,
+                    resilience_coordinator=resilience_coordinator,
+                    failure_handling_strategy=failure_handling_strategy,
+                    usage_tracking_service=usage_tracking_service,
+                    stream_formatting_service=stream_formatting_service,
+                    usage_tracking_wrapper=usage_tracking_wrapper,
+                    model_alias_resolver=model_alias_resolver,
+                    exception_normalizer=exception_normalizer,
+                    backend_lifecycle_manager=backend_lifecycle_manager,
+                    planning_phase_manager=planning_phase_manager,
+                    reasoning_config_applicator=reasoning_config_applicator,
+                    uri_parameter_applicator=uri_parameter_applicator,
+                    stream_session_id_resolver=stream_session_id_resolver,
+                    backend_model_resolver=backend_model_resolver,
+                    failover_planner=failover_planner,
+                    backend_completion_flow=backend_completion_flow,
                 )
 
             services.add_singleton(

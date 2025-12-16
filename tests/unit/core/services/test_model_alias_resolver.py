@@ -255,10 +255,15 @@ class TestMockConfigHandling:
 
 
 class TestEquivalenceWithBackendService:
-    """Ensure ModelAliasResolver matches BackendService._apply_model_aliases."""
+    """Integration tests verifying BackendService delegates correctly to ModelAliasResolver.
 
-    def test_claude_to_gemini_alias(self) -> None:
-        """Test Claude to Gemini alias pattern."""
+    After Phase 4 refactoring, BackendService delegates model alias resolution to
+    ModelAliasResolver. These tests verify that the delegation works correctly
+    and produces equivalent results.
+    """
+
+    def test_backend_service_delegates_to_model_alias_resolver(self) -> None:
+        """Test that BackendService._apply_model_aliases delegates to ModelAliasResolver."""
         from src.core.config.app_config import (
             AppConfig,
             BackendSettings,
@@ -276,24 +281,41 @@ class TestEquivalenceWithBackendService:
             ],
         )
 
+        # Create a ModelAliasResolver to track calls
+        resolver = ModelAliasResolver(config=config)
+
+        # Create BackendService with minimal mocks and inject our resolver
         backend_service = BackendService(
             factory=Mock(),
             rate_limiter=Mock(),
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,  # Inject our resolver
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
+
+        # Test that delegation works
         backend_result = backend_service._apply_model_aliases(
             "claude-3-sonnet-20240229"
         )
-
-        resolver = ModelAliasResolver(config=config)
         resolver_result = resolver.resolve("claude-3-sonnet-20240229")
 
         assert backend_result == resolver_result == "gemini-oauth-plan:gemini-1.5-flash"
 
-    def test_gpt_capture_group_alias(self) -> None:
-        """Test GPT capture group alias pattern."""
+    def test_backend_service_with_capture_groups(self) -> None:
+        """Test BackendService delegation with capture group patterns."""
         from src.core.config.app_config import (
             AppConfig,
             BackendSettings,
@@ -311,22 +333,36 @@ class TestEquivalenceWithBackendService:
             ],
         )
 
+        resolver = ModelAliasResolver(config=config)
+
         backend_service = BackendService(
             factory=Mock(),
             rate_limiter=Mock(),
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("gpt-4o-mini")
 
-        resolver = ModelAliasResolver(config=config)
+        backend_result = backend_service._apply_model_aliases("gpt-4o-mini")
         resolver_result = resolver.resolve("gpt-4o-mini")
 
         assert backend_result == resolver_result == "openrouter:openai/gpt-4o-mini"
 
-    def test_catch_all_alias(self) -> None:
-        """Test catch-all alias pattern."""
+    def test_backend_service_no_match_returns_original(self) -> None:
+        """Test BackendService delegation when no patterns match."""
         from src.core.config.app_config import (
             AppConfig,
             BackendSettings,
@@ -338,11 +374,13 @@ class TestEquivalenceWithBackendService:
             backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
-                    pattern="^(.*)$",
-                    replacement="default-backend:\\1",
+                    pattern="^special-.*$",
+                    replacement="replaced",
                 ),
             ],
         )
+
+        resolver = ModelAliasResolver(config=config)
 
         backend_service = BackendService(
             factory=Mock(),
@@ -350,16 +388,28 @@ class TestEquivalenceWithBackendService:
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("any-model")
 
-        resolver = ModelAliasResolver(config=config)
-        resolver_result = resolver.resolve("any-model")
+        backend_result = backend_service._apply_model_aliases("normal-model")
+        resolver_result = resolver.resolve("normal-model")
 
-        assert backend_result == resolver_result == "default-backend:any-model"
+        assert backend_result == resolver_result == "normal-model"
 
-    def test_empty_aliases_returns_original(self) -> None:
-        """Test empty aliases returns original model."""
+    def test_backend_service_empty_aliases_returns_original(self) -> None:
+        """Test BackendService delegation with empty alias list."""
         from src.core.config.app_config import AppConfig, BackendSettings
         from src.core.services.backend_service import BackendService
 
@@ -368,16 +418,30 @@ class TestEquivalenceWithBackendService:
             model_aliases=[],
         )
 
+        resolver = ModelAliasResolver(config=config)
+
         backend_service = BackendService(
             factory=Mock(),
             rate_limiter=Mock(),
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("my-model")
 
-        resolver = ModelAliasResolver(config=config)
+        backend_result = backend_service._apply_model_aliases("my-model")
         resolver_result = resolver.resolve("my-model")
 
         assert backend_result == resolver_result == "my-model"

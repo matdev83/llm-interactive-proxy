@@ -2,7 +2,7 @@
 Additional tests for the BackendService using Hypothesis for property-based testing.
 """
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -20,7 +20,10 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
-from src.core.services.backend_service import BackendService
+
+from tests.unit.fixtures.backend_service_builder import (
+    create_backend_service_with_mocks,
+)
 
 
 class MockBackend(LLMBackend):
@@ -48,12 +51,12 @@ class MockBackend(LLMBackend):
 
     async def chat_completions(
         self,
-        request_data: ChatRequest,
-        processed_messages: list,
+        request_data: Any,
+        processed_messages: list[Any],
         effective_model: str,
         identity: Any | None = None,
         **kwargs: Any,
-    ) -> ResponseEnvelope | Any:
+    ) -> ResponseEnvelope:
         self.chat_completions_called = True
         self.chat_completions_args = {
             "request_data": request_data,
@@ -62,7 +65,7 @@ class MockBackend(LLMBackend):
             "identity": identity,
             "kwargs": kwargs,
         }
-        return await self.chat_completions_mock()
+        return cast(ResponseEnvelope, await self.chat_completions_mock())
 
 
 @pytest.fixture(scope="session")
@@ -151,35 +154,23 @@ def create_backend_service(
     stub_failover_coordinator,
 ):
     """Create a BackendService instance for testing using session-scoped fixtures."""
-    client = backend_factory._client
-    registry = backend_factory._backend_registry
-    config = backend_factory._config
-    translation_service = backend_factory._translation_service
-    factory = BackendFactory(client, registry, config, translation_service)
-
-    # Create concrete implementation
-    class ConcreteBackendService(BackendService):
-        async def chat_completions(
-            self, request: ChatRequest, **kwargs: Any
-        ) -> ResponseEnvelope:
-            stream = kwargs.get("stream", False)
-            from src.core.domain.responses import StreamingResponseEnvelope
-
-            result = await self.call_completion(request, stream=stream)
-            if isinstance(result, StreamingResponseEnvelope):
-                async for _ in result.content:
-                    pass
-                return ResponseEnvelope(content={}, headers={}, usage=None)
-            return result
-
-    return ConcreteBackendService(
-        factory,
-        mock_rate_limiter,
-        mock_app_config,
-        mock_session_service,
-        mock_app_state,
+    # Just use the helper with minimal mocks - BackendService is now a thin facade
+    return create_backend_service_with_mocks(
+        factory=backend_factory,
+        rate_limiter=mock_rate_limiter,
+        config=mock_app_config,
+        session_service=mock_session_service,
+        app_state=mock_app_state,
         failover_coordinator=stub_failover_coordinator,
+        use_real_completion_flow=True,
     )
+
+
+# NOTE: These tests need refactoring after Phase 4 of backend-service-god-object-refactoring
+# BackendService is now a thin facade, and these tests were testing internal behavior
+# that has been moved to BackendCompletionFlow and other collaborators.
+# TODO: Refactor these tests to either test BackendCompletionFlow directly or test
+# the public contract of BackendService through integration tests.
 
 
 class TestBackendServiceHypothesis:
@@ -236,9 +227,17 @@ class TestBackendServiceHypothesis:
             extra_body={"backend_type": BackendType.OPENAI},
         )
 
-        # Mock resolve_backend_and_model
-        service._resolve_backend_and_model = AsyncMock(
-            return_value=("openai", model_name, {})
+        # Mock target resolution at the completion-flow layer (BackendService delegates)
+        from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+
+        service._backend_completion_flow._backend_model_resolver.resolve_target = (
+            AsyncMock(
+                return_value=ResolvedTarget(
+                    backend="openai",
+                    model=model_name,
+                    uri_params={},
+                )
+            )
         )
 
         with patch.object(
@@ -340,17 +339,32 @@ class TestBackendServiceHypothesis:
             extra_body={"backend_type": BackendType.OPENAI},
         )
 
+        # Configure the backend model resolver to return expected backend/model
+        from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+
+        service._backend_completion_flow._backend_model_resolver.resolve_target = (
+            AsyncMock(
+                return_value=ResolvedTarget(
+                    backend="openai",
+                    model="test-model",
+                    uri_params={},
+                )
+            )
+        )
+
         # Test with different cooldown configurations
         for cooldown in [60.0, 120.0, 300.0]:
             # Create a mock ResilienceCoordinator that rejects requests
             mock_resilience = Mock()
             mock_decision = Mock(spec=ResilienceDecision)
-            mock_decision.should_proceed.return_value = False
+            # Make should_proceed() return False when called
+            mock_decision.should_proceed = Mock(return_value=False)
             mock_decision.reason = f"Rate limit exceeded, cooldown {cooldown}s"
             mock_decision.cooldown_remaining = cooldown
             mock_resilience.check_availability.return_value = mock_decision
 
-            service._resilience = mock_resilience
+            # Set resilience on the BackendCompletionFlow, not the BackendService
+            service._backend_completion_flow._resilience = mock_resilience
 
             with pytest.raises(RateLimitExceededError):
                 await service.call_completion(chat_request)
@@ -402,9 +416,19 @@ class TestBackendServiceHypothesis:
                 extra_body={"backend_type": BackendType.OPENAI},
             )
 
-            # Mock resolve_backend_and_model
-            service._resolve_backend_and_model = AsyncMock(
-                return_value=("openai", "test-model", {})
+            # Mock target resolution at the completion-flow layer (BackendService delegates)
+            from src.core.interfaces.backend_model_resolver_interface import (
+                ResolvedTarget,
+            )
+
+            service._backend_completion_flow._backend_model_resolver.resolve_target = (
+                AsyncMock(
+                    return_value=ResolvedTarget(
+                        backend="openai",
+                        model="test-model",
+                        uri_params={},
+                    )
+                )
             )
 
             with patch.object(

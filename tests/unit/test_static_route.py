@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.config.app_config import AppConfig, BackendSettings
 from src.core.domain.chat import ChatRequest
-from src.core.services.backend_service import BackendService
+from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+
+from tests.unit.fixtures.backend_service_builder import (
+    create_backend_service_with_mocks,
+)
 
 
 class TestStaticRoute:
@@ -73,7 +77,15 @@ class TestStaticRoute:
         mock_app_state,
     ):
         """Test that without static_route, the requested model is used."""
-        service = BackendService(
+        from unittest.mock import AsyncMock
+
+        # Create a mock backend_model_resolver that returns the expected ResolvedTarget
+        mock_backend_model_resolver = MagicMock()
+        mock_backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
+        )
+
+        service = create_backend_service_with_mocks(
             factory=mock_backend_factory,
             rate_limiter=mock_rate_limiter,
             config=mock_config_without_static_route,
@@ -81,6 +93,7 @@ class TestStaticRoute:
             app_state=mock_app_state,
             wire_capture=mock_wire_capture,
             failover_routes={},
+            backend_model_resolver=mock_backend_model_resolver,
         )
 
         request = ChatRequest(
@@ -107,7 +120,17 @@ class TestStaticRoute:
         mock_app_state,
     ):
         """Test that static_route overrides both backend and model."""
-        service = BackendService(
+        from unittest.mock import AsyncMock
+
+        # Create a mock backend_model_resolver that returns the expected ResolvedTarget
+        mock_backend_model_resolver = MagicMock()
+        mock_backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="gemini-oauth-plan", model="gemini-2.5-pro", uri_params={}
+            )
+        )
+
+        service = create_backend_service_with_mocks(
             factory=mock_backend_factory,
             rate_limiter=mock_rate_limiter,
             config=mock_config_with_static_route,
@@ -115,6 +138,7 @@ class TestStaticRoute:
             app_state=mock_app_state,
             wire_capture=mock_wire_capture,
             failover_routes={},
+            backend_model_resolver=mock_backend_model_resolver,
         )
 
         request = ChatRequest(
@@ -141,7 +165,17 @@ class TestStaticRoute:
         mock_app_state,
     ):
         """Test that static_route works with backend:model prefix in request."""
-        service = BackendService(
+        from unittest.mock import AsyncMock
+
+        # Create a mock backend_model_resolver that returns the expected ResolvedTarget
+        mock_backend_model_resolver = MagicMock()
+        mock_backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="gemini-oauth-plan", model="gemini-2.5-pro", uri_params={}
+            )
+        )
+
+        service = create_backend_service_with_mocks(
             factory=mock_backend_factory,
             rate_limiter=mock_rate_limiter,
             config=mock_config_with_static_route,
@@ -149,6 +183,7 @@ class TestStaticRoute:
             app_state=mock_app_state,
             wire_capture=mock_wire_capture,
             failover_routes={},
+            backend_model_resolver=mock_backend_model_resolver,
         )
 
         request = ChatRequest(
@@ -174,7 +209,23 @@ class TestStaticRoute:
         mock_app_state,
     ):
         """Ensure request and extra_body reflect the resolved backend/model."""
-        service = BackendService(
+        # Create a mock backend_model_resolver with synchronize_request_with_target
+        mock_backend_model_resolver = MagicMock()
+
+        def mock_synchronize(request, resolved):
+            # Create a copy of the request and update it
+            updated = ChatRequest(
+                model=resolved.model,
+                messages=request.messages,
+                extra_body=request.extra_body.copy() if request.extra_body else {},
+            )
+            updated.extra_body["model"] = resolved.model
+            updated.extra_body["backend_type"] = resolved.backend
+            return updated
+
+        mock_backend_model_resolver.synchronize_request_with_target = mock_synchronize
+
+        service = create_backend_service_with_mocks(
             factory=mock_backend_factory,
             rate_limiter=mock_rate_limiter,
             config=mock_config_with_static_route,
@@ -182,6 +233,7 @@ class TestStaticRoute:
             app_state=mock_app_state,
             wire_capture=mock_wire_capture,
             failover_routes={},
+            backend_model_resolver=mock_backend_model_resolver,
         )
 
         original_model = "gemini-cli-oauth-personal:models/gemini-2.5-pro"

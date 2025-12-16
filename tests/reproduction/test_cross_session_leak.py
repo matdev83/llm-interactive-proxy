@@ -93,7 +93,6 @@ async def test_backend_service_isolation():
     from src.core.interfaces.rate_limiter_interface import IRateLimiter
     from src.core.interfaces.session_service_interface import ISessionService
     from src.core.services.backend_factory import BackendFactory
-    from src.core.services.backend_service import BackendService
 
     # Mock dependencies
     factory = MagicMock(spec=BackendFactory)
@@ -102,19 +101,42 @@ async def test_backend_service_isolation():
     session_service = MagicMock(spec=ISessionService)
     app_state = MagicMock(spec=IApplicationState)
 
+    # Mock factory to return different mock backends
+    mock_backend_a = MagicMock()
+    mock_backend_b = MagicMock()
+    factory.ensure_backend.side_effect = [mock_backend_a, mock_backend_b]
+
+    # Mock lifecycle manager to track backends per session
+    from src.core.interfaces.backend_lifecycle_manager_interface import (
+        IBackendLifecycleManager,
+    )
+
+    mock_lifecycle = MagicMock(spec=IBackendLifecycleManager)
+    call_count = [0]
+
+    async def get_or_create_impl(backend_type, session_id=None):
+        """Return different backends for different sessions."""
+        if call_count[0] == 0:
+            call_count[0] += 1
+            return mock_backend_a
+        else:
+            return mock_backend_b
+
+    mock_lifecycle.get_or_create.side_effect = get_or_create_impl
+
     # Setup BackendService
-    backend_service = BackendService(
+    from tests.unit.fixtures.backend_service_builder import (
+        create_backend_service_with_mocks,
+    )
+
+    backend_service = create_backend_service_with_mocks(
         factory=factory,
         rate_limiter=rate_limiter,
         config=config,
         session_service=session_service,
         app_state=app_state,
+        backend_lifecycle_manager=mock_lifecycle,
     )
-
-    # Mock factory to return different mock backends
-    mock_backend_a = MagicMock()
-    mock_backend_b = MagicMock()
-    factory.ensure_backend.side_effect = [mock_backend_a, mock_backend_b]
 
     # 1. Request backend for Session A
     backend_a = await backend_service._get_or_create_backend(

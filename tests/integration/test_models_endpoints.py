@@ -5,8 +5,7 @@ These tests verify that the /models and /v1/models endpoints work correctly
 with both mocked and real backend configurations.
 """
 
-import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -313,7 +312,6 @@ class TestModelsDiscovery:
     async def test_discover_openai_models(self, mock_backend_factory):
         """Test discovering models from OpenAI backend."""
         from src.core.interfaces.rate_limiter_interface import IRateLimiter
-        from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
         mock_rate_limiter = MagicMock(spec=IRateLimiter)
@@ -326,18 +324,12 @@ class TestModelsDiscovery:
         # Create mock session service
         mock_session_service = MagicMock(spec=ISessionService)
 
-        # Create backend service (inject a stub failover coordinator to avoid warnings)
+        # Create backend service using builder
         mock_app_state = MagicMock(spec=IApplicationState)
-        from tests.utils.failover_stub import StubFailoverCoordinator
-
-        service = BackendService(
-            mock_backend_factory,
-            mock_rate_limiter,
-            mock_config,
-            mock_session_service,
-            mock_app_state,
-            failover_coordinator=StubFailoverCoordinator(),
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
         )
+        from tests.utils.failover_stub import StubFailoverCoordinator
 
         # Mock OpenAI backend
         mock_openai = AsyncMock()
@@ -347,14 +339,34 @@ class TestModelsDiscovery:
             "gpt-3.5-turbo",
             "gpt-3.5-turbo-16k",
         ]
+        mock_openai.initialize = AsyncMock()
 
         # Set up the mock to return our mock backend when called with "openai"
-        mock_backend_factory.create_backend.return_value = mock_openai
         mock_backend_factory.ensure_backend = AsyncMock(return_value=mock_openai)
         mock_backend_factory.initialize_backend = AsyncMock()
 
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+
+        # Mock lifecycle manager
+        mock_lifecycle_manager = AsyncMock(spec=IBackendLifecycleManager)
+        mock_lifecycle_manager.get_disabled_backends.return_value = {}
+        mock_lifecycle_manager.get_or_create = AsyncMock(return_value=mock_openai)
+
+        service = create_backend_service_with_mocks(
+            factory=mock_backend_factory,
+            rate_limiter=mock_rate_limiter,
+            config=mock_config,
+            session_service=mock_session_service,
+            app_state=mock_app_state,
+            failover_coordinator=StubFailoverCoordinator(),
+            use_real_completion_flow=True,
+            backend_lifecycle_manager=mock_lifecycle_manager,
+        )
+
         # Get backend and discover models
-        backend = await service._get_or_create_backend("openai")  # Used string literal
+        backend = await service._backend_lifecycle_manager.get_or_create("openai")
         models = await backend.get_available_models()
 
         assert len(models) == 4
@@ -365,7 +377,6 @@ class TestModelsDiscovery:
     async def test_discover_anthropic_models(self, mock_backend_factory):
         """Test discovering models from Anthropic backend."""
         from src.core.interfaces.rate_limiter_interface import IRateLimiter
-        from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
         mock_rate_limiter = MagicMock(spec=IRateLimiter)
@@ -378,18 +389,12 @@ class TestModelsDiscovery:
         # Create mock session service
         mock_session_service = MagicMock(spec=ISessionService)
 
-        # Create backend service (inject a stub failover coordinator to avoid warnings)
+        # Create backend service using builder
         mock_app_state = MagicMock(spec=IApplicationState)
-        from tests.utils.failover_stub import StubFailoverCoordinator
-
-        service = BackendService(
-            mock_backend_factory,
-            mock_rate_limiter,
-            mock_config,
-            mock_session_service,
-            mock_app_state,
-            failover_coordinator=StubFailoverCoordinator(),
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
         )
+        from tests.utils.failover_stub import StubFailoverCoordinator
 
         # Mock Anthropic backend
         mock_anthropic = AsyncMock()
@@ -399,16 +404,34 @@ class TestModelsDiscovery:
             "claude-3-haiku-20240307",
             "claude-2.1",
         ]
+        mock_anthropic.initialize = AsyncMock()
 
         # Set up the mock to return our mock backend when called with "anthropic"
-        mock_backend_factory.create_backend.return_value = mock_anthropic
         mock_backend_factory.ensure_backend = AsyncMock(return_value=mock_anthropic)
         mock_backend_factory.initialize_backend = AsyncMock()
 
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+
+        # Mock lifecycle manager
+        mock_lifecycle_manager = AsyncMock(spec=IBackendLifecycleManager)
+        mock_lifecycle_manager.get_disabled_backends.return_value = {}
+        mock_lifecycle_manager.get_or_create = AsyncMock(return_value=mock_anthropic)
+
+        service = create_backend_service_with_mocks(
+            factory=mock_backend_factory,
+            rate_limiter=mock_rate_limiter,
+            config=mock_config,
+            session_service=mock_session_service,
+            app_state=mock_app_state,
+            failover_coordinator=StubFailoverCoordinator(),
+            use_real_completion_flow=True,
+            backend_lifecycle_manager=mock_lifecycle_manager,
+        )
+
         # Get backend and discover models
-        backend = await service._get_or_create_backend(
-            "anthropic"
-        )  # Used string literal
+        backend = await service._backend_lifecycle_manager.get_or_create("anthropic")
         models = await backend.get_available_models()
 
         assert len(models) == 4
@@ -419,7 +442,6 @@ class TestModelsDiscovery:
     async def test_discover_models_with_failover(self, mock_backend_factory):
         """Test model discovery when primary backend fails."""
         from src.core.interfaces.rate_limiter_interface import IRateLimiter
-        from src.core.services.backend_service import BackendService
 
         # Create mock rate limiter
         mock_rate_limiter = MagicMock(spec=IRateLimiter)
@@ -441,50 +463,76 @@ class TestModelsDiscovery:
         }
 
         mock_app_state = MagicMock(spec=IApplicationState)
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
         from tests.utils.failover_stub import StubFailoverCoordinator
 
-        service = BackendService(
-            mock_backend_factory,
-            mock_rate_limiter,
-            mock_config,
-            mock_session_service,
-            mock_app_state,
-            failover_routes=failover_routes,
-            failover_coordinator=StubFailoverCoordinator(),
+        # Mock failover backend
+        mock_openrouter = MagicMock()
+        mock_openrouter.get_available_models = Mock(
+            return_value=[
+                "openrouter/gpt-4",
+                "openrouter/claude-3",
+            ]
         )
-
-        # First call fails
-        mock_backend_factory.create_backend.side_effect = [
-            ValueError("API key invalid"),
-            AsyncMock(
-                get_available_models=lambda: ["openrouter/gpt-4", "openrouter/claude-3"]
-            ),
-        ]
-        mock_backend_factory.initialize_backend = AsyncMock()
+        mock_openrouter.initialize = AsyncMock()
 
         # Mock the ensure_backend method to return the appropriate backend
         mock_backend_factory.ensure_backend = AsyncMock(
             side_effect=[
                 ValueError("API key invalid"),
-                AsyncMock(
-                    get_available_models=lambda: [
-                        "openrouter/gpt-4",
-                        "openrouter/claude-3",
-                    ]
-                ),
+                mock_openrouter,
             ]
+        )
+        mock_backend_factory.initialize_backend = AsyncMock()
+
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+
+        # Mock lifecycle manager
+        mock_lifecycle_manager = AsyncMock(spec=IBackendLifecycleManager)
+        mock_lifecycle_manager.get_disabled_backends.return_value = {}
+        call_count = [0]
+
+        async def get_or_create_side_effect(backend_type, session_id=None):
+            call_count[0] += 1
+            if backend_type == "openai" and call_count[0] == 1:
+                raise ValueError("API key invalid")
+            elif backend_type == "openrouter":
+                return mock_openrouter
+            else:
+                raise ValueError(f"Unexpected backend: {backend_type}")
+
+        mock_lifecycle_manager.get_or_create = AsyncMock(
+            side_effect=get_or_create_side_effect
+        )
+
+        service = create_backend_service_with_mocks(
+            factory=mock_backend_factory,
+            rate_limiter=mock_rate_limiter,
+            config=mock_config,
+            session_service=mock_session_service,
+            app_state=mock_app_state,
+            failover_routes=failover_routes,
+            failover_coordinator=StubFailoverCoordinator(),
+            use_real_completion_flow=True,
+            backend_lifecycle_manager=mock_lifecycle_manager,
         )
 
         # Should handle the error and not crash
-        with contextlib.suppress(Exception):
-            backend = await service._get_or_create_backend("openai")
+        with pytest.raises(ValueError):
+            await service._backend_lifecycle_manager.get_or_create("openai")
 
         # Second attempt should work with fallback
-        backend = await service._get_or_create_backend("openrouter")
+        backend = await service._backend_lifecycle_manager.get_or_create("openrouter")
+        # get_available_models is not async
         models = backend.get_available_models()
 
         assert len(models) == 2
         assert "openrouter/gpt-4" in models
+        assert "openrouter/claude-3" in models
 
 
 class TestModelsEndpointIntegration:

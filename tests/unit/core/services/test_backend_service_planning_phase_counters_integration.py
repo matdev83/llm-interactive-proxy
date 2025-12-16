@@ -11,7 +11,10 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
-from src.core.services.backend_service import BackendService
+
+from tests.unit.fixtures.backend_service_builder import (
+    create_backend_service_with_mocks,
+)
 
 
 class _OkBackend:
@@ -64,13 +67,14 @@ async def test_call_completion_updates_planning_counters_non_streaming() -> None
     session_service = AsyncMock(spec=ISessionService)
     session_service.get_session = AsyncMock(return_value=None)
 
-    service = BackendService(
+    service = create_backend_service_with_mocks(
         factory=Mock(spec=BackendFactory),
         rate_limiter=Mock(),
         config=AppConfig(),
         session_service=session_service,
         app_state=Mock(spec=IApplicationState),
         planning_phase_manager=planning_phase_manager,
+        use_real_completion_flow=True,
     )
 
     service._resolve_backend_and_model = AsyncMock(return_value=("openai", "gpt-4", {}))
@@ -104,18 +108,24 @@ async def test_call_completion_updates_planning_counters_streaming_after_consume
     session_service = AsyncMock(spec=ISessionService)
     session_service.get_session = AsyncMock(return_value=None)
 
-    service = BackendService(
+    service = create_backend_service_with_mocks(
         factory=Mock(spec=BackendFactory),
         rate_limiter=Mock(),
         config=AppConfig(),
         session_service=session_service,
         app_state=Mock(spec=IApplicationState),
         planning_phase_manager=planning_phase_manager,
+        use_real_completion_flow=True,
     )
 
     service._resolve_backend_and_model = AsyncMock(return_value=("openai", "gpt-4", {}))
     service._backend_lifecycle_manager.get_or_create = AsyncMock(
         return_value=_StreamingOkBackend()
+    )
+
+    # Mock the stream session ID resolver to return the expected session ID
+    service._backend_completion_flow._stream_session_id_resolver.resolve_stream_session_id.return_value = (
+        "sess-1"
     )
 
     request = ChatRequest(

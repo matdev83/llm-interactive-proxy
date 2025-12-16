@@ -661,11 +661,43 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     from src.core.config.app_config import AppConfig
     from src.core.di.container import ServiceCollection
     from src.core.interfaces.application_state_interface import IApplicationState
+    from src.core.interfaces.backend_completion_flow_interface import (
+        IBackendCompletionFlow,
+    )
     from src.core.interfaces.backend_config_provider_interface import (
         IBackendConfigProvider,
     )
+    from src.core.interfaces.backend_lifecycle_manager_interface import (
+        IBackendLifecycleManager,
+    )
+    from src.core.interfaces.backend_model_resolver_interface import (
+        IBackendModelResolver,
+    )
     from src.core.interfaces.backend_service_interface import IBackendService
+    from src.core.interfaces.exception_normalizer_interface import (
+        IExceptionNormalizer,
+    )
+    from src.core.interfaces.failover_planner_interface import IFailoverPlanner
+    from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
+    from src.core.interfaces.planning_phase_manager_interface import (
+        IPlanningPhaseManager,
+    )
+    from src.core.interfaces.reasoning_config_applicator_interface import (
+        IReasoningConfigApplicator,
+    )
     from src.core.interfaces.session_service_interface import ISessionService
+    from src.core.interfaces.stream_formatting_interface import (
+        IStreamFormattingService,
+    )
+    from src.core.interfaces.stream_session_id_resolver_interface import (
+        IStreamSessionIdResolver,
+    )
+    from src.core.interfaces.uri_parameter_applicator_interface import (
+        IURIParameterApplicator,
+    )
+    from src.core.interfaces.usage_tracking_wrapper_interface import (
+        IUsageTrackingWrapper,
+    )
     from src.core.interfaces.wire_capture_interface import IWireCapture
     from src.core.services.backend_factory import BackendFactory
     from src.core.services.rate_limiter import RateLimiter
@@ -680,6 +712,45 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     services.add_instance(cast(type, ISessionService), MagicMock(spec=ISessionService))
     services.add_instance(cast(type, IApplicationState), MagicMock())
     services.add_instance(cast(type, IWireCapture), MagicMock())
+
+    # Register extracted services required by Phase 4 refactoring
+    services.add_instance(
+        cast(type, IStreamFormattingService), MagicMock(spec=IStreamFormattingService)
+    )
+    services.add_instance(
+        cast(type, IUsageTrackingWrapper), MagicMock(spec=IUsageTrackingWrapper)
+    )
+    services.add_instance(
+        cast(type, IModelAliasResolver), MagicMock(spec=IModelAliasResolver)
+    )
+    services.add_instance(
+        cast(type, IExceptionNormalizer), MagicMock(spec=IExceptionNormalizer)
+    )
+    services.add_instance(
+        cast(type, IBackendLifecycleManager), MagicMock(spec=IBackendLifecycleManager)
+    )
+    services.add_instance(
+        cast(type, IPlanningPhaseManager), MagicMock(spec=IPlanningPhaseManager)
+    )
+    services.add_instance(
+        cast(type, IReasoningConfigApplicator),
+        MagicMock(spec=IReasoningConfigApplicator),
+    )
+    services.add_instance(
+        cast(type, IURIParameterApplicator), MagicMock(spec=IURIParameterApplicator)
+    )
+    services.add_instance(
+        cast(type, IStreamSessionIdResolver), MagicMock(spec=IStreamSessionIdResolver)
+    )
+    services.add_instance(
+        cast(type, IBackendModelResolver), MagicMock(spec=IBackendModelResolver)
+    )
+    services.add_instance(
+        cast(type, IFailoverPlanner), MagicMock(spec=IFailoverPlanner)
+    )
+    services.add_instance(
+        cast(type, IBackendCompletionFlow), MagicMock(spec=IBackendCompletionFlow)
+    )
 
     backend_stage = BackendStage()
 

@@ -7,7 +7,7 @@ Validates:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
@@ -226,12 +226,21 @@ class TestAliasGracefulDegradationProperty:
 
 
 class TestEquivalenceWithBackendService:
-    """Ensure ModelAliasResolver matches BackendService._apply_model_aliases behavior."""
+    """Property-based integration tests verifying BackendService delegates correctly to ModelAliasResolver.
 
-    def test_simple_replacement_matches_backend_service(self) -> None:
-        """Simple pattern replacement should match BackendService behavior."""
-        from unittest.mock import Mock
+    After Phase 4 refactoring, BackendService delegates model alias resolution to
+    ModelAliasResolver. These tests verify that the delegation works correctly
+    and produces equivalent results using property-based testing.
+    """
 
+    @given(
+        model_name=st.text(
+            min_size=1, max_size=30, alphabet="abcdefghijklmnopqrstuvwxyz0123456789-"
+        )
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_backend_service_delegation_property(self, model_name: str) -> None:
+        """Property test: BackendService delegation should be equivalent to direct ModelAliasResolver usage."""
         from src.core.config.app_config import (
             AppConfig,
             BackendSettings,
@@ -242,62 +251,58 @@ class TestEquivalenceWithBackendService:
         config = AppConfig(
             backends=BackendSettings(default_backend="openai"),
             model_aliases=[
-                ModelAliasRule(pattern="^claude-3$", replacement="anthropic:claude-3"),
-            ],
-        )
-
-        # BackendService result
-        backend_service = BackendService(
-            factory=Mock(),
-            rate_limiter=Mock(),
-            config=config,
-            session_service=Mock(),
-            app_state=Mock(),
-        )
-        backend_result = backend_service._apply_model_aliases("claude-3")
-
-        # ModelAliasResolver result
-        resolver = ModelAliasResolver(config=config)
-        resolver_result = resolver.resolve("claude-3")
-
-        assert backend_result == resolver_result == "anthropic:claude-3"
-
-    def test_capture_group_expansion_matches_backend_service(self) -> None:
-        """Capture group expansion should match BackendService behavior."""
-        from unittest.mock import Mock
-
-        from src.core.config.app_config import (
-            AppConfig,
-            BackendSettings,
-            ModelAliasRule,
-        )
-        from src.core.services.backend_service import BackendService
-
-        config = AppConfig(
-            backends=BackendSettings(default_backend="openai"),
-            model_aliases=[
+                ModelAliasRule(pattern="^claude-.*$", replacement="anthropic:claude"),
                 ModelAliasRule(pattern="^gpt-(.*)", replacement="openai:gpt-\\1"),
             ],
         )
 
+        resolver = ModelAliasResolver(config=config)
+
         backend_service = BackendService(
             factory=Mock(),
             rate_limiter=Mock(),
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("gpt-4o-mini")
 
-        resolver = ModelAliasResolver(config=config)
-        resolver_result = resolver.resolve("gpt-4o-mini")
+        backend_result = backend_service._apply_model_aliases(model_name)
+        resolver_result = resolver.resolve(model_name)
 
-        assert backend_result == resolver_result == "openai:gpt-4o-mini"
+        # Results should be identical
+        assert backend_result == resolver_result
 
-    def test_no_match_returns_original(self) -> None:
-        """Non-matching patterns should return original in both implementations."""
-        from unittest.mock import Mock
-
+    @given(
+        pattern=st.text(
+            min_size=3,
+            max_size=20,
+            alphabet="abcdefghijklmnopqrstuvwxyz0123456789-.*^$",
+        ),
+        replacement=st.text(
+            min_size=1, max_size=20, alphabet="abcdefghijklmnopqrstuvwxyz0123456789-\\"
+        ),
+        model_name=st.text(
+            min_size=1, max_size=20, alphabet="abcdefghijklmnopqrstuvwxyz0123456789-"
+        ),
+    )
+    @settings(max_examples=10, deadline=None)
+    def test_delegation_with_various_patterns(
+        self, pattern: str, replacement: str, model_name: str
+    ) -> None:
+        """Property test: Delegation should work correctly with various regex patterns."""
         from src.core.config.app_config import (
             AppConfig,
             BackendSettings,
@@ -305,12 +310,81 @@ class TestEquivalenceWithBackendService:
         )
         from src.core.services.backend_service import BackendService
 
+        # Skip patterns that are definitely invalid regex
+        assume(not pattern.startswith("[") or pattern.endswith("]"))
+
+        try:
+            # Test if pattern is valid regex
+            import re
+
+            re.compile(pattern)
+
+            config = AppConfig(
+                backends=BackendSettings(default_backend="openai"),
+                model_aliases=[
+                    ModelAliasRule(pattern=pattern, replacement=replacement),
+                ],
+            )
+
+            resolver = ModelAliasResolver(config=config)
+
+            backend_service = BackendService(
+                factory=Mock(),
+                rate_limiter=Mock(),
+                config=config,
+                session_service=Mock(),
+                app_state=Mock(),
+                backend_config_provider=Mock(),
+                stream_formatting_service=Mock(),
+                usage_tracking_wrapper=Mock(),
+                model_alias_resolver=resolver,
+                exception_normalizer=Mock(),
+                backend_lifecycle_manager=Mock(),
+                planning_phase_manager=Mock(),
+                reasoning_config_applicator=Mock(),
+                uri_parameter_applicator=Mock(),
+                stream_session_id_resolver=Mock(),
+                backend_model_resolver=Mock(),
+                failover_planner=Mock(),
+                backend_completion_flow=Mock(),
+            )
+
+            backend_result = backend_service._apply_model_aliases(model_name)
+            resolver_result = resolver.resolve(model_name)
+
+            # Results should be identical
+            assert backend_result == resolver_result
+
+        except re.error:
+            # Skip invalid regex patterns
+            pass
+
+    @given(aliases_count=st.integers(min_value=0, max_value=5))
+    @settings(max_examples=5, deadline=None)
+    def test_delegation_with_multiple_aliases(self, aliases_count: int) -> None:
+        """Property test: Delegation should work correctly with multiple alias rules."""
+        from src.core.config.app_config import (
+            AppConfig,
+            BackendSettings,
+            ModelAliasRule,
+        )
+        from src.core.services.backend_service import BackendService
+
+        # Generate multiple alias rules
+        aliases = []
+        for i in range(aliases_count):
+            aliases.append(
+                ModelAliasRule(
+                    pattern=f"^pattern-{i}-.*$", replacement=f"replacement-{i}"
+                )
+            )
+
         config = AppConfig(
             backends=BackendSettings(default_backend="openai"),
-            model_aliases=[
-                ModelAliasRule(pattern="^special-.*$", replacement="replaced"),
-            ],
+            model_aliases=aliases,
         )
+
+        resolver = ModelAliasResolver(config=config)
 
         backend_service = BackendService(
             factory=Mock(),
@@ -318,10 +392,31 @@ class TestEquivalenceWithBackendService:
             config=config,
             session_service=Mock(),
             app_state=Mock(),
+            backend_config_provider=Mock(),
+            stream_formatting_service=Mock(),
+            usage_tracking_wrapper=Mock(),
+            model_alias_resolver=resolver,
+            exception_normalizer=Mock(),
+            backend_lifecycle_manager=Mock(),
+            planning_phase_manager=Mock(),
+            reasoning_config_applicator=Mock(),
+            uri_parameter_applicator=Mock(),
+            stream_session_id_resolver=Mock(),
+            backend_model_resolver=Mock(),
+            failover_planner=Mock(),
+            backend_completion_flow=Mock(),
         )
-        backend_result = backend_service._apply_model_aliases("normal-model")
 
-        resolver = ModelAliasResolver(config=config)
-        resolver_result = resolver.resolve("normal-model")
+        test_models = [
+            "pattern-0-test",
+            "pattern-1-test",
+            "unrelated-model",
+            "pattern-3-test",
+        ]
 
-        assert backend_result == resolver_result == "normal-model"
+        for model in test_models:
+            backend_result = backend_service._apply_model_aliases(model)
+            resolver_result = resolver.resolve(model)
+
+            # Results should be identical for all test models
+            assert backend_result == resolver_result

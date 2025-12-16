@@ -712,6 +712,83 @@ class MockBackendStage(BaseTestBackendStage):
 
                     wire_capture = provider.get_service(cast(type, IWireCapture))
 
+                # Get required Phase 3 extracted services
+                from src.core.interfaces.backend_completion_flow_interface import (
+                    IBackendCompletionFlow,
+                )
+                from src.core.interfaces.backend_lifecycle_manager_interface import (
+                    IBackendLifecycleManager,
+                )
+                from src.core.interfaces.backend_model_resolver_interface import (
+                    IBackendModelResolver,
+                )
+                from src.core.interfaces.exception_normalizer_interface import (
+                    IExceptionNormalizer,
+                )
+                from src.core.interfaces.failover_planner_interface import (
+                    IFailoverPlanner,
+                )
+                from src.core.interfaces.model_alias_resolver_interface import (
+                    IModelAliasResolver,
+                )
+                from src.core.interfaces.planning_phase_manager_interface import (
+                    IPlanningPhaseManager,
+                )
+                from src.core.interfaces.reasoning_config_applicator_interface import (
+                    IReasoningConfigApplicator,
+                )
+                from src.core.interfaces.stream_formatting_interface import (
+                    IStreamFormattingService,
+                )
+                from src.core.interfaces.stream_session_id_resolver_interface import (
+                    IStreamSessionIdResolver,
+                )
+                from src.core.interfaces.uri_parameter_applicator_interface import (
+                    IURIParameterApplicator,
+                )
+                from src.core.interfaces.usage_tracking_wrapper_interface import (
+                    IUsageTrackingWrapper,
+                )
+
+                stream_formatting_service: IStreamFormattingService = (
+                    provider.get_required_service(cast(type, IStreamFormattingService))
+                )
+                usage_tracking_wrapper: IUsageTrackingWrapper = (
+                    provider.get_required_service(cast(type, IUsageTrackingWrapper))
+                )
+                model_alias_resolver: IModelAliasResolver = (
+                    provider.get_required_service(cast(type, IModelAliasResolver))
+                )
+                exception_normalizer: IExceptionNormalizer = (
+                    provider.get_required_service(cast(type, IExceptionNormalizer))
+                )
+                backend_lifecycle_manager: IBackendLifecycleManager = (
+                    provider.get_required_service(cast(type, IBackendLifecycleManager))
+                )
+                planning_phase_manager: IPlanningPhaseManager = (
+                    provider.get_required_service(cast(type, IPlanningPhaseManager))
+                )
+                reasoning_config_applicator: IReasoningConfigApplicator = (
+                    provider.get_required_service(
+                        cast(type, IReasoningConfigApplicator)
+                    )
+                )
+                uri_parameter_applicator: IURIParameterApplicator = (
+                    provider.get_required_service(cast(type, IURIParameterApplicator))
+                )
+                stream_session_id_resolver: IStreamSessionIdResolver = (
+                    provider.get_required_service(cast(type, IStreamSessionIdResolver))
+                )
+                backend_model_resolver: IBackendModelResolver = (
+                    provider.get_required_service(cast(type, IBackendModelResolver))
+                )
+                failover_planner: IFailoverPlanner = provider.get_required_service(
+                    cast(type, IFailoverPlanner)
+                )
+                backend_completion_flow: IBackendCompletionFlow = (
+                    provider.get_required_service(cast(type, IBackendCompletionFlow))
+                )
+
                 return BackendService(
                     backend_factory,
                     rate_limiter,
@@ -721,6 +798,18 @@ class MockBackendStage(BaseTestBackendStage):
                     backend_config_provider=backend_config_provider,
                     failover_coordinator=failover_coordinator,
                     wire_capture=wire_capture,
+                    stream_formatting_service=stream_formatting_service,
+                    usage_tracking_wrapper=usage_tracking_wrapper,
+                    model_alias_resolver=model_alias_resolver,
+                    exception_normalizer=exception_normalizer,
+                    backend_lifecycle_manager=backend_lifecycle_manager,
+                    planning_phase_manager=planning_phase_manager,
+                    reasoning_config_applicator=reasoning_config_applicator,
+                    uri_parameter_applicator=uri_parameter_applicator,
+                    stream_session_id_resolver=stream_session_id_resolver,
+                    backend_model_resolver=backend_model_resolver,
+                    failover_planner=failover_planner,
+                    backend_completion_flow=backend_completion_flow,
                 )
 
             # Register BackendService with factory

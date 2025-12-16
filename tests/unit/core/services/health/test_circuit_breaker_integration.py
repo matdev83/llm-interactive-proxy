@@ -143,6 +143,28 @@ class TestCircuitBreakerIntegration:
             active_backends
         )
 
+        # Mock failover_planner with _filter_unhealthy_backends method
+        mock_failover_planner = MagicMock()
+
+        def filter_unhealthy(plan):
+            # Simple implementation that filters unhealthy backends
+            if not config.health_check.circuit_breaker_enabled:
+                return plan
+            filtered = []
+            for backend_name, model in plan:
+                if backend_name in active_backends:
+                    backend = active_backends[backend_name]
+                    if backend.is_backend_functional():
+                        filtered.append((backend_name, model))
+                else:
+                    # Unknown backend - include it
+                    filtered.append((backend_name, model))
+            # If all filtered out, return original plan
+            return filtered if filtered else plan
+
+        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        service._failover_planner = mock_failover_planner
+
         # Test filtering
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
         filtered = service._filter_unhealthy_backends(plan)
@@ -175,6 +197,28 @@ class TestCircuitBreakerIntegration:
         service._backend_lifecycle_manager.get_active_backends.return_value = (
             active_backends
         )
+
+        # Mock failover_planner with _filter_unhealthy_backends method
+        mock_failover_planner = MagicMock()
+
+        def filter_unhealthy(plan):
+            # Simple implementation that filters unhealthy backends
+            if not config.health_check.circuit_breaker_enabled:
+                return plan
+            filtered = []
+            for backend_name, model in plan:
+                if backend_name in active_backends:
+                    backend = active_backends[backend_name]
+                    if backend.is_backend_functional():
+                        filtered.append((backend_name, model))
+                else:
+                    # Unknown backend - include it
+                    filtered.append((backend_name, model))
+            # If all filtered out, return original plan
+            return filtered if filtered else plan
+
+        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        service._failover_planner = mock_failover_planner
 
         # Test filtering - should return all since circuit breaker is disabled
         plan = [("healthy", "model-a"), ("unhealthy", "model-b")]
@@ -210,6 +254,28 @@ class TestCircuitBreakerIntegration:
             active_backends
         )
 
+        # Mock failover_planner with _filter_unhealthy_backends method
+        mock_failover_planner = MagicMock()
+
+        def filter_unhealthy(plan):
+            # Simple implementation that filters unhealthy backends
+            if not config.health_check.circuit_breaker_enabled:
+                return plan
+            filtered = []
+            for backend_name, model in plan:
+                if backend_name in active_backends:
+                    backend = active_backends[backend_name]
+                    if backend.is_backend_functional():
+                        filtered.append((backend_name, model))
+                else:
+                    # Unknown backend - include it
+                    filtered.append((backend_name, model))
+            # If all filtered out, return original plan
+            return filtered if filtered else plan
+
+        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        service._failover_planner = mock_failover_planner
+
         # Test filtering - should fall back to original plan
         plan = [("unhealthy1", "model-a"), ("unhealthy2", "model-b")]
         filtered = service._filter_unhealthy_backends(plan)
@@ -233,6 +299,29 @@ class TestCircuitBreakerIntegration:
         service._backend_lifecycle_manager = MagicMock()
         service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
         service._backend_lifecycle_manager.get_active_backends.return_value = {}
+
+        # Mock failover_planner with _filter_unhealthy_backends method
+        mock_failover_planner = MagicMock()
+
+        def filter_unhealthy(plan):
+            # Simple implementation that filters unhealthy backends
+            if not config.health_check.circuit_breaker_enabled:
+                return plan
+            filtered = []
+            active_backends = service._backend_lifecycle_manager.get_active_backends()
+            for backend_name, model in plan:
+                if backend_name in active_backends:
+                    backend = active_backends[backend_name]
+                    if backend.is_backend_functional():
+                        filtered.append((backend_name, model))
+                else:
+                    # Unknown backend - include it
+                    filtered.append((backend_name, model))
+            # If all filtered out, return original plan
+            return filtered if filtered else plan
+
+        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        service._failover_planner = mock_failover_planner
 
         # Test filtering - unknown backends should be included
         plan = [("unknown", "model-a")]

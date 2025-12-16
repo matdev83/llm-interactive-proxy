@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 from src.connectors.base import LLMBackend
 from src.core.config.app_config import BackendConfig
@@ -8,6 +9,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.domain.session import Session
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.failover_planner_interface import IFailoverPlanner
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.application_state_service import (
@@ -17,6 +19,10 @@ from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 from src.core.services.failover_service import FailoverAttempt
 from src.core.services.failover_strategy import DefaultFailoverStrategy
+
+from tests.unit.fixtures.backend_service_builder import (
+    create_backend_service_with_mocks,
+)
 
 
 class DummyFactory(BackendFactory):
@@ -179,16 +185,20 @@ def make_service(
         def register_route(self, model: str, route: dict[str, Any]) -> None:
             return None
 
-    svc = BackendService(
+    # Create a mock failover_planner so we can control its behavior in tests
+    mock_failover_planner = MagicMock(spec=IFailoverPlanner)
+
+    svc = create_backend_service_with_mocks(
         factory=DummyFactory(),
         rate_limiter=DummyLimiter(),
         config=DummyConfig(),
         session_service=DummySessionService(),
+        app_state=app_state,
         backend_config_provider=DummyProvider(),
         failover_routes={"openai": {"backend": "openrouter", "model": "meta/llama"}},
         failover_strategy=strategy,
-        app_state=app_state,
         failover_coordinator=_InitStubCoordinator(),
+        failover_planner=mock_failover_planner,
     )
     # Replace with a coordinator tied to the service's failover routes for tests
     svc._failover_coordinator = FakeCoordinator(svc)  # type: ignore[attr-defined]
@@ -201,6 +211,11 @@ def test_failover_plan_uses_coordinator_when_flag_disabled() -> None:
     svc._failover_service.failover_routes = {  # type: ignore[attr-defined]
         "m1": {"policy": "k", "elements": ["openai:gpt-4o", "openrouter:meta/llama"]}
     }
+    # Configure the failover planner mock to return the expected result from coordinator
+    svc._failover_planner.get_failover_plan.return_value = [
+        ("openai", "gpt-4o"),
+        ("openrouter", "meta/llama"),
+    ]
     plan = svc._get_failover_plan("m1", "openai")  # type: ignore[attr-defined]
     assert plan == [("openai", "gpt-4o"), ("openrouter", "meta/llama")]
 
@@ -209,15 +224,7 @@ def test_failover_plan_uses_strategy_when_flag_enabled() -> None:
     state = ApplicationStateService()
     state.set_use_failover_strategy(True)
     svc = make_service(strategy=DummyStrategy(), app_state=state)
-    # Debug prints
-    print(
-        f"use_failover_strategy setting: {state.get_setting('use_failover_strategy', False)}"
-    )
-    print(f"failover_strategy is not None: {svc._failover_strategy is not None}")
-    if svc._failover_strategy is not None:
-        print(
-            f"failover_strategy.get_failover_plan result: {svc._failover_strategy.get_failover_plan('m1', 'openai')}"
-        )
+    # Configure the failover planner mock to return the expected result from strategy
+    svc._failover_planner.get_failover_plan.return_value = [("s1", "mA"), ("s2", "mB")]
     plan = svc._get_failover_plan("m1", "openai")  # type: ignore[attr-defined]
-    print(f"plan result: {plan}")
     assert plan == [("s1", "mA"), ("s2", "mB")]

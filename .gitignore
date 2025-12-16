@@ -98,6 +98,7 @@ test_status.json
 data/test_suite_state.json
 .ck/
 dev/test_anthropic_client.py
+complexity_analysis.json
 .dependency_check_cache
 ORACLE_OUTPUT.md
 var/logs/*

@@ -3,7 +3,7 @@
 This module provides fixtures for setting up backend service tests.
 """
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -150,13 +150,20 @@ def backend_service(
 
     mock_app_state = Mock(spec=IApplicationState)
 
-    service = BackendService(
-        factory=mock_backend_factory,
-        rate_limiter=mock_rate_limiter,
-        config=mock_config,
-        session_service=mock_session_service,
-        app_state=mock_app_state,
-        failover_coordinator=StubFailoverCoordinator(),
+    from tests.unit.fixtures.backend_service_builder import (
+        create_backend_service_with_mocks,
+    )
+
+    service = cast(
+        BackendService,
+        create_backend_service_with_mocks(
+            factory=mock_backend_factory,
+            rate_limiter=mock_rate_limiter,
+            config=mock_config,
+            session_service=mock_session_service,
+            app_state=mock_app_state,
+            failover_coordinator=StubFailoverCoordinator(),
+        ),
     )
     return service
 

@@ -40,6 +40,7 @@ from src.core.interfaces.agent_response_formatter_interface import (
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
@@ -444,6 +445,82 @@ def _ensure_tool_call_reactor_services(
         )
 
     return new_provider
+
+
+def _resolve_failure_strategy(
+    provider: IServiceProvider,
+    config: IConfig,
+    routing_service: Any = None,
+) -> Any:
+    """Resolve failure handling strategy from DI or construct from config.
+
+    This helper encapsulates the conditional logic previously in BackendService.__init__
+    (lines 141-188), moving config parsing to DI composition root as per Phase 4B.
+
+    Args:
+        provider: DI service provider
+        config: Application configuration
+        routing_service: Optional routing service for backend discovery
+
+    Returns:
+        IFailureHandlingStrategy instance or None if disabled
+    """
+    # Try to get pre-registered strategy from DI first
+    from typing import cast
+
+    from src.core.interfaces.failure_strategy_interface import IFailureHandlingStrategy
+
+    failure_handling_strategy = provider.get_service(
+        cast(type, IFailureHandlingStrategy)
+    )
+    if failure_handling_strategy is not None:
+        return failure_handling_strategy
+
+    # No pre-registered strategy; check config to determine if we should construct one
+    failure_handling_settings = getattr(config, "failure_handling", None)
+    if failure_handling_settings is None:
+        # Config doesn't have failure_handling section
+        return None
+
+    enabled_setting = getattr(failure_handling_settings, "enabled", None)
+    if not isinstance(enabled_setting, bool):
+        # Invalid or missing enabled setting
+        return None
+
+    if not enabled_setting:
+        # Explicitly disabled
+        return None
+
+    # Construct strategy from config
+    from src.core.interfaces.failure_strategy_interface import FailureHandlingConfig
+    from src.core.services.failure_handling_strategy import (
+        DefaultFailureHandlingStrategy,
+    )
+
+    def _coerce_float(name: str, default: float) -> float:
+        value = getattr(failure_handling_settings, name, default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _coerce_int(name: str, default: int) -> int:
+        value = getattr(failure_handling_settings, name, default)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    return DefaultFailureHandlingStrategy(
+        config=FailureHandlingConfig(
+            max_silent_wait=_coerce_float("max_silent_wait", 60.0),
+            total_timeout_budget=_coerce_float("total_timeout_budget", 90.0),
+            keepalive_interval=_coerce_float("keepalive_interval", 8.0),
+            max_failover_hops=_coerce_int("max_failover_hops", 5),
+            min_retry_wait=_coerce_float("min_retry_wait", 1.0),
+        ),
+        backend_discovery=routing_service,
+    )
 
 
 def register_core_services(
@@ -2790,6 +2867,11 @@ def register_core_services(
         )
 
     _add_singleton(BackendFactory, implementation_factory=_backend_factory_factory)
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, IBackendFactory),
+            implementation_factory=_backend_factory_factory,
+        )  # type: ignore[type-abstract]
 
     # BackendLifecycleManager
     def _backend_lifecycle_manager_factory(
@@ -2944,17 +3026,10 @@ def register_core_services(
         # Get or create resilience coordinator
         resilience_coordinator = provider.get_service(ResilienceCoordinator)
 
-        # Get or create failure handling strategy
-        # Use get_service (not get_required) to allow graceful degradation
-        # if the strategy isn't registered, but log a warning in BackendService
-        failure_handling_strategy = provider.get_service(
-            cast(type, IFailureHandlingStrategy)
+        # Resolve failure handling strategy from DI or construct from config (Phase 4B)
+        failure_handling_strategy = _resolve_failure_strategy(
+            provider, app_config, routing_service
         )
-        if failure_handling_strategy is None:
-            logger.warning(
-                "IFailureHandlingStrategy not registered in DI container. "
-                "429 retry handling will be disabled."
-            )
 
         # Get extracted services
         stream_formatting_service = provider.get_required_service(
@@ -2985,6 +3060,20 @@ def register_core_services(
             IUsageTrackingService  # type: ignore[type-abstract]
         )
 
+        # Get extracted collaborators
+        stream_session_id_resolver = provider.get_required_service(
+            IStreamSessionIdResolver  # type: ignore[type-abstract]
+        )
+        backend_model_resolver = provider.get_required_service(
+            IBackendModelResolver  # type: ignore[type-abstract]
+        )
+        failover_planner = provider.get_required_service(
+            IFailoverPlanner  # type: ignore[type-abstract]
+        )
+        backend_completion_flow = provider.get_required_service(
+            IBackendCompletionFlow  # type: ignore[type-abstract]
+        )
+
         # Return backend service
         return BackendService(
             backend_factory,
@@ -3010,6 +3099,10 @@ def register_core_services(
             planning_phase_manager=planning_phase_manager,
             reasoning_config_applicator=reasoning_config_applicator,
             uri_parameter_applicator=uri_parameter_applicator,
+            stream_session_id_resolver=stream_session_id_resolver,
+            backend_model_resolver=backend_model_resolver,
+            failover_planner=failover_planner,
+            backend_completion_flow=backend_completion_flow,
         )
 
     # Register backend service and bind to interface
@@ -3191,6 +3284,169 @@ def register_core_services(
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(f"Failed to register IRequestProcessor interface: {e}")
         # Continue if concrete RequestProcessor is registered
+
+    # Register extracted backend service collaborators
+    from src.core.interfaces.backend_completion_flow_interface import (
+        IBackendCompletionFlow,
+    )
+    from src.core.interfaces.backend_model_resolver_interface import (
+        IBackendModelResolver,
+    )
+    from src.core.interfaces.failover_interface import (
+        IFailoverCoordinator,
+        IFailoverStrategy,
+    )
+    from src.core.interfaces.failover_planner_interface import IFailoverPlanner
+    from src.core.interfaces.resilience_interface import IResilienceCoordinator
+    from src.core.interfaces.stream_session_id_resolver_interface import (
+        IStreamSessionIdResolver,
+    )
+    from src.core.services.backend_completion_flow import BackendCompletionFlow
+    from src.core.services.backend_model_resolver import BackendModelResolver
+    from src.core.services.failover_planner import FailoverPlanner
+    from src.core.services.stream_session_id_resolver import StreamSessionIdResolver
+
+    # Register stream session ID resolver (actual implementation)
+    _add_singleton(StreamSessionIdResolver)
+    try:
+        _add_singleton(
+            cast(type, IStreamSessionIdResolver),
+            implementation_factory=lambda p: p.get_required_service(
+                StreamSessionIdResolver
+            ),
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Failed to register IStreamSessionIdResolver interface: {e}")
+
+    # Register backend model resolver (actual implementation)
+    _add_singleton(
+        BackendModelResolver,
+        implementation_factory=lambda p: BackendModelResolver(
+            session_service=p.get_required_service(ISessionService),  # type: ignore[type-abstract]
+            model_alias_resolver=p.get_required_service(IModelAliasResolver),  # type: ignore[type-abstract]
+            planning_phase_manager=p.get_required_service(IPlanningPhaseManager),  # type: ignore[type-abstract]
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+            config=p.get_required_service(IConfig),  # type: ignore[type-abstract]
+            routing_service=p.get_service(BackendRoutingService),
+        ),
+    )
+    try:
+        _add_singleton(
+            cast(type, IBackendModelResolver),
+            implementation_factory=lambda p: p.get_required_service(
+                BackendModelResolver
+            ),
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Failed to register IBackendModelResolver interface: {e}")
+
+    # Register failover planner (actual implementation)
+    _add_singleton(
+        FailoverPlanner,
+        implementation_factory=lambda p: FailoverPlanner(
+            app_state=p.get_required_service(IApplicationState),  # type: ignore[type-abstract]
+            failover_coordinator=p.get_required_service(IFailoverCoordinator),  # type: ignore[type-abstract]
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+            config=p.get_required_service(IConfig),  # type: ignore[type-abstract]
+            failover_strategy=p.get_service(IFailoverStrategy),  # type: ignore[type-abstract]
+            resilience_coordinator=p.get_service(IResilienceCoordinator),  # type: ignore[type-abstract]
+        ),
+    )
+    try:
+        _add_singleton(
+            cast(type, IFailoverPlanner),
+            implementation_factory=lambda p: p.get_required_service(FailoverPlanner),
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Failed to register IFailoverPlanner interface: {e}")
+
+    # Register backend completion flow (actual implementation)
+    def _backend_completion_flow_factory(p: IServiceProvider) -> BackendCompletionFlow:
+        """Factory for BackendCompletionFlow with all dependencies."""
+        from src.core.interfaces.application_state_interface import IApplicationState
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
+        )
+        from src.core.interfaces.backend_factory_interface import IBackendFactory
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+        from src.core.interfaces.configuration_interface import IConfig
+        from src.core.interfaces.exception_normalizer_interface import (
+            IExceptionNormalizer,
+        )
+        from src.core.interfaces.failure_strategy_interface import (
+            IFailureHandlingStrategy,
+        )
+        from src.core.interfaces.planning_phase_manager_interface import (
+            IPlanningPhaseManager,
+        )
+        from src.core.interfaces.reasoning_config_applicator_interface import (
+            IReasoningConfigApplicator,
+        )
+        from src.core.interfaces.session_service_interface import ISessionService
+        from src.core.interfaces.stream_formatting_interface import (
+            IStreamFormattingService,
+        )
+        from src.core.interfaces.uri_parameter_applicator_interface import (
+            IURIParameterApplicator,
+        )
+        from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+        from src.core.interfaces.usage_tracking_wrapper_interface import (
+            IUsageTrackingWrapper,
+        )
+        from src.core.interfaces.wire_capture_interface import IWireCapture
+        from src.core.services.backend_routing_service import BackendRoutingService
+
+        # Get app config to extract failover_routes
+        config = p.get_required_service(IConfig)  # type: ignore[type-abstract]
+        failover_routes: dict[str, dict[Any, Any]] = {}
+        if hasattr(config, "failover_routes"):
+            failover_routes = getattr(config, "failover_routes", {})
+
+        return BackendCompletionFlow(
+            backend_model_resolver=p.get_required_service(IBackendModelResolver),  # type: ignore[type-abstract]
+            stream_session_id_resolver=p.get_required_service(IStreamSessionIdResolver),  # type: ignore[type-abstract]
+            failover_planner=p.get_required_service(IFailoverPlanner),  # type: ignore[type-abstract]
+            session_service=p.get_required_service(ISessionService),  # type: ignore[type-abstract]
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+            backend_config_service=p.get_required_service(IBackendConfigProvider),  # type: ignore[type-abstract]
+            reasoning_config_applicator=p.get_required_service(
+                IReasoningConfigApplicator  # type: ignore[type-abstract]
+            ),
+            uri_parameter_applicator=p.get_required_service(IURIParameterApplicator),  # type: ignore[type-abstract]
+            stream_formatting_service=p.get_required_service(IStreamFormattingService),  # type: ignore[type-abstract]
+            usage_tracking_wrapper=p.get_required_service(IUsageTrackingWrapper),  # type: ignore[type-abstract]
+            exception_normalizer=p.get_required_service(IExceptionNormalizer),  # type: ignore[type-abstract]
+            planning_phase_manager=p.get_required_service(IPlanningPhaseManager),  # type: ignore[type-abstract]
+            backend_factory=p.get_required_service(IBackendFactory),  # type: ignore[type-abstract]
+            config=config,
+            app_state=p.get_required_service(IApplicationState),  # type: ignore[type-abstract]
+            failover_coordinator=p.get_required_service(IFailoverCoordinator),  # type: ignore[type-abstract]
+            wire_capture=p.get_service(IWireCapture),  # type: ignore[type-abstract]
+            usage_tracking_service=p.get_service(IUsageTrackingService),  # type: ignore[type-abstract]
+            resilience_coordinator=p.get_service(IResilienceCoordinator),  # type: ignore[type-abstract]
+            failure_handling_strategy=p.get_service(IFailureHandlingStrategy),  # type: ignore[type-abstract]
+            routing_service=p.get_service(BackendRoutingService),
+            failover_routes=failover_routes,
+        )
+
+    _add_singleton(
+        BackendCompletionFlow, implementation_factory=_backend_completion_flow_factory
+    )
+    try:
+        _add_singleton(
+            cast(type, IBackendCompletionFlow),
+            implementation_factory=lambda p: p.get_required_service(
+                BackendCompletionFlow
+            ),
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Failed to register IBackendCompletionFlow interface: {e}")
 
 
 def get_service(service_type: type[T]) -> T | None:
