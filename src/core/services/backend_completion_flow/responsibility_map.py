@@ -317,11 +317,7 @@ def get_responsibilities_by_category(
     category: str,
 ) -> list[CollaboratorResponsibility]:
     """Get all responsibilities for a specific category."""
-    return [
-        resp
-        for resp in RESPONSIBILITY_MAP.values()
-        if resp.category == category
-    ]
+    return [resp for resp in RESPONSIBILITY_MAP.values() if resp.category == category]
 
 
 def get_collaborator_for_responsibility(
@@ -368,4 +364,3 @@ def validate_responsibility_boundaries() -> dict[str, Any]:
         "total_responsibilities": len(RESPONSIBILITY_MAP),
         "total_collaborators": len(collaborator_names),
     }
-

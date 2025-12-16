@@ -123,6 +123,6 @@ async def test_property_28_event_loop_yielding() -> None:
 
     # Assembler yields control for non-done chunks only (see SSEAssembler.assemble_stream line 299)
     non_done_chunks = [c for c in chunks if not c.is_done]
-    assert (
-        yielded_calls >= len(non_done_chunks)
+    assert yielded_calls >= len(
+        non_done_chunks
     ), f"Assembler failed to yield control per non-done chunk (expected >= {len(non_done_chunks)}, got {yielded_calls})"

@@ -9,7 +9,6 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
 from src.core.services.backend_completion_flow import responsibility_map
 from src.core.services.backend_completion_flow.availability_checker import (
     BackendAvailabilityChecker,
@@ -58,13 +57,10 @@ class TestResponsibilityMapStructure:
         """All responsibility categories should be defined."""
         valid_categories = set(responsibility_map.RESPONSIBILITY_CATEGORIES.keys())
         used_categories = {
-            resp.category
-            for resp in responsibility_map.RESPONSIBILITY_MAP.values()
+            resp.category for resp in responsibility_map.RESPONSIBILITY_MAP.values()
         }
         invalid_categories = used_categories - valid_categories
-        assert (
-            not invalid_categories
-        ), f"Invalid categories found: {invalid_categories}"
+        assert not invalid_categories, f"Invalid categories found: {invalid_categories}"
 
     def test_validation_passes(self):
         """The responsibility map should pass validation."""
@@ -92,10 +88,8 @@ class TestResponsibilityMapCoverage:
         self, collaborator_class, collaborator_name
     ):
         """Each collaborator should have at least one responsibility."""
-        responsibilities = (
-            responsibility_map.get_responsibilities_by_collaborator(
-                collaborator_name
-            )
+        responsibilities = responsibility_map.get_responsibilities_by_collaborator(
+            collaborator_name
         )
         assert (
             len(responsibilities) > 0
@@ -118,9 +112,7 @@ class TestResponsibilityMapCoverage:
             for resp in responsibility_map.RESPONSIBILITY_MAP.values()
         }
         missing = known_collaborators - mapped_collaborators
-        assert (
-            not missing
-        ), f"Collaborators missing from responsibility map: {missing}"
+        assert not missing, f"Collaborators missing from responsibility map: {missing}"
 
 
 class TestResponsibilityMapInterfaceMethods:
@@ -138,14 +130,10 @@ class TestResponsibilityMapInterfaceMethods:
             (FailureRecoveryExecutor, "FailureRecoveryExecutor"),
         ],
     )
-    def test_interface_methods_exist(
-        self, collaborator_class, collaborator_name
-    ):
+    def test_interface_methods_exist(self, collaborator_class, collaborator_name):
         """Interface methods listed in responsibility map should exist on collaborator."""
-        responsibilities = (
-            responsibility_map.get_responsibilities_by_collaborator(
-                collaborator_name
-            )
+        responsibilities = responsibility_map.get_responsibilities_by_collaborator(
+            collaborator_name
         )
         actual_methods = {
             name
@@ -187,9 +175,7 @@ class TestResponsibilityMapBoundaries:
             sig = resp.responsibility.lower()
             if sig not in responsibility_signatures:
                 responsibility_signatures[sig] = []
-            responsibility_signatures[sig].append(
-                f"{resp.collaborator_name}:{key}"
-            )
+            responsibility_signatures[sig].append(f"{resp.collaborator_name}:{key}")
 
         # Check for exact duplicates
         duplicates = {
@@ -202,7 +188,7 @@ class TestResponsibilityMapBoundaries:
         actual_duplicates = {
             sig: collabs
             for sig, collabs in duplicates.items()
-            if len(set(c.split(":")[0] for c in collabs)) > 1
+            if len({c.split(":")[0] for c in collabs}) > 1
         }
         assert (
             not actual_duplicates
@@ -212,9 +198,7 @@ class TestResponsibilityMapBoundaries:
         """Responsibilities should be distributed across categories."""
         category_counts = {}
         for resp in responsibility_map.RESPONSIBILITY_MAP.values():
-            category_counts[resp.category] = (
-                category_counts.get(resp.category, 0) + 1
-            )
+            category_counts[resp.category] = category_counts.get(resp.category, 0) + 1
 
         # Each category should have at least one responsibility
         for category in responsibility_map.RESPONSIBILITY_CATEGORIES:
@@ -225,10 +209,8 @@ class TestResponsibilityMapBoundaries:
     def test_helper_functions_work(self):
         """Helper functions should return correct data."""
         # Test get_responsibilities_by_collaborator
-        responsibilities = (
-            responsibility_map.get_responsibilities_by_collaborator(
-                "BackendAvailabilityChecker"
-            )
+        responsibilities = responsibility_map.get_responsibilities_by_collaborator(
+            "BackendAvailabilityChecker"
         )
         assert len(responsibilities) > 0
         assert all(
@@ -237,8 +219,8 @@ class TestResponsibilityMapBoundaries:
         )
 
         # Test get_responsibilities_by_category
-        availability_resps = (
-            responsibility_map.get_responsibilities_by_category("availability")
+        availability_resps = responsibility_map.get_responsibilities_by_category(
+            "availability"
         )
         assert len(availability_resps) > 0
         assert all(r.category == "availability" for r in availability_resps)
@@ -274,4 +256,3 @@ class TestResponsibilityMapStability:
         result1 = responsibility_map.validate_responsibility_boundaries()
         result2 = responsibility_map.validate_responsibility_boundaries()
         assert result1 == result2
-
