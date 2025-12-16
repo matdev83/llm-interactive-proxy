@@ -115,20 +115,29 @@ class BackendManager:
         if hasattr(backend, "get_retry_after_remaining"):
             retry_after_remaining = backend.get_retry_after_remaining()
             if retry_after_remaining is not None:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Backend %s is rate limited, retry after %.1f seconds",
-                        backend_type,
-                        retry_after_remaining,
+                # Ensure it is a number before using
+                if isinstance(retry_after_remaining, (int, float)):
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Backend %s is rate limited, retry after %.1f seconds",
+                            backend_type,
+                            retry_after_remaining,
+                        )
+                    raise RateLimitExceededError(
+                        message=f"Backend {backend_type} is rate limited",
+                        details={
+                            "backend": backend_type,
+                            "retry_after_seconds": retry_after_remaining,
+                        },
+                        reset_at=time.time() + retry_after_remaining,
                     )
-                raise RateLimitExceededError(
-                    message=f"Backend {backend_type} is rate limited",
-                    details={
-                        "backend": backend_type,
-                        "retry_after_seconds": retry_after_remaining,
-                    },
-                    reset_at=time.time() + retry_after_remaining,
-                )
+                else:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Backend %s returned invalid retry_after type: %s",
+                            backend_type,
+                            type(retry_after_remaining),
+                        )
 
         # Check if backend is functional, with recovery attempt
         if (

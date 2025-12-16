@@ -321,28 +321,33 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
             except Exception as call_exc:
+                # Normalize the exception immediately for consistent handling
+                normalized_exc = self._exception_normalizer.normalize(
+                    call_exc, backend_type
+                )
+
                 # Check if this is an authentication failure first
                 is_auth_failure = False
                 if (
-                    isinstance(call_exc, AuthenticationError)
-                    or isinstance(call_exc, HTTPException)
-                    and getattr(call_exc, "status_code", None) == 401
-                    or isinstance(call_exc, BackendError)
-                    and getattr(call_exc, "status_code", None) == 401
+                    isinstance(normalized_exc, AuthenticationError)
+                    or isinstance(normalized_exc, HTTPException)
+                    and getattr(normalized_exc, "status_code", None) == 401
+                    or isinstance(normalized_exc, BackendError)
+                    and getattr(normalized_exc, "status_code", None) == 401
                 ):
                     is_auth_failure = True
 
                 if is_auth_failure:
                     # Handle authentication failures with backend lifecycle side effects
                     await self._response_handler.handle_auth_failure(
-                        call_exc,  # type: ignore[arg-type]
+                        normalized_exc,  # type: ignore[arg-type]
                         backend,
                         backend_type,
                         session_id_for_backend,
                     )
-                    raise
-                # Step 12: Handle backend error (normalization + wire capture)
-                # Normalize the exception first so we can use it when raising
+                    raise normalized_exc
+
+                # Step 12: Handle backend error (wire capture)
                 await self._response_handler.handle_backend_error(
                     call_exc=call_exc,
                     backend_type=current_backend,
@@ -350,20 +355,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     context=context,
                     request=request,
                     backend=backend,
+                    normalized_exc=normalized_exc,
                 )
-
-                # Re-normalize for failover logic (helper handles its own normalization but we need it here to pass)
-                # Actually ResponseHandler.handle_backend_error normalizes but doesn't return it.
-                # Use exception normalizer directly or rely on FailoverManager to normalize.
-                # FailoverManager normalizes if needed.
-
-                # We need to re-raise if failover not allowed or failed, so we should normalize here or let FailoverManager do it.
-                # Let's pass the original exception to FailoverManager.
 
                 # Step 13: Apply failure recovery (retry/failover)
                 if allow_failover:
                     return await self._failover_manager.apply_failure_recovery(
-                        error=call_exc,
+                        error=normalized_exc,
                         model=effective_model,
                         backend_type=current_backend,
                         attempted_backends=attempted_backends,
@@ -375,17 +373,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         call_completion_callback=self.call_completion,
                     )
 
-                # No failover allowed, raise the normalized error (we need to normalize it to raise clean error)
-                # Since we didn't get it from handle_backend_error, we assume standard wrapping or re-raise
-                # Actually, handle_backend_error doesn't return the normalized error, it just logs/captures.
-                # We should normalize here to be consistent with old behavior.
-                # But wait, old behavior normalized it into `normalized_exc` var.
-                # I'll rely on exception propagation or re-normalization if I want to match exactly, but cleaner is to let the caller handle it or re-raise.
-                # However, the contract says specific errors are raised.
-
-                raise call_exc  # Or wrapped. The old code normalized it.
-                # Let's re-normalize just for the raise if we want consistency, or trust handle_backend_error did its job (observability).
-                # But for the caller, we might want LLMProxyError.
+                # No failover allowed, raise the normalized error
+                raise normalized_exc
 
         except (
             BackendError,
@@ -403,7 +392,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         except Exception as e:
             # Catch any other unexpected exceptions and wrap them
             raise BackendError(
-                message=f"An unexpected error occurred during backend call to {backend_type}: {e!s}",
+                message=f"Backend call failed: {e!s}",
                 backend_name=backend_type,
             ) from e
 

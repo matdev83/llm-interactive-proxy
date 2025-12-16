@@ -372,7 +372,7 @@ class TestBackendServiceCompletions:
             lambda request, resolved: request
         )
 
-        return create_backend_service_with_mocks(
+        service = create_backend_service_with_mocks(
             factory=factory,
             rate_limiter=rate_limiter,
             config=mock_config,
@@ -383,6 +383,16 @@ class TestBackendServiceCompletions:
             backend_lifecycle_manager=mock_lifecycle_manager,
             backend_model_resolver=mock_model_resolver,
         )
+
+        # Configure exception normalizer to return exceptions as-is by default
+        # This prevents "exceptions must derive from BaseException" errors when
+        # mocks return Mock objects instead of exceptions
+        service._exception_normalizer.normalize.side_effect = lambda exc, *args: exc
+        service._backend_completion_flow._exception_normalizer.normalize.side_effect = (
+            lambda exc, *args: exc
+        )
+
+        return service
 
     @pytest.fixture
     def chat_request(self):
@@ -511,6 +521,8 @@ class TestBackendServiceCompletions:
         # Set the mock resilience coordinator on both service and completion flow
         service._resilience = mock_resilience
         service._backend_completion_flow._resilience = mock_resilience
+        # Also set it on the backend manager which performs the actual check
+        service._backend_completion_flow._backend_manager._resilience = mock_resilience
 
         # Act & Assert
         with pytest.raises(RateLimitExceededError) as exc_info:
