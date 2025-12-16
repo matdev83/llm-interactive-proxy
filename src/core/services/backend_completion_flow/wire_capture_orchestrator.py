@@ -1,14 +1,18 @@
-"""Wire capture helper logic for backend completion flow."""
+"""Wire capture orchestration collaborator."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.interfaces.backend_completion_collaborators import (
+    IWireCaptureOrchestrator,
+)
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
@@ -16,7 +20,7 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 logger = logging.getLogger(__name__)
 
 
-class WireCaptureHelper:
+class WireCaptureOrchestrator(IWireCaptureOrchestrator):
     """Handles wire capture operations."""
 
     def __init__(
@@ -25,14 +29,20 @@ class WireCaptureHelper:
         config: IConfig,
         backend_config_service: IBackendConfigProvider,
     ):
-        """Initialize the wire capture helper."""
+        """Initialize the wire capture orchestrator.
+
+        Args:
+            wire_capture: Wire capture service (optional)
+            config: Application configuration
+            backend_config_service: Backend configuration provider
+        """
         self._wire_capture = wire_capture
         self._config = config
         self._backend_config_service = backend_config_service
 
     async def prepare_wire_capture_context(
         self, backend_type: str, session: Any | None
-    ) -> Any:
+    ) -> Any | None:
         """Prepare identity and backend config for wire capture.
 
         Args:
@@ -42,8 +52,6 @@ class WireCaptureHelper:
         Returns:
             Identity object with session context
         """
-        from src.core.config.app_config import BackendConfig
-
         app_config_typed: AppConfig = cast(AppConfig, self._config)
 
         # Fetch config from provider
@@ -149,3 +157,83 @@ class WireCaptureHelper:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("_detect_key_name failed", exc_info=True)
         return backend_type
+
+    async def capture_inbound_response(
+        self,
+        context: Any | None,
+        session_id: str | None,
+        backend_type: str,
+        effective_model: str,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        """Capture inbound response payload (best-effort).
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend_type: Backend type
+            effective_model: Model name
+            key_name: Key name for redaction
+            response_content: The response content
+        """
+        try:
+            if self._wire_capture and self._wire_capture.enabled():
+                await self._wire_capture.capture_inbound_response(
+                    context=context,
+                    session_id=session_id,
+                    backend=backend_type,
+                    model=effective_model,
+                    key_name=key_name,
+                    response_content=response_content,
+                )
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (response) failed for backend %s with model %s",
+                    backend_type,
+                    effective_model,
+                    exc_info=True,
+                )
+
+    def wrap_inbound_stream(
+        self,
+        context: Any | None,
+        session_id: str | None,
+        backend_type: str,
+        effective_model: str,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        """Wrap inbound stream for wire capture.
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend_type: Backend type
+            effective_model: Model name
+            key_name: Key name for redaction
+            stream: The input byte stream
+
+        Returns:
+            Wrapped byte stream
+        """
+        try:
+            if self._wire_capture and self._wire_capture.enabled():
+                return self._wire_capture.wrap_inbound_stream(
+                    context=context,
+                    session_id=session_id,
+                    backend=backend_type,
+                    model=effective_model,
+                    key_name=key_name,
+                    stream=stream,
+                )
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (stream wrap) failed for backend %s with model %s",
+                    backend_type,
+                    effective_model,
+                    exc_info=True,
+                )
+        return stream

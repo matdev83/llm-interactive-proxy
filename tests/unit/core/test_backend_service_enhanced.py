@@ -467,10 +467,13 @@ class TestBackendServiceCompletions:
             result_chunks.append(chunk)
 
         # Verify chunks
+        # Note: After going through stream formatting, chunks are converted to bytes
         assert len(result_chunks) == len(chunks)
         for i, chunk in enumerate(chunks):
             assert isinstance(result_chunks[i], ProcessedResponse)
-            assert result_chunks[i].content == chunk
+            # Content is bytes after stream formatting conversion
+            expected_bytes = chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+            assert result_chunks[i].content == expected_bytes
 
     @pytest.mark.asyncio
     async def test_call_completion_streaming_error(self, service, chat_request):
@@ -521,8 +524,10 @@ class TestBackendServiceCompletions:
         # Set the mock resilience coordinator on both service and completion flow
         service._resilience = mock_resilience
         service._backend_completion_flow._resilience = mock_resilience
-        # Also set it on the backend manager which performs the actual check
-        service._backend_completion_flow._backend_manager._resilience = mock_resilience
+        # Also set it on the availability checker which performs the actual check
+        service._backend_completion_flow._availability_checker._resilience = (
+            mock_resilience
+        )
 
         # Act & Assert
         with pytest.raises(RateLimitExceededError) as exc_info:
@@ -1317,11 +1322,11 @@ class TestBackendServiceFailover:
             side_effect=mock_normalize
         )
         # Ensure the completion flow uses the mocked lifecycle manager
-        service_with_complex_failover._backend_completion_flow._backend_lifecycle_manager.get_or_create = AsyncMock(
+        service_with_complex_failover._backend_completion_flow._backend_invoker._backend_lifecycle_manager.get_or_create = AsyncMock(
             side_effect=mock_get_or_create
         )
         # Use the same model resolver mock from the fixture
-        service_with_complex_failover._backend_completion_flow._backend_model_resolver = (
+        service_with_complex_failover._backend_completion_flow._request_preparer._backend_model_resolver = (
             service_with_complex_failover._backend_model_resolver
         )
 
@@ -1425,11 +1430,11 @@ class TestBackendServiceFailover:
             side_effect=mock_normalize
         )
         # Ensure the completion flow uses the mocked lifecycle manager
-        service_with_complex_failover._backend_completion_flow._backend_lifecycle_manager.get_or_create = AsyncMock(
+        service_with_complex_failover._backend_completion_flow._backend_invoker._backend_lifecycle_manager.get_or_create = AsyncMock(
             side_effect=mock_get_or_create
         )
         # Use the same model resolver mock from the fixture
-        service_with_complex_failover._backend_completion_flow._backend_model_resolver = (
+        service_with_complex_failover._backend_completion_flow._request_preparer._backend_model_resolver = (
             service_with_complex_failover._backend_model_resolver
         )
 
@@ -1527,11 +1532,11 @@ class TestBackendServiceFailover:
             side_effect=mock_normalize
         )
         # Ensure the completion flow uses the mocked lifecycle manager
-        service_with_complex_failover._backend_completion_flow._backend_lifecycle_manager.get_or_create = AsyncMock(
+        service_with_complex_failover._backend_completion_flow._backend_invoker._backend_lifecycle_manager.get_or_create = AsyncMock(
             side_effect=mock_get_or_create
         )
         # Use the same model resolver mock from the fixture
-        service_with_complex_failover._backend_completion_flow._backend_model_resolver = (
+        service_with_complex_failover._backend_completion_flow._request_preparer._backend_model_resolver = (
             service_with_complex_failover._backend_model_resolver
         )
 

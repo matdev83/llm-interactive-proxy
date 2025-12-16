@@ -46,6 +46,22 @@ tests/
 ./.venv/Scripts/python.exe -m pytest --cov=src --cov-report=html
 ```
 
+### Incremental Runs (testmon)
+
+This project enables `pytest-testmon` by default, so repeated `pytest` runs only execute tests affected by your code changes.
+
+```bash
+# Force a full run (still updates testmon data)
+./.venv/Scripts/python.exe -m pytest --testmon-noselect
+
+# Disable testmon entirely for a run
+./.venv/Scripts/python.exe -m pytest -p no:testmon
+
+# Include default-excluded suites without using `-m ...`
+./.venv/Scripts/python.exe -m pytest --run-slow
+./.venv/Scripts/python.exe -m pytest --run-codex
+```
+
 ### Specific Test Types
 
 ```bash

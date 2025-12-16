@@ -95,7 +95,7 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
                 item.add_marker(skip_asyncio)
 
     # Auto-mark tests in the integration folder with @pytest.mark.integration
-    # so they are excluded by default via -m 'not integration' in addopts
+    # (handy for `pytest -m integration` runs and reporting)
     integration_marker = pytest.mark.integration
     for item in items:
         # Check if test file path contains 'integration' and marker not present
@@ -103,6 +103,48 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
             "integration"
         ):
             item.add_marker(integration_marker)
+
+    # Default-deselect slow/codex tests without using `-m ...` (pytest-testmon
+    # disables selection when `-m` is used).
+    if not getattr(config.option, "markexpr", ""):
+        run_slow = config.getoption("run_slow")
+        run_codex = config.getoption("run_codex")
+
+        deselected: list[pytest.Item] = []
+        selected: list[pytest.Item] = []
+        for item in items:
+            item_path = str(item.fspath).replace("\\", "/")
+            is_codex = item.get_closest_marker(
+                "codex"
+            ) is not None or "/tests/codex/" in (f"/{item_path}/")
+            is_slow = item.get_closest_marker("slow") is not None
+
+            if (is_slow and not run_slow) or (is_codex and not run_codex):
+                deselected.append(item)
+            else:
+                selected.append(item)
+
+        if deselected:
+            config.hook.pytest_deselected(items=deselected)
+            items[:] = selected
+
+
+def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
+    group = parser.getgroup("llm-interactive-proxy")
+    group.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        dest="run_slow",
+        help="Include tests marked with @pytest.mark.slow (excluded by default).",
+    )
+    group.addoption(
+        "--run-codex",
+        action="store_true",
+        default=False,
+        dest="run_codex",
+        help="Include tests marked with @pytest.mark.codex (excluded by default).",
+    )
 
 
 # Provide env fixtures used by config tests

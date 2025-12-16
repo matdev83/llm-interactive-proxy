@@ -5,12 +5,16 @@ after Phase 4 refactoring removed runtime fallback instantiation.
 """
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.services import register_core_services
 from src.core.interfaces.backend_service_interface import IBackendService
+
+from tests.unit.core.services.backend_flow_test_helper import (
+    create_test_backend_completion_flow,
+)
 
 
 def create_backend_service_with_di(
@@ -121,7 +125,6 @@ def create_backend_service_with_mocks(
     from src.core.interfaces.usage_tracking_wrapper_interface import (
         IUsageTrackingWrapper,
     )
-    from src.core.services.backend_completion_flow import BackendCompletionFlow
     from src.core.services.backend_factory import BackendFactory
     from src.core.services.backend_service import BackendService
 
@@ -204,38 +207,54 @@ def create_backend_service_with_mocks(
             if failover_coordinator is None:
                 failover_coordinator = MagicMock(spec=IFailoverCoordinator)
 
-            if hasattr(backend_model_resolver, "synchronize_request_with_target"):
-                backend_model_resolver.synchronize_request_with_target.side_effect = (
-                    lambda request, _resolved: request
+            # Use real StreamFormattingService when using real completion flow
+            # (unless explicitly provided)
+            if isinstance(stream_formatting_service, MagicMock):
+                from src.core.services.stream_formatting_service import (
+                    StreamFormattingService,
                 )
 
-            if hasattr(backend_lifecycle_manager, "get_disabled_backends"):
-                backend_lifecycle_manager.get_disabled_backends.return_value = {}
+                stream_formatting_service = StreamFormattingService()
 
-            backend_completion_flow = BackendCompletionFlow(
-                backend_model_resolver=backend_model_resolver,
-                stream_session_id_resolver=stream_session_id_resolver,
-                failover_planner=failover_planner,
-                session_service=session_service,
-                backend_lifecycle_manager=backend_lifecycle_manager,
-                backend_config_service=backend_config_provider,
-                reasoning_config_applicator=reasoning_config_applicator,
-                uri_parameter_applicator=uri_parameter_applicator,
-                stream_formatting_service=stream_formatting_service,
-                usage_tracking_wrapper=usage_tracking_wrapper,
-                exception_normalizer=exception_normalizer,
-                planning_phase_manager=planning_phase_manager,
-                backend_factory=factory,
-                config=config,
-                app_state=app_state,
-                failover_coordinator=failover_coordinator,
-                wire_capture=wire_capture,
-                usage_tracking_service=usage_tracking_service,
-                resilience_coordinator=resilience_coordinator,
-                failure_handling_strategy=failure_handling_strategy,
-                routing_service=routing_service,
-                failover_routes=failover_routes,
-            )
+            if hasattr(backend_model_resolver, "synchronize_request_with_target"):
+                method = backend_model_resolver.synchronize_request_with_target
+                if isinstance(method, Mock):
+                    method.side_effect = lambda request, _resolved: request
+
+            if hasattr(backend_lifecycle_manager, "get_disabled_backends"):
+                method = backend_lifecycle_manager.get_disabled_backends
+                if isinstance(method, Mock):
+                    method.return_value = {}
+
+            # Construct dependencies dict for the helper
+            deps = {
+                "backend_model_resolver": backend_model_resolver,
+                "stream_session_id_resolver": stream_session_id_resolver,
+                "failover_planner": failover_planner,
+                "session_service": session_service,
+                "backend_lifecycle_manager": backend_lifecycle_manager,
+                "backend_config_service": backend_config_provider,
+                "reasoning_config_applicator": reasoning_config_applicator,
+                "uri_parameter_applicator": uri_parameter_applicator,
+                "stream_formatting_service": stream_formatting_service,
+                "usage_tracking_wrapper": usage_tracking_wrapper,
+                "exception_normalizer": exception_normalizer,
+                "planning_phase_manager": planning_phase_manager,
+                "backend_factory": factory,
+                "config": config,
+                "app_state": app_state,
+                "failover_coordinator": failover_coordinator,
+                "wire_capture": wire_capture,
+                "usage_tracking_service": usage_tracking_service,
+                "resilience_coordinator": resilience_coordinator,
+                "failure_handling_strategy": failure_handling_strategy,
+                "routing_service": routing_service,
+                "failover_routes": failover_routes,
+            }
+            # Add overrides from kwargs
+            deps.update(kwargs)
+
+            backend_completion_flow = create_test_backend_completion_flow(deps)
         else:
             backend_completion_flow = MagicMock(spec=IBackendCompletionFlow)
 

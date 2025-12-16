@@ -8,8 +8,11 @@ from src.core.domain.configuration.failure_handling_config import FailureHandlin
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.backend_completion_flow import BackendCompletionFlow
 from src.core.services.failure_handling_strategy import DefaultFailureHandlingStrategy
+
+from tests.unit.core.services.backend_flow_test_helper import (
+    create_test_backend_completion_flow,
+)
 
 
 @pytest.mark.asyncio
@@ -104,12 +107,13 @@ async def test_streaming_wait_and_retry_emits_keepalives():
     deps["stream_session_id_resolver"].resolve_stream_session_id.return_value = (
         "test-session"
     )
+    deps["planning_phase_manager"].update_counters = AsyncMock()
 
     # Use real failure handling strategy
     failure_strategy = DefaultFailureHandlingStrategy(config.failure_handling)
     deps["failure_handling_strategy"] = failure_strategy
 
-    flow = BackendCompletionFlow(**deps)
+    flow = create_test_backend_completion_flow(deps)
 
     request = ChatRequest(
         model="test-model",

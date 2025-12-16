@@ -124,7 +124,7 @@ async def test_call_completion_updates_planning_counters_streaming_after_consume
     )
 
     # Mock the stream session ID resolver to return the expected session ID
-    service._backend_completion_flow._response_handler._stream_session_id_resolver.resolve_stream_session_id.return_value = (
+    service._backend_completion_flow._usage_accounting._stream_session_id_resolver.resolve_stream_session_id.return_value = (
         "sess-1"
     )
 

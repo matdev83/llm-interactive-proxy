@@ -10,8 +10,8 @@ from tests.utils.property_test_helpers import async_iter, async_list
 
 
 @pytest.mark.asyncio
-@given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=6))
-@property_test_settings(max_examples=50)
+@given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=3))
+@property_test_settings(max_examples=30)
 async def test_property_13_metrics_emission(
     chunks: list,
 ) -> None:

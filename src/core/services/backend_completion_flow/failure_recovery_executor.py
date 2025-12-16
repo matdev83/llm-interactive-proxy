@@ -1,4 +1,4 @@
-"""Failover handling logic for backend completion flow."""
+"""Failure recovery execution collaborator."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import HTTPException
-
 from src.core.common.exceptions import (
     BackendError,
     LLMProxyError,
@@ -18,6 +16,9 @@ from src.core.common.exceptions import (
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.backend_completion_collaborators import (
+    IFailureRecoveryExecutor,
+)
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.failover_planner_interface import IFailoverPlanner
 from src.core.interfaces.failure_strategy_interface import (
@@ -29,7 +30,7 @@ from src.core.services.backend_routing_service import BackendRoutingService
 logger = logging.getLogger(__name__)
 
 
-class FailoverManager:
+class FailureRecoveryExecutor(IFailureRecoveryExecutor):
     """Handles failover planning and execution."""
 
     def __init__(
@@ -40,7 +41,7 @@ class FailoverManager:
         config: IConfig,
         failover_routes: dict[str, dict[str, Any]] | None = None,
     ):
-        """Initialize the failover manager."""
+        """Initialize the failure recovery executor."""
         self._failover_planner = failover_planner
         self._failure_strategy = failure_handling_strategy
         self._routing_service = routing_service
@@ -55,18 +56,7 @@ class FailoverManager:
         stream: bool,
         context: RequestContext | None = None,
     ) -> bool:
-        """Check if complex failover should be executed for this request.
-
-        Args:
-            request: The chat completion request
-            effective_model: The resolved model
-            backend_type: The resolved backend
-            stream: Whether streaming is enabled
-            context: Optional request context
-
-        Returns:
-            True if complex failover was executed, False otherwise
-        """
+        """Check if complex failover should be executed for this request."""
         request_failover_routes: dict[str, Any] | None = (
             request.extra_body.get("failover_routes") if request.extra_body else None
         )
@@ -89,19 +79,7 @@ class FailoverManager:
         ],
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute complex failover strategy for models with configured routes.
-
-        Args:
-            request: The request
-            effective_model: The model name
-            backend_type: The backend name
-            stream: Whether streaming is enabled
-            call_completion_callback: Callback to execute completion request
-            context: Optional request context
-
-        Returns:
-            Response from failover attempt
-        """
+        """Execute complex failover strategy for models with configured routes."""
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Using complex failover policy for model {effective_model}")
 
@@ -121,7 +99,8 @@ class FailoverManager:
                 else self._failover_routes
             )
 
-            _backend_config: BackendConfiguration = BackendConfiguration(
+            # Instantiate for validation side effects
+            _ = BackendConfiguration(
                 backend_type=backend_type,
                 model=effective_model,
                 failover_routes_data=effective_failover_routes,
@@ -156,22 +135,7 @@ class FailoverManager:
         ],
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Attempt failover using the provided plan.
-
-        Args:
-            request: The original request
-            plan: List of (backend, model) tuples to attempt
-            stream: Whether the request is a streaming request
-            backend_type: The original backend type
-            call_completion_callback: Callback to execute completion request
-            context: Optional request context
-
-        Returns:
-            Response from the first successful attempt
-
-        Raises:
-            BackendError: If all attempts fail
-        """
+        """Attempt failover using the provided plan."""
         last_error: Exception | None = None
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
@@ -234,20 +198,7 @@ class FailoverManager:
         is_streaming: bool,
         content_started: bool,
     ) -> tuple[FailureDecision, float | None, str | None]:
-        """Apply failure handling strategy to decide how to handle a backend failure.
-
-        Args:
-            error: The backend error that occurred
-            model: Fully qualified model name
-            backend_type: Name of the backend instance that failed
-            attempted_backends: List of backend instances already tried
-            start_time: Timestamp when the original request started
-            is_streaming: Whether this is a streaming request
-            content_started: Whether content has already been sent to client
-
-        Returns:
-            Tuple of (decision, wait_seconds, next_backend)
-        """
+        """Apply failure handling strategy to decide how to handle a backend failure."""
         if self._failure_strategy is None:
             # No failure strategy configured, surface all errors
             return FailureDecision.SURFACE_ERROR, None, None
@@ -296,21 +247,7 @@ class FailoverManager:
         ],
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute retry of the same backend after waiting.
-
-        Args:
-            request: The request
-            backend_type: The backend to retry
-            wait_seconds: How long to wait before retrying
-            is_streaming: Whether streaming is enabled
-            model: The model name
-            attempted_backends: List of attempted backends
-            call_completion_callback: Callback to execute completion request
-            context: Optional request context
-
-        Returns:
-            Response from retry attempt
-        """
+        """Execute retry of the same backend after waiting."""
         if wait_seconds is not None and wait_seconds > 0:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -442,20 +379,7 @@ class FailoverManager:
         ],
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute failover to an alternative backend.
-
-        Args:
-            request: The request
-            next_backend: The backend to failover to
-            is_streaming: Whether streaming is enabled
-            backend_type: The current backend
-            model: The model name
-            call_completion_callback: Callback to execute completion request
-            context: Optional request context
-
-        Returns:
-            Response from failover attempt
-        """
+        """Execute failover to an alternative backend."""
         if logger.isEnabledFor(logging.INFO):
             logger.info(
                 "Failure strategy: failing over from %s to %s for model %s",
@@ -496,26 +420,7 @@ class FailoverManager:
         ],
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Apply failure handling strategy to decide retry/failover.
-
-        Args:
-            error: The error that occurred
-            model: The model name
-            backend_type: The backend name
-            attempted_backends: List of already attempted backends
-            start_time: Request start timestamp
-            is_streaming: Whether streaming is enabled
-            content_started: Whether content has started streaming
-            request: The request
-            call_completion_callback: Callback to execute completion request
-            context: Optional request context
-
-        Returns:
-            Response from retry or failover attempt
-
-        Raises:
-            The original error if recovery is not possible
-        """
+        """Apply failure handling strategy to decide retry/failover."""
         # Track this backend as attempted
         if backend_type not in attempted_backends:
             attempted_backends.append(backend_type)
@@ -586,11 +491,9 @@ class FailoverManager:
         if isinstance(error, BackendError | RateLimitExceededError | LLMProxyError):
             raise error
 
-        # Preserve HTTP status code from HTTPException if available
+        # Preserve HTTP status code if available (duck typing for transport exceptions)
         status_code = None
-        if isinstance(error, HTTPException):
-            status_code = error.status_code
-        elif hasattr(error, "status_code"):
+        if hasattr(error, "status_code"):
             status_code = getattr(error, "status_code", None)
 
         raise BackendError(

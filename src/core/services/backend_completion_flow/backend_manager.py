@@ -8,6 +8,9 @@ from typing import Any
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.interfaces.backend_completion_collaborators import (
+    IBackendInvoker,
+)
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
@@ -16,8 +19,8 @@ from src.core.interfaces.resilience_interface import IResilienceCoordinator
 logger = logging.getLogger(__name__)
 
 
-class BackendManager:
-    """Handles backend acquisition, availability checks, and health validation."""
+class BackendManager(IBackendInvoker):
+    """Handles backend acquisition and health validation."""
 
     def __init__(
         self,
@@ -29,59 +32,6 @@ class BackendManager:
         self._backend_lifecycle_manager = backend_lifecycle_manager
         self._resilience = resilience_coordinator
         self._failover_routes = failover_routes or {}
-
-    async def check_backend_availability(
-        self, backend_type: str, effective_model: str, allow_failover: bool
-    ) -> None:
-        """Check if the backend is available (not disabled, not rate limited).
-
-        Args:
-            backend_type: The backend name
-            effective_model: The model name
-            allow_failover: Whether failover is allowed
-
-        Raises:
-            BackendError: If backend is permanently disabled
-            RateLimitExceededError: If backend is rate limited
-        """
-        # Check if backend is permanently disabled
-        disabled_info = self._backend_lifecycle_manager.get_disabled_backends().get(
-            backend_type
-        )
-        if disabled_info and not (
-            allow_failover
-            and (
-                effective_model in self._failover_routes
-                or backend_type in self._failover_routes
-            )
-        ):
-            raise BackendError(
-                message=(
-                    f"Backend {backend_type} is permanently disabled: "
-                    f"{disabled_info.get('reason', 'authentication failed')}"
-                ),
-                backend_name=backend_type,
-            )
-
-        # Check resilience coordinator for instance/model availability
-        if self._resilience:
-            decision = self._resilience.check_availability(
-                backend_type, effective_model
-            )
-            if not decision.should_proceed():
-                cooldown_info = (
-                    f" (retry after {decision.cooldown_remaining:.1f}s)"
-                    if decision.cooldown_remaining
-                    else ""
-                )
-                raise RateLimitExceededError(
-                    message=f"{decision.reason}{cooldown_info}",
-                    reset_at=(
-                        time.time() + decision.cooldown_remaining
-                        if decision.cooldown_remaining
-                        else None
-                    ),
-                )
 
     async def acquire_backend(
         self, backend_type: str, session_id: str | None
@@ -116,7 +66,7 @@ class BackendManager:
             retry_after_remaining = backend.get_retry_after_remaining()
             if retry_after_remaining is not None:
                 # Ensure it is a number before using
-                if isinstance(retry_after_remaining, (int, float)):
+                if isinstance(retry_after_remaining, int | float):
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "Backend %s is rate limited, retry after %.1f seconds",

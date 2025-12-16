@@ -12,7 +12,10 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
 from src.core.interfaces.resilience_interface import ResilienceDecision
-from src.core.services.backend_completion_flow import BackendCompletionFlow
+
+from tests.unit.core.services.backend_flow_test_helper import (
+    create_test_backend_completion_flow,
+)
 
 
 class _DummyBackend(LLMBackend):
@@ -129,7 +132,7 @@ async def test_call_completion_applies_cooldown_on_429(
 
     deps["backend_lifecycle_manager"].get_or_create = AsyncMock(return_value=backend)
 
-    flow = BackendCompletionFlow(**deps)
+    flow = create_test_backend_completion_flow(deps)
 
     request = ChatRequest(
         model="gemini-2.5-pro",

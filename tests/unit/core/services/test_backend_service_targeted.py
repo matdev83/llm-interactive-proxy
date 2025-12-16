@@ -259,21 +259,17 @@ class TestBackendServiceTargeted:
         service._backend_lifecycle_manager.get_or_create = AsyncMock(
             return_value=mock_backend
         )
-        # Also set on completion flow
-        service._backend_completion_flow._request_preparer._session_service.get_session = AsyncMock(
+        # Also set on completion flow's session resolver
+        service._backend_completion_flow._session_resolver._session_service.get_session = AsyncMock(
             return_value=mock_session
         )
-        service._backend_completion_flow._backend_manager._backend_lifecycle_manager.get_or_create = AsyncMock(
-            return_value=mock_backend
-        )
-        service._backend_completion_flow._backend_model_resolver.resolve_target = (
-            AsyncMock(
-                return_value=ResolvedTarget(
-                    backend="openai", model="test-model", uri_params={}
-                )
+        # Mock the request preparer's backend model resolver
+        service._backend_completion_flow._request_preparer._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="openai", model="test-model", uri_params={}
             )
         )
-        service._backend_completion_flow._backend_model_resolver.synchronize_request_with_target = (
+        service._backend_completion_flow._request_preparer._backend_model_resolver.synchronize_request_with_target = (
             lambda request, resolved: request
         )
 
@@ -476,17 +472,12 @@ class TestBackendServiceTargeted:
             return_value=mock_backend
         )
         # Also set on completion flow
-        service._backend_completion_flow._backend_manager._backend_lifecycle_manager.get_or_create = AsyncMock(
-            return_value=mock_backend
-        )
-        service._backend_completion_flow._backend_model_resolver.resolve_target = (
-            AsyncMock(
-                return_value=ResolvedTarget(
-                    backend="openai", model="test-model", uri_params={}
-                )
+        service._backend_completion_flow._request_preparer._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="openai", model="test-model", uri_params={}
             )
         )
-        service._backend_completion_flow._backend_model_resolver.synchronize_request_with_target = (
+        service._backend_completion_flow._request_preparer._backend_model_resolver.synchronize_request_with_target = (
             lambda request, resolved: request
         )
 

@@ -6,8 +6,6 @@ import logging
 import time
 from typing import Any
 
-from fastapi import HTTPException
-
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -18,6 +16,15 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_completion_collaborators import (
+    IBackendAvailabilityChecker,
+    IBackendInvoker,
+    IBackendRequestPreparer,
+    ICompletionSessionResolver,
+    IFailureRecoveryExecutor,
+    IUsageAccountingOrchestrator,
+    IWireCaptureOrchestrator,
+)
 from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
 )
@@ -54,20 +61,31 @@ from src.core.interfaces.uri_parameter_applicator_interface import (
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.interfaces.wire_capture_interface import IWireCapture
-from src.core.services.backend_completion_flow.backend_manager import BackendManager
-from src.core.services.backend_completion_flow.failover_manager import FailoverManager
-from src.core.services.backend_completion_flow.request_preparer import RequestPreparer
-from src.core.services.backend_completion_flow.response_handler import ResponseHandler
-from src.core.services.backend_completion_flow.wire_capture_helper import (
-    WireCaptureHelper,
-)
 from src.core.services.backend_routing_service import BackendRoutingService
 
 logger = logging.getLogger(__name__)
 
 
 class BackendCompletionFlow(IBackendCompletionFlow):
-    """Orchestrates backend completion requests with failover, retry, and observability."""
+    """Orchestrates backend completion requests with failover, retry, and observability.
+
+    This coordinator delegates substantial logic to focused collaborators:
+    - BackendAvailabilityChecker: Availability gating (disabled backends, resilience checks)
+    - CompletionSessionResolver: Session resolution and per-session backend selection
+    - BackendRequestPreparer: Request preparation, config application, and target synchronization
+    - BackendManager: Backend instance acquisition and lifecycle management
+    - WireCaptureOrchestrator: Wire capture orchestration (outbound/inbound/errors)
+    - UsageAccountingOrchestrator: Usage tracking, response wrapping, and accounting
+    - FailureRecoveryExecutor: Failure recovery, retry, and failover execution
+
+    The orchestrator owns flow ordering and shared context only. All substantial logic
+    is delegated to collaborators to maintain clear boundaries and improve testability.
+
+    Raises:
+        BackendError: If backend call fails and recovery is not possible
+        RateLimitExceededError: If backend is rate limited
+        AuthenticationError: If authentication fails
+    """
 
     def __init__(
         self,
@@ -87,6 +105,17 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         config: IConfig,
         app_state: IApplicationState,
         failover_coordinator: IFailoverCoordinator,
+        # Required collaborators (formerly optional/injected)
+        availability_checker: IBackendAvailabilityChecker,
+        request_preparer_collaborator: IBackendRequestPreparer,
+        session_resolver: ICompletionSessionResolver,
+        failover_executor: IFailureRecoveryExecutor,
+        wire_capture_orchestrator: IWireCaptureOrchestrator,
+        usage_accounting_orchestrator: IUsageAccountingOrchestrator,
+        backend_invoker: IBackendInvoker,
+        # Legacy optional args (deprecated, kept for signature compatibility)
+        # These are passed from DI but not used in the implementation.
+        # TODO: Remove in next major version after updating all call sites.
         wire_capture: IWireCapture | None = None,
         usage_tracking_service: IUsageTrackingService | None = None,
         resilience_coordinator: IResilienceCoordinator | None = None,
@@ -94,81 +123,20 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         routing_service: BackendRoutingService | None = None,
         failover_routes: dict[str, dict[str, Any]] | None = None,
     ):
-        """Initialize the completion flow orchestrator.
-
-        Args:
-            backend_model_resolver: Resolves target backend and model
-            stream_session_id_resolver: Resolves stable session IDs for streaming
-            failover_planner: Plans failover sequences
-            session_service: Session management service
-            backend_lifecycle_manager: Manages backend lifecycle
-            backend_config_service: Provides backend configurations
-            reasoning_config_applicator: Applies reasoning configs
-            uri_parameter_applicator: Applies URI parameters
-            stream_formatting_service: Formats streams as SSE
-            usage_tracking_wrapper: Wraps streams for usage tracking
-            exception_normalizer: Normalizes exceptions
-            planning_phase_manager: Manages planning phase counters
-            backend_factory: Factory for backend creation
-            config: Application configuration
-            app_state: Application state
-            failover_coordinator: Coordinates failover
-            wire_capture: Optional wire capture service
-            usage_tracking_service: Optional usage tracking service
-            resilience_coordinator: Optional resilience coordinator
-            failure_handling_strategy: Optional failure handling strategy
-            routing_service: Optional routing service
-            failover_routes: Optional failover routes configuration
-        """
-        # Initialize helpers
-        self._request_preparer = RequestPreparer(
-            backend_model_resolver=backend_model_resolver,
-            session_service=session_service,
-            backend_config_service=backend_config_service,
-            reasoning_config_applicator=reasoning_config_applicator,
-            uri_parameter_applicator=uri_parameter_applicator,
-            config=config,
-        )
-
-        self._backend_manager = BackendManager(
-            backend_lifecycle_manager=backend_lifecycle_manager,
-            resilience_coordinator=resilience_coordinator,
-            failover_routes=failover_routes,
-        )
-
-        self._failover_manager = FailoverManager(
-            failover_planner=failover_planner,
-            failure_handling_strategy=failure_handling_strategy,
-            routing_service=routing_service,
-            config=config,
-            failover_routes=failover_routes,
-        )
-
-        self._wire_capture_helper = WireCaptureHelper(
-            wire_capture=wire_capture,
-            config=config,
-            backend_config_service=backend_config_service,
-        )
-
-        self._response_handler = ResponseHandler(
-            stream_session_id_resolver=stream_session_id_resolver,
-            stream_formatting_service=stream_formatting_service,
-            usage_tracking_wrapper=usage_tracking_wrapper,
-            exception_normalizer=exception_normalizer,
-            planning_phase_manager=planning_phase_manager,
-            wire_capture=wire_capture,
-            usage_tracking_service=usage_tracking_service,
-            resilience_coordinator=resilience_coordinator,
-            wire_capture_helper=self._wire_capture_helper,
-            backend_factory=backend_factory,
-            backend_lifecycle_manager=backend_lifecycle_manager,
-        )
-
-        # Store resilience coordinator for local use (failover logic)
-        self._resilience = resilience_coordinator
-        self._backend_model_resolver = backend_model_resolver
-        self._exception_normalizer = exception_normalizer
+        """Initialize the completion flow orchestrator."""
+        self._availability_checker = availability_checker
+        self._request_preparer = request_preparer_collaborator
+        self._session_resolver = session_resolver
+        self._failover_executor = failover_executor
+        self._wire_capture_orchestrator = wire_capture_orchestrator
+        self._usage_accounting = usage_accounting_orchestrator
+        self._backend_invoker = backend_invoker
         self._backend_lifecycle_manager = backend_lifecycle_manager
+
+        # Store dependencies needed for local logic
+        self._resilience = resilience_coordinator
+        self._exception_normalizer = exception_normalizer
+        self._stream_formatting_service = stream_formatting_service
 
     async def call_completion(
         self,
@@ -177,21 +145,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         allow_failover: bool = True,
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute completion orchestration with failover, retry, and observability.
-
-        Args:
-            request: The chat completion request
-            stream: Whether to stream the response
-            allow_failover: Whether to allow failover to alternative backends
-            context: Optional request context for tracking and metadata
-
-        Returns:
-            Either a complete response or a streaming response envelope
-
-        Raises:
-            BackendError: If the completion request fails
-            RateLimitExceededError: If rate limits are exceeded
-        """
+        """Execute completion orchestration with failover, retry, and observability."""
         # Step 1: Prepare request (resolve target + synchronize)
         (
             backend_type,
@@ -203,11 +157,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         )
 
         # Step 2: Check if complex failover applies
-        if allow_failover and await self._failover_manager.check_complex_failover(
+        if allow_failover and await self._failover_executor.check_complex_failover(
             request, effective_model, backend_type, stream, context
         ):
             # Complex failover handled, return result
-            return await self._failover_manager.execute_complex_failover(
+            return await self._failover_executor.execute_complex_failover(
                 request,
                 effective_model,
                 backend_type,
@@ -217,7 +171,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             )
 
         # Step 3: Check backend availability (disabled + resilience)
-        await self._backend_manager.check_backend_availability(
+        await self._availability_checker.check_backend_availability(
             backend_type, effective_model, allow_failover
         )
 
@@ -232,10 +186,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             (
                 session,
                 session_id_for_backend,
-            ) = await self._request_preparer.resolve_session(context, request)
+            ) = await self._session_resolver.resolve_session(context, request)
 
             # Step 6: Acquire backend instance
-            backend = await self._backend_manager.acquire_backend(
+            backend = await self._backend_invoker.acquire_backend(
                 backend_type, session_id_for_backend
             )
 
@@ -245,14 +199,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             )
 
             # Step 8: Prepare wire capture context (identity + backend config)
-            identity = await self._wire_capture_helper.prepare_wire_capture_context(
-                backend_type, session
+            identity = (
+                await self._wire_capture_orchestrator.prepare_wire_capture_context(
+                    backend_type, session
+                )
             )
 
             # Step 9: Execute backend call (with wire capture + usage tracking)
             try:
                 # Wire-capture: capture outbound payload pre-call (best-effort)
-                await self._wire_capture_helper.capture_wire_outbound(
+                await self._wire_capture_orchestrator.capture_wire_outbound(
                     backend_type=backend_type,
                     effective_model=effective_model,
                     domain_request=domain_request,
@@ -272,7 +228,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     outbound_tokens,
                     ctp_record_id,
                     ptb_record_id,
-                ) = await self._response_handler.calculate_and_record_usage(
+                ) = await self._usage_accounting.calculate_and_record_usage(
                     domain_request=domain_request,
                     request=request,
                     backend_type=backend_type,
@@ -293,7 +249,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
                 # Wrap result for usage tracking
-                result = await self._response_handler.wrap_response_for_usage(
+                result = await self._usage_accounting.wrap_response_for_usage(
                     result=result,
                     outbound_tokens=outbound_tokens,
                     ctp_record_id=ctp_record_id,
@@ -303,7 +259,42 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 10: Handle streaming response (wire capture + session ID injection)
                 if isinstance(result, StreamingResponseEnvelope):
-                    return await self._response_handler.handle_streaming_response(
+                    # Wire-capture: capture inbound stream
+                    key_name = self._wire_capture_orchestrator.detect_key_name(
+                        backend_type
+                    )
+                    session_id = getattr(context, "session_id", None)
+
+                    if result.content is not None:
+                        # Adapt domain stream to bytes for capture
+                        byte_stream = (
+                            self._stream_formatting_service.stream_as_sse_bytes(
+                                result.content
+                            )
+                        )
+                        wrapped_stream = (
+                            self._wire_capture_orchestrator.wrap_inbound_stream(
+                                context=context,
+                                session_id=session_id,
+                                backend_type=backend_type,
+                                effective_model=effective_model,
+                                key_name=key_name,
+                                stream=byte_stream,
+                            )
+                        )
+
+                        # Convert back to ProcessedResponse stream for adapters
+                        async def _to_processed_with_capture() -> Any:
+                            from src.core.interfaces.response_processor_interface import (
+                                ProcessedResponse,
+                            )
+
+                            async for b in wrapped_stream:
+                                yield ProcessedResponse(content=b, metadata={})
+
+                        result.content = _to_processed_with_capture()
+
+                    return await self._usage_accounting.handle_streaming_response(
                         result=result,
                         backend_type=backend_type,
                         effective_model=effective_model,
@@ -312,8 +303,26 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         session_id_for_backend=session_id_for_backend,
                     )
 
-                # Step 11: Handle non-streaming response (usage recording)
-                return await self._response_handler.handle_non_streaming_response(
+                # Step 11: Handle non-streaming response
+                # Wire-capture: capture inbound response
+                key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
+                # Serialize content for capture (best effort)
+                response_content: Any = result
+                if hasattr(result, "model_dump"):
+                    response_content = result.model_dump()
+                elif hasattr(result, "__dict__"):
+                    response_content = result.__dict__
+
+                await self._wire_capture_orchestrator.capture_inbound_response(
+                    context=context,
+                    session_id=getattr(context, "session_id", None),
+                    backend_type=backend_type,
+                    effective_model=effective_model,
+                    key_name=key_name,
+                    response_content=response_content,
+                )
+
+                return await self._usage_accounting.handle_non_streaming_response(
                     result=result,
                     backend_type=backend_type,
                     effective_model=effective_model,
@@ -325,30 +334,68 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 normalized_exc = self._exception_normalizer.normalize(
                     call_exc, backend_type
                 )
+                # Safety check: ensure normalized_exc is actually an Exception
+                if not isinstance(normalized_exc, Exception):
+                    normalized_exc = BackendError(
+                        message=f"Backend call failed: {call_exc!s}",
+                        backend_name=backend_type,
+                    )
+                    normalized_exc.__cause__ = call_exc
 
                 # Check if this is an authentication failure first
                 is_auth_failure = False
-                if (
-                    isinstance(normalized_exc, AuthenticationError)
-                    or isinstance(normalized_exc, HTTPException)
-                    and getattr(normalized_exc, "status_code", None) == 401
-                    or isinstance(normalized_exc, BackendError)
+                if isinstance(normalized_exc, AuthenticationError) or (
+                    hasattr(normalized_exc, "status_code")
                     and getattr(normalized_exc, "status_code", None) == 401
                 ):
                     is_auth_failure = True
 
                 if is_auth_failure:
                     # Handle authentication failures with backend lifecycle side effects
-                    await self._response_handler.handle_auth_failure(
-                        normalized_exc,  # type: ignore[arg-type]
+                    await self._usage_accounting.handle_auth_failure(
+                        normalized_exc,
                         backend,
                         backend_type,
                         session_id_for_backend,
                     )
                     raise normalized_exc
 
-                # Step 12: Handle backend error (wire capture)
-                await self._response_handler.handle_backend_error(
+                # Handle backend error (wire capture + usage/resilience updates)
+                # 1. Wire capture error
+                key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
+                error_payload: dict[str, Any]
+                if isinstance(normalized_exc, LLMProxyError):
+                    error_payload = normalized_exc.to_dict()
+                    # Ensure status code is present if available
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        if (
+                            isinstance(error_payload.get("error"), dict)
+                            and "status_code" not in error_payload["error"]
+                        ):
+                            error_payload["error"]["status_code"] = getattr(
+                                normalized_exc, "status_code", None
+                            )
+                else:
+                    error_payload = {
+                        "error": {
+                            "message": str(normalized_exc),
+                            "type": type(normalized_exc).__name__,
+                        }
+                    }
+
+                await self._wire_capture_orchestrator.capture_inbound_response(
+                    context=context,
+                    session_id=getattr(context, "session_id", None),
+                    backend_type=backend_type,
+                    effective_model=effective_model,
+                    key_name=key_name,
+                    response_content=error_payload,
+                )
+
+                # 2. Update resilience/usage via accounting collaborator
+                await self._usage_accounting.handle_backend_error(
                     call_exc=call_exc,
                     backend_type=current_backend,
                     effective_model=effective_model,
@@ -360,7 +407,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 13: Apply failure recovery (retry/failover)
                 if allow_failover:
-                    return await self._failover_manager.apply_failure_recovery(
+                    return await self._failover_executor.apply_failure_recovery(
                         error=normalized_exc,
                         model=effective_model,
                         backend_type=current_backend,
@@ -381,38 +428,21 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             RateLimitExceededError,
             LLMProxyError,
             AuthenticationError,
-            HTTPException,
         ) as exc:
             # Record failure in resilience coordinator (handles cooldown/backoff)
-            # Skip recording for HTTPException since it might be 4xx/5xx errors
-            if self._resilience and not isinstance(exc, HTTPException):
+            if self._resilience:
                 self._resilience.record_failure(backend_type, effective_model, exc)
             # Propagate expected exceptions as-is
             raise
-        except Exception as e:
-            # Catch any other unexpected exceptions and wrap them
+        except Exception as exc:
+            # Use duck typing to detect transport exceptions without importing FastAPI/Starlette
+            # This preserves layer boundaries while allowing proper error handling
+            if hasattr(exc, "status_code") and not isinstance(exc, BackendError):
+                # Don't record failure for generic HTTP exceptions (likely client errors)
+                # But do propagate them
+                raise
+            # Otherwise fall through to generic exception handling
             raise BackendError(
-                message=f"Backend call failed: {e!s}",
+                message=f"Backend call failed: {exc!s}",
                 backend_name=backend_type,
-            ) from e
-
-    # Expose private methods that might be used by tests (though we try to avoid it)
-    # The tests were using _apply_failure_strategy, _execute_complex_failover etc.
-    # We should probably expose them via delegation if we want to minimize test breakage,
-    # or better, update the tests. The user instruction was to "remove the parent_service escape hatch by updating the few tests".
-    # So we assume we can update tests.
-
-    # However, to be safe and compatible with existing tests that might call these "private" methods:
-    async def _apply_failure_strategy(self, *args, **kwargs):
-        return await self._failover_manager.apply_failure_strategy(*args, **kwargs)
-
-    async def _execute_complex_failover(self, *args, **kwargs):
-        # We need to inject the callback
-        if "call_completion_callback" not in kwargs:
-            kwargs["call_completion_callback"] = self.call_completion
-        return await self._failover_manager.execute_complex_failover(*args, **kwargs)
-
-    async def _attempt_failover_plan(self, *args, **kwargs):
-        if "call_completion_callback" not in kwargs:
-            kwargs["call_completion_callback"] = self.call_completion
-        return await self._failover_manager.attempt_failover_plan(*args, **kwargs)
+            ) from exc

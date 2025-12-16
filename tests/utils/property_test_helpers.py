@@ -45,8 +45,6 @@ async def async_iter(items: list[Any]) -> AsyncIterator[Any]:
     """
     for item in items:
         yield item
-        # Yield control to event loop
-        await asyncio.sleep(0)
 
 
 async def async_iter_with_delay(

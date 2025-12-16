@@ -236,7 +236,9 @@ class TestStaticRouteOverride:
         mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
         mock_dependencies["backend_model_resolver"] = backend_model_resolver
 
-        service = create_backend_service_with_mocks(**mock_dependencies)
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
 
         request = ChatRequest(
             model="anthropic:claude-3-5-sonnet",
@@ -287,7 +289,9 @@ class TestStaticRouteOverride:
         mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
         mock_dependencies["backend_model_resolver"] = backend_model_resolver
 
-        service = create_backend_service_with_mocks(**mock_dependencies)
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
 
         request = ChatRequest(
             model="anthropic:claude-3-5-sonnet",
@@ -392,7 +396,9 @@ class TestBackendDiscoveryAndRouting:
         mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
         mock_dependencies["backend_model_resolver"] = backend_model_resolver
 
-        service = create_backend_service_with_mocks(**mock_dependencies)
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
 
         request = ChatRequest(
             model="gemini-2.0-flash",

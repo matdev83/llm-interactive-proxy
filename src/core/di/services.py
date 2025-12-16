@@ -3363,6 +3363,243 @@ def register_core_services(
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Failed to register IFailoverPlanner interface: {e}")
 
+    # Register backend completion flow collaborators
+    from src.core.interfaces.backend_completion_collaborators import (
+        IBackendAvailabilityChecker,
+        IBackendInvoker,
+        IBackendRequestPreparer,
+        ICompletionSessionResolver,
+        IFailureRecoveryExecutor,
+        IUsageAccountingOrchestrator,
+        IWireCaptureOrchestrator,
+    )
+    from src.core.services.backend_completion_flow.availability_checker import (
+        BackendAvailabilityChecker,
+    )
+    from src.core.services.backend_completion_flow.backend_manager import BackendManager
+    from src.core.services.backend_completion_flow.backend_request_preparer import (
+        BackendRequestPreparer,
+    )
+    from src.core.services.backend_completion_flow.completion_session_resolver import (
+        CompletionSessionResolver,
+    )
+    from src.core.services.backend_completion_flow.failure_recovery_executor import (
+        FailureRecoveryExecutor,
+    )
+    from src.core.services.backend_completion_flow.usage_accounting_orchestrator import (
+        UsageAccountingOrchestrator,
+    )
+    from src.core.services.backend_completion_flow.wire_capture_orchestrator import (
+        WireCaptureOrchestrator,
+    )
+
+    # WireCaptureOrchestrator
+    def _wire_capture_orchestrator_factory(
+        p: IServiceProvider,
+    ) -> WireCaptureOrchestrator:
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
+        )
+        from src.core.interfaces.configuration_interface import IConfig
+        from src.core.interfaces.wire_capture_interface import IWireCapture
+
+        return WireCaptureOrchestrator(
+            wire_capture=p.get_service(IWireCapture),  # type: ignore[type-abstract]
+            config=p.get_required_service(IConfig),  # type: ignore[type-abstract]
+            backend_config_service=p.get_required_service(IBackendConfigProvider),  # type: ignore[type-abstract]
+        )
+
+    _add_singleton(
+        WireCaptureOrchestrator,
+        implementation_factory=_wire_capture_orchestrator_factory,
+    )
+    _add_singleton(
+        cast(type, IWireCaptureOrchestrator),
+        implementation_factory=lambda p: p.get_required_service(
+            WireCaptureOrchestrator
+        ),
+    )
+
+    # BackendRequestPreparer
+    def _backend_request_preparer_factory(
+        p: IServiceProvider,
+    ) -> BackendRequestPreparer:
+        from src.core.interfaces.backend_config_provider_interface import (
+            IBackendConfigProvider,
+        )
+        from src.core.interfaces.backend_model_resolver_interface import (
+            IBackendModelResolver,
+        )
+        from src.core.interfaces.configuration_interface import IConfig
+        from src.core.interfaces.reasoning_config_applicator_interface import (
+            IReasoningConfigApplicator,
+        )
+        from src.core.interfaces.uri_parameter_applicator_interface import (
+            IURIParameterApplicator,
+        )
+
+        return BackendRequestPreparer(
+            backend_model_resolver=p.get_required_service(IBackendModelResolver),  # type: ignore[type-abstract]
+            backend_config_service=p.get_required_service(IBackendConfigProvider),  # type: ignore[type-abstract]
+            reasoning_config_applicator=p.get_required_service(
+                IReasoningConfigApplicator  # type: ignore[type-abstract]
+            ),
+            uri_parameter_applicator=p.get_required_service(IURIParameterApplicator),  # type: ignore[type-abstract]
+            config=p.get_required_service(IConfig),  # type: ignore[type-abstract]
+        )
+
+    _add_singleton(
+        BackendRequestPreparer, implementation_factory=_backend_request_preparer_factory
+    )
+    _add_singleton(
+        cast(type, IBackendRequestPreparer),
+        implementation_factory=lambda p: p.get_required_service(BackendRequestPreparer),
+    )
+
+    # CompletionSessionResolver
+    def _completion_session_resolver_factory(
+        p: IServiceProvider,
+    ) -> CompletionSessionResolver:
+        from src.core.interfaces.session_service_interface import ISessionService
+
+        return CompletionSessionResolver(
+            session_service=p.get_required_service(ISessionService),  # type: ignore[type-abstract]
+        )
+
+    _add_singleton(
+        CompletionSessionResolver,
+        implementation_factory=_completion_session_resolver_factory,
+    )
+    _add_singleton(
+        cast(type, ICompletionSessionResolver),
+        implementation_factory=lambda p: p.get_required_service(
+            CompletionSessionResolver
+        ),
+    )
+
+    # BackendAvailabilityChecker
+    def _backend_availability_checker_factory(
+        p: IServiceProvider,
+    ) -> BackendAvailabilityChecker:
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+        from src.core.interfaces.configuration_interface import IConfig
+
+        # Get failover_routes from config
+        config = p.get_required_service(IConfig)  # type: ignore[type-abstract]
+        failover_routes = getattr(config, "failover_routes", {})
+
+        return BackendAvailabilityChecker(
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+            resilience_coordinator=p.get_service(IResilienceCoordinator),  # type: ignore[type-abstract]
+            failover_routes=failover_routes,
+        )
+
+    _add_singleton(
+        BackendAvailabilityChecker,
+        implementation_factory=_backend_availability_checker_factory,
+    )
+    _add_singleton(
+        cast(type, IBackendAvailabilityChecker),
+        implementation_factory=lambda p: p.get_required_service(
+            BackendAvailabilityChecker
+        ),
+    )
+
+    # BackendManager (Invoker)
+    def _backend_manager_factory(p: IServiceProvider) -> BackendManager:
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+        from src.core.interfaces.configuration_interface import IConfig
+
+        # Get failover_routes from config
+        config = p.get_required_service(IConfig)  # type: ignore[type-abstract]
+        failover_routes = getattr(config, "failover_routes", {})
+
+        return BackendManager(
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+            resilience_coordinator=p.get_service(IResilienceCoordinator),  # type: ignore[type-abstract]
+            failover_routes=failover_routes,
+        )
+
+    _add_singleton(BackendManager, implementation_factory=_backend_manager_factory)
+    _add_singleton(
+        cast(type, IBackendInvoker),
+        implementation_factory=lambda p: p.get_required_service(BackendManager),
+    )
+
+    # FailureRecoveryExecutor
+    def _failure_recovery_executor_factory(
+        p: IServiceProvider,
+    ) -> FailureRecoveryExecutor:
+        from src.core.interfaces.configuration_interface import IConfig
+        from src.core.interfaces.failure_strategy_interface import (
+            IFailureHandlingStrategy,
+        )
+        from src.core.services.backend_routing_service import BackendRoutingService
+
+        # Get failover_routes from config
+        config = p.get_required_service(IConfig)  # type: ignore[type-abstract]
+        failover_routes = getattr(config, "failover_routes", {})
+
+        return FailureRecoveryExecutor(
+            failover_planner=p.get_required_service(IFailoverPlanner),  # type: ignore[type-abstract]
+            failure_handling_strategy=p.get_service(IFailureHandlingStrategy),  # type: ignore[type-abstract]
+            routing_service=p.get_service(BackendRoutingService),
+            config=config,
+            failover_routes=failover_routes,
+        )
+
+    _add_singleton(
+        FailureRecoveryExecutor,
+        implementation_factory=_failure_recovery_executor_factory,
+    )
+    _add_singleton(
+        cast(type, IFailureRecoveryExecutor),
+        implementation_factory=lambda p: p.get_required_service(
+            FailureRecoveryExecutor
+        ),
+    )
+
+    # UsageAccountingOrchestrator
+    def _usage_accounting_orchestrator_factory(
+        p: IServiceProvider,
+    ) -> UsageAccountingOrchestrator:
+        from src.core.interfaces.backend_factory_interface import IBackendFactory
+        from src.core.interfaces.backend_lifecycle_manager_interface import (
+            IBackendLifecycleManager,
+        )
+        from src.core.interfaces.planning_phase_manager_interface import (
+            IPlanningPhaseManager,
+        )
+        from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+        from src.core.interfaces.usage_tracking_wrapper_interface import (
+            IUsageTrackingWrapper,
+        )
+
+        return UsageAccountingOrchestrator(
+            usage_tracking_service=p.get_service(IUsageTrackingService),  # type: ignore[type-abstract]
+            usage_tracking_wrapper=p.get_required_service(IUsageTrackingWrapper),  # type: ignore[type-abstract]
+            stream_session_id_resolver=p.get_required_service(IStreamSessionIdResolver),  # type: ignore[type-abstract]
+            planning_phase_manager=p.get_required_service(IPlanningPhaseManager),  # type: ignore[type-abstract]
+            resilience_coordinator=p.get_service(IResilienceCoordinator),  # type: ignore[type-abstract]
+            backend_factory=p.get_required_service(IBackendFactory),  # type: ignore[type-abstract]
+            backend_lifecycle_manager=p.get_required_service(IBackendLifecycleManager),  # type: ignore[type-abstract]
+        )
+
+    _add_singleton(
+        UsageAccountingOrchestrator,
+        implementation_factory=_usage_accounting_orchestrator_factory,
+    )
+    _add_singleton(
+        cast(type, IUsageAccountingOrchestrator),
+        implementation_factory=lambda p: p.get_required_service(
+            UsageAccountingOrchestrator
+        ),
+    )
+
     # Register backend completion flow (actual implementation)
     def _backend_completion_flow_factory(p: IServiceProvider) -> BackendCompletionFlow:
         """Factory for BackendCompletionFlow with all dependencies."""
@@ -3432,6 +3669,14 @@ def register_core_services(
             failure_handling_strategy=p.get_service(IFailureHandlingStrategy),  # type: ignore[type-abstract]
             routing_service=p.get_service(BackendRoutingService),
             failover_routes=failover_routes,
+            # Injected collaborators
+            request_preparer_collaborator=p.get_required_service(IBackendRequestPreparer),  # type: ignore[type-abstract]
+            session_resolver=p.get_required_service(ICompletionSessionResolver),  # type: ignore[type-abstract]
+            availability_checker=p.get_required_service(IBackendAvailabilityChecker),  # type: ignore[type-abstract]
+            backend_invoker=p.get_required_service(IBackendInvoker),  # type: ignore[type-abstract]
+            failover_executor=p.get_required_service(IFailureRecoveryExecutor),  # type: ignore[type-abstract]
+            wire_capture_orchestrator=p.get_required_service(IWireCaptureOrchestrator),  # type: ignore[type-abstract]
+            usage_accounting_orchestrator=p.get_required_service(IUsageAccountingOrchestrator),  # type: ignore[type-abstract]
         )
 
     _add_singleton(

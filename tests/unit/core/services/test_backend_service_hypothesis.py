@@ -360,7 +360,7 @@ class TestBackendServiceHypothesis:
             mock_resilience.check_availability.return_value = mock_decision
 
             # Set resilience on the BackendCompletionFlow, not the BackendService
-            service._backend_completion_flow._backend_manager._resilience = (
+            service._backend_completion_flow._availability_checker._resilience = (
                 mock_resilience
             )
 

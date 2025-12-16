@@ -13,7 +13,10 @@ from src.core.common.exceptions import (
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
-from src.core.services.backend_completion_flow import BackendCompletionFlow
+
+from tests.unit.core.services.backend_flow_test_helper import (
+    create_test_backend_completion_flow,
+)
 
 
 class MockBackend(LLMBackend):
@@ -85,7 +88,7 @@ def flow_fixture():
 
     deps["exception_normalizer"].normalize = Mock(side_effect=normalize_side_effect)
 
-    flow = BackendCompletionFlow(**deps)
+    flow = create_test_backend_completion_flow(deps)
     return flow, deps
 
 
