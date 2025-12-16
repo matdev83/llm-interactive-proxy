@@ -32,12 +32,21 @@ This design refactors `BackendService` into a small façade that delegates to fo
 - `src/core/services/backend_service.py`: 2109 lines.
 - `BackendService.call_completion`: CC 180 (radon via `scripts/analyze_complexity.py`); one method mixes session resolution, backend init, retry/failover loops, wire capture integration, usage tracking integration, and response shaping.
 - Multiple extracted services already exist and are registered in DI (`src/core/di/services.py`), but `BackendService.__init__` still supports optional injection + runtime fallback creation.
-- Streaming session-id resolution logic is duplicated across `BackendService` and `BufferedWireCaptureService`.
+- Streaming session-id resolution logic is duplicated across `BackendService` and `BufferedWireCapture` (`src/core/services/buffered_wire_capture_service.py`).
 
 **Existing patterns to preserve (steering-aligned):**
 - Staged initialization wires DI via `CoreServicesStage` calling `register_core_services(...)`.
 - Interfaces in `src/core/interfaces/` provide test seams.
 - Factory functions in DI are used for complex wiring.
+
+### Current Codebase Integration Points (Post RequestProcessor Refactor)
+
+The backend orchestration is now typically reached through an explicit request-processing pipeline:
+- `RequestProcessor.process_request` → `IBackendExecutor.execute` → `IBackendRequestManager.process_backend_request` → `IBackendProcessor.process_backend_request` → `IBackendService.call_completion`
+
+This does not change the `IBackendService` contract, but it does impact where to update wiring when new mandatory collaborators are introduced:
+- Primary registration: `register_core_services(...)` in `src/core/di/services.py` (invoked by `CoreServicesStage`)
+- Fallback registration path: `src/core/app/stages/backend.py` (only when core services did not register `BackendService`)
 
 ### Architecture Pattern & Boundary Map
 
@@ -150,6 +159,7 @@ sequenceDiagram
 ### DI Registration Strategy
 
 - Register new services and interfaces in `src/core/di/services.py` (the existing composition root used by staged initialization).
+- If the `BackendStage` fallback wiring path (`src/core/app/stages/backend.py`) remains in use, update that factory as well so it constructs `BackendService` with the same explicit dependency set.
 - BackendService’s factory resolves all required dependencies explicitly; no runtime fallback creation in `BackendService.__init__`.
 - All new services are singletons (stateless orchestration + config-driven behavior).
 

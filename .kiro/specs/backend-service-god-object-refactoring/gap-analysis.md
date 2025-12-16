@@ -89,3 +89,6 @@ The largest gap between the current implementation and the desired architecture 
 
 3. **Circular dependencies (failover recursion)**
    - Mitigation: completion orchestrator must not depend on `IBackendService`; implement internal invocation paths that preserve `allow_failover=False` semantics.
+
+4. **Missing wiring updates across multiple composition roots**
+   - Mitigation: treat `register_core_services(...)` (`src/core/di/services.py`) as the primary composition root, but also update the staged fallback registration path (`src/core/app/stages/backend.py`) so `BackendService` is constructed with the same explicit dependency set when the fallback path is used.

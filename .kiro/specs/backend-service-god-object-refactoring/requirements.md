@@ -66,7 +66,9 @@ This document specifies requirements for refactoring `BackendService` (`src/core
 #### Technical Constraints
 
 - DI implementation: `ServiceCollection` / `IServiceProvider`.
-- Registration location: `src/core/di/services.py` (invoked by staged initialization).
+- Registration locations:
+  - `src/core/di/services.py` via `register_core_services(...)` (invoked by `CoreServicesStage`)
+  - Fallback wiring in `src/core/app/stages/backend.py` when core services do not register `BackendService`
 
 ### Requirement 3: Public Contract and Test Seam Preservation
 

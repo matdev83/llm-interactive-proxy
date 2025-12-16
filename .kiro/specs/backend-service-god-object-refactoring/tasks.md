@@ -33,6 +33,7 @@
 
 - [ ] 2.1 (P) Add DI wiring for new collaborators
   - Register new collaborators and their interfaces in the existing DI composition root.
+  - If `BackendService` is also constructed via staged fallback wiring, update `src/core/app/stages/backend.py` so the fallback factory passes the same explicit dependency set (no missing collaborators).
   - _Requirements: 2.3_
 
 ## Phase 3: Implement Extracted Collaborators
@@ -58,6 +59,7 @@
 
 - [ ] 4. Remove runtime fallback instantiation from BackendService construction
   - Make dependency construction a DI concern, not a BackendService concern.
+  - Update unit tests/fixtures that directly instantiate `BackendService` to provide required dependencies (or use a canonical test builder) so tests no longer rely on constructor fallbacks.
   - _Requirements: 2.1, 2.3_
 
 - [ ] 4.1 Update BackendService to delegate to new collaborators

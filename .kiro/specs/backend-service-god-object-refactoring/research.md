@@ -47,9 +47,18 @@ These services reduce surface area, but the completion orchestration still lives
 
 There are two separate session-id resolution implementations used for streaming capture/buffering:
 - `BackendService._resolve_stream_session_id`
-- `BufferedWireCaptureService._resolve_stream_session_id`
+- `BufferedWireCapture._resolve_stream_session_id` (`src/core/services/buffered_wire_capture_service.py`)
 
 The algorithms differ (inputs consulted and ordering), which can lead to inconsistent capture session identifiers across pipelines. This is a DRY and observability risk.
+
+## Integration Context (Post RequestProcessor Refactor)
+
+In the current codebase, most requests reach `BackendService.call_completion` through:
+- `RequestProcessor` → `BackendExecutor` → `BackendRequestManager` → `BackendProcessor` → `BackendService`
+
+Notable implications for this refactor:
+- `BackendExecutor` now injects `session_id` into the outbound request metadata (`ChatRequest.extra_body` and `ChatRequest.session_id`) before the backend call, which can influence which fallback paths are taken when resolving stable streaming/capture identifiers.
+- Any new mandatory collaborators introduced for `BackendService` must be wired in both the primary DI composition root (`register_core_services(...)` in `src/core/di/services.py`) and the staged fallback wiring (`src/core/app/stages/backend.py`) when that fallback path is exercised.
 
 ## Test and Compatibility Constraints (Verified)
 
