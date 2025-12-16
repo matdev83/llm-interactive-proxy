@@ -182,9 +182,7 @@ class UsageLeakVerifier:
         usage_in_content_failures = [
             r for r in usage_in_content_results if not r.passed
         ]
-        [
-            r for r in usage_at_top_level_results if not r.passed
-        ]
+        [r for r in usage_at_top_level_results if not r.passed]
 
         # The fix is verified if:
         # 1. No usage data appears in delta.content
@@ -308,7 +306,9 @@ class UsageLeakVerifier:
 
         # Pattern 3: Check for the exact structure of a leaked stop chunk
         # This catches cases where the entire chunk is in content
-        return bool('"object": "chat.completion.chunk"' in content and '"usage":' in content)
+        return bool(
+            '"object": "chat.completion.chunk"' in content and '"usage":' in content
+        )
 
     def _verify_usage_at_top_level(
         self, entries: list[CaptureEntry]
@@ -381,7 +381,10 @@ class UsageLeakVerifier:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("content")
+        if not isinstance(delta, dict):
+            return None
+        content = delta.get("content")
+        return content if isinstance(content, str) else None
 
 
 def main() -> int:

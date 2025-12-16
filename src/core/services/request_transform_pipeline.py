@@ -110,6 +110,94 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         return request
 
+    def _get_app_config(self) -> Any | None:
+        if self._app_state is None:
+            return None
+        try:
+            return self._app_state.get_setting("app_config")
+        except (AttributeError, KeyError, TypeError):
+            return None
+
+    def _get_session_state(self, session: object) -> Any | None:
+        try:
+            return getattr(session, "state", None)
+        except Exception:
+            return None
+
+    def _should_redact_api_keys(self, session: object, app_config: Any | None) -> bool:
+        should_redact = True
+        session_override: bool | None = None
+
+        try:
+            session_state = self._get_session_state(session)
+            if session_state is not None:
+                session_override = getattr(
+                    session_state, "api_key_redaction_enabled", None
+                )
+                if not isinstance(session_override, bool | type(None)):
+                    session_override = None
+        except Exception:
+            session_override = None
+
+        if session_override is not None:
+            return bool(session_override)
+
+        try:
+            if app_config is not None and hasattr(app_config, "auth"):
+                should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
+        except (AttributeError, TypeError, ValueError):
+            should_redact = True
+
+        return should_redact
+
+    def _resolve_command_prefix(
+        self, session: object, app_config: Any | None
+    ) -> str | None:
+        # 1) Session-level override
+        try:
+            session_state = self._get_session_state(session)
+            if session_state is not None:
+                session_prefix = getattr(session_state, "command_prefix_override", None)
+                if isinstance(session_prefix, str):
+                    session_prefix = session_prefix.strip()
+                    if session_prefix:
+                        return session_prefix
+        except Exception:
+            pass
+
+        # 2) App state
+        if self._app_state is not None:
+            try:
+                candidate_prefix = self._app_state.get_command_prefix()
+            except AttributeError:
+                candidate_prefix = None
+            if isinstance(candidate_prefix, str):
+                candidate_prefix = candidate_prefix.strip()
+                if candidate_prefix:
+                    return candidate_prefix
+
+        # 3) Config
+        try:
+            config_prefix = (
+                app_config.command_prefix if app_config is not None else None
+            )
+            if isinstance(config_prefix, str):
+                config_prefix = config_prefix.strip()
+                if config_prefix:
+                    return config_prefix
+        except (AttributeError, TypeError):
+            pass
+
+        return None
+
+    def _get_commands_disabled(self) -> bool:
+        if self._app_state is None:
+            return False
+        try:
+            return bool(self._app_state.get_disable_commands())
+        except AttributeError:
+            return False
+
     async def _apply_redaction(
         self,
         context: RequestContext,
@@ -132,39 +220,8 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         Returns:
             Request with API keys redacted (or unchanged if redaction disabled)
         """
-        # Get app config
-        app_config = None
-        if self._app_state is not None:
-            try:
-                app_config = self._app_state.get_setting("app_config")
-            except (AttributeError, KeyError, TypeError):
-                app_config = None
-
-        # Determine if redaction should be applied
-        should_redact = True
-        session_override: bool | None = None
-        try:
-            session_state = getattr(session, "state", None)
-            if session_state is not None:
-                session_override = getattr(
-                    session_state, "api_key_redaction_enabled", None
-                )
-                if not isinstance(session_override, bool | type(None)):
-                    session_override = None
-        except Exception:
-            session_override = None
-
-        if session_override is None:
-            try:
-                if app_config is not None and hasattr(app_config, "auth"):
-                    should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
-            except (AttributeError, TypeError, ValueError):
-                # Be conservative: keep redaction enabled on errors
-                should_redact = True
-        else:
-            should_redact = bool(session_override)
-
-        if not should_redact:
+        app_config = self._get_app_config()
+        if not self._should_redact_api_keys(session, app_config):
             return request
 
         # Import redaction middleware
@@ -177,49 +234,8 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         api_keys = discover_api_keys_from_config_and_env(app_config)
 
         # Resolve command prefix with precedence
-        command_prefix: str | None = None
-
-        # Check for session-level command prefix override first
-        try:
-            session_state = getattr(session, "state", None)
-            if session_state is not None:
-                session_prefix = getattr(session_state, "command_prefix_override", None)
-                if isinstance(session_prefix, str) and session_prefix.strip():
-                    command_prefix = session_prefix.strip()
-        except Exception:
-            pass
-
-        # Fall back to app state command prefix if no session override
-        if not command_prefix and self._app_state is not None:
-            try:
-                candidate_prefix = self._app_state.get_command_prefix()
-            except AttributeError:
-                candidate_prefix = None
-            if isinstance(candidate_prefix, str):
-                stripped_prefix = candidate_prefix.strip()
-                command_prefix = stripped_prefix or None
-            else:
-                command_prefix = None
-
-        # Fall back to config command prefix if still not found
-        if not command_prefix:
-            try:
-                config_prefix = (
-                    app_config.command_prefix if app_config is not None else None
-                )
-                if isinstance(config_prefix, str):
-                    stripped_prefix = config_prefix.strip()
-                    command_prefix = stripped_prefix or None
-            except (AttributeError, TypeError):
-                command_prefix = None
-
-        # Check if commands are disabled
-        commands_disabled = False
-        if self._app_state is not None:
-            try:
-                commands_disabled = bool(self._app_state.get_disable_commands())
-            except AttributeError:
-                commands_disabled = False
+        command_prefix = self._resolve_command_prefix(session, app_config)
+        commands_disabled = self._get_commands_disabled()
 
         # Create and apply redaction middleware
         redaction = RedactionMiddleware(
@@ -254,6 +270,120 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         return request
 
+    def _get_edit_precision_config(
+        self, app_config: Any | None
+    ) -> tuple[bool, float, float | None, int | None, str | None]:
+        cfg_enabled = True
+        cfg_temp = 0.1
+        cfg_min_top_p: float | None = 0.3
+        exclude_agents_regex: str | None = None
+        cfg_target_top_k: int | None = None
+
+        if app_config is None or not hasattr(app_config, "edit_precision"):
+            return (
+                cfg_enabled,
+                cfg_temp,
+                cfg_min_top_p,
+                cfg_target_top_k,
+                exclude_agents_regex,
+            )
+
+        try:
+            ep = app_config.edit_precision
+            cfg_enabled = bool(getattr(ep, "enabled", True))
+            cfg_temp = float(getattr(ep, "temperature", 0.1))
+
+            cfg_override_top_p = bool(getattr(ep, "override_top_p", False))
+            cfg_min_top_p = (
+                getattr(ep, "min_top_p", 0.3) if cfg_override_top_p else None
+            )
+
+            cfg_target_top_k = (
+                int(getattr(ep, "target_top_k", 0)) or None
+                if bool(getattr(ep, "override_top_k", False))
+                else None
+            )
+            exclude_agents_regex = getattr(ep, "exclude_agents_regex", None)
+        except (AttributeError, TypeError, ValueError):
+            cfg_enabled = True
+            cfg_temp = 0.1
+            cfg_min_top_p = None
+            cfg_target_top_k = None
+            exclude_agents_regex = None
+
+        return (
+            cfg_enabled,
+            cfg_temp,
+            cfg_min_top_p,
+            cfg_target_top_k,
+            exclude_agents_regex,
+        )
+
+    def _is_agent_excluded(
+        self, exclude_agents_regex: str | None, agent: object
+    ) -> bool:
+        if not exclude_agents_regex or not agent:
+            return False
+        try:
+            import re
+
+            return bool(re.search(exclude_agents_regex, str(agent), re.IGNORECASE))
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Invalid regex in edit_precision.exclude_agents_regex: %s",
+                    e,
+                )
+            return False
+
+    def _consume_one_shot_counter(self, key: str, session_id: str) -> bool:
+        if self._app_state is None:
+            return False
+        try:
+            counter_map = self._app_state.get_setting(key)
+            if not isinstance(counter_map, dict):
+                return False
+            counter_map = dict(counter_map)
+            count = int(counter_map.get(session_id, 0))
+            if count <= 0:
+                return False
+            new_count = count - 1
+            if new_count > 0:
+                counter_map[session_id] = new_count
+            else:
+                counter_map.pop(session_id, None)
+            self._app_state.set_setting(key, counter_map)
+            return True
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _consume_flag(self, key: str, session_id: str) -> bool:
+        if self._app_state is None:
+            return False
+        try:
+            flag_map = self._app_state.get_setting(key)
+            if not isinstance(flag_map, dict) or session_id not in flag_map:
+                return False
+            flag_map = dict(flag_map)
+            del flag_map[session_id]
+            self._app_state.set_setting(key, flag_map)
+            return True
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _clear_flag(self, key: str, session_id: str) -> None:
+        if self._app_state is None:
+            return
+        try:
+            active_map = self._app_state.get_setting(key)
+            if not isinstance(active_map, dict) or session_id not in active_map:
+                return
+            active_map = dict(active_map)
+            active_map.pop(session_id, None)
+            self._app_state.set_setting(key, active_map)
+        except (AttributeError, TypeError, ValueError):
+            return
+
     async def _apply_edit_precision(
         self,
         context: RequestContext,
@@ -271,9 +401,6 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         Returns:
             Request with edit precision adjustments (or unchanged if disabled)
         """
-        if request is None:
-            return request
-
         # Import edit precision middleware
         from src.core.config.edit_precision_temperatures import (
             load_edit_precision_temperatures_config,
@@ -285,120 +412,30 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         # Load model-specific temperatures config (cached at module level)
         temperatures_config = load_edit_precision_temperatures_config()
 
-        # Resolve AppConfig via injected app_state when available
-        cfg_enabled = True
-        cfg_temp = 0.1
-        cfg_min_top_p: float | None = 0.3
-        exclude_agents_regex: str | None = None
-        cfg_override_top_p = False
-        cfg_target_top_k: int | None = None
-        app_config = None
-        if self._app_state is not None:
-            try:
-                app_config = self._app_state.get_setting("app_config")
-                if app_config is not None and hasattr(app_config, "edit_precision"):
-                    # Pydantic models expose attributes directly
-                    ep = app_config.edit_precision
-                    cfg_enabled = bool(getattr(ep, "enabled", True))
-                    cfg_temp = float(getattr(ep, "temperature", 0.1))
-                    cfg_override_top_p = bool(getattr(ep, "override_top_p", False))
-                    cfg_min_top_p = (
-                        getattr(ep, "min_top_p", 0.3) if cfg_override_top_p else None
-                    )
-                    cfg_target_top_k = (
-                        int(getattr(ep, "target_top_k", 0)) or None
-                        if bool(getattr(ep, "override_top_k", False))
-                        else None
-                    )
-                    exclude_agents_regex = getattr(ep, "exclude_agents_regex", None)
-            except (AttributeError, TypeError, ValueError):
-                # Keep defaults on error
-                cfg_enabled = True
-                cfg_temp = 0.1
-                cfg_override_top_p = False
-                cfg_min_top_p = None
-                cfg_target_top_k = None
-                exclude_agents_regex = None
-                app_config = None
+        app_config = self._get_app_config()
+        (
+            cfg_enabled,
+            cfg_temp,
+            cfg_min_top_p,
+            cfg_target_top_k,
+            exclude_agents_regex,
+        ) = self._get_edit_precision_config(app_config)
 
         # Respect agent exclusion regex if configured
-        if cfg_enabled and exclude_agents_regex:
-            agent = getattr(session, "agent", None)
-            if agent:
-                try:
-                    import re
+        if cfg_enabled and self._is_agent_excluded(
+            exclude_agents_regex, getattr(session, "agent", None)
+        ):
+            cfg_enabled = False
 
-                    if re.search(exclude_agents_regex, str(agent), re.IGNORECASE):
-                        cfg_enabled = False
-                except Exception as e:
-                    # Invalid pattern; ignore exclusion
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Invalid regex in edit_precision.exclude_agents_regex: %s",
-                            e,
-                        )
+        force_apply = self._consume_one_shot_counter(
+            "edit_precision_pending", session_id
+        )
 
-        # If previous response flagged a pending precision tune, apply once
-        force_apply = False
-        try:
-            pending_map = (
-                self._app_state.get_setting("edit_precision_pending")
-                if self._app_state is not None
-                else None
-            )
-            if isinstance(pending_map, dict):
-                pending_map = dict(pending_map)
-                pending_count = int(pending_map.get(session_id, 0))
-                if pending_count > 0:
-                    force_apply = True
-                    # decrement one-shot counter
-                    new_count = pending_count - 1
-                    if new_count > 0:
-                        pending_map[session_id] = new_count
-                    else:
-                        pending_map.pop(session_id, None)
-                    if self._app_state is not None:
-                        self._app_state.set_setting(
-                            "edit_precision_pending", pending_map
-                        )
-        except (AttributeError, TypeError, ValueError):
-            pass
-
-        # Check if hybrid reasoning should be disabled for this session
-        hybrid_reasoning_disabled = False
-        try:
-            hybrid_disabled_map = (
-                self._app_state.get_setting("edit_precision_hybrid_reasoning_disabled")
-                if self._app_state is not None
-                else None
-            )
-            if isinstance(hybrid_disabled_map, dict):
-                hybrid_disabled_map = dict(hybrid_disabled_map)
-                if session_id in hybrid_disabled_map:
-                    hybrid_reasoning_disabled = True
-                    # Remove the flag so it's only used for this request
-                    del hybrid_disabled_map[session_id]
-                    if self._app_state is not None:
-                        self._app_state.set_setting(
-                            "edit_precision_hybrid_reasoning_disabled",
-                            hybrid_disabled_map,
-                        )
-            # Also clear the active flag when consuming the disabled flag
-            active_map = (
-                self._app_state.get_setting("edit_precision_hybrid_reasoning_active")
-                if self._app_state is not None
-                else None
-            )
-            if isinstance(active_map, dict) and session_id in active_map:
-                active_map = dict(active_map)
-                active_map.pop(session_id, None)
-                if self._app_state is not None:
-                    self._app_state.set_setting(
-                        "edit_precision_hybrid_reasoning_active",
-                        active_map,
-                    )
-        except (AttributeError, TypeError, ValueError):
-            pass
+        hybrid_reasoning_disabled = self._consume_flag(
+            "edit_precision_hybrid_reasoning_disabled", session_id
+        )
+        if hybrid_reasoning_disabled:
+            self._clear_flag("edit_precision_hybrid_reasoning_active", session_id)
 
         if not cfg_enabled:
             return request
@@ -477,6 +514,69 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         return request
 
+    def _get_tool_access_policy_service(self) -> Any | None:
+        if self._app_state is None:
+            return None
+        try:
+            from src.core.services.tool_access_policy_service import (
+                ToolAccessPolicyService,
+            )
+
+            return self._app_state.get_service(ToolAccessPolicyService)
+        except (AttributeError, KeyError, TypeError):
+            return None
+
+    def _inject_extra_body_metadata(
+        self, request: ChatRequest, key: str, value: Any
+    ) -> ChatRequest:
+        extra_body_attr = getattr(request, "extra_body", None)
+        extra_body: dict[str, Any] = extra_body_attr.copy() if extra_body_attr else {}
+        extra_body[key] = value
+        return request.model_copy(update={"extra_body": extra_body})
+
+    def _maybe_reset_tool_choice(
+        self, request: ChatRequest, policy_service: Any, filtered_tools: list[Any]
+    ) -> ChatRequest:
+        tool_choice = getattr(request, "tool_choice", None)
+        if not (
+            tool_choice and isinstance(tool_choice, dict) and "function" in tool_choice
+        ):
+            return request
+
+        choice_name = tool_choice.get("function", {}).get("name")
+        if not choice_name:
+            return request
+
+        tool_names = [policy_service._extract_tool_name(t) for t in filtered_tools]
+        if choice_name in tool_names:
+            return request
+
+        request = request.model_copy(update={"tool_choice": "auto"})
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Reset tool_choice to 'auto' because referenced tool '%s' was filtered",
+                choice_name,
+            )
+        return request
+
+    def _increment_tool_filtering_telemetry(self, removed_count: int) -> None:
+        try:
+            from src.core.services.tool_call_reactor_service import (
+                ToolCallReactorService,
+            )
+
+            reactor_service = (
+                self._app_state.get_service(ToolCallReactorService)
+                if self._app_state
+                else None
+            )
+            if reactor_service and hasattr(
+                reactor_service, "increment_tool_definitions_filtered"
+            ):
+                reactor_service.increment_tool_definitions_filtered(removed_count)
+        except (AttributeError, KeyError, TypeError):
+            return
+
     async def _apply_tool_filtering(
         self,
         context: RequestContext,
@@ -494,23 +594,11 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         Returns:
             Request with filtered tools (or unchanged if no filtering needed)
         """
-        if request is None or not getattr(request, "tools", None):
+        if not getattr(request, "tools", None):
             return request
 
         try:
-            from src.core.services.tool_access_policy_service import (
-                ToolAccessPolicyService,
-            )
-
-            policy_service = None
-            if self._app_state is not None:
-                try:
-                    policy_service = self._app_state.get_service(
-                        ToolAccessPolicyService
-                    )
-                except (AttributeError, KeyError, TypeError):
-                    policy_service = None
-
+            policy_service = self._get_tool_access_policy_service()
             if not policy_service:
                 return request
 
@@ -527,25 +615,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 request = request.model_copy(update={"tools": filtered_tools})
 
                 # Handle tool_choice if it references a filtered tool
-                tool_choice = getattr(request, "tool_choice", None)
-                if (
-                    tool_choice
-                    and isinstance(tool_choice, dict)
-                    and "function" in tool_choice
-                ):
-                    choice_name = tool_choice.get("function", {}).get("name")
-                    if choice_name:
-                        # Check if the referenced tool is still in filtered_tools
-                        tool_names = [
-                            policy_service._extract_tool_name(t) for t in filtered_tools
-                        ]
-                        if choice_name not in tool_names:
-                            # Remove tool_choice or set to "auto"
-                            request = request.model_copy(update={"tool_choice": "auto"})
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    f"Reset tool_choice to 'auto' because referenced tool '{choice_name}' was filtered"
-                                )
+                request = self._maybe_reset_tool_choice(
+                    request, policy_service, filtered_tools
+                )
 
                 # Log the filtering action
                 removed_count = len(original_tools) - len(filtered_tools)
@@ -559,33 +631,12 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     )
 
                 # Increment telemetry counter in reactor service (fail-open)
-                try:
-                    from src.core.services.tool_call_reactor_service import (
-                        ToolCallReactorService,
-                    )
-
-                    if self._app_state:
-                        reactor_service = self._app_state.get_service(
-                            ToolCallReactorService
-                        )
-                    else:
-                        reactor_service = None
-                    if reactor_service and hasattr(
-                        reactor_service, "increment_tool_definitions_filtered"
-                    ):
-                        reactor_service.increment_tool_definitions_filtered(
-                            removed_count
-                        )
-                except (AttributeError, KeyError, TypeError):
-                    pass
+                self._increment_tool_filtering_telemetry(removed_count)
 
                 # Store metadata in extra_body for observability
-                extra_body_attr = getattr(request, "extra_body", None)
-                extra_body: dict[str, Any] = (
-                    extra_body_attr.copy() if extra_body_attr else {}
+                request = self._inject_extra_body_metadata(
+                    request, "tool_access", metadata
                 )
-                extra_body["tool_access"] = metadata
-                request = request.model_copy(update={"extra_body": extra_body})
 
         except Exception as e:
             # Tool definition filtering is fail-open: log warning and proceed

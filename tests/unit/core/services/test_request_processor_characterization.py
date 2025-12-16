@@ -11,6 +11,7 @@ during the refactoring process. Focus areas:
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -186,8 +187,10 @@ def mock_transform_pipeline():
 def mock_backend_executor():
     from unittest.mock import AsyncMock, MagicMock
 
+    from src.core.domain.responses import ResponseEnvelope
+
     executor = AsyncMock()
-    executor.execute = AsyncMock(return_value=MagicMock())
+    executor.execute = AsyncMock(return_value=ResponseEnvelope(content=MagicMock()))
     return executor
 
 
@@ -265,16 +268,363 @@ async def test_delegates_to_session_enricher(
     assert call_args[0][1] == request
 
 
-# NOTE: Skipped tests removed - covered by component-level tests:
-# - test_streaming_tool_registry_failure_does_not_block_request -> test_request_side_effects.py
-# - test_context_injection_failure_does_not_block_request -> test_request_side_effects.py
-# - test_memory_capture_failure_does_not_block_request -> test_request_side_effects.py
-# - test_token_limit_enforcement_unexpected_error_does_not_block_request -> test_backend_preparer.py
-# - test_redaction_unexpected_failure_does_not_block_request -> test_request_transform_pipeline.py
-# - test_project_directory_resolution_failure_does_not_block_request -> test_session_enricher.py
+@pytest.mark.asyncio
+async def test_streaming_tool_registry_failure_does_not_block_request(
+    mock_command_processor: ICommandProcessor,
+    mock_session_manager: ISessionManager,
+    mock_backend_request_manager: IBackendRequestManager,
+    mock_response_manager: IResponseManager,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_command_handler,
+    mock_backend_preparer,
+    mock_transform_pipeline,
+    mock_backend_executor,
+    request_context: RequestContext,
+) -> None:
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+        tools=[{"function": {"name": "test_tool"}}],
+    )
+
+    from unittest.mock import patch
+
+    from src.core.services.request_side_effects import RequestSideEffects
+
+    side_effects = RequestSideEffects()
+    processor = RequestProcessor(
+        command_processor=mock_command_processor,
+        session_manager=mock_session_manager,
+        backend_request_manager=mock_backend_request_manager,
+        response_manager=mock_response_manager,
+        session_enricher=mock_session_enricher,
+        request_side_effects=side_effects,
+        command_handler=mock_command_handler,
+        backend_preparer=mock_backend_preparer,
+        transform_pipeline=mock_transform_pipeline,
+        backend_executor=mock_backend_executor,
+        app_state=mock_app_state,
+    )
+
+    with patch(
+        "src.core.services.streaming.stream_context_registry.get_global_streaming_context_registry",
+        side_effect=RuntimeError("Registry unavailable"),
+    ):
+        response = await processor.process_request(request_context, request)
+
+    assert response is not None
+    assert isinstance(response, ResponseEnvelope)
 
 
-# NOTE: xfail tests removed - transformation ordering is an internal implementation
-# detail of RequestTransformPipeline and is properly tested at the component level:
-# - test_transformation_ordering_redaction_before_edit_precision -> test_request_transform_pipeline.py::test_transform_pipeline_preserves_ordering
-# - test_transformation_ordering_tool_filtering_last -> test_request_transform_pipeline.py::test_transform_pipeline_preserves_ordering
+@pytest.mark.asyncio
+async def test_context_injection_failure_does_not_block_request(
+    mock_command_processor: ICommandProcessor,
+    mock_session_manager: ISessionManager,
+    mock_backend_request_manager: IBackendRequestManager,
+    mock_response_manager: IResponseManager,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_command_handler,
+    mock_backend_preparer,
+    mock_transform_pipeline,
+    mock_backend_executor,
+    request_context: RequestContext,
+) -> None:
+    request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    from src.core.memory.injection_middleware import ContextInjectionMiddleware
+    from src.core.services.request_side_effects import RequestSideEffects
+
+    failing_injector = AsyncMock(spec=ContextInjectionMiddleware)
+    failing_injector.maybe_inject_context.side_effect = RuntimeError("Injection failed")
+
+    side_effects = RequestSideEffects(context_injector=failing_injector)
+    processor = RequestProcessor(
+        command_processor=mock_command_processor,
+        session_manager=mock_session_manager,
+        backend_request_manager=mock_backend_request_manager,
+        response_manager=mock_response_manager,
+        session_enricher=mock_session_enricher,
+        request_side_effects=side_effects,
+        command_handler=mock_command_handler,
+        backend_preparer=mock_backend_preparer,
+        transform_pipeline=mock_transform_pipeline,
+        backend_executor=mock_backend_executor,
+        app_state=mock_app_state,
+    )
+
+    response = await processor.process_request(request_context, request)
+    assert response is not None
+    assert isinstance(response, ResponseEnvelope)
+
+
+@pytest.mark.asyncio
+async def test_memory_capture_failure_does_not_block_request(
+    mock_command_processor: ICommandProcessor,
+    mock_session_manager: ISessionManager,
+    mock_backend_request_manager: IBackendRequestManager,
+    mock_response_manager: IResponseManager,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_command_handler,
+    mock_backend_preparer,
+    mock_transform_pipeline,
+    mock_backend_executor,
+    request_context: RequestContext,
+) -> None:
+    request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+    from src.core.services.request_side_effects import RequestSideEffects
+
+    failing_capture = AsyncMock(spec=MemoryCaptureMiddleware)
+    failing_capture.capture_request.side_effect = RuntimeError("Capture failed")
+
+    side_effects = RequestSideEffects(memory_capture=failing_capture)
+    processor = RequestProcessor(
+        command_processor=mock_command_processor,
+        session_manager=mock_session_manager,
+        backend_request_manager=mock_backend_request_manager,
+        response_manager=mock_response_manager,
+        session_enricher=mock_session_enricher,
+        request_side_effects=side_effects,
+        command_handler=mock_command_handler,
+        backend_preparer=mock_backend_preparer,
+        transform_pipeline=mock_transform_pipeline,
+        backend_executor=mock_backend_executor,
+        app_state=mock_app_state,
+    )
+
+    response = await processor.process_request(request_context, request)
+    assert response is not None
+    assert isinstance(response, ResponseEnvelope)
+
+
+@pytest.mark.asyncio
+async def test_token_limit_enforcement_unexpected_error_does_not_block_request(
+    mock_command_processor: ICommandProcessor,
+    mock_session_manager: ISessionManager,
+    mock_backend_request_manager: IBackendRequestManager,
+    mock_response_manager: IResponseManager,
+    mock_session_enricher,
+    mock_request_side_effects,
+    mock_command_handler,
+    mock_transform_pipeline,
+    mock_backend_executor,
+    request_context: RequestContext,
+) -> None:
+    request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    from unittest.mock import patch
+
+    from src.core.services.backend_preparer import BackendPreparer
+
+    app_state = MagicMock()
+    app_state.get_model_defaults.return_value = {
+        "gpt-4": {"context_window": 10, "max_input_tokens": 10}
+    }
+    app_state.get_backend_type.return_value = ""
+
+    backend_preparer = BackendPreparer(
+        backend_request_manager=mock_backend_request_manager, app_state=app_state
+    )
+
+    processor = RequestProcessor(
+        command_processor=mock_command_processor,
+        session_manager=mock_session_manager,
+        backend_request_manager=mock_backend_request_manager,
+        response_manager=mock_response_manager,
+        session_enricher=mock_session_enricher,
+        request_side_effects=mock_request_side_effects,
+        command_handler=mock_command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=mock_transform_pipeline,
+        backend_executor=mock_backend_executor,
+        app_state=app_state,
+    )
+
+    with patch(
+        "src.core.services.backend_preparer.count_tokens",
+        side_effect=RuntimeError("Tokenizer failed"),
+    ):
+        response = await processor.process_request(request_context, request)
+
+    assert response is not None
+    assert isinstance(response, ResponseEnvelope)
+
+
+@pytest.mark.asyncio
+async def test_redaction_unexpected_failure_does_not_block_request(
+    request_context: RequestContext,
+) -> None:
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    session = MagicMock()
+    session.state = MagicMock()
+    session.state.api_key_redaction_enabled = None
+    session.state.command_prefix_override = None
+
+    app_config = MagicMock()
+    app_config.auth = MagicMock()
+    app_config.auth.redact_api_keys_in_prompts = True
+    app_config.command_prefix = "!/"
+
+    app_state = MagicMock()
+
+    def get_setting_side_effect(key: str, default: Any | None = None) -> Any | None:
+        if key == "app_config":
+            return app_config
+        return default
+
+    app_state.get_setting.side_effect = get_setting_side_effect
+    app_state.get_command_prefix.return_value = "!/"
+    app_state.get_disable_commands.return_value = False
+
+    from unittest.mock import patch
+
+    from src.core.services.request_transform_pipeline import RequestTransformPipeline
+
+    pipeline = RequestTransformPipeline(app_state=app_state)
+
+    with patch(
+        "src.core.services.redaction_middleware.RedactionMiddleware.process",
+        side_effect=RuntimeError("Redaction blew up"),
+    ):
+        pipeline._apply_edit_precision = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda *_args, **_kwargs: request
+        )
+        pipeline._apply_tool_filtering = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda *_args, **_kwargs: request
+        )
+        transformed = await pipeline.transform(
+            request_context, session, "test-session", request
+        )
+
+    assert transformed == request
+
+
+@pytest.mark.asyncio
+async def test_transformation_ordering_redaction_before_edit_precision(
+    request_context: RequestContext,
+) -> None:
+    from src.core.services.request_transform_pipeline import RequestTransformPipeline
+
+    pipeline = RequestTransformPipeline(app_state=MagicMock())
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    order: list[str] = []
+
+    async def redaction(ctx, sess, sid, req):
+        order.append("redaction")
+        return req
+
+    async def edit_precision(ctx, sess, sid, req):
+        order.append("edit_precision")
+        return req
+
+    async def tool_filtering(ctx, sess, sid, req):
+        order.append("tool_filtering")
+        return req
+
+    pipeline._apply_redaction = AsyncMock(side_effect=redaction)  # type: ignore[method-assign]
+    pipeline._apply_edit_precision = AsyncMock(  # type: ignore[method-assign]
+        side_effect=edit_precision
+    )
+    pipeline._apply_tool_filtering = AsyncMock(  # type: ignore[method-assign]
+        side_effect=tool_filtering
+    )
+
+    await pipeline.transform(request_context, MagicMock(), "sid", request)
+    assert order == ["redaction", "edit_precision", "tool_filtering"]
+
+
+@pytest.mark.asyncio
+async def test_transformation_ordering_tool_filtering_last(
+    request_context: RequestContext,
+) -> None:
+    from src.core.services.request_transform_pipeline import RequestTransformPipeline
+
+    pipeline = RequestTransformPipeline(app_state=MagicMock())
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    order: list[str] = []
+
+    async def redaction(ctx, sess, sid, req):
+        order.append("redaction")
+        return req
+
+    async def edit_precision(ctx, sess, sid, req):
+        order.append("edit_precision")
+        return req
+
+    async def tool_filtering(ctx, sess, sid, req):
+        order.append("tool_filtering")
+        return req
+
+    pipeline._apply_redaction = AsyncMock(side_effect=redaction)  # type: ignore[method-assign]
+    pipeline._apply_edit_precision = AsyncMock(  # type: ignore[method-assign]
+        side_effect=edit_precision
+    )
+    pipeline._apply_tool_filtering = AsyncMock(  # type: ignore[method-assign]
+        side_effect=tool_filtering
+    )
+
+    await pipeline.transform(request_context, MagicMock(), "sid", request)
+    assert order[-1] == "tool_filtering"
+
+
+@pytest.mark.asyncio
+async def test_project_directory_resolution_failure_does_not_block_request() -> None:
+    from src.core.services.session_enricher import SessionEnricher
+
+    session_manager = AsyncMock(spec=ISessionManager)
+    session_manager.resolve_session_id.return_value = "sid"
+
+    session = MagicMock(spec=Session)
+    session.agent = None
+    session.state = MagicMock()
+    session.state.client_os = None
+    session.state.vtc_enabled = True
+    session.state.project_dir_resolution_attempted = False
+    session.update_state = MagicMock()
+
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+
+    project_dir_service = AsyncMock()
+    project_dir_service.maybe_resolve_project_directory.side_effect = RuntimeError(
+        "Directory resolution failed"
+    )
+
+    app_state = MagicMock()
+    app_state.get_service.return_value = project_dir_service
+
+    enricher = SessionEnricher(session_manager=session_manager, app_state=app_state)
+
+    context = RequestContext(headers={}, cookies={}, state={}, app_state=MagicMock())
+    request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="Hello")]
+    )
+
+    session_out, request_out = await enricher.enrich(context, request)
+
+    assert session_out is session
+    assert isinstance(request_out, ChatRequest)
+    assert request_out.model == request.model
+    assert list(request_out.messages) == list(request.messages)

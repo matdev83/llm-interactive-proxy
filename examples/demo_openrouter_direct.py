@@ -13,15 +13,17 @@ Prerequisites:
 
 import os
 import sys
-from openai import OpenAI
+
 from dotenv import load_dotenv
+from openai import OpenAI
+
 
 def main():
     # Load environment variables from .env if present
     load_dotenv()
 
     api_key = os.getenv("OPENROUTER_API_KEY")
-    
+
     if not api_key:
         print("Error: OPENROUTER_API_KEY environment variable is not set.")
         print("Please set it or add it to a .env file.")
@@ -33,7 +35,7 @@ def main():
 
     base_url = "https://openrouter.ai/api/v1"
     model = "mistralai/devstral-2512:free"
-    
+
     print(f"Connecting directly to {base_url}...")
     print(f"Requesting model: {model}")
 
@@ -45,19 +47,22 @@ def main():
 
         # OpenRouter specific headers (optional but recommended)
         extra_headers = {
-            "HTTP-Referer": "http://localhost:8000", # Site URL for rankings
-            "X-Title": "DirectDemoScript",           # App title for rankings
+            "HTTP-Referer": "http://localhost:8000",  # Site URL for rankings
+            "X-Title": "DirectDemoScript",  # App title for rankings
         }
 
         print("\nSending chat completion request...")
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "user", "content": "Hello! Confirm you are receiving this message directly from the demo script. Be brief."}
+                {
+                    "role": "user",
+                    "content": "Hello! Confirm you are receiving this message directly from the demo script. Be brief.",
+                }
             ],
             extra_headers=extra_headers,
             temperature=0.7,
-            max_tokens=100
+            max_tokens=100,
         )
 
         print("\nResponse received:")
@@ -69,9 +74,12 @@ def main():
     except Exception as e:
         print(f"\nError occurred: {e}")
         if "401" in str(e):
-             print("\n[!] Authentication Failed: The API Key appears to be invalid or rejected by OpenRouter.")
+            print(
+                "\n[!] Authentication Failed: The API Key appears to be invalid or rejected by OpenRouter."
+            )
         elif "404" in str(e):
-             print("\n[!] Not Found: The model route might be incorrect or unavailable.")
+            print("\n[!] Not Found: The model route might be incorrect or unavailable.")
+
 
 if __name__ == "__main__":
     main()

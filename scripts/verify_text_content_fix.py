@@ -269,10 +269,13 @@ class TextContentVerifier:
             parsed_list = self._utils.parse_sse_data(entry.data)
             for parsed in parsed_list:
                 content = self._get_delta_content(parsed)
-                if content and isinstance(content, str) and len(content.strip()) > 0:
-                    # Exclude chunks where content is just JSON (usage leak)
-                    if not self._looks_like_json_leak(content):
-                        count += 1
+                if (
+                    content
+                    and isinstance(content, str)
+                    and content.strip()
+                    and not self._looks_like_json_leak(content)
+                ):
+                    count += 1
         return count
 
     def _looks_like_json_leak(self, content: str) -> bool:
@@ -367,11 +370,15 @@ class TextContentVerifier:
             for parsed in parsed_list:
                 chunk_id = parsed.get("id", "")
                 content = self._get_delta_content(parsed)
-                if content and isinstance(content, str) and len(content.strip()) > 0:
-                    if not self._looks_like_json_leak(content):
-                        if chunk_id not in backend_text_by_id:
-                            backend_text_by_id[chunk_id] = []
-                        backend_text_by_id[chunk_id].append(content)
+                if (
+                    content
+                    and isinstance(content, str)
+                    and content.strip()
+                    and not self._looks_like_json_leak(content)
+                ):
+                    if chunk_id not in backend_text_by_id:
+                        backend_text_by_id[chunk_id] = []
+                    backend_text_by_id[chunk_id].append(content)
 
         # Extract all text content from client
         client_text_by_id: dict[str, list[str]] = {}
@@ -380,11 +387,15 @@ class TextContentVerifier:
             for parsed in parsed_list:
                 chunk_id = parsed.get("id", "")
                 content = self._get_delta_content(parsed)
-                if content and isinstance(content, str) and len(content.strip()) > 0:
-                    if not self._looks_like_json_leak(content):
-                        if chunk_id not in client_text_by_id:
-                            client_text_by_id[chunk_id] = []
-                        client_text_by_id[chunk_id].append(content)
+                if (
+                    content
+                    and isinstance(content, str)
+                    and content.strip()
+                    and not self._looks_like_json_leak(content)
+                ):
+                    if chunk_id not in client_text_by_id:
+                        client_text_by_id[chunk_id] = []
+                    client_text_by_id[chunk_id].append(content)
 
         # Compare backend text with client text
         for chunk_id, backend_texts in backend_text_by_id.items():
@@ -469,7 +480,10 @@ class TextContentVerifier:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("content")
+        if not isinstance(delta, dict):
+            return None
+        content = delta.get("content")
+        return content if isinstance(content, str) else None
 
 
 def main() -> int:

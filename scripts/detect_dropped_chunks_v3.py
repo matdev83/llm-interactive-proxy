@@ -7,15 +7,20 @@ import sys
 sys.path.insert(0, ".")
 
 import json
+from typing import Any, cast
 
 import cbor2
 
 
-def load_capture(filepath: str) -> list[dict]:
+def load_capture(filepath: str) -> list[dict[str, Any]]:
     """Load and parse CBOR capture file."""
     with open(filepath, "rb") as f:
-        data = cbor2.load(f)
-    return data.get("entries", [])
+        loaded = cbor2.load(f)
+    data = cast(dict[str, Any], loaded)
+    entries = data.get("entries", [])
+    if isinstance(entries, list):
+        return cast(list[dict[str, Any]], entries)
+    return []
 
 
 def extract_content(data: bytes) -> str | None:
@@ -27,16 +32,18 @@ def extract_content(data: bytes) -> str | None:
         json_str = text[5:].strip()
         if json_str == "[DONE]":
             return "[DONE]"
-        parsed = json.loads(json_str)
+        parsed = cast(dict[str, Any], json.loads(json_str))
         choices = parsed.get("choices", [])
         if choices:
-            delta = choices[0].get("delta", {})
-            return delta.get("content", None)
+            delta = cast(dict[str, Any], choices[0].get("delta", {}))
+            content = delta.get("content", None)
+            return content if isinstance(content, str) else None
     except Exception:
         return None
+    return None
 
 
-def analyze_capture(filepath: str):
+def analyze_capture(filepath: str) -> None:
     """Analyze capture for dropped whitespace chunks."""
     entries = load_capture(filepath)
 
@@ -52,16 +59,15 @@ def analyze_capture(filepath: str):
         ts = entry.get("timestamp", 0)
         content = extract_content(data) if data else None
 
-        if direction == "backend_to_proxy" and content is not None:
-            # Check if content is whitespace-only (but not empty)
-            if content and content.strip() == "":
-                bp_whitespace.append(
-                    {
-                        "idx": i,
-                        "ts": ts,
-                        "content": content,
-                    }
-                )
+        # Check if content is whitespace-only (but not empty)
+        if direction == "backend_to_proxy" and content and content.strip() == "":
+            bp_whitespace.append(
+                {
+                    "idx": i,
+                    "ts": ts,
+                    "content": content,
+                }
+            )
 
     print(f"\nFound {len(bp_whitespace)} B->P entries with whitespace-only content\n")
 

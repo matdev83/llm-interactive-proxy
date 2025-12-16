@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 file_path = Path("src/core/services/backend_service.py")

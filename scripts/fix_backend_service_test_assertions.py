@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 file_path = Path("tests/unit/core/services/test_backend_service_targeted.py")
@@ -30,10 +29,12 @@ replacement = """
 if target in content:
     content = content.replace(target, replacement)
     file_path.write_text(content, encoding="utf-8")
-    print("Updated assertions in test_session_backend_cache_eviction_closes_old_backends")
+    print(
+        "Updated assertions in test_session_backend_cache_eviction_closes_old_backends"
+    )
 else:
     print("Could not find assertions to update")
     # Debug
     start_idx = content.find("assert created_backends[0].shutdown_calls == 1")
     if start_idx != -1:
-        print("Context:", repr(content[start_idx:start_idx+300]))
+        print("Context:", repr(content[start_idx : start_idx + 300]))

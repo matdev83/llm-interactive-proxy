@@ -493,9 +493,12 @@ class TransformationAnalyzer:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("content")
+        if not isinstance(delta, dict):
+            return None
+        content = delta.get("content")
+        return content if isinstance(content, str) else None
 
-    def _get_delta_tool_calls(self, data: dict[str, Any] | None) -> list | None:
+    def _get_delta_tool_calls(self, data: dict[str, Any] | None) -> list[Any] | None:
         """Extract delta.tool_calls from a chunk.
 
         Args:
@@ -512,7 +515,10 @@ class TransformationAnalyzer:
             return None
 
         delta = choices[0].get("delta", {})
-        return delta.get("tool_calls")
+        if not isinstance(delta, dict):
+            return None
+        tool_calls = delta.get("tool_calls")
+        return tool_calls if isinstance(tool_calls, list) else None
 
     def verify_usage_not_in_content(
         self,
@@ -639,7 +645,10 @@ class TransformationAnalyzer:
         lines.append("")
 
         # Direction counts
-        direction_counts = summary.get("direction_counts", {})
+        direction_counts_raw = summary.get("direction_counts", {})
+        direction_counts = (
+            direction_counts_raw if isinstance(direction_counts_raw, dict) else {}
+        )
         lines.append("Direction Counts:")
         for direction, count in direction_counts.items():
             lines.append(f"  {direction}: {count}")

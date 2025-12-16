@@ -597,12 +597,13 @@ def track_request(
     req_idx = None
     for i, e in enumerate(entries):
         # For backend filtering, look at proxy-to-backend entries
-        if e["dir"] == 2:  # PROXY_TO_BACKEND
-            if backend_filter is None or e.get("meta", {}).get("be") == backend_filter:
-                req_count += 1
-                if req_count == request_num:
-                    req_idx = i
-                    break
+        if e["dir"] == 2 and (
+            backend_filter is None or e.get("meta", {}).get("be") == backend_filter
+        ):  # PROXY_TO_BACKEND
+            req_count += 1
+            if req_count == request_num:
+                req_idx = i
+                break
 
     # If no backend filter, also accept CLIENT_TO_PROXY
     if req_idx is None and backend_filter is None:
@@ -948,12 +949,16 @@ def print_entries(
                     print(f"    ... ({len(data) - max_data_length} more bytes)")
 
     # Show summary of what was filtered out
-    if not show_last and not jump_to_entry and not context_around and not entry_range:
-        if max_entries > 0 and len(filtered_entries) > len(display_entries):
-            remaining = len(filtered_entries) - len(display_entries)
-            print(
-                f"\n... and {remaining} more entries (use --last to see final entries)"
-            )
+    if (
+        not show_last
+        and not jump_to_entry
+        and not context_around
+        and not entry_range
+        and max_entries > 0
+        and len(filtered_entries) > len(display_entries)
+    ):
+        remaining = len(filtered_entries) - len(display_entries)
+        print(f"\n... and {remaining} more entries (use --last to see final entries)")
 
 
 def analyze_request_response_pairs(

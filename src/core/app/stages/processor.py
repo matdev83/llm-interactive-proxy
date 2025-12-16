@@ -100,7 +100,7 @@ class ProcessorStage(InitializationStage):
                 command_service: ICommandService = provider.get_required_service(
                     cast(type, ICommandService)
                 )
-                return CommandProcessor(command_service)  # noqa: DI-bypass
+                return CommandProcessor(command_service)  # DI-bypass-allowed
 
             # Register concrete implementation
             services.add_singleton(
@@ -464,7 +464,7 @@ class ProcessorStage(InitializationStage):
                 app_state: IApplicationState = provider.get_required_service(
                     cast(type, IApplicationState)
                 )
-                return BackendProcessor(  # noqa: DI-bypass
+                return BackendProcessor(  # DI-bypass-allowed
                     backend_service, session_service, app_state
                 )
 
@@ -490,9 +490,6 @@ class ProcessorStage(InitializationStage):
     def _register_request_processor(self, services: ServiceCollection) -> None:
         """Register request processor as the main orchestrator."""
         try:
-            from src.core.interfaces.command_processor_interface import (
-                ICommandProcessor,
-            )
             from src.core.interfaces.request_processor_interface import (
                 IRequestProcessor,
             )
@@ -540,6 +537,9 @@ class ProcessorStage(InitializationStage):
                 )
                 from src.core.interfaces.backend_request_manager_interface import (
                     IBackendRequestManager,
+                )
+                from src.core.interfaces.command_processor_interface import (
+                    ICommandProcessor,
                 )
                 from src.core.interfaces.response_manager_interface import (
                     IResponseManager,
@@ -600,7 +600,7 @@ class ProcessorStage(InitializationStage):
                     provider.get_service(cast(type, IModelReplacementService))
                 )
 
-                return RequestProcessor(  # noqa: DI-bypass
+                return RequestProcessor(  # DI-bypass-allowed
                     command_processor,
                     session_manager,
                     backend_request_manager,
