@@ -260,11 +260,11 @@ class TestBackendServiceTargeted:
             return_value=mock_backend
         )
         # Also set on completion flow
-        service._backend_completion_flow._session_service.get_session = AsyncMock(
+        service._backend_completion_flow._request_preparer._session_service.get_session = AsyncMock(
             return_value=mock_session
         )
-        service._backend_completion_flow._backend_lifecycle_manager.get_or_create = (
-            AsyncMock(return_value=mock_backend)
+        service._backend_completion_flow._backend_manager._backend_lifecycle_manager.get_or_create = AsyncMock(
+            return_value=mock_backend
         )
         service._backend_completion_flow._backend_model_resolver.resolve_target = (
             AsyncMock(
@@ -476,8 +476,8 @@ class TestBackendServiceTargeted:
             return_value=mock_backend
         )
         # Also set on completion flow
-        service._backend_completion_flow._backend_lifecycle_manager.get_or_create = (
-            AsyncMock(return_value=mock_backend)
+        service._backend_completion_flow._backend_manager._backend_lifecycle_manager.get_or_create = AsyncMock(
+            return_value=mock_backend
         )
         service._backend_completion_flow._backend_model_resolver.resolve_target = (
             AsyncMock(

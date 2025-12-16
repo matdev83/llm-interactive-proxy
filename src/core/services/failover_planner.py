@@ -98,7 +98,7 @@ class FailoverPlanner(IFailoverPlanner):
                 plan = self._failover_strategy.get_failover_plan(
                     model, backend_for_strategy
                 )
-                return self._filter_unhealthy_backends(plan)
+                return self.filter_unhealthy_backends(plan)
             except (BackendError, RateLimitExceededError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Failover strategy failed: {e}", exc_info=True)
@@ -111,9 +111,9 @@ class FailoverPlanner(IFailoverPlanner):
             model, backend_for_coordinator
         )
         plan = [(a.backend, a.model) for a in attempts]
-        return self._filter_unhealthy_backends(plan)
+        return self.filter_unhealthy_backends(plan)
 
-    def _filter_unhealthy_backends(
+    def filter_unhealthy_backends(
         self, plan: list[tuple[str, str]]
     ) -> list[tuple[str, str]]:
         """Filter out backends with unhealthy API endpoints.

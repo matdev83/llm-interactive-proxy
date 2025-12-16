@@ -1,41 +1,23 @@
-"""Tests for truncated tool output expansion logic in RequestProcessor.
-
-NOTE: This test needs refactoring - the functionality has been moved from
-RequestProcessor._expand_truncated_tool_outputs() to ArtifactService.normalize_artifact_previews().
-The test should be updated to test ArtifactService directly.
-"""
+"""Tests for truncated tool output expansion logic in ArtifactService."""
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from src.core.domain.processed_result import ProcessedResult
-from src.core.services.request_processor_service import RequestProcessor
-
-# Import constants from artifact_service where they actually exist
-from src.core.services import artifact_service
-
-# Access private constants for testing (they're not exported)
-_EXPANDED_ARTIFACT_PREFIX = artifact_service._EXPANDED_ARTIFACT_PREFIX
-_TRUNCATED_ARTIFACT_PREFIX = artifact_service._TRUNCATED_ARTIFACT_PREFIX
-
-
-def _build_processor() -> RequestProcessor:
-    """Create a RequestProcessor with minimal mocked dependencies."""
-    return RequestProcessor(
-        command_processor=MagicMock(),
-        session_manager=MagicMock(),
-        backend_request_manager=MagicMock(),
-        response_manager=MagicMock(),
-    )
-
-
-@pytest.mark.skip(
-    reason="Test needs refactoring - functionality moved from RequestProcessor._expand_truncated_tool_outputs() "
-    "to ArtifactService.normalize_artifact_previews(). Update test to test ArtifactService directly."
+from src.core.services.artifact_service import (
+    _EXPANDED_ARTIFACT_PREFIX,
+    _TRUNCATED_ARTIFACT_PREFIX,
+    ArtifactService,
 )
+
+
+def _build_service() -> ArtifactService:
+    """Create an ArtifactService."""
+    return ArtifactService()
+
+
 def test_expand_truncated_outputs_limits_history_growth(tmp_path: Path) -> None:
     """Ensure only the latest truncated outputs are expanded and older previews are compacted."""
     artifacts_dir = tmp_path / "artifacts"
@@ -64,12 +46,12 @@ def test_expand_truncated_outputs_limits_history_growth(tmp_path: Path) -> None:
         command_results=[],
     )
 
-    processor = _build_processor()
-    processor._convert_artifact_path = MagicMock(
+    service = _build_service()
+    service._convert_artifact_path = MagicMock(
         side_effect=lambda path: artifact_path if path == raw_new_path else None
     )
 
-    processor._expand_truncated_tool_outputs(processed)
+    service.normalize_artifact_previews(processed)
 
     updated_messages = processed.modified_messages
     assert updated_messages[1]["content"].startswith(
@@ -81,4 +63,4 @@ def test_expand_truncated_outputs_limits_history_growth(tmp_path: Path) -> None:
     latest_content = updated_messages[-1]["content"]
     assert latest_content.startswith(_EXPANDED_ARTIFACT_PREFIX)
     assert "line 1" in latest_content
-    assert processor._convert_artifact_path.call_count == 1
+    assert service._convert_artifact_path.call_count == 1

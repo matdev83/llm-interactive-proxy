@@ -1,182 +1,138 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from src.core.common.exceptions import BackendError
+from src.core.config.app_config import AppConfig
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.configuration.failure_handling_config import FailureHandlingConfig
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.failure_strategy_interface import (
-    FailureDecision,
-    FailureHandlingConfig,
-)
+from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.backend_completion_flow import BackendCompletionFlow
+from src.core.services.failure_handling_strategy import DefaultFailureHandlingStrategy
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
 async def test_streaming_wait_and_retry_emits_keepalives():
-    """Test that streaming requests emit keepalives during WAIT_AND_RETRY."""
+    # Setup mocks
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+    backend_lifecycle_manager.get_active_backends.return_value = {}
 
-    # Mock dependencies
-    mock_factory = MagicMock()
-    mock_factory.ensure_backend = AsyncMock()
-    # If cache misses, factory returns the backend
-    mock_factory.ensure_backend.return_value = (
-        MagicMock()
-    )  # replaced later or use side_effect
-    mock_rate_limiter = MagicMock()
-    mock_config = MagicMock()
-    mock_session_service = MagicMock()
-    mock_app_state = MagicMock()
-    mock_routing_service = MagicMock()
+    mock_backend = MagicMock()
+    mock_backend.is_backend_functional.return_value = True
+    mock_backend.get_retry_after_remaining.return_value = None
 
-    # Configure mock config using simple class to avoid MagicMock truthiness issues
-    class MockBackends:
-        static_route = None
-        default_backend = "mock-backend"
-
-        def get(self, key, default=None):
-            return getattr(self, key, default)
-
-    mock_config.get.return_value = {}
-    mock_config.backends = MockBackends()
-
-    # Configure mock routing service
-    mock_routing_service.resolve_model_alias.return_value = ("mock-backend", "model")
-    # resolve_backend_instance should return the string name of the backend, not the backend object
-    mock_routing_service.resolve_backend_instance.return_value = "mock-backend"
-
-    # Configure mock session service
-    mock_session_service.get_session = AsyncMock(return_value=None)
-    mock_session_service.update_session = AsyncMock()
-
-    from tests.unit.fixtures.backend_service_builder import (
-        create_backend_service_with_mocks,
-    )
-
-    service = create_backend_service_with_mocks(
-        factory=mock_factory,
-        rate_limiter=mock_rate_limiter,
-        config=mock_config,
-        session_service=mock_session_service,
-        app_state=mock_app_state,
-        routing_service=mock_routing_service,
-        failure_handling_strategy=MagicMock(),
-    )
-
-    # Configure failure handling on the same mock object
-    mock_config.failure_handling = FailureHandlingConfig(keepalive_interval=0.1)
-
-    # Ensure service uses this config
-    service._config = mock_config
-
-    # Mock _apply_failure_strategy
-    service._apply_failure_strategy = AsyncMock()
-
-    # Mock request
-    mock_request = MagicMock()
-    mock_request.stream = True
-    mock_request.extra_body = {}
-    mock_request.model_copy.return_value = mock_request
-    mock_request.model = "test-model"
-
-    # Mock Streaming Response for successful retry
     async def success_stream():
-        yield "content chunk"
+        yield b"data: ok\n\n"
 
     success_response = StreamingResponseEnvelope(
         content=success_stream(), media_type="text/event-stream", headers={}
     )
 
-    # Use MagicMock allowing sync methods by default, but make async methods explicitly AsyncMock
-    mock_backend = MagicMock()
-    mock_backend.chat_completions = AsyncMock()
-
-    # Mock sync methods
-    mock_backend.is_in_cooldown.return_value = False
-    mock_backend.get_cooldown_remaining.return_value = 0.0
-    mock_backend.get_retry_after_remaining.return_value = None
-
-    mock_factory.ensure_backend.return_value = mock_backend
-    # Mock chat_completions to raise BackendError then return success
-    mock_backend.chat_completions.side_effect = [
-        BackendError("Rate limited", status_code=429),  # 1st call
-        success_response,  # 2nd call (retry)
-    ]
-    mock_backend.is_backend_functional.return_value = True
-
-    service._backends = {"mock-backend": mock_backend}
-
-    print(f"DEBUG: mock_backend type: {type(mock_backend)}")
-    print(f"DEBUG: is_in_cooldown type: {type(mock_backend.is_in_cooldown)}")
-    print(f"DEBUG: is_in_cooldown return: {mock_backend.is_in_cooldown()}")
-    print(
-        f"DEBUG: get_cooldown_remaining type: {type(mock_backend.get_cooldown_remaining)}"
-    )
-    print(
-        f"DEBUG: get_cooldown_remaining return: {mock_backend.get_cooldown_remaining()}"
+    mock_backend.chat_completions = AsyncMock(
+        side_effect=[
+            BackendError(
+                "Rate limited",
+                status_code=429,
+                details={"retry_after": 1.5},
+            ),
+            success_response,
+        ]
     )
 
-    # Mock strategy to return WAIT_AND_RETRY
-    service._apply_failure_strategy.return_value = (
-        FailureDecision.WAIT_AND_RETRY,
-        0.3,  # wait seconds
-        None,  # next backend
+    backend_lifecycle_manager.get_or_create = AsyncMock(return_value=mock_backend)
+
+    backend_config_service = MagicMock()
+    backend_config_service.apply_backend_config.side_effect = (
+        lambda request, *_args, **_kwargs: request
+    )
+    backend_config_service.get_backend_config.return_value = None
+
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=None)
+
+    config = AppConfig().model_copy(
+        update={
+            "failure_handling": FailureHandlingConfig(
+                enabled=True,
+                total_timeout_budget=5.0,
+                max_silent_wait=60.0,
+                keepalive_interval=1.0,
+                max_failover_hops=5,
+                min_retry_wait=0.1,
+            )
+        }
     )
 
-    # Call the service
-    try:
-        response = await service.call_completion(mock_request, stream=True)
-    except BackendError as e:
-        import traceback
+    # Mock other dependencies
+    deps = {
+        "backend_model_resolver": MagicMock(),
+        "stream_session_id_resolver": MagicMock(),
+        "failover_planner": MagicMock(),
+        "session_service": session_service,
+        "backend_lifecycle_manager": backend_lifecycle_manager,
+        "backend_config_service": backend_config_service,
+        "reasoning_config_applicator": MagicMock(),
+        "uri_parameter_applicator": MagicMock(),
+        "stream_formatting_service": MagicMock(),
+        "usage_tracking_wrapper": MagicMock(),
+        "exception_normalizer": MagicMock(),
+        "planning_phase_manager": MagicMock(),
+        "backend_factory": MagicMock(),
+        "config": config,
+        "app_state": MagicMock(),
+        "failover_coordinator": MagicMock(),
+    }
 
-        traceback.print_exc()
-        print(f"BackendError caught: {e}")
-        # If it has a cause, print it
-        if e.__cause__:
-            print(f"Caused by: {e.__cause__!r}")
-        raise e
+    # Defaults
+    deps["backend_model_resolver"].resolve_target = AsyncMock(
+        return_value=ResolvedTarget(backend="openai", model="test-model", uri_params={})
+    )
+    deps["backend_model_resolver"].synchronize_request_with_target = Mock(
+        side_effect=lambda r, t: r
+    )
+    deps["reasoning_config_applicator"].apply = Mock(side_effect=lambda r, s: r)
+    deps["uri_parameter_applicator"].apply = Mock(side_effect=lambda r, u, b, s: r)
+    deps["exception_normalizer"].normalize = Mock(side_effect=lambda e, b: e)
+    deps["stream_formatting_service"].stream_as_sse_bytes = Mock(
+        side_effect=lambda s: s
+    )
+    deps["usage_tracking_wrapper"].wrap_stream_for_usage = Mock(
+        side_effect=lambda s, c, p, t: s
+    )
+    deps["stream_session_id_resolver"].resolve_stream_session_id.return_value = (
+        "test-session"
+    )
 
+    # Use real failure handling strategy
+    failure_strategy = DefaultFailureHandlingStrategy(config.failure_handling)
+    deps["failure_handling_strategy"] = failure_strategy
+
+    flow = BackendCompletionFlow(**deps)
+
+    request = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+        extra_body={},
+    )
+
+    response = await flow.call_completion(request, stream=True, allow_failover=True)
     assert isinstance(response, StreamingResponseEnvelope)
 
-    # Consume the stream
     chunks = []
-    headers = getattr(response, "headers", {})
-    # Verify keep-alive headers
-    assert headers.get("Connection") == "keep-alive"
+    assert response.content is not None
+    async for item in response.content:
+        chunks.append(item)
 
-    async for chunk in response.content:
-        chunks.append(chunk)
-
-    # Verification
-    # 1. Should have keepalive chunks
-    from src.core.interfaces.response_processor_interface import ProcessedResponse
-
-    keepalives = [
-        c
+    assert any(
+        isinstance(c, ProcessedResponse) and bool(c.metadata.get("_keepalive"))
         for c in chunks
-        if isinstance(c, ProcessedResponse) and bool(c.metadata.get("_keepalive"))
-    ]
-    assert len(keepalives) > 0, "Should emit at least one keepalive"
-
-    # 2. Should have content chunk
-    # 2. Should have content chunk
-    content_chunks = []
-    print("\nDEBUG: Received chunks:")
-    for c in chunks:
-        print(f"  - Type: {type(c)}, Value: {c}")
-        if isinstance(c, ProcessedResponse):
-            if c.content == "content chunk":
-                content_chunks.append(c)
-        elif c == "content chunk":
-            content_chunks.append(c)
-        elif isinstance(c, bytes) and b"content chunk" in c:
-            # Maybe it got serialized?
-            content_chunks.append(c)
-
-    assert len(content_chunks) == 1
-
-    # 3. Check retry call was made
-    # Note: chat_completions is called twice:
-    # 1. First call -> raises BackendError -> caught
-    # 2. Second call (via recursion inside _wait_and_retry_stream) -> success
+    )
+    assert any(
+        (isinstance(c, bytes | bytearray) and bytes(c) == b"data: ok\n\n")
+        or (isinstance(c, ProcessedResponse) and c.content == b"data: ok\n\n")
+        for c in chunks
+    )
     assert mock_backend.chat_completions.call_count == 2

@@ -32,3 +32,22 @@ class IFailoverPlanner(ABC):
         Returns:
             Ordered list of (backend_name, model_name) tuples to attempt
         """
+
+    @abstractmethod
+    def filter_unhealthy_backends(
+        self, plan: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
+        """Filter out backends with unhealthy API endpoints.
+
+        Filtering logic:
+        1. Check if circuit breaker is enabled in configuration
+        2. Exclude permanently disabled backends
+        3. Exclude unhealthy active backends (via backend.is_backend_functional())
+        4. Fallback to original plan if all backends are filtered
+
+        Args:
+            plan: List of (backend, model) tuples
+
+        Returns:
+            Filtered list excluding unhealthy backends (if circuit breaker enabled)
+        """

@@ -143,7 +143,7 @@ class TestCircuitBreakerIntegration:
             active_backends
         )
 
-        # Mock failover_planner with _filter_unhealthy_backends method
+        # Mock failover_planner with filter_unhealthy_backends method
         mock_failover_planner = MagicMock()
 
         def filter_unhealthy(plan):
@@ -162,7 +162,7 @@ class TestCircuitBreakerIntegration:
             # If all filtered out, return original plan
             return filtered if filtered else plan
 
-        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        mock_failover_planner.filter_unhealthy_backends = filter_unhealthy
         service._failover_planner = mock_failover_planner
 
         # Test filtering
@@ -198,7 +198,7 @@ class TestCircuitBreakerIntegration:
             active_backends
         )
 
-        # Mock failover_planner with _filter_unhealthy_backends method
+        # Mock failover_planner with filter_unhealthy_backends method
         mock_failover_planner = MagicMock()
 
         def filter_unhealthy(plan):
@@ -217,7 +217,7 @@ class TestCircuitBreakerIntegration:
             # If all filtered out, return original plan
             return filtered if filtered else plan
 
-        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        mock_failover_planner.filter_unhealthy_backends = filter_unhealthy
         service._failover_planner = mock_failover_planner
 
         # Test filtering - should return all since circuit breaker is disabled
@@ -254,7 +254,7 @@ class TestCircuitBreakerIntegration:
             active_backends
         )
 
-        # Mock failover_planner with _filter_unhealthy_backends method
+        # Mock failover_planner with filter_unhealthy_backends method
         mock_failover_planner = MagicMock()
 
         def filter_unhealthy(plan):
@@ -273,7 +273,7 @@ class TestCircuitBreakerIntegration:
             # If all filtered out, return original plan
             return filtered if filtered else plan
 
-        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        mock_failover_planner.filter_unhealthy_backends = filter_unhealthy
         service._failover_planner = mock_failover_planner
 
         # Test filtering - should fall back to original plan
@@ -300,7 +300,7 @@ class TestCircuitBreakerIntegration:
         service._backend_lifecycle_manager.get_disabled_backends.return_value = {}
         service._backend_lifecycle_manager.get_active_backends.return_value = {}
 
-        # Mock failover_planner with _filter_unhealthy_backends method
+        # Mock failover_planner with filter_unhealthy_backends method
         mock_failover_planner = MagicMock()
 
         def filter_unhealthy(plan):
@@ -320,7 +320,7 @@ class TestCircuitBreakerIntegration:
             # If all filtered out, return original plan
             return filtered if filtered else plan
 
-        mock_failover_planner._filter_unhealthy_backends = filter_unhealthy
+        mock_failover_planner.filter_unhealthy_backends = filter_unhealthy
         service._failover_planner = mock_failover_planner
 
         # Test filtering - unknown backends should be included

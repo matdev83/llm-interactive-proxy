@@ -235,7 +235,6 @@ def create_backend_service_with_mocks(
                 failure_handling_strategy=failure_handling_strategy,
                 routing_service=routing_service,
                 failover_routes=failover_routes,
-                parent_service=None,
             )
         else:
             backend_completion_flow = MagicMock(spec=IBackendCompletionFlow)

@@ -1,9 +1,6 @@
 """Unit tests for model name rewrites feature.
-NOTE: These tests need refactoring after Phase 4 of backend-service-god-object-refactoring.
-BackendService is now a thin facade, and these tests were testing internal behavior
-that has been moved to BackendCompletionFlow and other collaborators.
-TODO: Refactor these tests to either test the collaborators directly or test
-the public contract of BackendService through integration tests.
+
+Tests ModelAliasResolver and BackendModelResolver integration.
 """
 
 from unittest.mock import AsyncMock, Mock
@@ -11,38 +8,17 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from src.core.config.app_config import AppConfig, BackendSettings, ModelAliasRule
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.rate_limiter_interface import IRateLimiter
-from src.core.interfaces.session_service_interface import ISessionService
-from src.core.services.backend_factory import BackendFactory
-
-from tests.unit.fixtures.backend_service_builder import (
-    create_backend_service_with_mocks,
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
 )
+from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
+from src.core.interfaces.session_service_interface import ISessionService
+from src.core.services.backend_model_resolver import BackendModelResolver
+from src.core.services.model_alias_resolver import ModelAliasResolver
 
 
-class TestModelNameRewrites:
-    """Test cases for model name rewrite functionality."""
-
-    @pytest.fixture
-    def mock_factory(self):
-        """Mock backend factory."""
-        return Mock(spec=BackendFactory)
-
-    @pytest.fixture
-    def mock_rate_limiter(self):
-        """Mock rate limiter."""
-        return Mock(spec=IRateLimiter)
-
-    @pytest.fixture
-    def mock_session_service(self):
-        """Mock session service."""
-        return Mock(spec=ISessionService)
-
-    @pytest.fixture
-    def mock_app_state(self):
-        """Mock application state."""
-        return Mock(spec=IApplicationState)
+class TestModelAliasResolver:
+    """Test cases for ModelAliasResolver."""
 
     @pytest.fixture
     def base_config(self):
@@ -71,122 +47,33 @@ class TestModelNameRewrites:
             ],
         )
 
-    @pytest.fixture
-    def backend_service(
-        self,
-        mock_factory,
-        mock_rate_limiter,
-        base_config,
-        mock_session_service,
-        mock_app_state,
-    ):
-        """Backend service with base configuration."""
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=base_config)
-        return create_backend_service_with_mocks(
-            factory=mock_factory,
-            rate_limiter=mock_rate_limiter,
-            config=base_config,
-            session_service=mock_session_service,
-            app_state=mock_app_state,
-            model_alias_resolver=model_alias_resolver,
-        )
-
-    @pytest.fixture
-    def backend_service_with_aliases(
-        self,
-        mock_factory,
-        mock_rate_limiter,
-        config_with_aliases,
-        mock_session_service,
-        mock_app_state,
-    ):
-        """Backend service with model alias configuration."""
-        from src.core.interfaces.backend_lifecycle_manager_interface import (
-            IBackendLifecycleManager,
-        )
-        from src.core.interfaces.planning_phase_manager_interface import (
-            IPlanningPhaseManager,
-        )
-        from src.core.services.backend_model_resolver import BackendModelResolver
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config_with_aliases)
-
-        # Create real backend_model_resolver that uses the model_alias_resolver
-        backend_lifecycle_manager = Mock(spec=IBackendLifecycleManager)
-        backend_lifecycle_manager.get_disabled_backends = Mock(return_value={})
-        planning_phase_manager = Mock(spec=IPlanningPhaseManager)
-        planning_phase_manager.apply_if_needed = AsyncMock()
-
-        backend_model_resolver = BackendModelResolver(
-            session_service=mock_session_service,
-            model_alias_resolver=model_alias_resolver,
-            planning_phase_manager=planning_phase_manager,
-            backend_lifecycle_manager=backend_lifecycle_manager,
-            config=config_with_aliases,
-            routing_service=None,
-        )
-
-        return create_backend_service_with_mocks(
-            factory=mock_factory,
-            rate_limiter=mock_rate_limiter,
-            config=config_with_aliases,
-            session_service=mock_session_service,
-            app_state=mock_app_state,
-            model_alias_resolver=model_alias_resolver,
-            backend_model_resolver=backend_model_resolver,
-        )
-
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_apply_model_aliases_no_rules(self, backend_service):
+    def test_apply_model_aliases_no_rules(self, base_config):
         """Test that model name is unchanged when no alias rules are configured."""
-        # AC7: Given a request with a model name that does not match any pattern
-        # in model_aliases, the model name MUST remain unchanged.
+        resolver = ModelAliasResolver(config=base_config)
         original_model = "gpt-4"
-        result = backend_service._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
         assert result == original_model
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_apply_model_aliases_static_replacement(self, backend_service_with_aliases):
+    def test_apply_model_aliases_static_replacement(self, config_with_aliases):
         """Test static model name replacement."""
-        # AC4: Given a request with a model name that exactly matches a pattern
-        # for a static replacement, the model name MUST be rewritten to the
-        # corresponding replacement value.
+        resolver = ModelAliasResolver(config=config_with_aliases)
         original_model = "claude-3-sonnet-20240229"
         expected_model = "gemini-oauth-plan:gemini-1.5-flash"
 
-        result = backend_service_with_aliases._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
         assert result == expected_model
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_apply_model_aliases_regex_with_capture_groups(
-        self, backend_service_with_aliases
-    ):
+    def test_apply_model_aliases_regex_with_capture_groups(self, config_with_aliases):
         """Test regex replacement with capture groups."""
-        # AC5: Given a request with a model name that matches a regex pattern
-        # with capture groups, the model name MUST be rewritten using the
-        # replacement string with the captured values correctly substituted.
+        resolver = ModelAliasResolver(config=config_with_aliases)
         original_model = "gpt-4-turbo"
         expected_model = "openrouter:openai/gpt-4-turbo"
 
-        result = backend_service_with_aliases._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
         assert result == expected_model
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_apply_model_aliases_first_match_wins(self):
         """Test that only the first matching rule is applied."""
-        # AC6: Given multiple rules in model_aliases, if a model name matches
-        # more than one pattern, only the first matching rule in the list MUST be applied.
         config = AppConfig(
             backends=BackendSettings(default_backend="openai"),
             model_aliases=[
@@ -195,31 +82,16 @@ class TestModelNameRewrites:
                 ModelAliasRule(pattern="^(.*)$", replacement="catch-all:model"),
             ],
         )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
+        resolver = ModelAliasResolver(config=config)
 
         original_model = "gpt-4"
         expected_model = "first-match:gpt-model"
 
-        result = backend_service._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
         assert result == expected_model
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_apply_model_aliases_no_match(self, backend_service_with_aliases):
+    def test_apply_model_aliases_no_match(self):
         """Test that model name is unchanged when no rules match."""
-        # Create a config with specific patterns that won't match our test model
         config = AppConfig(
             backends=BackendSettings(default_backend="openai"),
             model_aliases=[
@@ -231,26 +103,12 @@ class TestModelNameRewrites:
                 ),
             ],
         )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
+        resolver = ModelAliasResolver(config=config)
 
         original_model = "llama-2-70b"
-        result = backend_service._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
         assert result == original_model
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_apply_model_aliases_invalid_regex(self, caplog):
         """Test handling of invalid regex patterns."""
         config = AppConfig(
@@ -263,31 +121,17 @@ class TestModelNameRewrites:
                 ModelAliasRule(pattern="gpt-.*", replacement="openrouter:gpt-model"),
             ],
         )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
+        resolver = ModelAliasResolver(config=config)
 
         original_model = "gpt-4"
         expected_model = "openrouter:gpt-model"
 
         with caplog.at_level("WARNING"):
-            result = backend_service._apply_model_aliases(original_model)
+            result = resolver.resolve(original_model)
 
         assert result == expected_model
         assert "Invalid regex pattern" in caplog.text
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_apply_model_aliases_regex_substring_match(self):
         """Test that regex rules can match anywhere in the model string."""
         config = AppConfig(
@@ -296,141 +140,14 @@ class TestModelNameRewrites:
                 ModelAliasRule(pattern=".*turbo$", replacement="suffix:matched"),
             ],
         )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
+        resolver = ModelAliasResolver(config=config)
 
         original_model = "gpt-4-turbo"
-
-        result = backend_service._apply_model_aliases(original_model)
+        result = resolver.resolve(original_model)
 
         assert result == "suffix:matched"
 
-    @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    async def test_resolve_backend_and_model_with_aliases(
-        self, backend_service_with_aliases
-    ):
-        """Test that model aliases are applied during backend resolution."""
-        # Mock session service to return None (no session)
-        backend_service_with_aliases._session_service.get_session = AsyncMock(
-            return_value=None
-        )
-
-        request = ChatRequest(
-            model="gpt-4-turbo", messages=[ChatMessage(role="user", content="Hello")]
-        )
-
-        backend_type, effective_model, uri_params = (
-            await backend_service_with_aliases._resolve_backend_and_model(request)
-        )
-
-        # The model should be rewritten by the alias rule
-        assert (
-            effective_model == "openai/gpt-4-turbo"
-        )  # After parsing backend:model format
-        assert backend_type == "openrouter"
-        assert uri_params == {}
-
-    @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    async def test_resolve_backend_and_model_static_route_precedence(self):
-        """Test that static_route takes precedence over model aliases."""
-        # AC8: If the --static-route CLI parameter is set, it MUST take precedence
-        # over any model_aliases rules. The model alias logic should not be executed.
-        config = AppConfig(
-            backends=BackendSettings(
-                default_backend="openai",
-                static_route="forced-backend:forced-model",
-            ),
-            model_aliases=[
-                ModelAliasRule(pattern=".*", replacement="should-not-be-used:model")
-            ],
-        )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
-
-        # Mock session service
-        backend_service._session_service.get_session = AsyncMock(return_value=None)
-
-        request = ChatRequest(
-            model="any-model", messages=[ChatMessage(role="user", content="Hello")]
-        )
-
-        backend_type, effective_model, uri_params = (
-            await backend_service._resolve_backend_and_model(request)
-        )
-
-        # Static route should override alias rules
-        assert backend_type == "forced-backend"
-        assert effective_model == "forced-model"
-        assert uri_params == {}
-
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_config_validation_valid_rules(self):
-        """Test that valid model alias rules can be configured."""
-        # AC1: The proxy MUST start without errors when a valid model_aliases
-        # list is present in config.yaml.
-        config = AppConfig(
-            backends=BackendSettings(default_backend="openai"),
-            model_aliases=[
-                ModelAliasRule(
-                    pattern="^gpt-4$", replacement="openrouter:openai/gpt-4"
-                ),
-                ModelAliasRule(
-                    pattern="claude-(.*)", replacement="anthropic:claude-\\1"
-                ),
-            ],
-        )
-
-        # Should not raise any exceptions
-        assert len(config.model_aliases) == 2
-        assert config.model_aliases[0].pattern == "^gpt-4$"
-        assert config.model_aliases[0].replacement == "openrouter:openai/gpt-4"
-
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_config_validation_empty_rules(self):
-        """Test that configuration works when model_aliases is absent or empty."""
-        # AC3: The proxy MUST start and operate normally if the model_aliases
-        # key is absent from the configuration.
-        config = AppConfig(
-            backends=BackendSettings(default_backend="openai")
-            # model_aliases not specified - should default to empty list
-        )
-
-        assert config.model_aliases == []
-
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
-    def test_complex_regex_patterns(self, backend_service_with_aliases):
+    def test_complex_regex_patterns(self):
         """Test complex regex patterns with multiple capture groups."""
         config = AppConfig(
             backends=BackendSettings(default_backend="openai"),
@@ -441,38 +158,118 @@ class TestModelNameRewrites:
                 )
             ],
         )
-
-        from src.core.services.model_alias_resolver import ModelAliasResolver
-
-        model_alias_resolver = ModelAliasResolver(config=config)
-        backend_service = create_backend_service_with_mocks(
-            factory=Mock(spec=BackendFactory),
-            rate_limiter=Mock(spec=IRateLimiter),
-            config=config,
-            session_service=Mock(spec=ISessionService),
-            app_state=Mock(spec=IApplicationState),
-            model_alias_resolver=model_alias_resolver,
-        )
+        resolver = ModelAliasResolver(config=config)
 
         # Test GPT model
-        result = backend_service._apply_model_aliases("gpt-4-turbo")
+        result = resolver.resolve("gpt-4-turbo")
         assert result == "unified:gpt-4-turbo-model"
 
         # Test Claude model
-        result = backend_service._apply_model_aliases("claude-3-sonnet")
+        result = resolver.resolve("claude-3-sonnet")
         assert result == "unified:claude-3-sonnet-model"
 
         # Test non-matching model
-        result = backend_service._apply_model_aliases("llama-2-70b")
+        result = resolver.resolve("llama-2-70b")
         assert result == "llama-2-70b"
+
+
+class TestBackendModelResolverIntegration:
+    """Test BackendModelResolver integration with ModelAliasResolver."""
+
+    @pytest.fixture
+    def config_with_aliases(self):
+        """Configuration with model alias rules."""
+        return AppConfig(
+            backends=BackendSettings(default_backend="openai"),
+            model_aliases=[
+                ModelAliasRule(
+                    pattern="^gpt-(.*)", replacement="openrouter:openai/gpt-\\1"
+                ),
+            ],
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolve_target_with_aliases(self, config_with_aliases):
+        """Test that model aliases are applied during backend resolution."""
+        session_service = Mock(spec=ISessionService)
+        session_service.get_session = AsyncMock(return_value=None)
+
+        backend_lifecycle = Mock(spec=IBackendLifecycleManager)
+        backend_lifecycle.get_disabled_backends = Mock(return_value={})
+
+        planning_phase = Mock(spec=IPlanningPhaseManager)
+        planning_phase.apply_if_needed = AsyncMock()
+
+        model_alias_resolver = ModelAliasResolver(config=config_with_aliases)
+
+        resolver = BackendModelResolver(
+            session_service=session_service,
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase,
+            backend_lifecycle_manager=backend_lifecycle,
+            config=config_with_aliases,
+        )
+
+        request = ChatRequest(
+            model="gpt-4-turbo", messages=[ChatMessage(role="user", content="Hello")]
+        )
+
+        target = await resolver.resolve_target(request)
+
+        # The model should be rewritten by the alias rule
+        assert (
+            target.model == "openai/gpt-4-turbo"
+        )  # After parsing backend:model format
+        assert target.backend == "openrouter"
+        assert target.uri_params == {}
+
+    @pytest.mark.asyncio
+    async def test_resolve_target_static_route_precedence(self):
+        """Test that static_route takes precedence over model aliases."""
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="openai",
+                static_route="forced-backend:forced-model",
+            ),
+            model_aliases=[
+                ModelAliasRule(pattern=".*", replacement="should-not-be-used:model")
+            ],
+        )
+
+        session_service = Mock(spec=ISessionService)
+        session_service.get_session = AsyncMock(return_value=None)
+
+        backend_lifecycle = Mock(spec=IBackendLifecycleManager)
+        backend_lifecycle.get_disabled_backends = Mock(return_value={})
+
+        planning_phase = Mock(spec=IPlanningPhaseManager)
+        planning_phase.apply_if_needed = AsyncMock()
+
+        model_alias_resolver = ModelAliasResolver(config=config)
+
+        resolver = BackendModelResolver(
+            session_service=session_service,
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase,
+            backend_lifecycle_manager=backend_lifecycle,
+            config=config,
+        )
+
+        request = ChatRequest(
+            model="any-model", messages=[ChatMessage(role="user", content="Hello")]
+        )
+
+        target = await resolver.resolve_target(request)
+
+        # Static route should override alias rules
+        assert target.backend == "forced-backend"
+        assert target.model == "forced-model"
+        assert target.uri_params == {}
 
 
 class TestModelAliasesConfiguration:
     """Test cases for model aliases configuration from different sources."""
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_cli_parameter_support(self):
         """Test that CLI parameters are properly parsed and validated."""
         from src.core.cli import parse_cli_args
@@ -493,9 +290,6 @@ class TestModelAliasesConfiguration:
         assert args.model_aliases[0] == ("^gpt-(.*)", "openrouter:openai/gpt-\\1")
         assert args.model_aliases[1] == ("^claude-(.*)", "anthropic:claude-\\1")
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_cli_parameter_validation_invalid_format(self):
         """Test that invalid CLI parameter format raises error."""
         from src.core.cli import parse_cli_args
@@ -503,9 +297,6 @@ class TestModelAliasesConfiguration:
         with pytest.raises(SystemExit):  # argparse raises SystemExit on error
             parse_cli_args(["--model-alias", "invalid-format-no-equals"])
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_cli_parameter_validation_invalid_regex(self):
         """Test that invalid regex pattern raises error."""
         from src.core.cli import parse_cli_args
@@ -513,9 +304,6 @@ class TestModelAliasesConfiguration:
         with pytest.raises(SystemExit):  # argparse raises SystemExit on error
             parse_cli_args(["--model-alias", "[invalid-regex=replacement"])
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_environment_variable_support(self):
         """Test that environment variables are properly loaded."""
         import json
@@ -542,9 +330,6 @@ class TestModelAliasesConfiguration:
             if "MODEL_ALIASES" in os.environ:
                 del os.environ["MODEL_ALIASES"]
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_environment_variable_invalid_json(self, caplog):
         """Test that invalid JSON in environment variable is handled gracefully."""
         import os
@@ -563,9 +348,6 @@ class TestModelAliasesConfiguration:
             if "MODEL_ALIASES" in os.environ:
                 del os.environ["MODEL_ALIASES"]
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_cli_overrides_config_file(self):
         """Test that CLI parameters override config file settings."""
         from src.core.cli import apply_cli_args, parse_cli_args
@@ -627,9 +409,6 @@ class TestModelAliasesConfiguration:
             elif var in os.environ:
                 del os.environ[var]
 
-    @pytest.mark.skip(
-        reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-    )
     def test_precedence_order_cli_env_config(self):
         """Test the complete precedence order: CLI > ENV > Config File."""
         import json

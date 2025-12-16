@@ -1,15 +1,7 @@
-"""
-Tests for BackendService authentication failure handling.
-
-NOTE: These tests need refactoring after Phase 4 of backend-service-god-object-refactoring.
-BackendService is now a thin facade, and these tests were testing internal behavior
-that has been moved to BackendCompletionFlow and other collaborators.
-TODO: Refactor these tests to either test the collaborators directly or test
-the public contract of BackendService through integration tests.
-"""
+"""Tests for BackendCompletionFlow authentication failure handling."""
 
 import time
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -17,20 +9,11 @@ from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
-    InvalidRequestError,
 )
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
-from src.core.services.backend_factory import BackendFactory
-
-from tests.unit.fixtures.backend_service_builder import (
-    create_backend_service_with_mocks,
-)
-
-# Suppress Windows ProactorEventLoop ResourceWarnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+from src.core.services.backend_completion_flow import BackendCompletionFlow
 
 
 class MockBackend(LLMBackend):
@@ -55,180 +38,175 @@ class MockBackend(LLMBackend):
 
 
 @pytest.fixture
-def backend_service():
-    factory = Mock(spec=BackendFactory)
-    rate_limiter = Mock()
-    rate_limiter.check_limit = AsyncMock(return_value=Mock(is_limited=False))
-    rate_limiter.record_usage = AsyncMock()
-    config = Mock()
-    config.backends.default_backend = "openai"
-    session_service = Mock()
-    session_service.get_session = AsyncMock(return_value=None)
-    app_state = Mock()
+def flow_fixture():
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+    backend_lifecycle_manager.get_active_backends.return_value = {}
 
-    return create_backend_service_with_mocks(
-        factory=factory,
-        rate_limiter=rate_limiter,
-        config=config,
-        session_service=session_service,
-        app_state=app_state,
+    backend_factory = MagicMock()
+
+    config = MagicMock(spec=AppConfig)
+    config.backends = MagicMock()
+    config.backends.get.return_value = None
+    config.identity = None
+
+    deps = {
+        "backend_model_resolver": MagicMock(),
+        "stream_session_id_resolver": MagicMock(),
+        "failover_planner": MagicMock(),
+        "session_service": MagicMock(),
+        "backend_lifecycle_manager": backend_lifecycle_manager,
+        "backend_config_service": MagicMock(),
+        "reasoning_config_applicator": MagicMock(),
+        "uri_parameter_applicator": MagicMock(),
+        "stream_formatting_service": MagicMock(),
+        "usage_tracking_wrapper": MagicMock(),
+        "exception_normalizer": MagicMock(),
+        "planning_phase_manager": MagicMock(),
+        "backend_factory": backend_factory,
+        "config": config,
+        "app_state": MagicMock(),
+        "failover_coordinator": MagicMock(),
+        "failure_handling_strategy": None,
+    }
+
+    # Defaults
+    deps["backend_model_resolver"].resolve_target = AsyncMock(
+        return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
     )
+    deps["backend_model_resolver"].synchronize_request_with_target = Mock(
+        side_effect=lambda r, t: r
+    )
+    deps["reasoning_config_applicator"].apply = Mock(side_effect=lambda r, s: r)
+    deps["uri_parameter_applicator"].apply = Mock(side_effect=lambda r, u, b, s: r)
+
+    def normalize_side_effect(exc, backend_type):
+        return exc
+
+    deps["exception_normalizer"].normalize = Mock(side_effect=normalize_side_effect)
+
+    flow = BackendCompletionFlow(**deps)
+    return flow, deps
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
-async def test_auth_failure_permanent_backend_disable(backend_service):
+async def test_auth_failure_permanent_backend_disable(flow_fixture):
     """Test that AuthenticationError permanently disables the backend."""
-
+    flow, deps = flow_fixture
     backend = MockBackend()
     backend.chat_completions = AsyncMock(
         side_effect=AuthenticationError("Invalid API Key")
     )
 
-    # Mock the completion flow's dependencies
-    backend_service._backend_model_resolver.resolve_target = AsyncMock(
-        return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
-    )
-    # Mock backend creation
-    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
-        return_value=backend
-    )
-    # Ensure the completion flow uses our mocked factory
-    backend_service._backend_completion_flow._backend_factory = backend_service._factory
+    deps["backend_lifecycle_manager"].get_or_create = AsyncMock(return_value=backend)
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
     )
 
     with pytest.raises(AuthenticationError):
-        await backend_service.call_completion(request)
+        await flow.call_completion(request)
 
     backend.mark_auth_invalid.assert_called_once()
-    backend_service._factory.unregister_backend.assert_called_once_with("openai")
+    deps["backend_factory"].unregister_backend.assert_called_once_with("openai")
+    deps["backend_lifecycle_manager"].discard.assert_called_once()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
-async def test_backend_error_401_permanent_disable(backend_service):
+async def test_backend_error_401_permanent_disable(flow_fixture):
     """Test that BackendError with 401 status permanently disables the backend."""
-
+    flow, deps = flow_fixture
     backend = MockBackend()
     backend.chat_completions = AsyncMock(
         side_effect=BackendError("Unauthorized", status_code=401)
     )
 
-    backend_service._backend_model_resolver.resolve_target = AsyncMock(
-        return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
-    )
-    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
-        return_value=backend
-    )
-    backend_service._backend_completion_flow._backend_factory = backend_service._factory
+    deps["backend_lifecycle_manager"].get_or_create = AsyncMock(return_value=backend)
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
     )
 
     with pytest.raises(BackendError):
-        await backend_service.call_completion(request)
+        await flow.call_completion(request)
 
     backend.mark_auth_invalid.assert_called_once()
-    backend_service._factory.unregister_backend.assert_called_once_with("openai")
+    deps["backend_factory"].unregister_backend.assert_called_once_with("openai")
+    deps["backend_lifecycle_manager"].discard.assert_called_once()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
-async def test_http_exception_401_permanent_disable(backend_service):
+async def test_http_exception_401_permanent_disable(flow_fixture):
     """Test that HTTPException with 401 status permanently disables the backend."""
-
+    flow, deps = flow_fixture
     backend = MockBackend()
     backend.chat_completions = AsyncMock(
         side_effect=HTTPException(status_code=401, detail="Unauthorized")
     )
 
-    backend_service._backend_model_resolver.resolve_target = AsyncMock(
-        return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
-    )
-    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
-        return_value=backend
-    )
-    backend_service._backend_completion_flow._backend_factory = backend_service._factory
+    deps["backend_lifecycle_manager"].get_or_create = AsyncMock(return_value=backend)
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
     )
 
-    # It seems the system might normalize HTTPException to InvalidRequestError
-    with pytest.raises((HTTPException, InvalidRequestError)):
-        await backend_service.call_completion(request)
+    with pytest.raises(HTTPException):
+        await flow.call_completion(request)
 
     backend.mark_auth_invalid.assert_called_once()
-    backend_service._factory.unregister_backend.assert_called_once_with("openai")
+    deps["backend_factory"].unregister_backend.assert_called_once_with("openai")
+    deps["backend_lifecycle_manager"].discard.assert_called_once()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
-async def test_oauth_backend_not_permanently_disabled(backend_service):
+async def test_oauth_backend_not_permanently_disabled(flow_fixture):
     """Test that OAuth backends (has_static_credentials=False) are NOT permanently disabled."""
+    flow, deps = flow_fixture
     backend = MockBackend()
     backend._has_static_credentials = False  # OAuth backend
     backend.chat_completions = AsyncMock(
         side_effect=AuthenticationError("Token expired")
     )
 
-    backend_service._backend_model_resolver.resolve_target = AsyncMock(
-        return_value=type(
-            "ResolvedTarget",
-            (),
-            {"backend": "gemini-oauth", "model": "gemini-2.5-pro", "uri_params": {}},
-        )()
+    deps["backend_model_resolver"].resolve_target = AsyncMock(
+        return_value=ResolvedTarget(
+            backend="gemini-oauth", model="gemini-2.5-pro", uri_params={}
+        )
     )
-    backend_service._backend_lifecycle_manager.get_or_create = AsyncMock(
-        return_value=backend
-    )
-    backend_service._backend_completion_flow._backend_factory = backend_service._factory
+    deps["backend_lifecycle_manager"].get_or_create = AsyncMock(return_value=backend)
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gemini-2.5-pro"
     )
 
     with pytest.raises(AuthenticationError):
-        await backend_service.call_completion(request)
+        await flow.call_completion(request)
 
     # OAuth backend should NOT be marked invalid or unregistered
     backend.mark_auth_invalid.assert_not_called()
-    backend_service._factory.unregister_backend.assert_not_called()
+    deps["backend_factory"].unregister_backend.assert_not_called()
+    deps["backend_lifecycle_manager"].discard.assert_not_called()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
-async def test_disabled_backend_fails_fast_without_failover(backend_service):
+async def test_disabled_backend_fails_fast_without_failover(flow_fixture):
     """Request to a permanently disabled backend fails before creation when no failover exists."""
-    backend_service._backend_lifecycle_manager.get_disabled_backends = Mock(
-        return_value={
-            "openai": {
-                "reason": "invalid api key",
-                "timestamp": time.time(),
-            }
+    flow, deps = flow_fixture
+
+    deps["backend_lifecycle_manager"].get_disabled_backends.return_value = {
+        "openai": {
+            "reason": "invalid api key",
+            "timestamp": time.time(),
         }
-    )
-    backend_service._backend_model_resolver.resolve_target = AsyncMock(
-        return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
-    )
+    }
 
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
     )
 
-    with pytest.raises(BackendError):
-        await backend_service.call_completion(request, allow_failover=False)
+    with pytest.raises(BackendError) as exc_info:
+        await flow.call_completion(request, allow_failover=False)
+
+    assert "permanently disabled" in str(exc_info.value)
+    # Ensure get_or_create was NOT called
+    deps["backend_lifecycle_manager"].get_or_create.assert_not_called()

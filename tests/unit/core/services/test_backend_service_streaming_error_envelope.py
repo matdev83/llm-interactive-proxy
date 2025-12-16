@@ -1,14 +1,14 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from src.core.common.exceptions import BackendError
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+from src.core.services.backend_completion_flow import BackendCompletionFlow
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Needs refactoring after Phase 4 - BackendService is now a thin facade"
-)
 async def test_streaming_backend_error_raises_http_error():
     backend_lifecycle_manager = MagicMock()
     backend_lifecycle_manager.get_disabled_backends.return_value = {}
@@ -22,33 +22,60 @@ async def test_streaming_backend_error_raises_http_error():
     )
     backend_lifecycle_manager.get_or_create = AsyncMock(return_value=mock_backend)
 
-    backend_config_provider = MagicMock()
-    backend_config_provider.apply_backend_config.side_effect = lambda request, *_args, **_kwargs: request  # type: ignore[assignment]
-    backend_config_provider.get_backend_config.return_value = None
-
-    model_alias_resolver = MagicMock()
-    model_alias_resolver.resolve.side_effect = lambda model: model
+    backend_config_service = MagicMock()
+    backend_config_service.apply_backend_config.side_effect = (
+        lambda request, *_args, **_kwargs: request
+    )
+    backend_config_service.get_backend_config.return_value = None
 
     session_service = MagicMock()
     session_service.get_session = AsyncMock(return_value=None)
 
-    from tests.unit.fixtures.backend_service_builder import (
-        create_backend_service_with_mocks,
-    )
+    config_mock = MagicMock(spec=AppConfig)
+    config_mock.backends = MagicMock()
+    config_mock.backends.get.return_value = None
+    config_mock.identity = None
 
-    service = create_backend_service_with_mocks(
-        factory=MagicMock(),
-        rate_limiter=MagicMock(),
-        config=MagicMock(),
-        session_service=session_service,
-        app_state=MagicMock(),
-        backend_config_provider=backend_config_provider,
-        failure_handling_strategy=None,
-        model_alias_resolver=model_alias_resolver,
-        backend_lifecycle_manager=backend_lifecycle_manager,
-    )
+    # Mock other dependencies
+    deps = {
+        "backend_model_resolver": MagicMock(),
+        "stream_session_id_resolver": MagicMock(),
+        "failover_planner": MagicMock(),
+        "session_service": session_service,
+        "backend_lifecycle_manager": backend_lifecycle_manager,
+        "backend_config_service": backend_config_service,
+        "reasoning_config_applicator": MagicMock(),
+        "uri_parameter_applicator": MagicMock(),
+        "stream_formatting_service": MagicMock(),
+        "usage_tracking_wrapper": MagicMock(),
+        "exception_normalizer": MagicMock(),
+        "planning_phase_manager": MagicMock(),
+        "backend_factory": MagicMock(),
+        "config": config_mock,
+        "app_state": MagicMock(),
+        "failover_coordinator": MagicMock(),
+        "failure_handling_strategy": None,  # No strategy means surface error
+    }
 
-    service._resolve_backend_and_model = AsyncMock(return_value=("openai", "test-model", {}))  # type: ignore[assignment]
+    # Defaults
+    deps["backend_model_resolver"].resolve_target = AsyncMock(
+        return_value=ResolvedTarget(backend="openai", model="test-model", uri_params={})
+    )
+    deps["backend_model_resolver"].synchronize_request_with_target = Mock(
+        side_effect=lambda r, t: r
+    )
+    deps["reasoning_config_applicator"].apply = Mock(side_effect=lambda r, s: r)
+    deps["uri_parameter_applicator"].apply = Mock(side_effect=lambda r, u, b, s: r)
+
+    # Exception normalizer should pass through or wrap the error
+    def normalize_side_effect(exc, backend_type):
+        if isinstance(exc, BackendError):
+            return exc
+        return BackendError(str(exc))
+
+    deps["exception_normalizer"].normalize = Mock(side_effect=normalize_side_effect)
+
+    flow = BackendCompletionFlow(**deps)
 
     request = ChatRequest(
         model="test-model",
@@ -58,6 +85,6 @@ async def test_streaming_backend_error_raises_http_error():
     )
 
     with pytest.raises(BackendError) as exc_info:
-        await service.call_completion(request, stream=True, allow_failover=True)
+        await flow.call_completion(request, stream=True, allow_failover=True)
 
     assert exc_info.value.status_code == 500

@@ -565,6 +565,13 @@ class TestDIContainerUsage:
                 and "core\\services\\buffered_wire_capture_service.py"
                 in v.get("file", "")
             )
+            and not (
+                # ResponseHandler is a helper class instantiated within BackendCompletionFlow
+                # constructor, similar to RequestPreparer, BackendManager, FailoverManager
+                v.get("class_name") == "ResponseHandler"
+                and "core\\services\\backend_completion_flow\\service.py"
+                in v.get("file", "")
+            )
         ]
 
         # Expect no DI violations; if any appear, show a detailed report

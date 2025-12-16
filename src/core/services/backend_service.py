@@ -259,9 +259,8 @@ class BackendService(IBackendService):
         Returns:
             Filtered list excluding unhealthy backends (if circuit breaker enabled)
         """
-        # Delegate to the failover planner's internal filtering method
-        # Use type: ignore because _filter_unhealthy_backends is private to the implementation
-        return self._failover_planner._filter_unhealthy_backends(plan)  # type: ignore[attr-defined,no-any-return]
+        # Delegate to the failover planner's public filtering method
+        return self._failover_planner.filter_unhealthy_backends(plan)
 
     async def call_completion(
         self,

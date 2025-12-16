@@ -230,13 +230,11 @@ class TestBackendServiceHypothesis:
         # Mock target resolution at the completion-flow layer (BackendService delegates)
         from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
 
-        service._backend_completion_flow._backend_model_resolver.resolve_target = (
-            AsyncMock(
-                return_value=ResolvedTarget(
-                    backend="openai",
-                    model=model_name,
-                    uri_params={},
-                )
+        service._backend_completion_flow._request_preparer._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="openai",
+                model=model_name,
+                uri_params={},
             )
         )
 
@@ -342,13 +340,11 @@ class TestBackendServiceHypothesis:
         # Configure the backend model resolver to return expected backend/model
         from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
 
-        service._backend_completion_flow._backend_model_resolver.resolve_target = (
-            AsyncMock(
-                return_value=ResolvedTarget(
-                    backend="openai",
-                    model="test-model",
-                    uri_params={},
-                )
+        service._backend_completion_flow._request_preparer._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(
+                backend="openai",
+                model="test-model",
+                uri_params={},
             )
         )
 
@@ -364,7 +360,9 @@ class TestBackendServiceHypothesis:
             mock_resilience.check_availability.return_value = mock_decision
 
             # Set resilience on the BackendCompletionFlow, not the BackendService
-            service._backend_completion_flow._resilience = mock_resilience
+            service._backend_completion_flow._backend_manager._resilience = (
+                mock_resilience
+            )
 
             with pytest.raises(RateLimitExceededError):
                 await service.call_completion(chat_request)
@@ -421,13 +419,11 @@ class TestBackendServiceHypothesis:
                 ResolvedTarget,
             )
 
-            service._backend_completion_flow._backend_model_resolver.resolve_target = (
-                AsyncMock(
-                    return_value=ResolvedTarget(
-                        backend="openai",
-                        model="test-model",
-                        uri_params={},
-                    )
+            service._backend_completion_flow._request_preparer._backend_model_resolver.resolve_target = AsyncMock(
+                return_value=ResolvedTarget(
+                    backend="openai",
+                    model="test-model",
+                    uri_params={},
                 )
             )
 
