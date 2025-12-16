@@ -22,7 +22,7 @@
 
 - [ ] 1.3 (P) Add/extend characterization tests for streaming session identity
   - Lock in the current session-id fallback behavior used for streaming capture/buffering.
-  - _Requirements: 3.3, 4.2, 8.1, 8.2_
+  - _Requirements: 3.3, 4.2, 8.1, 8.2, 8.3_
 
 ## Phase 2: Define New Boundaries (Interfaces + DI Seams)
 
@@ -34,13 +34,13 @@
 - [ ] 2.1 (P) Add DI wiring for new collaborators
   - Register new collaborators and their interfaces in the existing DI composition root.
   - If `BackendService` is also constructed via staged fallback wiring, update `src/core/app/stages/backend.py` so the fallback factory passes the same explicit dependency set (no missing collaborators).
-  - _Requirements: 2.3_
+  - _Requirements: 2.3, 2.4_
 
 ## Phase 3: Implement Extracted Collaborators
 
 - [ ] 3. Implement the streaming session-id resolver and reuse it consistently
   - Centralize the session-id resolution algorithm and apply it anywhere streaming capture/buffering needs a stable identifier.
-  - _Requirements: 8.1, 8.2_
+  - _Requirements: 8.1, 8.2, 8.3_
 
 - [ ] 3.1 (P) Implement target resolution as a dedicated service
   - Extract backend/model resolution and request synchronization into a focused service, preserving ordering constraints and outputs.
@@ -60,7 +60,7 @@
 - [ ] 4. Remove runtime fallback instantiation from BackendService construction
   - Make dependency construction a DI concern, not a BackendService concern.
   - Update unit tests/fixtures that directly instantiate `BackendService` to provide required dependencies (or use a canonical test builder) so tests no longer rely on constructor fallbacks.
-  - _Requirements: 2.1, 2.3_
+  - _Requirements: 2.1, 2.3, 3.5_
 
 - [ ] 4.1 Update BackendService to delegate to new collaborators
   - Ensure public entrypoints delegate to the completion orchestrator.

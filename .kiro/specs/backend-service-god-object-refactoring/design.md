@@ -48,6 +48,22 @@ This does not change the `IBackendService` contract, but it does impact where to
 - Primary registration: `register_core_services(...)` in `src/core/di/services.py` (invoked by `CoreServicesStage`)
 - Fallback registration path: `src/core/app/stages/backend.py` (only when core services did not register `BackendService`)
 
+### Responsibility Ownership (Guard Rails)
+
+This refactor is intentionally scoped to backend-level orchestration inside `BackendService` and must not accidentally migrate or duplicate responsibilities that are currently owned elsewhere in the request pipeline.
+
+| Concern | Owned By Today | Notes / Guard Rails |
+|--------|-----------------|---------------------|
+| Request processing orchestration | `RequestProcessor` (+ extracted phases) | Out of scope; only consumes `IBackendRequestManager`/`IBackendService` contracts. |
+| Request-level retry loops (e.g., blocked tool retry steering, empty stream retry, loop detection safeguards) | `BackendRequestManager` | Must remain behavior-identical; `BackendCompletionFlow` must not introduce new retry loops at this layer. |
+| Session lookup and session history recording | `ISessionService` / `ISessionManager` | BackendService must preserve existing inputs/ordering for history and fingerprint updates. |
+| Backend lifecycle and caching | `IBackendLifecycleManager` | BackendService continues to delegate lifecycle concerns here. |
+| Backend target resolution (backend/model/URI params/static route) | `BackendService` | In-scope to extract into a dedicated resolver collaborator while preserving ordering constraints. |
+| Backend-level failover planning/execution | `BackendService` (+ `IFailoverCoordinator`/`IFailoverStrategy`) | In-scope to extract into planner + flow services; preserve recursion prevention semantics. |
+| Rate limiting and cooldown semantics | `BackendService` (+ `IRateLimiter`) | In-scope; do not shift into request manager. |
+| Streaming SSE byte formatting | `BackendService._stream_as_sse_bytes` delegating to `StreamFormattingService` | Preserve byte-level output and “done marker” behavior as tested. |
+| Wire capture wrapping (including stream wrapping) | `IWireCapture` + BackendService integration points | Preserve capture behavior; unify stream session-id derivation across implementations that wrap streams. |
+
 ### Architecture Pattern & Boundary Map
 
 **Selected pattern**: Facade + Orchestrator + Focused Services.
@@ -159,7 +175,7 @@ sequenceDiagram
 ### DI Registration Strategy
 
 - Register new services and interfaces in `src/core/di/services.py` (the existing composition root used by staged initialization).
-- If the `BackendStage` fallback wiring path (`src/core/app/stages/backend.py`) remains in use, update that factory as well so it constructs `BackendService` with the same explicit dependency set.
+- The `BackendStage` fallback wiring path (`src/core/app/stages/backend.py`) is treated as supported for now; update that factory as well so it constructs `BackendService` with the same explicit dependency set (no “partial wiring” when the fallback path is exercised).
 - BackendService’s factory resolves all required dependencies explicitly; no runtime fallback creation in `BackendService.__init__`.
 - All new services are singletons (stateless orchestration + config-driven behavior).
 

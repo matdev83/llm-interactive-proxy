@@ -63,6 +63,8 @@ This document specifies requirements for refactoring `BackendService` (`src/core
 
 2.3 When the refactoring introduces new collaborators, the system shall register them and their interfaces in the existing DI composition root so production wiring does not rely on runtime fallbacks.
 
+2.4 When `BackendService` is constructed through either supported composition root (`register_core_services(...)` or `BackendStage` fallback wiring), the system shall ensure `BackendService` is constructed with the same explicit dependency set and shall not silently bypass DI for extracted collaborators.
+
 #### Technical Constraints
 
 - DI implementation: `ServiceCollection` / `IServiceProvider`.
@@ -94,6 +96,8 @@ This document specifies requirements for refactoring `BackendService` (`src/core
 - `_resolve_stream_session_id`
 
 3.4 When streaming is used, `BackendService._stream_as_sse_bytes` shall continue to produce the same SSE byte stream for the same input chunks.
+
+3.5 When runtime constructor fallbacks are removed, the system shall preserve a stable and minimal way for unit tests to obtain a fully-wired `BackendService` (either via explicit dependency construction in tests/fixtures or a canonical test builder), and the full automated test suite shall continue to pass.
 
 ### Requirement 4: Regression Prevention via Tests
 
@@ -156,6 +160,8 @@ This document specifies requirements for refactoring `BackendService` (`src/core
 8.1 When the system needs a stable session identifier for streaming capture/buffering, it shall apply a single shared algorithm used consistently across BackendService and buffered wire capture logic.
 
 8.2 When session identifiers are missing, the system shall preserve current fallback behavior to a generated UUID.
+
+8.3 When wire capture is enabled via any `IWireCapture` implementation that wraps streams (for example `BufferedWireCapture` and `CborWireCaptureService`), the system shall preserve current precedence rules for deriving the stream session identifier (including request/session-derived values and `RequestContext.request_id` fallbacks) so captures remain attributable and consistent.
 
 ### Requirement 9: Exception Normalization and Error Semantics
 
