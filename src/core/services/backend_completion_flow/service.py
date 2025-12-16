@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -329,6 +330,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     session_id_for_backend=session_id_for_backend,
                 )
 
+            except asyncio.CancelledError:
+                raise
             except Exception as call_exc:
                 # Normalize the exception immediately for consistent handling
                 normalized_exc = self._exception_normalizer.normalize(
@@ -358,6 +361,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         backend_type,
                         session_id_for_backend,
                     )
+                    # Ensure we raise an LLMProxyError to avoid falling through to outer handler
+                    # If normalized_exc is not an LLMProxyError (e.g., HTTPException from mock),
+                    # normalize it again to convert to domain exception
+                    if not isinstance(normalized_exc, LLMProxyError):
+                        normalized_exc = self._exception_normalizer.normalize(
+                            normalized_exc, backend_type
+                        )
                     raise normalized_exc
 
                 # Handle backend error (wire capture + usage/resilience updates)
@@ -423,6 +433,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 # No failover allowed, raise the normalized error
                 raise normalized_exc
 
+        except asyncio.CancelledError:
+            raise
         except (
             BackendError,
             RateLimitExceededError,
@@ -435,13 +447,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Propagate expected exceptions as-is
             raise
         except Exception as exc:
-            # Use duck typing to detect transport exceptions without importing FastAPI/Starlette
-            # This preserves layer boundaries while allowing proper error handling
-            if hasattr(exc, "status_code") and not isinstance(exc, BackendError):
-                # Don't record failure for generic HTTP exceptions (likely client errors)
-                # But do propagate them
-                raise
-            # Otherwise fall through to generic exception handling
+            # Normalize any remaining "foreign" exception into a domain error to keep
+            # transport/framework types out of the service boundary.
+            normalized_exc = self._exception_normalizer.normalize(exc, backend_type)
+            if isinstance(normalized_exc, LLMProxyError):
+                raise normalized_exc from exc
+
             raise BackendError(
                 message=f"Backend call failed: {exc!s}",
                 backend_name=backend_type,

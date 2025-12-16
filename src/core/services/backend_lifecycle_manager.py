@@ -38,6 +38,7 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         config: IConfig | None = None,
         backend_config_provider: IBackendConfigProvider | None = None,
         per_session_limit: int = 32,
+        global_backend_limit: int = 200,
     ) -> None:
         """Initialize the backend lifecycle manager.
 
@@ -46,14 +47,16 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             config: Application configuration.
             backend_config_provider: Provider for backend configs.
             per_session_limit: Maximum number of per-session backends to cache.
+            global_backend_limit: Maximum number of global backends to cache (default: 200).
         """
         self._factory = factory
         self._config = config
         self._backend_config_provider = backend_config_provider
         self._per_session_backend_limit = per_session_limit
+        self._global_backend_limit = global_backend_limit
 
-        # Backend caches
-        self._backends: dict[str, LLMBackend] = {}
+        # Backend caches - use OrderedDict for LRU eviction
+        self._backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
         self._backend_configs: dict[str, Any] = {}
 
@@ -104,6 +107,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         else:
             backend = self._backends.get(cache_key)
             if backend is not None:
+                # Move to end for LRU behavior
+                self._backends.move_to_end(cache_key)
                 return backend
 
         if not self._factory:
@@ -149,6 +154,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 await self._enforce_per_session_backend_limit()
             else:
                 self._backends[cache_key] = created_backend
+                self._backends.move_to_end(cache_key)
+                await self._enforce_global_backend_limit()
             return created_backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
@@ -241,6 +248,19 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicting per-session backend %s due to cache limit %d",
+                    evicted_key,
+                    limit,
+                )
+            await self.shutdown(evicted_backend)
+
+    async def _enforce_global_backend_limit(self) -> None:
+        """Ensure the global backend cache does not grow without bound."""
+        limit = max(self._global_backend_limit, 1)
+        while len(self._backends) > limit:
+            evicted_key, evicted_backend = self._backends.popitem(last=False)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicting global backend %s due to cache limit %d",
                     evicted_key,
                     limit,
                 )

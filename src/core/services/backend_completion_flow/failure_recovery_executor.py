@@ -447,7 +447,6 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 backend_name=backend_type,
             )
         )
-
         # Consult the failure strategy
         failure_decision, wait_seconds, next_backend = (
             await self.apply_failure_strategy(
@@ -460,7 +459,6 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 content_started=content_started,
             )
         )
-
         if failure_decision == FailureDecision.WAIT_AND_RETRY:
             return await self.execute_retry(
                 request=request,
@@ -472,11 +470,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 call_completion_callback=call_completion_callback,
                 context=context,
             )
-
-        if (
-            failure_decision == FailureDecision.FAILOVER_IMMEDIATE
-            and next_backend is not None
-        ):
+        if failure_decision == FailureDecision.FAILOVER_IMMEDIATE and next_backend is not None:
             return await self.execute_failover(
                 request=request,
                 next_backend=next_backend,
@@ -486,7 +480,6 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 call_completion_callback=call_completion_callback,
                 context=context,
             )
-
         # SURFACE_ERROR or no next backend - raise the error
         if isinstance(error, BackendError | RateLimitExceededError | LLMProxyError):
             raise error

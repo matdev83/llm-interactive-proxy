@@ -136,7 +136,9 @@ class InvalidRequestError(LLMProxyError):
     def __init__(
         self, message: str = "Invalid request", details: dict | None = None, **kwargs
     ):
-        super().__init__(message, details, status_code=400, **kwargs)
+        # Preserve status_code from kwargs if provided (e.g., 401 for auth failures)
+        status_code = kwargs.pop("status_code", 400)
+        super().__init__(message, details, status_code=status_code, **kwargs)
 
 
 class ServiceResolutionError(LLMProxyError):

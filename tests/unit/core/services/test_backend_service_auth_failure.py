@@ -141,6 +141,8 @@ async def test_backend_error_401_permanent_disable(flow_fixture):
 @pytest.mark.asyncio
 async def test_http_exception_401_permanent_disable(flow_fixture):
     """Test that HTTPException with 401 status permanently disables the backend."""
+    from src.core.common.exceptions import InvalidRequestError
+
     flow, deps = flow_fixture
     backend = MockBackend()
     backend.chat_completions = AsyncMock(
@@ -153,8 +155,16 @@ async def test_http_exception_401_permanent_disable(flow_fixture):
         messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
     )
 
-    with pytest.raises(HTTPException):
+    # The mock normalizer returns HTTPException as-is, but HTTPException is not an LLMProxyError,
+    # so it falls through to outer handler which normalizes it again using the real normalizer.
+    # The real normalizer converts HTTPException(401) to InvalidRequestError(status_code=401),
+    # which IS an LLMProxyError, so it should be raised.
+    # Accept InvalidRequestError since that's what the real normalizer produces.
+    with pytest.raises(InvalidRequestError) as exc_info:
         await flow.call_completion(request)
+
+    # Ensure status_code is 401
+    assert exc_info.value.status_code == 401
 
     backend.mark_auth_invalid.assert_called_once()
     deps["backend_factory"].unregister_backend.assert_called_once_with("openai")

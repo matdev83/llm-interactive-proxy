@@ -236,6 +236,10 @@ class BufferedWireCapture(IWireCapture):
         self._enabled: bool = False
         self._sequence_counter: int = 0  # Monotonic sequence for stable ordering
 
+        # Memory leak prevention: limit number of buffer keys to prevent unbounded growth
+        # when many unique session_ids are created but flushes don't occur frequently
+        self._max_buffer_keys: int = 1000  # Maximum number of unique session buffers
+
         # PERFORMANCE OPTIMIZATION: Cache JSON serialization to avoid repeated encoding
         self._content_length_cache: dict[int, int] = {}
         self._json_cache: dict[int, str] = {}
@@ -800,6 +804,20 @@ class BufferedWireCapture(IWireCapture):
         async with self._buffer_lock:
             # Use session_id or 'default' as key
             key = entry.session_id or "default"
+
+            # Memory leak prevention: if we're at capacity and this is a new key,
+            # clean up empty buffers first
+            if key not in self._buffers and len(self._buffers) >= self._max_buffer_keys:
+                self._cleanup_empty_buffers_locked()
+
+            # Enforce limit: if still at capacity with a new key, force flush to free space
+            # This preserves all entries by flushing them to disk before evicting
+            if len(self._buffers) >= self._max_buffer_keys and key not in self._buffers:
+                # At capacity with new key - flush to free up space
+                # This ensures we don't lose entries by evicting non-empty buffers
+                await self._flush_buffer()
+                # After flush, buffers are cleared, so we can add the new key
+
             self._buffers[key].append(entry)
 
             # Check if we should flush immediately (check total size across all buffers)
@@ -811,6 +829,16 @@ class BufferedWireCapture(IWireCapture):
 
             if should_flush:
                 await self._flush_buffer()
+
+    def _cleanup_empty_buffers_locked(self) -> None:
+        """Remove empty buffers to free up space. Must be called with lock held."""
+        empty_keys = [
+            key for key, buffer_list in self._buffers.items() if not buffer_list
+        ]
+        for key in empty_keys:
+            del self._buffers[key]
+        if empty_keys and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Cleaned up {len(empty_keys)} empty buffer keys")
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""
@@ -1030,7 +1058,8 @@ class BufferedWireCapture(IWireCapture):
 
     def __del__(self) -> None:
         """Ensure cleanup is attempted on garbage collection."""
-        if self.enabled():
+        # Use safe attribute access during interpreter shutdown
+        if getattr(self, "_enabled", False):
             self.force_shutdown_sync()
 
     def _resolve_stream_session_id(

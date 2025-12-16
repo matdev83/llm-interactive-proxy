@@ -9,11 +9,10 @@ import logging
 import time
 from typing import Any
 
-from starlette.exceptions import HTTPException
-
 from src.core.common.exceptions import (
     BackendError,
     InvalidRequestError,
+    LLMProxyError,
     RateLimitExceededError,
 )
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
@@ -25,20 +24,26 @@ class ExceptionNormalizer(IExceptionNormalizer):
     """Service for normalizing provider exceptions to domain errors."""
 
     def normalize(self, exc: Exception, backend_type: str) -> Exception:
-        """Translate provider exception to domain error.
+        """Translate provider exception to a domain error when possible.
 
-        Translation rules:
-        - HTTP 429 -> RateLimitExceededError
-        - HTTP 4xx -> InvalidRequestError
-        - HTTP 5xx/other -> BackendError
+        Translation rules (based on duck-typed exception attributes):
+        - status_code == 429 -> RateLimitExceededError
+        - 400 <= status_code < 500 -> InvalidRequestError
+        - other int status_code -> BackendError
 
-        Never raises; always returns a normalized exception.
+        Never raises; always returns a normalized exception (or the original).
         """
-        if isinstance(exc, BackendError | RateLimitExceededError):
+        if isinstance(exc, LLMProxyError | BackendError | RateLimitExceededError):
             return exc
 
-        if isinstance(exc, HTTPException) and getattr(exc, "status_code", None) == 429:
-            detail_payload = getattr(exc, "detail", None)
+        status_code = getattr(exc, "status_code", None)
+        if not isinstance(status_code, int):
+            return exc
+
+        detail_payload = getattr(exc, "detail", None)
+        headers = getattr(exc, "headers", None)
+
+        if status_code == 429:
             message: str | None = None
 
             if isinstance(detail_payload, dict):
@@ -52,7 +57,6 @@ class ExceptionNormalizer(IExceptionNormalizer):
             if not message:
                 message = "Rate limit exceeded"
 
-            headers = getattr(exc, "headers", None)
             retry_after_seconds: float | None = None
             if isinstance(headers, dict):
                 retry_after_raw = headers.get("Retry-After") or headers.get(
@@ -70,6 +74,7 @@ class ExceptionNormalizer(IExceptionNormalizer):
                 else None
             )
 
+            serialized_detail: Any
             if isinstance(
                 detail_payload,
                 dict | list | tuple | str | int | float | bool | type(None),
@@ -83,6 +88,7 @@ class ExceptionNormalizer(IExceptionNormalizer):
                 "status_code": 429,
                 "detail": serialized_detail,
             }
+
             if isinstance(headers, dict) and headers:
                 allowed_header_names = {"retry-after"}
                 allowlisted_headers: dict[str, Any] = {
@@ -101,39 +107,34 @@ class ExceptionNormalizer(IExceptionNormalizer):
                 reset_at=reset_at,
             )
 
-        if isinstance(exc, HTTPException):
-            status_code = getattr(exc, "status_code", None)
-            detail_payload = getattr(exc, "detail", None)
+        http_message: str | None = None
+        if isinstance(detail_payload, dict):
+            http_message = detail_payload.get("message")
+            if not http_message:
+                error_block = detail_payload.get("error")
+                if isinstance(error_block, dict):
+                    http_message = error_block.get("message")
+        elif detail_payload is not None:
+            http_message = str(detail_payload)
 
-            http_message: str | None = None
-            if isinstance(detail_payload, dict):
-                http_message = detail_payload.get("message") or detail_payload.get(
-                    "error", {}
-                ).get(
-                    "message"
-                )  # type: ignore[union-attr]
-            elif detail_payload is not None:
-                http_message = str(detail_payload)
+        http_message = http_message or "Backend request failed"
+        http_details: dict[str, Any] = {
+            "backend": backend_type,
+            "detail": detail_payload,
+            "status_code": status_code,
+        }
 
-            http_message = http_message or "Backend request failed"
-            http_details: dict[str, Any] = {
-                "backend": backend_type,
-                "detail": detail_payload,
-            }
-            if isinstance(status_code, int):
-                http_details["status_code"] = status_code
-
-            if isinstance(status_code, int) and 400 <= status_code < 500:
-                return InvalidRequestError(
-                    message=http_message,
-                    details=http_details,
-                )
-
-            return BackendError(
+        if 400 <= status_code < 500:
+            # Preserve status_code for InvalidRequestError (especially important for 401)
+            return InvalidRequestError(
                 message=http_message,
-                backend_name=backend_type,
-                status_code=status_code if isinstance(status_code, int) else 502,
                 details=http_details,
+                status_code=status_code,
             )
 
-        return exc
+        return BackendError(
+            message=http_message,
+            backend_name=backend_type,
+            status_code=status_code,
+            details=http_details,
+        )
