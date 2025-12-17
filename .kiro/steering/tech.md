@@ -36,10 +36,30 @@ Default stage order:
 - Interfaces: `src/core/interfaces/` (`I*` naming, used for DI/test seams)
 - Factory style: some registrations use an `IServiceProvider` factory for complex wiring
 
+### Request processing (ProcessorStage)
+The HTTP request path is orchestrated by a small “orchestrator” plus a set of internal phase components. Source of truth:
+- Orchestrator: `RequestProcessor` in `src/core/services/request_processor_service.py` (stable alias: `src/core/services/request_processor.py`)
+- Phase contracts: `src/core/interfaces/request_processor_internal.py`
+- Wiring: `src/core/app/stages/processor.py`
+
+Key pattern: keep `RequestProcessor` thin and delegate to phase components with clear boundaries:
+- `ISessionEnricher`: session/client context enrichment
+- `IRequestSideEffects`: best-effort side effects (fail-open)
+- `ICommandHandler`: command processing and command-only fast-path
+- `IBackendPreparer`: request preparation + validation (fail-fast on structured validation)
+- `IRequestTransformPipeline`: outbound transforms in a fixed order
+- `IBackendExecutor`: backend execution + persistence side effects
+
 ### Backend discovery/registration
 - Import trigger: `src/core/services/backend_imports.py` is imported by `src/core/cli.py`
 - Auto-discovery: `src/connectors/__init__.py` imports connector modules at import time
 - Registry: `backend_registry` in `src/core/services/backend_registry.py`
+
+### Backend completion flow (BackendService orchestration)
+Backend calls are orchestrated via a dedicated coordinator that centralizes failover/retry/capture/usage behavior:
+- Flow orchestrator: `BackendCompletionFlow` in `src/core/services/backend_completion_flow/service.py`
+- Collaborator contracts: `src/core/interfaces/backend_completion_collaborators.py`
+- Wiring: `src/core/di/services.py` and backend stage wiring in `src/core/app/stages/backend.py`
 
 ## Error Model
 
@@ -70,7 +90,7 @@ Default stage order:
 ### Formatting and linting
 - Ruff is used for linting/import sorting (`[tool.ruff]` in `pyproject.toml`)
 - Black is used for formatting (line length 88 by default; see `[tool.ruff] line-length = 88`)
-- Ruff formatting is intentionally disabled (`[tool.ruff.format]` in `pyproject.toml`)
+- Ruff’s formatter is not used; Black is the formatter of record (see canonical commands below)
 
 ### Type checking
 - Mypy is enabled (`[tool.mypy]` in `pyproject.toml`)
@@ -80,7 +100,8 @@ Default stage order:
 
 ### Tests
 - Pytest is the test runner; markers are defined in `pyproject.toml` under `[tool.pytest.ini_options]`
-- Default run excludes slow/codex tests via addopts: `-m 'not slow and not codex'`
+- Default addopts are optimized for local runs (testmon + xdist); see `pyproject.toml` `[tool.pytest.ini_options] addopts`
+- Slow/integration/codex suites are selected explicitly via `-m ...` (marker list is in `pyproject.toml`)
 
 ## Canonical Commands (Windows-first)
 
@@ -110,5 +131,5 @@ Use the in-repo venv interpreter:
 
 ---
 
-_Updated: 2025-12-14_
+_Updated: 2025-12-17_
 _Keep this file factual: describe stable patterns and point to sources of truth_

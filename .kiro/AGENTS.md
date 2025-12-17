@@ -8,6 +8,12 @@ This document provides comprehensive guidance for AI agents on using the Kiro-in
 
 **Kiro** is a structured, phase-based approach to feature development that separates **thinking** (requirements, design) from **coding** (implementation). It ensures high-quality, well-planned features through systematic progression from requirements to implementation.
 
+## Scope (Opt-In)
+
+This guide applies **only** when the user explicitly opts into Kiro spec workflow (e.g., invokes `/kiro:*`, references a spec name/path under `.kiro/specs/`, or asks for spec-driven development).
+
+If the user did not explicitly mention Kiro/specs, follow normal engineering workflow and treat Kiro as optional guidance (see `AGENTS.md` in the repo root).
+
 ### Core Philosophy
 
 - **Spec-first, code-second**: No implementation until requirements and design are approved
@@ -197,7 +203,7 @@ This document provides comprehensive guidance for AI agents on using the Kiro-in
      - **Complex/New**: Full discovery (`.kiro/settings/rules/design-discovery-full.md`)
      - **Extensions**: Light discovery (`.kiro/settings/rules/design-discovery-light.md`)
      - **Simple**: Quick pattern check only
-   - Use WebSearch/WebFetch for:
+   - Use external research (docs/standards) when needed for:
      - Latest architectural patterns
      - External API documentation
      - Technology updates and best practices
@@ -225,7 +231,7 @@ This document provides comprehensive guidance for AI agents on using the Kiro-in
 - **Type Safety Mandatory**: No `any` in TypeScript, use type hints in Python
 - **Design Focus**: Architecture and interfaces ONLY, no implementation code
 - **Requirements Traceability**: Use numeric IDs only (e.g., "1.1", "2.3")
-- **Latest Information**: Always use WebSearch/WebFetch for external dependencies
+- **Latest Information**: Use up-to-date vendor docs/standards for external dependencies (when applicable)
 - **Steering Alignment**: Respect existing patterns from steering context
 
 **Key Sections in design.md**:
@@ -601,7 +607,7 @@ Next: /kiro:spec-impl user-authentication 2.1
 ```bash
 /kiro:spec-design oauth2-authentication -y
 ```
-→ Conducts full discovery (WebSearch for OAuth2 best practices)
+→ Conducts full discovery (external research for OAuth2 best practices)
 → Generates `design.md` with architecture, components, interfaces
 → Creates `research.md` with discovery findings
 

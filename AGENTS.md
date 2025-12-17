@@ -7,18 +7,30 @@
 
 **Code directly** for: quick fixes, simple bugs, trivial changes, or when user explicitly says "just code this".
 
+## Opt-In Scope (Important)
+
+Kiro specs are **user-driven and opt-in**.
+
+- **Only enforce spec gating** (e.g., "no code edits until requirements/design are approved") when the user:
+  - invokes a `/kiro:*` command, or
+  - explicitly references a spec by name/path (e.g., `request-processor-refactoring`, `.kiro/specs/<feature>/`), or
+  - explicitly says to use Kiro/spec workflow.
+- If the user does **not** mention Kiro or a spec name/path, proceed with normal engineering work. You may still suggest a spec workflow for complex requests, but do not block implementation by default.
+
 ## Kiro Commands (User-Triggered)
 
 When working on specs, the user will invoke `/kiro:*` commands. Follow the instructions provided in each command's context.
 
 **Workflow order**: `spec-init` → `spec-requirements` → `spec-design` → `spec-tasks` → `spec-impl`
 
-**Spec-driven rule**: When a spec exists at `.kiro/specs/{feature}/` and you are sure current session is about this spec: no code edits until `requirements.md` and `design.md` are approved (check `spec.json` for approval status). Every task in `tasks.md` must reference at least one acceptance criterion from requirements.
+**Spec-driven rule**: When a spec exists at `.kiro/specs/{feature}/` and you are sure current session is about this spec (see "Opt-In Scope" above): no code edits until `requirements.md` and `design.md` are approved (check `spec.json` for approval status). Every task in `tasks.md` must reference at least one acceptance criterion from requirements.
 
 **Key locations**:
 
 - Specs: `.kiro/specs/{feature-name}/` (requirements.md, design.md, tasks.md, research.md)
 - Steering (project memory): `.kiro/steering/` - load when generating specs
+- Kiro workflow guide: `.kiro/AGENTS.md` (detailed phase-by-phase reference)
+- Spec status index: `.kiro/PENDING_WORKFLOWS.md`
 - Templates: `.kiro/settings/templates/`
 - Rules: `.kiro/settings/rules/`
 
@@ -36,7 +48,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 1. **Environment**: Windows-based. ALWAYS use `./.venv/Scripts/python.exe`.
 2. **Config**: `cp config/config.example.yaml config/config.yaml` (if missing).
 3. **Start**: `./.venv/Scripts/python.exe -m src.core.cli`
-4. **Onboarding**: Open `@README.md` for fundamenal project description.
+4. **Onboarding**: Open `@README.md` for fundamental project description.
 5. **Docs**: Check `docs/` for architecture deep-dives.
 6. **Logs**: Check `var/logs/` for runtime logs.
 7. **Captures**: Check `var/wire_captures_cbor/` for binary captures of all traffic. Use `scripts/inspect_cbor_capture.py` to inspect them.
@@ -58,8 +70,9 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | Action | Command |
 |--------|---------|
 | Manage Alembic config | `./.venv/Scripts/python.exe scripts/manage_alembic_config.py <alembic_args>` |
-| Test (Fast) | `./.venv/Scripts/python.exe -m pytest` (skips slow/integration) |
-| **Test (Full)** | `./.venv/Scripts/python.exe -m pytest -m "integration or unit"` |
+| Test (Default) | `./.venv/Scripts/python.exe -m pytest` (uses `pyproject.toml` addopts) |
+| Test (Unit) | `./.venv/Scripts/python.exe -m pytest tests/unit` |
+| Test (Integration) | `./.venv/Scripts/python.exe -m pytest tests/integration` |
 | **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff check --fix .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
 | **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |

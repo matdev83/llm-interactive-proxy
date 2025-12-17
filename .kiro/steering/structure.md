@@ -18,6 +18,7 @@ Where most cross-cutting proxy logic lives.
   - `middleware/`: FastAPI/Starlette middleware (exception shaping, etc.)
   - `stages/`: staged initialization (startup ordering, registrations)
 - `src/core/services/`: orchestration services (routing, safety, usage, captures, processing pipelines)
+  - `src/core/services/backend_completion_flow/`: backend-call orchestration (failover/retry/capture/usage as a coordinator + collaborators)
 - `src/core/domain/`: domain models/envelopes (Pydantic models, response envelopes, wire-capture models)
 - `src/core/interfaces/`: `I*` interfaces used for DI boundaries and test seams
 - `src/core/di/`: DI container implementation + registrations
@@ -80,7 +81,9 @@ Default stage order:
 - **Add/modify HTTP endpoints**: `src/core/app/controllers/` (then ensure stage wiring in `src/core/app/stages/controller.py`)
 - **Add a new backend connector**: `src/connectors/` (+ registration via `backend_registry`)
 - **Change routing/failover logic**: services in `src/core/services/` (routing, backends, resilience)
+- **Change backend completion orchestration**: `src/core/services/backend_completion_flow/` (flow ordering + collaborators)
 - **Change request/response shaping**: `src/core/transport/fastapi/` + middleware/services
+- **Change request processing pipeline**: `src/core/services/request_processor_service.py` + internal phase contracts in `src/core/interfaces/request_processor_internal.py` (wiring in `src/core/app/stages/processor.py`)
 - **Add a new config option**: `src/core/config/app_config.py` + schema in `config/schemas/` + CLI surface in `src/core/cli_support/`
 - **Change error shapes/statuses**: `src/core/common/exceptions.py` + `src/core/app/error_handlers.py`
 - **Change capture behavior**: `src/core/services/*wire_capture*` + `var/wire_captures_cbor/`
@@ -96,5 +99,5 @@ Default stage order:
 
 ---
 
-_Updated: 2025-12-14_
+_Updated: 2025-12-17_
 _Document stable structure and change locations; avoid exhaustive file listings_
