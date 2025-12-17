@@ -30,7 +30,6 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 - Specs: `.kiro/specs/{feature-name}/` (requirements.md, design.md, tasks.md, research.md)
 - Steering (project memory): `.kiro/steering/` - load when generating specs
 - Kiro workflow guide: `.kiro/AGENTS.md` (detailed phase-by-phase reference)
-- Spec status index: `.kiro/PENDING_WORKFLOWS.md`
 - Templates: `.kiro/settings/templates/`
 - Rules: `.kiro/settings/rules/`
 
