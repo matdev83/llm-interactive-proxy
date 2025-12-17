@@ -183,7 +183,7 @@ class StreamingTranslatorMixin:
 ```python
 # src/core/domain/translators/registry.py
 
-from typing import Any, Callable
+from typing import Callable
 from src.core.interfaces.translator_protocol import TranslatorProtocol
 
 class TranslatorRegistry:
@@ -332,16 +332,16 @@ class RawTextTranslator(BaseFormatTranslator, StreamingTranslatorMixin):
 ```python
 # src/core/domain/translation_utils/json_utils.py
 
-def _is_json_serializable(value: Any, *, max_depth: int = 100) -> bool:
-    """Check if a value can be JSON-serialized."""
-    ...
+from pydantic import BaseModel
 
-def _sanitize_dict_for_json(data: dict[str, Any], *, max_depth: int = 100) -> dict[str, Any]:
-    """Sanitize a dictionary for JSON serialization."""
-    ...
 
-def _sanitize_list_for_json(data: list[Any], *, max_depth: int = 100) -> list[Any]:
-    """Sanitize a list for JSON serialization."""
+def to_json_safely(model: BaseModel, *, max_depth: int = 100) -> str:
+    """Serialize a typed model into a JSON string suitable for wire formats.
+
+    Cross-layer rule: translator modules exchange typed models; JSON sanitation
+    happens at the serialization boundary, not by passing ad-hoc dict/list
+    payloads between utilities.
+    """
     ...
 ```
 
@@ -349,11 +349,14 @@ def _sanitize_list_for_json(data: list[Any], *, max_depth: int = 100) -> list[An
 ```python
 # src/core/domain/translation_utils/tool_utils.py
 
-def _normalize_tool_arguments(args: Any) -> str:
+def _normalize_tool_arguments(arguments_json: str) -> str:
     """Normalize tool call arguments to a JSON string."""
     ...
 
-def _process_gemini_function_call(function_call: dict[str, Any], part: dict[str, Any] | None = None) -> ToolCall:
+from pydantic import BaseModel
+
+
+def _process_gemini_function_call(function_call: BaseModel, part: BaseModel | None = None) -> ToolCall:
     """Process a Gemini function call into a ToolCall."""
     ...
 ```
@@ -366,7 +369,10 @@ def _detect_image_mime_type(url: str) -> str:
     """Detect MIME type for an image URL or data URI."""
     ...
 
-def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
+from pydantic import BaseModel
+
+
+def _process_gemini_image_part(part: BaseModel) -> BaseModel | None:
     """Convert a multimodal image part to Gemini format."""
     ...
 ```
@@ -375,15 +381,15 @@ def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
 ```python
 # src/core/domain/translation_utils/content_utils.py
 
-def _safe_string(value: Any) -> str:
+def _safe_string(value: object) -> str:
     """Convert any value to a string safely."""
     ...
 
-def normalize_text_content(content: Any) -> str:
+def normalize_text_content(content: object) -> str:
     """Normalize text content from various formats."""
     ...
 
-def _coerce_reasoning_text(value: Any) -> str | None:
+def _coerce_reasoning_text(value: object) -> str | None:
     """Flatten nested reasoning payloads into text."""
     ...
 ```
@@ -392,8 +398,11 @@ def _coerce_reasoning_text(value: Any) -> str | None:
 ```python
 # src/core/domain/translation_utils/usage_utils.py
 
-def _normalize_usage_metadata(usage: dict[str, Any], source_format: str) -> dict[str, Any]:
-    """Normalize usage metadata from different API formats."""
+from pydantic import BaseModel
+
+
+def _normalize_usage_metadata(usage: BaseModel, source_format: str) -> BaseModel:
+    """Normalize usage metadata from different API formats (typed contract)."""
     ...
 ```
 
@@ -415,11 +424,11 @@ class Translation(BaseTranslator):
         return get_global_translator_registry().get(format_name)
     
     @staticmethod
-    def gemini_to_domain_request(request: Any) -> CanonicalChatRequest:
+    def gemini_to_domain_request(request: BaseModel) -> CanonicalChatRequest:
         return Translation._get_translator("gemini").to_domain_request(request)
     
     @staticmethod
-    def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
+    def anthropic_to_domain_response(response: BaseModel) -> CanonicalChatResponse:
         return Translation._get_translator("anthropic").to_domain_response(response)
     
     # ... other static methods delegating to appropriate translators
@@ -445,7 +454,7 @@ The existing data models remain unchanged:
 **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7**
 
 ### Property 2: Shared Utility Output Validity
-*For any* input to shared utility functions (`_sanitize_dict_for_json`, `_sanitize_list_for_json`, `_normalize_tool_arguments`, `_safe_string`), the output SHALL be valid and JSON-serializable.
+*For any* input to shared utility functions (`to_json_safely`, `_normalize_tool_arguments`, `_safe_string`), the output SHALL be valid and JSON-serializable.
 **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
 
 ### Property 3: Backward Compatibility Equivalence

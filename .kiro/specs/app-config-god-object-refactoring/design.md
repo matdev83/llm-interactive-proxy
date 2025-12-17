@@ -298,7 +298,7 @@ The config models currently defined in `src/core/config/app_config.py` are reloc
 - Preferred: `BackendSettings.get_backend(name) -> BackendConfig | None`
 - Compatibility: `BackendConfigProvider` may construct a **non-persistent default** `BackendConfig()` when a backend name is missing, avoiding hidden state mutation while preserving callers that expect a `BackendConfig` result.
 
-Any remaining dynamic behavior (e.g., attribute access) must be documented and isolated so it can be deprecated safely later.
+Remaining dynamic behavior (e.g., attribute access) must be documented and isolated so it can be deprecated safely later.
 
 ## Error Handling
 
