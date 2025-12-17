@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from src.core.common.exceptions import ConfigurationError
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.services.backend_registry import backend_registry
 
@@ -93,7 +94,6 @@ class BackendInstanceFileSource:
         registered_backends = set(backend_registry.get_registered_backends())
 
         discovered: dict[str, dict[str, Any]] = {}
-        file_configured_instances: set[str] = set()
 
         if self._instances_dir.exists():
             for config_file in self._instances_dir.glob("*.yaml"):
@@ -111,40 +111,27 @@ class BackendInstanceFileSource:
                     continue
 
                 instance_name = f"{connector}.{match.group('name')}"
-                file_configured_instances.add(instance_name)
 
-                try:
-                    import yaml
+                file_config = _load_backend_instance_file(
+                    config_file=config_file,
+                    connector=connector,
+                    instance_name=instance_name,
+                )
+                if file_config is None:
+                    continue
 
-                    with config_file.open(encoding="utf-8") as f:
-                        file_config = yaml.safe_load(f) or {}
-                    if not isinstance(file_config, dict):
-                        logger.warning(
-                            "Skipping invalid config file %s: content is not a dict",
-                            config_file.name,
+                discovered[instance_name] = file_config
+
+                if resolution is not None:
+                    for key, value in file_config.items():
+                        resolution.record(
+                            f'backends["{instance_name}"].{key}',
+                            value,
+                            ParameterSource.CONFIG_FILE,
+                            origin=str(config_file),
                         )
-                        continue
 
-                    file_config = dict(file_config)
-                    file_config["connector"] = connector
-                    discovered[instance_name] = file_config
-
-                    if resolution is not None:
-                        for key, value in file_config.items():
-                            resolution.record(
-                                f'backends["{instance_name}"].{key}',
-                                value,
-                                ParameterSource.CONFIG_FILE,
-                                origin=str(config_file),
-                            )
-
-                    logger.info("Loaded backend instance config: %s", instance_name)
-                except Exception as exc:
-                    logger.error(
-                        "Error loading backend instance config %s: %s",
-                        config_file.name,
-                        str(exc),
-                    )
+                logger.info("Loaded backend instance config: %s", instance_name)
 
         self._validate_credentials_uniqueness(discovered)
         self._ensure_file_based_defaults(
@@ -184,11 +171,14 @@ class BackendInstanceFileSource:
             connector_paths.setdefault(connector, {})
             if normalized_path in connector_paths[connector]:
                 prev_instance = connector_paths[connector][normalized_path]
-                msg = (
-                    f"Duplicate credentials path '{creds_path}' detected for connector "
-                    f"'{connector}' in instances '{prev_instance}' and '{instance_name}'"
+                raise ConfigurationError(
+                    message="Duplicate credentials path detected for backend instances",
+                    details={
+                        "connector": connector,
+                        "path": str(creds_path),
+                        "instances": [prev_instance, instance_name],
+                    },
                 )
-                raise ValueError(msg)
 
             connector_paths[connector][normalized_path] = instance_name
 
@@ -226,3 +216,36 @@ class BackendInstanceFileSource:
                 instance_name,
                 connector,
             )
+
+
+def _load_backend_instance_file(
+    *,
+    config_file: Path,
+    connector: str,
+    instance_name: str,
+) -> dict[str, Any] | None:
+    try:
+        import yaml
+
+        with config_file.open(encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+    except Exception as exc:
+        raise ConfigurationError(
+            message="Failed to load backend instance configuration file",
+            details={
+                "path": str(config_file),
+                "instance": instance_name,
+                "connector": connector,
+            },
+        ) from exc
+
+    if not isinstance(loaded, dict):
+        logger.warning(
+            "Skipping invalid backend instance config file %s: top-level is not a mapping",
+            config_file.name,
+        )
+        return None
+
+    file_config: dict[str, Any] = dict(loaded)
+    file_config["connector"] = connector
+    return file_config

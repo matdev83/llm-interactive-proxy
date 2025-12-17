@@ -1,14 +1,14 @@
 # Implementation Plan
 
-- [ ] 1. Establish the refactor-safe configuration facade
-- [ ] 1.1 Preserve public configuration entry points and compatibility behavior
+- [x] 1. Establish the refactor-safe configuration facade
+- [x] 1.1 Preserve public configuration entry points and compatibility behavior
   - Keep the existing imports and public surface stable for callers that import configuration types and loader functions.
   - Ensure the public loader entry points accept injected environment mappings and a resolution tracker for tests.
   - Ensure missing-config-file behavior remains non-fatal with an equivalent warning signal.
   - Ensure unsupported config file formats fail with clear, testable errors.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.5, 9.4_
 
-- [ ] 1.2 (P) Extract configuration domain models into cohesive, size-limited modules
+- [x] 1.2 (P) Extract configuration domain models into cohesive, size-limited modules
   - Split configuration models into domain-focused groupings (auth, logging, session, backends, routing, misc) while keeping the top-level config shape unchanged.
   - Ensure models remain pure (no filesystem or environment reads) and remain serializable in a stable way.
   - Maintain wide import compatibility by re-exporting moved types through the facade.
@@ -21,48 +21,48 @@
   - Ensure new configuration domains can be added by extending domain models and registering new source/validator components without modifying unrelated domains.
   - _Requirements: 2.2, 2.3, 2.5, 9.1, 10.4, 10.5_
 
-- [ ] 2. Implement the core configuration pipeline (sources, merge, loader)
-- [ ] 2.1 Implement deterministic merge behavior and precedence handling
+- [x] 2. Implement the core configuration pipeline (sources, merge, loader)
+- [x] 2.1 Implement deterministic merge behavior and precedence handling
   - Implement a merge component that composes layers deterministically and supports nested structures.
   - Ensure the effective resolution follows CLI > ENV > YAML > defaults when assembling the final configuration.
   - _Requirements: 3.1, 2.3, 9.3_
 
-- [ ] 2.2 (P) Implement YAML configuration loading with schema and semantic validation
+- [x] 2.2 (P) Implement YAML configuration loading with schema and semantic validation
   - Load YAML safely and validate against the existing schema before applying values.
   - Run semantic validation with actionable error details when invalid configurations are detected.
   - Ensure schema and semantic validation execute via dedicated validation components with explicit inputs/outputs.
   - _Requirements: 1.4, 2.4, 4.1, 4.2, 4.3, 4.4, 8.2_
 
-- [ ] 2.3 (P) Implement environment-to-configuration mapping as a dedicated source
+- [x] 2.3 (P) Implement environment-to-configuration mapping as a dedicated source
   - Map environment variables to the configuration shape without reading process globals when an environment mapping is provided.
   - Record environment origins into ParameterResolution for all values sourced from environment variables.
   - _Requirements: 1.2, 3.4, 9.4_
 
-- [ ] 2.4 Implement the configuration loader/orchestrator as the composition root
+- [x] 2.4 Implement the configuration loader/orchestrator as the composition root
   - Orchestrate defaults, YAML, environment, and backend instance discovery sources.
   - Apply merge ordering and return a validated `AppConfig` with deterministic output for a given input set.
   - _Requirements: 1.1, 2.3, 3.1, 8.1, 9.3_
 
-- [ ] 2.5 Implement error handling and non-secret logging for configuration failures
+- [x] 2.5 Implement error handling and non-secret logging for configuration failures
   - Raise structured, testable configuration exceptions on parse/validation failures.
   - Ensure error details include actionable context (path, key, env var) without leaking secrets.
   - _Requirements: 8.1, 8.2, 8.4_
 
-- [ ] 3. Refactor backend configuration and instance discovery into explicit components
-- [ ] 3.1 Implement backend instance discovery as a dedicated source
+- [x] 3. Refactor backend configuration and instance discovery into explicit components
+- [x] 3.1 Implement backend instance discovery as a dedicated source
   - Discover backend instances from environment variables without overwriting instances already provided by the main configuration.
   - Load per-instance configuration files and merge them using the documented deterministic rule set.
   - Ignore unknown connector references safely with a warning instead of crashing.
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 3.2 Stabilize backend configuration lookup without implicit hidden state
+- [x] 3.2 Stabilize backend configuration lookup without implicit hidden state
   - Provide a canonical typed lookup for backend configs by backend type and instance name.
   - Preserve backward-compatible access paths via an adapter when legacy callers rely on attribute-style access.
   - Avoid silently persisting implicit defaults or mutating hidden state when lookups miss.
   - Ensure lookup behavior is unit-testable without importing connector modules or mutating global registries.
   - _Requirements: 6.1, 6.2, 6.3, 6.5, 9.5_
 
-- [ ] 3.3 Ensure dynamic backend instances remain representable in serialization
+- [x] 3.3 Ensure dynamic backend instances remain representable in serialization
   - Ensure serialized configuration output includes both static backend sections and discovered instances.
   - Add targeted tests to prevent regressions in serialized shape for backend settings.
   - _Requirements: 1.5, 6.4_

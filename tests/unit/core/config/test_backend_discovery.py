@@ -2,6 +2,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+from src.core.common.exceptions import ConfigurationError
 from src.core.config.parameter_resolution import ParameterResolution
 from src.core.config.sources.backend_instances import (
     BackendInstanceEnvSource,
@@ -129,5 +130,5 @@ class TestBackendDiscovery:
         )
 
         source = BackendInstanceFileSource(instances_dir=config_dir)
-        with pytest.raises(ValueError, match="Duplicate credentials path"):
+        with pytest.raises(ConfigurationError, match="Duplicate credentials path"):
             source.load(existing_instance_names=set(), resolution=ParameterResolution())
