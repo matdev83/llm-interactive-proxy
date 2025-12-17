@@ -66,3 +66,4 @@ class TestCompletionSessionResolver:
         assert session is None
         assert sid is None
         session_service.get_session.assert_not_called()
+

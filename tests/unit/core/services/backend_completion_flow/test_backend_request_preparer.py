@@ -122,3 +122,4 @@ class TestBackendRequestPreparer:
         assert kwargs["session_id"] == "sess_1"
         assert kwargs["project"] == "proj_1"
         assert kwargs["project_dir"] == "/tmp"
+

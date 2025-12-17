@@ -184,3 +184,4 @@ class TestUsageAccountingOrchestrator:
         assert result == response
         resilience_coordinator.record_success.assert_called_with("openai", "gpt-4")
         planning_phase_manager.update_counters.assert_called_with("sess_1", response)
+

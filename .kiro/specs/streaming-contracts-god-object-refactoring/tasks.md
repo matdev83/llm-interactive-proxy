@@ -1,5 +1,12 @@
 # Implementation Plan
 
+## Selected Strategy
+
+This spec is executed using **Option B (Create New Components)**:
+- Create new layered modules (domain/ports/transport/services) and move responsibilities out of `src/core/ports/streaming_contracts.py`.
+- Convert `src/core/ports/streaming_contracts.py` into a small **compatibility facade** that only re-exports the public surface.
+- Preserve **byte-level SSE semantics** where tests require exact output (`data: [DONE]\n\n`, stop-chunk-with-usage framing, and “no duplicate [DONE]” behavior). See `.kiro/specs/streaming-contracts-god-object-refactoring/research.md`.
+
 ## Decomposition and Compatibility
 
 - [ ] 1. Baseline characterization and dependency map (P)

@@ -64,3 +64,4 @@ class CompletionSessionResolver(ICompletionSessionResolver):
                 session = None
 
         return session, session_id_for_backend
+
