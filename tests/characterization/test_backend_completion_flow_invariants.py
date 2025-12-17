@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.common.exceptions import AuthenticationError, BackendError
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
@@ -33,10 +33,6 @@ class OrchestratorHarness:
 
 @pytest.fixture
 def harness() -> OrchestratorHarness:
-    backend_lifecycle_manager = Mock()
-    backend_lifecycle_manager.get_disabled_backends.return_value = {}
-    backend_lifecycle_manager.get_active_backends.return_value = {}
-
     availability_checker = AsyncMock()
 
     request_preparer = AsyncMock()
@@ -55,37 +51,19 @@ def harness() -> OrchestratorHarness:
 
     usage_accounting = AsyncMock()
     exception_normalizer = Mock()
+    stream_formatting_service = AsyncMock()
 
     service = BackendCompletionFlow(
-        backend_model_resolver=AsyncMock(),
-        stream_session_id_resolver=AsyncMock(),
-        failover_planner=AsyncMock(),
-        session_service=AsyncMock(),
-        backend_lifecycle_manager=backend_lifecycle_manager,
-        backend_config_service=AsyncMock(),
-        reasoning_config_applicator=Mock(),
-        uri_parameter_applicator=Mock(),
-        stream_formatting_service=AsyncMock(),
-        usage_tracking_wrapper=AsyncMock(),
-        exception_normalizer=exception_normalizer,
-        planning_phase_manager=AsyncMock(),
-        backend_factory=AsyncMock(),
-        config=Mock(),
-        app_state=Mock(),
-        failover_coordinator=AsyncMock(),
         availability_checker=availability_checker,
-        request_preparer_collaborator=request_preparer,
+        request_preparer=request_preparer,
         session_resolver=session_resolver,
+        backend_invoker=backend_invoker,
         failover_executor=failover_executor,
         wire_capture_orchestrator=wire_capture_orchestrator,
         usage_accounting_orchestrator=usage_accounting,
-        backend_invoker=backend_invoker,
-        wire_capture=None,
-        usage_tracking_service=None,
+        exception_normalizer=exception_normalizer,
+        stream_formatting_service=stream_formatting_service,
         resilience_coordinator=None,
-        failure_handling_strategy=None,
-        routing_service=None,
-        failover_routes={},
     )
 
     return OrchestratorHarness(
@@ -106,7 +84,10 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
     """Verify that foreign exceptions are normalized to domain errors."""
 
     # Setup
-    request = ChatRequest(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+    )
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock preparer to return success
@@ -149,7 +130,9 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
     async def side_effect_handle_backend_error(*args, **kwargs):
         pass  # Just pass
 
-    harness.usage_accounting.handle_backend_error.side_effect = side_effect_handle_backend_error
+    harness.usage_accounting.handle_backend_error.side_effect = (
+        side_effect_handle_backend_error
+    )
 
     # Mock failover manager to raise the error
     async def raise_domain_error(*args, **kwargs):
@@ -159,10 +142,14 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
 
     # Execute
     with pytest.raises(BackendError) as excinfo:
-        await harness.service.call_completion(request, allow_failover=True, context=context)
+        await harness.service.call_completion(
+            request, allow_failover=True, context=context
+        )
 
     # Verify normalization happened with the CORRECT error
-    harness.exception_normalizer.normalize.assert_called_with(transport_error, "backend_a")
+    harness.exception_normalizer.normalize.assert_called_with(
+        transport_error, "backend_a"
+    )
     assert excinfo.value == domain_error
 
 
@@ -170,7 +157,10 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
 async def test_auth_failure_invalidates_backend(harness: OrchestratorHarness) -> None:
     """Verify authentication failure triggers backend invalidation."""
 
-    request = ChatRequest(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+    )
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
@@ -209,7 +199,9 @@ async def test_auth_failure_invalidates_backend(harness: OrchestratorHarness) ->
 
     # Execute
     with pytest.raises(AuthenticationError):
-        await harness.service.call_completion(request, allow_failover=True, context=context)
+        await harness.service.call_completion(
+            request, allow_failover=True, context=context
+        )
 
     # Verify
     harness.usage_accounting.handle_auth_failure.assert_called_once()
@@ -223,7 +215,10 @@ async def test_auth_failure_invalidates_backend(harness: OrchestratorHarness) ->
 async def test_captures_inbound_error_payload(harness: OrchestratorHarness) -> None:
     """Verify wire capture is invoked for errors."""
 
-    request = ChatRequest(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+    )
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
@@ -265,7 +260,9 @@ async def test_captures_inbound_error_payload(harness: OrchestratorHarness) -> N
 
     # Execute
     with pytest.raises(BackendError):
-        await harness.service.call_completion(request, allow_failover=True, context=context)
+        await harness.service.call_completion(
+            request, allow_failover=True, context=context
+        )
 
     # Verify response handler called to handle error
     harness.usage_accounting.handle_backend_error.assert_called_once()
@@ -278,7 +275,9 @@ async def test_records_usage_for_streaming(harness: OrchestratorHarness) -> None
     """Verify usage tracking wrapper is applied for streaming responses."""
 
     request = ChatRequest(
-        messages=[{"role": "user", "content": "test"}], model="gpt-4", stream=True
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+        stream=True,
     )
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
@@ -328,7 +327,9 @@ async def test_records_usage_for_non_streaming(harness: OrchestratorHarness) -> 
     """Verify usage recording for non-streaming responses."""
 
     request = ChatRequest(
-        messages=[{"role": "user", "content": "test"}], model="gpt-4", stream=False
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+        stream=False,
     )
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 

@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import time
 
+from fastapi import HTTPException
 from src.core.common.exceptions import (
     BackendError,
     InvalidRequestError,
     RateLimitExceededError,
 )
 from src.core.services.exception_normalizer import ExceptionNormalizer
-from starlette.exceptions import HTTPException
 
 
 class TestExceptionNormalizerBasics:
@@ -234,6 +234,20 @@ class TestHTTP4xxTranslation:
 
         assert isinstance(result, InvalidRequestError)
         assert "Invalid parameter" in result.message
+
+    def test_http_4xx_sanitizes_nonserializable_detail(self) -> None:
+        """4xx errors should sanitize non-JSON-serializable detail payloads."""
+
+        class _NonSerializableDetail:
+            pass
+
+        normalizer = ExceptionNormalizer()
+        exc = HTTPException(status_code=400, detail=_NonSerializableDetail())
+
+        result = normalizer.normalize(exc, "openai")
+
+        assert isinstance(result, InvalidRequestError)
+        assert isinstance(result.details.get("detail"), str)
 
 
 class TestHTTP5xxTranslation:

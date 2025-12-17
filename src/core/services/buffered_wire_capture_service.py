@@ -329,9 +329,12 @@ class BufferedWireCapture(IWireCapture):
 
         # Calculate and cache the result
         if isinstance(payload, dict | list):
-            content_length = len(
-                json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            )
+            try:
+                content_length = len(
+                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                )
+            except (TypeError, ValueError):
+                content_length = len(str(payload).encode("utf-8"))
         elif isinstance(payload, str):
             content_length = len(payload.encode("utf-8"))
         elif isinstance(payload, bytes):

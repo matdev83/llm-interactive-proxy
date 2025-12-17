@@ -470,7 +470,10 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 call_completion_callback=call_completion_callback,
                 context=context,
             )
-        if failure_decision == FailureDecision.FAILOVER_IMMEDIATE and next_backend is not None:
+        if (
+            failure_decision == FailureDecision.FAILOVER_IMMEDIATE
+            and next_backend is not None
+        ):
             return await self.execute_failover(
                 request=request,
                 next_backend=next_backend,

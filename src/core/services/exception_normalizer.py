@@ -118,9 +118,18 @@ class ExceptionNormalizer(IExceptionNormalizer):
             http_message = str(detail_payload)
 
         http_message = http_message or "Backend request failed"
+        serialized_http_detail: Any
+        if isinstance(
+            detail_payload,
+            dict | list | tuple | str | int | float | bool | type(None),
+        ):
+            serialized_http_detail = detail_payload
+        else:
+            serialized_http_detail = str(detail_payload)
+
         http_details: dict[str, Any] = {
             "backend": backend_type,
-            "detail": detail_payload,
+            "detail": serialized_http_detail,
             "status_code": status_code,
         }
 

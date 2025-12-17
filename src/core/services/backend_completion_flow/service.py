@@ -16,7 +16,6 @@ from src.core.common.exceptions import (
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendAvailabilityChecker,
     IBackendInvoker,
@@ -29,40 +28,9 @@ from src.core.interfaces.backend_completion_collaborators import (
 from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
 )
-from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
-from src.core.interfaces.backend_factory_interface import IBackendFactory
-from src.core.interfaces.backend_lifecycle_manager_interface import (
-    IBackendLifecycleManager,
-)
-from src.core.interfaces.backend_model_resolver_interface import (
-    IBackendModelResolver,
-)
-from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
-from src.core.interfaces.failover_interface import (
-    IFailoverCoordinator,
-)
-from src.core.interfaces.failover_planner_interface import IFailoverPlanner
-from src.core.interfaces.failure_strategy_interface import (
-    IFailureHandlingStrategy,
-)
-from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
-from src.core.interfaces.reasoning_config_applicator_interface import (
-    IReasoningConfigApplicator,
-)
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
-from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
-from src.core.interfaces.stream_session_id_resolver_interface import (
-    IStreamSessionIdResolver,
-)
-from src.core.interfaces.uri_parameter_applicator_interface import (
-    IURIParameterApplicator,
-)
-from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
-from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
-from src.core.interfaces.wire_capture_interface import IWireCapture
-from src.core.services.backend_routing_service import BackendRoutingService
 
 logger = logging.getLogger(__name__)
 
@@ -90,54 +58,66 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
     def __init__(
         self,
-        backend_model_resolver: IBackendModelResolver,
-        stream_session_id_resolver: IStreamSessionIdResolver,
-        failover_planner: IFailoverPlanner,
-        session_service: ISessionService,
-        backend_lifecycle_manager: IBackendLifecycleManager,
-        backend_config_service: IBackendConfigProvider,
-        reasoning_config_applicator: IReasoningConfigApplicator,
-        uri_parameter_applicator: IURIParameterApplicator,
-        stream_formatting_service: IStreamFormattingService,
-        usage_tracking_wrapper: IUsageTrackingWrapper,
-        exception_normalizer: IExceptionNormalizer,
-        planning_phase_manager: IPlanningPhaseManager,
-        backend_factory: IBackendFactory,
-        config: IConfig,
-        app_state: IApplicationState,
-        failover_coordinator: IFailoverCoordinator,
-        # Required collaborators (formerly optional/injected)
         availability_checker: IBackendAvailabilityChecker,
-        request_preparer_collaborator: IBackendRequestPreparer,
+        request_preparer: IBackendRequestPreparer,
         session_resolver: ICompletionSessionResolver,
+        backend_invoker: IBackendInvoker,
         failover_executor: IFailureRecoveryExecutor,
         wire_capture_orchestrator: IWireCaptureOrchestrator,
         usage_accounting_orchestrator: IUsageAccountingOrchestrator,
-        backend_invoker: IBackendInvoker,
-        # Legacy optional args (deprecated, kept for signature compatibility)
-        # These are passed from DI but not used in the implementation.
-        # TODO: Remove in next major version after updating all call sites.
-        wire_capture: IWireCapture | None = None,
-        usage_tracking_service: IUsageTrackingService | None = None,
+        exception_normalizer: IExceptionNormalizer,
+        stream_formatting_service: IStreamFormattingService,
         resilience_coordinator: IResilienceCoordinator | None = None,
-        failure_handling_strategy: IFailureHandlingStrategy | None = None,
-        routing_service: BackendRoutingService | None = None,
-        failover_routes: dict[str, dict[str, Any]] | None = None,
-    ):
+    ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
-        self._request_preparer = request_preparer_collaborator
+        self._request_preparer = request_preparer
         self._session_resolver = session_resolver
+        self._backend_invoker = backend_invoker
         self._failover_executor = failover_executor
         self._wire_capture_orchestrator = wire_capture_orchestrator
         self._usage_accounting = usage_accounting_orchestrator
-        self._backend_invoker = backend_invoker
-        self._backend_lifecycle_manager = backend_lifecycle_manager
 
         # Store dependencies needed for local logic
         self._resilience = resilience_coordinator
         self._exception_normalizer = exception_normalizer
         self._stream_formatting_service = stream_formatting_service
+
+    def _normalize_backend_exception(
+        self, exc: Exception, backend_type: str
+    ) -> Exception:
+        candidate = self._exception_normalizer.normalize(exc, backend_type)
+
+        if isinstance(candidate, Exception) and isinstance(candidate, LLMProxyError):
+            return candidate
+
+        if (
+            isinstance(candidate, Exception)
+            and isinstance(getattr(candidate, "status_code", None), int)
+            and not isinstance(candidate, LLMProxyError)
+        ):
+            # Fallback: ensure framework/transport exceptions (e.g. HTTPException) are
+            # translated into domain errors even if an injected normalizer is mocked or
+            # otherwise fails to translate them.
+            from src.core.services.exception_normalizer import ExceptionNormalizer
+
+            fallback_candidate = ExceptionNormalizer().normalize(
+                candidate, backend_type
+            )
+            if isinstance(fallback_candidate, Exception) and isinstance(
+                fallback_candidate, LLMProxyError
+            ):
+                return fallback_candidate
+
+        if isinstance(candidate, Exception):
+            return candidate
+
+        normalized = BackendError(
+            message=f"Backend call failed: {exc!s}",
+            backend_name=backend_type,
+        )
+        normalized.__cause__ = exc
+        return normalized
 
     async def call_completion(
         self,
@@ -334,7 +314,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 raise
             except Exception as call_exc:
                 # Normalize the exception immediately for consistent handling
-                normalized_exc = self._exception_normalizer.normalize(
+                normalized_exc = self._normalize_backend_exception(
                     call_exc, backend_type
                 )
                 # Safety check: ensure normalized_exc is actually an Exception
@@ -361,13 +341,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         backend_type,
                         session_id_for_backend,
                     )
-                    # Ensure we raise an LLMProxyError to avoid falling through to outer handler
-                    # If normalized_exc is not an LLMProxyError (e.g., HTTPException from mock),
-                    # normalize it again to convert to domain exception
-                    if not isinstance(normalized_exc, LLMProxyError):
-                        normalized_exc = self._exception_normalizer.normalize(
-                            normalized_exc, backend_type
-                        )
                     raise normalized_exc
 
                 # Handle backend error (wire capture + usage/resilience updates)
@@ -449,7 +422,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         except Exception as exc:
             # Normalize any remaining "foreign" exception into a domain error to keep
             # transport/framework types out of the service boundary.
-            normalized_exc = self._exception_normalizer.normalize(exc, backend_type)
+            normalized_exc = self._normalize_backend_exception(exc, backend_type)
             if isinstance(normalized_exc, LLMProxyError):
                 raise normalized_exc from exc
 
