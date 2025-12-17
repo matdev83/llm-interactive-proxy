@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from typing import cast
+from typing import Literal, cast, overload
 
 from fastapi import FastAPI
 
@@ -71,6 +71,24 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     validator.validate(parsed_args)
 
     return parsed_args
+
+
+@overload
+def apply_cli_args(
+    args: argparse.Namespace,
+    *,
+    return_resolution: Literal[False] = False,
+    resolution: ParameterResolution | None = None,
+) -> AppConfig: ...
+
+
+@overload
+def apply_cli_args(
+    args: argparse.Namespace,
+    *,
+    return_resolution: Literal[True],
+    resolution: ParameterResolution | None = None,
+) -> tuple[AppConfig, ParameterResolution]: ...
 
 
 def apply_cli_args(

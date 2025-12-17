@@ -2,14 +2,20 @@ import os
 from unittest.mock import patch
 
 import pytest
-from src.core.config.app_config import BackendSettings
+from src.core.config.parameter_resolution import ParameterResolution
+from src.core.config.sources.backend_instances import (
+    BackendInstanceEnvSource,
+    BackendInstanceFileSource,
+)
 
 
 class TestBackendDiscovery:
 
     @pytest.fixture
     def mock_backend_registry(self):
-        with patch("src.core.config.app_config.backend_registry") as mock:
+        with patch(
+            "src.core.config.sources.backend_instances.backend_registry"
+        ) as mock:
             mock.get_registered_backends.return_value = ["openai", "gemini-oauth-free"]
             yield mock
 
@@ -68,25 +74,20 @@ class TestBackendDiscovery:
         }
 
         with patch.dict(os.environ, env_vars):
-            settings = BackendSettings()
+            source = BackendInstanceEnvSource()
+            resolution = ParameterResolution()
+            result = source.load(
+                os.environ, existing_instance_names=set(), resolution=resolution
+            )
 
-            # Check if instances were created
-            assert hasattr(settings, "openai.1")
-            assert hasattr(settings, "openai.2")
-            assert settings.get("openai.1").api_key == val1
-            assert settings.get("openai.2").api_key == val2
+            backends = result.get("backends", {})
+            assert isinstance(backends, dict)
+            assert "openai.1" in backends
+            assert "openai.2" in backends
+            assert backends["openai.1"]["api_key"] == val1
+            assert backends["openai.2"]["api_key"] == val2
 
-            # Ensure file-based connector didn't pick up env var
-            # gemini-oauth-free is not in env_prefixes dict in the implementation
-            # The fallback WILL create a default .1 instance, but it should NOT
-            # have an api_key populated from the env var
-            cfg_fallback = settings.__dict__.get("gemini-oauth-free.1")
-            if cfg_fallback is not None:
-                # Fallback instance exists, but api_key should be empty (not from env var)
-                # api_key is now a string or None, not a list
-                assert (
-                    cfg_fallback.api_key is None
-                ), "File-based connector should not pick up api_key from env var"
+            assert "gemini-oauth-free.1" not in backends
 
     def test_strategy_b_file_discovery(self, mock_backend_registry, tmp_path):
         """Test auto-discovery of file-based backends via config files."""
@@ -101,16 +102,18 @@ class TestBackendDiscovery:
             "credentials_path: /tmp/test_creds_inst2.json"
         )
 
-        with patch("src.core.config.app_config.BACKEND_INSTANCES_DIR", config_dir):
-            settings = BackendSettings()
+        source = BackendInstanceFileSource(instances_dir=config_dir)
+        resolution = ParameterResolution()
+        result = source.load(existing_instance_names=set(), resolution=resolution)
 
-            # Use __dict__ to verify existence without triggering dynamic creation
-            assert "gemini-oauth-free.user1" in settings.__dict__
-            assert "gemini-oauth-free.user2" in settings.__dict__
-
-            cfg1 = settings.get("gemini-oauth-free.user1")
-            # credentials_path is a first class field now
-            assert cfg1.credentials_path == "/tmp/test_creds_inst1.json"
+        backends = result.get("backends", {})
+        assert isinstance(backends, dict)
+        assert "gemini-oauth-free.user1" in backends
+        assert "gemini-oauth-free.user2" in backends
+        assert (
+            backends["gemini-oauth-free.user1"]["credentials_path"]
+            == "/tmp/test_creds_inst1.json"
+        )
 
     def test_credential_uniqueness_check(self, mock_backend_registry, tmp_path):
         """Test that duplicate credential paths raise an error."""
@@ -125,10 +128,6 @@ class TestBackendDiscovery:
             "credentials_path: /tmp/test_shared_creds.json"
         )
 
-        with (
-            patch("src.core.config.app_config.BACKEND_INSTANCES_DIR", config_dir),
-            pytest.raises(ValueError, match="Duplicate credentials path"),
-        ):
-            # Should raise error or warn. Spec says "Enforce uniqueness... Raise error/warn"
-            # The implementation raises ValueError
-            BackendSettings()
+        source = BackendInstanceFileSource(instances_dir=config_dir)
+        with pytest.raises(ValueError, match="Duplicate credentials path"):
+            source.load(existing_instance_names=set(), resolution=ParameterResolution())

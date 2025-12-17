@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any
 
 from src.core.common.logging_utils import redact
+from src.core.config.dict_utils import flatten_dict
 
 
 class ParameterSource(Enum):
@@ -141,18 +142,9 @@ def _flatten_config(config: Any) -> dict[str, Any]:
     else:
         raise TypeError("Unsupported configuration object type")
 
-    flattened: dict[str, Any] = {}
-
-    def _walk(value: Any, prefix: str) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                new_prefix = f"{prefix}.{key}" if prefix else key
-                _walk(item, new_prefix)
-        else:
-            flattened[prefix] = value
-
-    _walk(data, "")
-    return flattened
+    if not isinstance(data, dict):
+        raise TypeError("Unsupported configuration object type")
+    return flatten_dict(data)
 
 
 SECRET_FIELD_SUFFIXES = {

@@ -638,6 +638,7 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
     assert result.content is not None
     chunk = await result.content.__anext__()
     assert isinstance(chunk, ProcessedResponse)
+    assert chunk.content is not None
     assert chunk.content["choices"][0]["delta"]["content"] == "hello"
     assert headers_seen == [
         "Bearer token_old",
@@ -652,6 +653,7 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
     # Failure chunk must not be forwarded to the caller
     with pytest.raises(StopAsyncIteration):
         await result.content.__anext__()
+    assert result.headers is not None
     assert dict(result.headers) == {"Authorization": "Bearer token_new_2"}
 
 
@@ -820,9 +822,8 @@ async def test_chat_completions_routes_to_codex_api(
     codex_mock = mocker.patch.object(
         connector, "_call_codex_responses_api", AsyncMock(return_value="codex-result")
     )
-    super_mock = mocker.patch(
-        "src.connectors.openai.OpenAIConnector.chat_completions", AsyncMock()
-    )
+    super_cls = type(connector).__mro__[1]
+    super_mock = mocker.patch.object(super_cls, "chat_completions", AsyncMock())
 
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello Codex!")],
@@ -857,9 +858,9 @@ async def test_chat_completions_non_codex_falls_back_to_parent(
     codex_mock = mocker.patch.object(
         connector, "_call_codex_responses_api", AsyncMock(return_value="codex-result")
     )
-    super_mock = mocker.patch(
-        "src.connectors.openai.OpenAIConnector.chat_completions",
-        AsyncMock(return_value="openai-result"),
+    super_cls = type(connector).__mro__[1]
+    super_mock = mocker.patch.object(
+        super_cls, "chat_completions", AsyncMock(return_value="openai-result")
     )
 
     chat_request = ChatRequest(
@@ -938,8 +939,8 @@ async def test_codex_retries_after_token_refresh(
         stream=False,
     )
 
-    connector._build_codex_payload = mocker.Mock(return_value=({"input": []}, "cid-1"))  # type: ignore[attr-defined]
-    connector._build_codex_headers = mocker.Mock(return_value={"Authorization": "Bearer test"})  # type: ignore[attr-defined]
+    mocker.patch.object(connector, "_build_codex_payload", return_value=({"input": []}, "cid-1"))  # type: ignore[arg-type]
+    mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
     first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
     second_response = ResponseEnvelope(content={"ok": True})
     mocker.patch.object(
@@ -1068,8 +1069,8 @@ async def test_codex_refresh_failure_propagates(
         stream=False,
     )
 
-    connector._build_codex_payload = mocker.Mock(return_value=({"input": []}, "cid-1"))  # type: ignore[attr-defined]
-    connector._build_codex_headers = mocker.Mock(return_value={"Authorization": "Bearer test"})  # type: ignore[attr-defined]
+    mocker.patch.object(connector, "_build_codex_payload", return_value=({"input": []}, "cid-1"))  # type: ignore[arg-type]
+    mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
     first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
     mocker.patch.object(
         connector,
