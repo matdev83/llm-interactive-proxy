@@ -4,7 +4,7 @@
 
 The current implementation already provides extensive tool-call detection, deduplication, and swallow/steering behavior, but it is concentrated in `src/core/services/tool_call_reactor_middleware.py` (~1663 LOC) with high complexity and significant duplication between `ToolCallReactorFeature` and the deprecated `ToolCallReactorMiddleware`. The primary gap to the requirements is architectural: the logic is not decomposed into small, DI-friendly components, and it relies on global mutable state (`StreamingContextRegistry`) as a fallback mechanism.
 
-Secondary gaps are operational/quality gates: the repository includes `radon`/`xenon` as dev dependencies, but there is no clear configured complexity threshold for “CC < 50” enforcement, and the refactor must preserve several implicit integration contracts (metadata keys, streaming buffer semantics, retry-on-swallow behavior).
+Secondary gaps are operational/quality gates: the repo now has a `radon`-based validator (`scripts/analyze_complexity.py`) that enforces `<600 LOC` and `<50 CC` for the completed streaming-contracts refactor scope, but this tool-call reactor refactor does not yet have an equivalent scope definition and CI-friendly gate. The refactor must also preserve several implicit integration contracts (metadata keys, streaming buffer semantics, retry-on-swallow behavior).
 
 **Effort**: L (1–2 weeks)  
 **Risk**: Medium–High (behavior preservation across streaming + non-streaming + VTC paths)
@@ -76,7 +76,7 @@ To satisfy the architectural and quality gate requirements, the refactor must in
 - **God object + duplication**: `ToolCallReactorFeature` and legacy `ToolCallReactorMiddleware` duplicate large sections of logic in one file.
 - **Global fallback state**: both tool-call reactor and tool-call loop detection use `get_global_streaming_context_registry()` as a fallback; DI also sets this global. This conflicts with the requirement to be DI-constructible without global mutable state.
 - **Implicit integration contracts**: swallow behavior relies on specific metadata keys that are consumed elsewhere (`backend_request_manager_service.py`, streaming processors, leak protector). These contracts are not formalized as interfaces/types.
-- **Quality gates enforcement ambiguity**: `radon`/`xenon` exist as optional dev deps, but there is no clear repository-wide configured threshold or CI gate for “CC < 50”.
+- **Quality gates scope gap**: `scripts/analyze_complexity.py` already enforces `<600 LOC` and `<50` max function CC for the streaming-contracts refactor scope, but the tool-call reactor refactor needs a comparable “scope definition + validation mode” to make the gates measurable and CI-friendly.
 
 **Secondary gaps (high value to address during refactor):**
 - Duplicate tool-call extraction logic also exists in `src/core/services/tool_call_loop_middleware.py` (potential DRY opportunity, but sharing must respect layering boundaries).
@@ -84,7 +84,7 @@ To satisfy the architectural and quality gate requirements, the refactor must in
 
 ### Research Needed (Design Phase)
 
-1. **Complexity gate definition**: confirm how CC is measured in this repo (ruff C901 vs radon/xenon) and where thresholds should live (CI, pre-commit, documentation).
+1. **Complexity/LOC gate alignment**: extend the existing `scripts/analyze_complexity.py` pattern with a tool-call reactor refactor scope and validation mode so “<600 LOC” and “<50 CC” are enforced consistently with other completed refactors.
 2. **Swallow/steering semantics**: confirm whether `replacement_response` is intended to be client-visible content, backend-only steering for retry prompts, or both (current code uses both patterns).
 3. **VTC parity expectations**: decide whether VTC path must share the same argument parsing + fixer chain as the main feature.
 4. **Metadata contract formalization**: identify the minimal “public” metadata keys that must remain stable vs those that can become internal.
@@ -102,7 +102,7 @@ Legend: **Present** / **Partial** / **Missing**
 | Req 5: Safe replacement | Partial | `_create_replacement_response`, `backend_request_manager_service.py`, leak protector | Replacement metadata + `_steering_replacement` are integrated, but “backend-only steering vs client-visible content” remains ambiguous. |
 | Req 6: Resilience | Present | Broad try/except + mark processed | Fail-open behavior exists; ensure refactor doesn’t narrow exception handling unexpectedly. |
 | Req 7: Layering/DIP | Missing | DI exists for reactor + lifecycle + fixer | Most collaborators are private methods; global fallback registry conflicts with DI-only construction/testing goal. |
-| Req 8: LOC/CC gates | Missing | `radon`/`xenon` in optional deps | Current hotspot violates limits; repository does not clearly encode the target thresholds. |
+| Req 8: LOC/CC gates | Partial | `scripts/analyze_complexity.py` validation pattern (streaming scope) | Tool-call scope and validation mode still need to be added; current hotspot violates limits. |
 | Req 9: Testability | Partial | Unit/integration/regression tests exist | Coverage exists but is tightly coupled to current structure; refactor will require reshaping tests around new components. |
 
 ## 4. Implementation Approach Options
@@ -154,4 +154,3 @@ Legend: **Present** / **Partial** / **Missing**
 - Decide the compatibility strategy for `ToolCallReactorMiddleware` (thin delegate vs distinct behavior).
 - Decide whether VTC tool-call reactor invocation must share the same parsing + fixup logic as the main feature.
 - Establish (and document) the complexity/LOC enforcement mechanism for this refactor so “CC < 50” is measurable and reviewable.
-

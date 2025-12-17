@@ -2,7 +2,7 @@
 
 - [ ] 1. Establish typed internal contracts and DI seams
 - [ ] 1.1 Define a single normalized internal representation for tool arguments
-  - Implement the typed envelope and normalization rules described in the design so that internal processing never passes unstructured shapes between components.
+  - Implement the typed envelope and normalization rules described in the design so that internal processing never passes unstructured shapes between components, and converts to a legacy `dict` only when constructing `ToolCallContext`.
   - Ensure every tool call results in a normalized, object-like argument structure suitable for handler invocation.
   - Add unit tests for normalization outcomes (object, array, raw/unparsed).
   - _Requirements: 4.1, 4.2, 4.4, 7.2_
@@ -97,12 +97,12 @@
 
 - [ ] 8. Enforce refactor quality gates and complete verification
 - [ ] 8.1 (P) Implement an automated line-count gate for the subsystem
-  - Provide a runnable check that fails if any production file in the subsystem scope exceeds the maximum line threshold.
-  - Ensure the script is suitable for local use and CI usage.
+  - Extend `scripts/analyze_complexity.py` with a dedicated validation mode for this refactor scope (for example `--validate-tool-call-reactor-scope`).
+  - Ensure the validation fails if any production file in the subsystem scope exceeds the maximum line threshold and is suitable for local use and CI usage.
   - _Requirements: 8.1_
 - [ ] 8.2 (P) Implement an automated complexity gate for the subsystem
-  - Provide a runnable check that fails if any function/method in the subsystem scope exceeds the configured cyclomatic complexity threshold.
-  - Ensure the tool and threshold match the design’s declared source of truth.
+  - Ensure the same validation mode enforces the cyclomatic complexity threshold for the subsystem scope (max function/method CC).
+  - Ensure the tool and threshold match the design’s declared source of truth (`radon` via `scripts/analyze_complexity.py`).
   - _Requirements: 8.2_
 - [ ] 8.3 Run focused and full verification and fix regressions
   - Run the most directly related unit/integration tests first, then the full suite.
