@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from src.core.domain.chat import ToolCall
 from src.core.interfaces.tool_call_buffer_state import IToolCallBufferState
 from src.core.services.streaming.stream_context_registry import ToolCallBufferState
+
+logger = logging.getLogger(__name__)
 
 
 class StreamBufferAdapter(IToolCallBufferState):
@@ -71,9 +75,15 @@ class StreamBufferAdapter(IToolCallBufferState):
                     else:
                         # Fallback: try direct conversion
                         tool_calls.append(ToolCall(**dict(call_dict)))
-            except Exception:
+            except Exception as e:
                 # Skip tool calls that can't be converted
                 # This matches fail-open behavior from existing code
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to convert buffered tool call to ToolCall: %s",
+                        e,
+                        exc_info=True,
+                    )
                 continue
 
         return tool_calls

@@ -28,28 +28,6 @@ from src.core.interfaces.tool_call_stream_context_resolver_interface import (
 
 logger = get_logger(__name__)
 
-# Marker key used to track if a tool call has been processed
-_TOOL_CALL_PROCESSING_MARKER = "_already_processed"
-
-# Fallback steering used when a handler swallows a tool call but does not provide
-# explicit steering text. This message is intended for the REMOTE LLM backend and
-# must never be shown directly to the client.
-_DEFAULT_BACKEND_STEERING_MESSAGE = (
-    "A tool call was blocked by proxy policy. Do not repeat the blocked tool call. "
-    "Respond to the user with a compliant approach that does not require tools."
-)
-
-# Bound the amount of swallowed assistant content that is kept for retry prompts.
-_MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS = 4000
-
-
-def _truncate_text(value: str | None, limit: int) -> str | None:
-    if value is None:
-        return None
-    if len(value) <= limit:
-        return value
-    return value[:limit] + "\n...[truncated]"
-
 
 class ToolCallReactorFeature(IResponseFeature):
     """Feature to process tool calls with enforced streaming/non-streaming parity.
