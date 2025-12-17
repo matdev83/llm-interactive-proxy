@@ -1,0 +1,422 @@
+"""Tool-call reactor orchestrator.
+
+This module implements the orchestrator that coordinates tool-call processing
+across extraction, normalization, deduplication, parsing, fixups, reactor invocation,
+and replacement creation.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from src.core.common.logging_utils import get_logger
+from src.core.domain.chat import ToolCall
+from src.core.interfaces.replacement_response_factory_interface import (
+    IReplacementResponseFactory,
+    ToolCallReactionMetadata,
+)
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+    FixupContext,
+    IToolArgumentsFixupPipeline,
+)
+from src.core.interfaces.tool_arguments_parser_interface import IToolArgumentsParser
+from src.core.interfaces.tool_call_deduplicator_interface import IToolCallDeduplicator
+from src.core.interfaces.tool_call_extractor_interface import IToolCallExtractor
+from src.core.interfaces.tool_call_normalizer_interface import IToolCallNormalizer
+from src.core.interfaces.tool_call_reactor_interface import (
+    IToolCallReactor,
+    ToolCallContext,
+)
+from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+    IToolCallReactorOrchestrator,
+    ToolCallReactorContext,
+)
+from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+    IToolCallStreamContextResolver,
+)
+from src.tool_call_loop.lifecycle_registry import (
+    ToolCallLifecycleRegistry,
+    build_tool_call_signature,
+)
+
+logger = get_logger(__name__)
+
+# Fallback steering used when a handler swallows a tool call but does not provide
+# explicit steering text. This message is intended for the REMOTE LLM backend and
+# must never be shown directly to the client.
+_DEFAULT_BACKEND_STEERING_MESSAGE = (
+    "A tool call was blocked by proxy policy. Do not repeat the blocked tool call. "
+    "Respond to the user with a compliant approach that does not require tools."
+)
+
+
+class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
+    """Orchestrator for tool-call processing.
+
+    This orchestrator coordinates the end-to-end flow of tool-call processing:
+    - Bypass checks (bypass flag, VTC marker, no tool calls)
+    - Extraction and normalization of tool calls
+    - Deduplication and lifecycle tracking
+    - Argument parsing and fixups
+    - Reactor invocation
+    - Replacement response creation for swallowed calls
+
+    The orchestrator preserves fail-open behavior: exceptions during processing
+    do not crash the request.
+    """
+
+    def __init__(
+        self,
+        extractor: IToolCallExtractor,
+        normalizer: IToolCallNormalizer,
+        stream_context_resolver: IToolCallStreamContextResolver,
+        deduplicator: IToolCallDeduplicator,
+        arguments_parser: IToolArgumentsParser,
+        arguments_fixup_pipeline: IToolArgumentsFixupPipeline,
+        reactor: IToolCallReactor,
+        replacement_factory: IReplacementResponseFactory,
+        lifecycle_registry: ToolCallLifecycleRegistry,
+    ) -> None:
+        """Initialize the orchestrator with injected dependencies.
+
+        Args:
+            extractor: Extractor for tool calls from response objects.
+            normalizer: Normalizer for tool-call objects to dictionaries.
+            stream_context_resolver: Resolver for stream context and buffer state.
+            deduplicator: Deduplicator for filtering new tool calls.
+            arguments_parser: Parser for tool arguments with repair.
+            arguments_fixup_pipeline: Pipeline for applying argument fixups.
+            reactor: Reactor service for handler invocation.
+            replacement_factory: Factory for building replacement responses.
+            lifecycle_registry: Registry for lifecycle tracking and stream state clearing.
+        """
+        self._extractor = extractor
+        self._normalizer = normalizer
+        self._stream_context_resolver = stream_context_resolver
+        self._deduplicator = deduplicator
+        self._arguments_parser = arguments_parser
+        self._arguments_fixup_pipeline = arguments_fixup_pipeline
+        self._reactor = reactor
+        self._replacement_factory = replacement_factory
+        self._lifecycle_registry = lifecycle_registry
+
+    async def handle(
+        self,
+        response: ProcessedResponse,
+        session_id: str,
+        context: ToolCallReactorContext,
+        is_streaming: bool,
+    ) -> ProcessedResponse:
+        """Process a response for tool calls and return either original or replacement.
+
+        This method orchestrates the complete tool-call processing flow.
+        """
+        # Bypass check: VTC tool calls
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("vtc_tool_calls"):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping reactor processing for VTC tool calls "
+                    "(already processed by VTCResponseStreamWrapper) in session %s",
+                    session_id,
+                )
+            return response
+
+        # Use stream key from context (already resolved by feature/middleware)
+        # Fall back to resolver if not set (shouldn't happen in normal flow)
+        stream_key = context.stream_key
+        if not stream_key:
+            stream_key = self._stream_context_resolver.resolve_stream_key(
+                session_id, None, response
+            )
+        buffer_state = context.buffer_state
+
+        # Clear lifecycle state for non-streaming to ensure fresh detection
+        if not is_streaming:
+            self._lifecycle_registry.clear_stream(stream_key)
+
+        # Extract tool calls from response
+        raw_tool_calls = self._extractor.extract(response)
+        if not raw_tool_calls:
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
+
+        # Normalize tool calls to dictionaries
+        normalized_tool_calls: list[dict[str, Any]] = []
+        for raw_call in raw_tool_calls:
+            normalized = self._normalizer.normalize(raw_call)
+            if normalized:
+                normalized_tool_calls.append(normalized)
+
+        if not normalized_tool_calls:
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
+
+        # Convert normalized dicts to ToolCall domain models
+        tool_calls: list[ToolCall] = []
+        for normalized_dict in normalized_tool_calls:
+            try:
+                tool_call = ToolCall(**normalized_dict)
+                tool_calls.append(tool_call)
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to convert normalized tool call to ToolCall: %s",
+                        e,
+                        exc_info=True,
+                    )
+                continue
+
+        if not tool_calls:
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
+
+        # Filter to new tool calls via deduplicator
+        # Note: deduplicator handles buffered calls internally
+        new_tool_calls = self._deduplicator.filter_new_calls(
+            tool_calls=tool_calls,
+            stream_key=stream_key,
+            buffer_state=buffer_state,
+            is_streaming=is_streaming,
+        )
+
+        if not new_tool_calls:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "All %d tool call(s) already processed in session %s, "
+                    "skipping reactor execution",
+                    len(tool_calls),
+                    session_id,
+                )
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Detected %d new tool call(s) in session %s (stream=%s, total=%d)",
+                len(new_tool_calls),
+                session_id,
+                stream_key,
+                len(tool_calls),
+            )
+
+        # Expose tool calls in metadata (for backward compatibility)
+        try:
+            if hasattr(response, "metadata") and isinstance(response.metadata, dict):
+                response.metadata.setdefault("tool_calls", [])
+                existing_calls = response.metadata.get("tool_calls")
+
+                replace_metadata_calls = False
+                if (
+                    not isinstance(existing_calls, list)
+                    or not existing_calls
+                    or not all(isinstance(item, dict) for item in existing_calls)
+                ):
+                    replace_metadata_calls = True
+
+                if replace_metadata_calls:
+                    clean_tool_calls = []
+                    for tc_dict in normalized_tool_calls:
+                        clean_tc = {
+                            k: v
+                            for k, v in tc_dict.items()
+                            if k != "_already_processed"
+                        }
+                        clean_tool_calls.append(clean_tc)
+                    response.metadata["tool_calls"] = clean_tool_calls
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to annotate tool calls in metadata", exc_info=True)
+
+        # Process each new tool call through the reactor
+        for tool_call in new_tool_calls:
+            signature = build_tool_call_signature(tool_call.model_dump())
+
+            # Double-check if already processed (defensive)
+            if self._deduplicator.is_processed(stream_key, signature):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping already-processed tool call (signature=%s) "
+                        "for stream %s",
+                        signature,
+                        stream_key,
+                    )
+                continue
+
+            # Get session context from response metadata
+            backend_name = None
+            model_name = None
+            calling_agent = None
+            if isinstance(metadata, dict):
+                backend_name = metadata.get("backend_name", "unknown")
+                model_name = metadata.get("model_name", "unknown")
+                calling_agent = metadata.get("calling_agent")
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Processing tool call signature=%s session=%s stream=%s backend=%s model=%s",
+                    signature,
+                    session_id,
+                    stream_key,
+                    backend_name,
+                    model_name,
+                )
+
+            # Extract function payload
+            function_payload = tool_call.function
+            tool_name = function_payload.name
+            raw_arguments = function_payload.arguments
+
+            # Parse arguments
+            envelope = self._arguments_parser.parse(raw_arguments)
+
+            # Apply fixups
+            fixup_context = FixupContext(
+                tool_name=tool_name,
+                backend_name=backend_name,
+                calling_agent=calling_agent,
+                client_os=context.client_os,
+            )
+            envelope = self._arguments_fixup_pipeline.apply_fixups(
+                envelope, fixup_context
+            )
+
+            # Write back modified arguments if fixups were applied
+            if envelope.was_modified_by_fixups:
+                self._write_back_modified_arguments(
+                    tool_call.model_dump(), envelope.normalized_arguments.root
+                )
+
+            # Build ToolCallContext (convert normalized args to dict at boundary)
+            full_response = getattr(response, "content", None)
+            tool_context = ToolCallContext(
+                session_id=session_id,
+                backend_name=backend_name or "unknown",
+                model_name=model_name or "unknown",
+                full_response=full_response,
+                tool_name=tool_name,
+                tool_arguments=envelope.normalized_arguments.root,
+                calling_agent=calling_agent,
+            )
+
+            # Invoke reactor (fail-open)
+            try:
+                result = await self._reactor.process_tool_call(tool_context)
+
+                # Mark as processed
+                self._deduplicator.mark_processed(stream_key, signature, buffer_state)
+
+                # If swallowed, build replacement and return
+                if result and result.should_swallow:
+                    logger.info(
+                        "Tool call '%s' was swallowed by reactor in session %s",
+                        tool_context.tool_name,
+                        session_id,
+                    )
+
+                    steering_message = result.replacement_response
+                    if (
+                        not isinstance(steering_message, str)
+                        or not steering_message.strip()
+                    ):
+                        steering_message = _DEFAULT_BACKEND_STEERING_MESSAGE
+
+                    # Build reaction metadata
+                    reaction_metadata = None
+                    if result.metadata:
+                        reaction_metadata = ToolCallReactionMetadata(
+                            reaction_type="swallowed",
+                            reactor_name=result.metadata.get("reactor_name"),
+                        )
+
+                    replacement_response = self._replacement_factory.build_replacement(
+                        original_response=response,
+                        replacement_content=steering_message,
+                        original_tool_call=tool_call,
+                        reaction_metadata=reaction_metadata,
+                    )
+                    return replacement_response
+
+            except Exception as e:
+                logger.error(
+                    "Error processing tool call through reactor: %s",
+                    e,
+                    exc_info=True,
+                )
+                # Mark as processed even on error to prevent retry loops
+                self._deduplicator.mark_processed(stream_key, signature, buffer_state)
+
+        # No swallows occurred, return original response
+        self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+        return response
+
+    def _is_response_complete(self, response: ProcessedResponse) -> bool:
+        """Check if the response is complete (valid for tool call processing)."""
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict):
+            if metadata.get("is_done"):
+                return True
+            finish_reason = metadata.get("finish_reason")
+            if finish_reason:
+                return True
+
+        choices = getattr(response, "choices", [])
+        if isinstance(choices, list):
+            for choice in choices:
+                if getattr(choice, "finish_reason", None):
+                    return True
+                if isinstance(choice, dict) and choice.get("finish_reason"):
+                    return True
+
+        return False
+
+    def _should_reset_stream_state(
+        self, response: ProcessedResponse, is_streaming: bool
+    ) -> bool:
+        """Determine if stream state should be reset."""
+        metadata = getattr(response, "metadata", None)
+        if isinstance(metadata, dict):
+            if metadata.get("is_done"):
+                return True
+            if not is_streaming:
+                finish_reason = metadata.get("finish_reason")
+                if finish_reason in {"stop", "length", "tool_calls"}:
+                    return True
+        return not is_streaming
+
+    def _reset_stream_state_if_needed(
+        self,
+        stream_key: str,
+        response: ProcessedResponse,
+        is_streaming: bool,
+    ) -> None:
+        """Reset stream state if needed."""
+        if self._should_reset_stream_state(response, is_streaming):
+            self._lifecycle_registry.clear_stream(stream_key)
+
+    @staticmethod
+    def _write_back_modified_arguments(
+        tool_call: dict[str, Any],
+        new_arguments: Any,
+    ) -> None:
+        """Write modified arguments back to the tool call dict.
+
+        Args:
+            tool_call: The tool call dict to modify
+            new_arguments: The new arguments to write back
+        """
+        function_payload = tool_call.get("function")
+        if not isinstance(function_payload, dict):
+            return
+
+        original_args = function_payload.get("arguments")
+        if isinstance(original_args, str):
+            if isinstance(new_arguments, dict):
+                function_payload["arguments"] = json.dumps(new_arguments)
+            else:
+                function_payload["arguments"] = str(new_arguments)
+        else:
+            function_payload["arguments"] = new_arguments

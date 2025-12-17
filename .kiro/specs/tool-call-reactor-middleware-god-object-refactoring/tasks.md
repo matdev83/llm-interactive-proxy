@@ -1,110 +1,110 @@
 # Implementation Plan
 
-- [ ] 1. Establish typed internal contracts and DI seams
-- [ ] 1.1 Define a single normalized internal representation for tool arguments
+- [x] 1. Establish typed internal contracts and DI seams
+- [x] 1.1 Define a single normalized internal representation for tool arguments
   - Implement the typed envelope and normalization rules described in the design so that internal processing never passes unstructured shapes between components, and converts to a legacy `dict` only when constructing `ToolCallContext`.
   - Ensure every tool call results in a normalized, object-like argument structure suitable for handler invocation.
   - Add unit tests for normalization outcomes (object, array, raw/unparsed).
   - _Requirements: 4.1, 4.2, 4.4, 7.2_
-- [ ] 1.2 Define the tool-call buffering abstraction used by the subsystem
+- [x] 1.2 Define the tool-call buffering abstraction used by the subsystem
   - Implement the abstract buffer-state contract and adapter approach described in the design to avoid interfaces depending on service-layer concrete types.
   - Add unit tests that prove cursor advancement and processed-signature recording match existing semantics.
   - _Requirements: 2.3, 2.4, 7.4_
-- [ ] 1.3 Define and document the “no global state required” constraint in code boundaries
+- [x] 1.3 Define and document the “no global state required” constraint in code boundaries
   - Ensure the subsystem’s stream-state access is provided via injected collaborators only, with safe degraded behavior when optional state is absent.
   - Add a lightweight guard (test or static check) that prevents new subsystem code from calling global streaming registry accessors.
   - _Requirements: 7.3, 11.1_
 
-- [ ] 2. Implement stream context resolution and deduplication
-- [ ] 2.1 (P) Implement DI-first stream identification and buffer access
+- [x] 2. Implement stream context resolution and deduplication
+- [x] 2.1 (P) Implement DI-first stream identification and buffer access
   - Implement stream-key selection consistent with current behavior (metadata first, then contextual identifiers, then session fallback).
   - Support resolving optional buffered tool calls and consuming them in stable order.
   - Add unit tests for stream-key resolution and degraded mode without buffer state.
   - _Requirements: 2.1, 2.3, 7.3, 11.1_
-- [ ] 2.2 (P) Implement tool-call deduplication and processed marking
+- [x] 2.2 (P) Implement tool-call deduplication and processed marking
   - Ensure a tool call is processed at most once per stream and is marked processed to prevent re-execution loops.
   - Preserve behavior differences between streaming and non-streaming regarding lifecycle clearing and completion detection.
   - Add unit tests for dedup behavior and processed marking.
   - _Requirements: 2.1, 2.4, 6.3_
 
-- [ ] 3. Implement tool-call extraction and normalization
-- [ ] 3.1 (P) Implement extraction from supported response shapes
+- [x] 3. Implement tool-call extraction and normalization
+- [x] 3.1 (P) Implement extraction from supported response shapes
   - Support extracting tool calls from response attributes, response metadata, and response content consistent with existing behavior.
-  - Ensure “no tool calls” returns the input unchanged.
+  - Ensure "no tool calls" returns the input unchanged.
   - Add unit tests for each supported shape and for unsupported/invalid shapes.
   - _Requirements: 1.3, 3.1, 3.2, 3.3_
-- [ ] 3.2 (P) Implement normalization of tool-call objects into a consistent internal form
+- [x] 3.2 (P) Implement normalization of tool-call objects into a consistent internal form
   - Normalize dict-like, dataclass, and model-dumpable tool-call objects in a fail-open manner.
   - Skip un-normalizable tool calls without failing the entire response-processing operation.
   - Add unit tests for each normalization input type and the skip path.
   - _Requirements: 3.4, 6.2_
 
-- [ ] 4. Implement argument parsing and fixup pipeline
-- [ ] 4.1 (P) Implement argument parsing with repair outcomes and safe telemetry
+- [x] 4. Implement argument parsing and fixup pipeline
+- [x] 4.1 (P) Implement argument parsing with repair outcomes and safe telemetry
   - Parse valid JSON arguments and attempt best-effort recovery for invalid JSON without crashing the request.
   - Record repair outcomes in a way that is observable to the reactor when supported, without exposing secrets.
-  - Add unit tests for success/recovered/failed outcomes and “do not crash” behavior.
+  - Add unit tests for success/recovered/failed outcomes and "do not crash" behavior.
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 12.1_
-- [ ] 4.2 (P) Implement argument fixups as a composable pipeline
+- [x] 4.2 (P) Implement argument fixups as a composable pipeline
   - Apply the existing best-effort fixups (Windows command separator handling and Droid path normalization) while keeping behavior consistent with current implementation.
   - Ensure modifications are written back to the detected tool call representation so downstream behavior is stable.
   - Add unit tests that validate fixups apply only under the intended conditions.
   - _Requirements: 4.1, 6.1, 10.1_
 
-- [ ] 5. Implement replacement response creation and metadata contract
-- [ ] 5.1 (P) Implement replacement response construction for swallowed tool calls
+- [x] 5. Implement replacement response creation and metadata contract
+- [x] 5.1 (P) Implement replacement response construction for swallowed tool calls
   - Ensure swallowed tool calls produce a replacement response consistent with current externally observable behavior.
   - Preserve bounded original assistant content and tool call summaries needed for retry behavior.
   - Add unit tests validating required metadata keys and bounded content behavior.
   - _Requirements: 1.5, 5.1, 5.3, 5.4_
-- [ ] 5.2 (P) Ensure steering replacement is safe for clients and compatible with downstream processing
+- [x] 5.2 (P) Ensure steering replacement is safe for clients and compatible with downstream processing
   - Ensure internal policy/steering signals are not exposed as client-visible response identifiers or leaked content.
-  - Ensure the replacement response sets the “replacement” marker used by streaming accumulation to reset buffered content.
+  - Ensure the replacement response sets the "replacement" marker used by streaming accumulation to reset buffered content.
   - Add unit tests verifying the marker is present and that client-visible structures do not include internal steering identifiers.
   - _Requirements: 5.2, 10.2_
 
-- [ ] 6. Implement orchestrator and refactor pipeline integration
-- [ ] 6.1 Implement the shared orchestrator for tool-call processing
+- [x] 6. Implement orchestrator and refactor pipeline integration
+- [x] 6.1 Implement the shared orchestrator for tool-call processing
   - Implement the end-to-end control flow: bypass checks, detection, completeness gating for streaming, buffered-call handling, reactor invocation, swallow/replace, and fail-open behavior.
   - Ensure tool calls are annotated for observability where currently expected (metadata/context) without leaking secrets.
   - Add unit tests that cover the primary paths (no tool calls, new tool calls, swallowed tool calls, reactor error).
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 2.2, 2.5, 6.1, 6.2, 10.1, 12.1_
-- [ ] 6.2 Refactor the feature-based integration to delegate to the orchestrator
+- [x] 6.2 Refactor the feature-based integration to delegate to the orchestrator
   - Ensure streaming and non-streaming feature entry points remain compatible and preserve parity behavior.
-  - Ensure the bypass and VTC “already processed” behavior remains intact.
+  - Ensure the bypass and VTC "already processed" behavior remains intact.
   - Update unit tests to validate the feature delegates correctly and preserves behavior.
   - _Requirements: 1.1, 1.2, 1.6, 2.5, 9.2_
-- [ ] 6.3 Refactor the legacy middleware integration to delegate to the orchestrator
+- [x] 6.3 Refactor the legacy middleware integration to delegate to the orchestrator
   - Preserve the deprecated entry point behavior for existing wiring and tests.
   - Remove duplicated behavior by ensuring the legacy path uses the same core orchestration logic.
   - Update integration tests that currently resolve the legacy middleware from DI.
   - _Requirements: 1.6, 7.1, 9.4_
 
-- [ ] 7. Wire everything through DI and validate end-to-end behavior
-- [ ] 7.1 Update DI wiring to register the new subsystem components
+- [x] 7. Wire everything through DI and validate end-to-end behavior
+- [x] 7.1 Update DI wiring to register the new subsystem components
   - Register new collaborators with appropriate lifetimes and ensure production code uses the feature integration point.
   - Ensure the legacy middleware remains available for backward compatibility without duplicating logic.
   - Add or update DI wiring tests to confirm the expected services are available.
   - _Requirements: 1.6, 7.2, 7.3_
-- [ ] 7.2 Align VTC reactor invocation with the standardized argument contract
+- [x] 7.2 Align VTC reactor invocation with the standardized argument contract
   - Ensure VTC-initiated reactor calls provide normalized arguments consistent with the subsystem contract, while preserving VTC-specific markers and bypass behavior.
   - Add regression coverage for VTC swallow behavior and metadata preservation.
   - _Requirements: 1.2, 3.2, 4.1, 5.1, 9.1_
-- [ ] 7.3 Validate retry-on-swallow behavior remains compatible
+- [x] 7.3 Validate retry-on-swallow behavior remains compatible
   - Ensure swallowed tool calls still trigger the downstream retry path when applicable and carry the required metadata for retry prompts.
   - Add an integration/regression test that exercises swallow → retry with stable metadata.
   - _Requirements: 5.1, 5.3, 9.3, 9.4_
 
-- [ ] 8. Enforce refactor quality gates and complete verification
-- [ ] 8.1 (P) Implement an automated line-count gate for the subsystem
+- [x] 8. Enforce refactor quality gates and complete verification
+- [x] 8.1 (P) Implement an automated line-count gate for the subsystem
   - Extend `scripts/analyze_complexity.py` with a dedicated validation mode for this refactor scope (for example `--validate-tool-call-reactor-scope`).
   - Ensure the validation fails if any production file in the subsystem scope exceeds the maximum line threshold and is suitable for local use and CI usage.
   - _Requirements: 8.1_
-- [ ] 8.2 (P) Implement an automated complexity gate for the subsystem
+- [x] 8.2 (P) Implement an automated complexity gate for the subsystem
   - Ensure the same validation mode enforces the cyclomatic complexity threshold for the subsystem scope (max function/method CC).
-  - Ensure the tool and threshold match the design’s declared source of truth (`radon` via `scripts/analyze_complexity.py`).
+  - Ensure the tool and threshold match the design's declared source of truth (`radon` via `scripts/analyze_complexity.py`).
   - _Requirements: 8.2_
-- [ ] 8.3 Run focused and full verification and fix regressions
+- [x] 8.3 Run focused and full verification and fix regressions
   - Run the most directly related unit/integration tests first, then the full suite.
   - Run linting, formatting, and type-checking for modified files and fix issues until green.
   - Verify the refactor did not introduce new public entry points solely to accommodate internal restructuring (retain legacy compatibility entry points only).

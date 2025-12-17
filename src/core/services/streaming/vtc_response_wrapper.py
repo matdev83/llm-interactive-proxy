@@ -34,6 +34,12 @@ from src.core.services.vtc_xml_parser import (
 )
 
 if TYPE_CHECKING:
+    from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+        IToolArgumentsFixupPipeline,
+    )
+    from src.core.interfaces.tool_arguments_parser_interface import (
+        IToolArgumentsParser,
+    )
     from src.core.interfaces.tool_call_reactor_interface import IToolCallReactor
 
 logger = logging.getLogger(__name__)
@@ -89,6 +95,8 @@ class VTCResponseStreamWrapper:
         vtc_enabled: bool = False,
         config: VTCWrapperConfig | None = None,
         tool_call_reactor: IToolCallReactor | None = None,
+        arguments_parser: IToolArgumentsParser | None = None,
+        arguments_fixup_pipeline: IToolArgumentsFixupPipeline | None = None,
         session_id: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
@@ -99,6 +107,8 @@ class VTCResponseStreamWrapper:
             vtc_enabled: Whether VTC processing is enabled for this stream.
             config: Optional configuration settings.
             tool_call_reactor: Optional reactor for processing detected tool calls.
+            arguments_parser: Optional parser for tool arguments (uses standardized contract).
+            arguments_fixup_pipeline: Optional fixup pipeline for tool arguments.
             session_id: Session ID for reactor context.
             context: Additional context for reactor processing.
         """
@@ -107,6 +117,8 @@ class VTCResponseStreamWrapper:
         self._buffer = ""
         self._last_chunk_template: ProcessedResponse | None = None
         self._tool_call_reactor = tool_call_reactor
+        self._arguments_parser = arguments_parser
+        self._arguments_fixup_pipeline = arguments_fixup_pipeline
         self._session_id = session_id or ""
         self._context = context or {}
 
@@ -354,6 +366,7 @@ class VTCResponseStreamWrapper:
 
         This method processes tool calls through registered reactor handlers and
         collects any swallowed tool calls along with their replacement messages.
+        Uses the standardized argument parsing/fixup pipeline for consistency.
 
         Args:
             tool_calls: List of detected tool calls in internal format.
@@ -372,21 +385,46 @@ class VTCResponseStreamWrapper:
         swallowed_any = False
 
         try:
-            import json as json_module
-
             from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 
             for tool_call in tool_calls:
                 func_info = tool_call.get("function", {})
                 tool_name = func_info.get("name", "unknown")
-                tool_args = func_info.get("arguments", "{}")
+                raw_tool_args = func_info.get("arguments", "{}")
 
-                # Parse arguments if they're a JSON string
-                if isinstance(tool_args, str):
-                    try:
-                        tool_args = json_module.loads(tool_args)
-                    except json_module.JSONDecodeError:
-                        tool_args = {"raw": tool_args}
+                # Use standardized argument parsing/fixup pipeline if available
+                if self._arguments_parser and self._arguments_fixup_pipeline:
+                    from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+                        FixupContext,
+                    )
+
+                    # Parse arguments using standardized contract
+                    envelope = self._arguments_parser.parse(raw_tool_args)
+                    # Apply fixups with context
+                    fixup_context = FixupContext(
+                        tool_name=tool_name,
+                        backend_name=self._context.get("backend_name"),
+                        calling_agent=self._context.get("calling_agent"),
+                        client_os=self._context.get("client_os"),
+                    )
+                    envelope = self._arguments_fixup_pipeline.apply_fixups(
+                        envelope, fixup_context
+                    )
+                    # Convert normalized arguments to legacy dict format for ToolCallContext
+                    tool_args = envelope.normalized_arguments.root
+                else:
+                    # Fallback to manual parsing if parser/fixup not available
+                    import json as json_module
+
+                    if isinstance(raw_tool_args, str):
+                        try:
+                            tool_args = json_module.loads(raw_tool_args)
+                        except json_module.JSONDecodeError:
+                            tool_args = {"raw": raw_tool_args}
+                    else:
+                        tool_args = (
+                            raw_tool_args if isinstance(raw_tool_args, dict) else {}
+                        )
 
                 # Build a minimal response representation for the reactor context
                 # The full_response is required by ToolCallContext
@@ -722,6 +760,8 @@ async def wrap_processed_response_stream_with_vtc(
     vtc_enabled: bool = False,
     config: VTCWrapperConfig | None = None,
     tool_call_reactor: IToolCallReactor | None = None,
+    arguments_parser: IToolArgumentsParser | None = None,
+    arguments_fixup_pipeline: IToolArgumentsFixupPipeline | None = None,
     session_id: str | None = None,
     context: dict[str, Any] | None = None,
 ) -> AsyncIterator[ProcessedResponse]:
@@ -737,6 +777,8 @@ async def wrap_processed_response_stream_with_vtc(
         vtc_enabled: Whether VTC processing is enabled.
         config: Optional configuration settings.
         tool_call_reactor: Optional reactor for processing detected tool calls.
+        arguments_parser: Optional parser for tool arguments (uses standardized contract).
+        arguments_fixup_pipeline: Optional fixup pipeline for tool arguments.
         session_id: Session ID for reactor context.
         context: Additional context for reactor processing.
 
@@ -749,6 +791,8 @@ async def wrap_processed_response_stream_with_vtc(
             stream_generator(),
             vtc_enabled=True,
             tool_call_reactor=reactor,
+            arguments_parser=parser,
+            arguments_fixup_pipeline=fixup_pipeline,
             session_id="sess-123",
         ):
             yield chunk
@@ -760,6 +804,8 @@ async def wrap_processed_response_stream_with_vtc(
         vtc_enabled=vtc_enabled,
         config=config,
         tool_call_reactor=tool_call_reactor,
+        arguments_parser=arguments_parser,
+        arguments_fixup_pipeline=arguments_fixup_pipeline,
         session_id=session_id,
         context=context,
     )

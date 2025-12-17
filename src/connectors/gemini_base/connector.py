@@ -1728,21 +1728,32 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             return None
 
         tool_call_reactor = None
+        arguments_parser = None
+        arguments_fixup_pipeline = None
         try:
             from src.core.di.services import get_service_provider
+            from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+                IToolArgumentsFixupPipeline,
+            )
+            from src.core.interfaces.tool_arguments_parser_interface import (
+                IToolArgumentsParser,
+            )
             from src.core.services.tool_call_reactor_service import (
                 ToolCallReactorService,
             )
 
             provider = get_service_provider()
             tool_call_reactor = provider.get_service(ToolCallReactorService)
+            arguments_parser = provider.get_service(IToolArgumentsParser)  # type: ignore[type-abstract]
+            arguments_fixup_pipeline = provider.get_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
         except Exception as exc:
-            logger.warning("Failed to get tool call reactor for VTC: %s", exc)
+            logger.warning("Failed to get tool call reactor services for VTC: %s", exc)
 
         reactor_context = {
             "backend_name": self.backend_type,
             "model_name": effective_model,
             "calling_agent": getattr(request_data, "agent", None),
+            "client_os": getattr(request_data, "client_os", None),
         }
         session_id = getattr(request_data, "session_id", None)
 
@@ -1757,6 +1768,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 generator,
                 vtc_enabled=vtc_enabled,
                 tool_call_reactor=tool_call_reactor,
+                arguments_parser=arguments_parser,
+                arguments_fixup_pipeline=arguments_fixup_pipeline,
                 session_id=session_id,
                 context=reactor_context,
             )

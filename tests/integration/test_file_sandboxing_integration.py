@@ -88,11 +88,17 @@ class TestFileSandboxingIntegration:
         return provider
 
     def create_llm_response_with_tool_call(
-        self, tool_name: str, tool_args: dict | None = None
+        self, tool_name: str, tool_args: dict | None = None, tool_id: str | None = None
     ) -> ProcessedResponse:
         """Helper to create a ProcessedResponse with a tool call."""
         if tool_args is None:
             tool_args = {}
+        if tool_id is None:
+            # Generate a unique ID based on tool name and args to avoid signature collisions
+            import hashlib
+
+            unique_str = f"{tool_name}:{json.dumps(tool_args, sort_keys=True)}"
+            tool_id = f"call_{hashlib.md5(unique_str.encode()).hexdigest()[:8]}"
 
         tool_call_response = {
             "choices": [
@@ -100,7 +106,7 @@ class TestFileSandboxingIntegration:
                     "message": {
                         "tool_calls": [
                             {
-                                "id": "call_123",
+                                "id": tool_id,
                                 "type": "function",
                                 "function": {
                                     "name": tool_name,
@@ -534,7 +540,9 @@ class TestFileSandboxingIntegration:
 
         # First tool call - should be allowed (no project dir)
         response1 = self.create_llm_response_with_tool_call(
-            "write_to_file", {"path": "/tmp/file.txt", "content": "test"}
+            "write_to_file",
+            {"path": "/tmp/file.txt", "content": "test"},
+            tool_id="call_first",
         )
 
         result1 = await reactor_middleware.process(
@@ -554,8 +562,11 @@ class TestFileSandboxingIntegration:
         await session_service.update_session(session)
 
         # Second tool call - should be blocked (project dir set)
+        # Use different ID to ensure it's processed as a new call
         response2 = self.create_llm_response_with_tool_call(
-            "write_to_file", {"path": "/tmp/file.txt", "content": "test"}
+            "write_to_file",
+            {"path": "/tmp/file.txt", "content": "test"},
+            tool_id="call_second",
         )
 
         result2 = await reactor_middleware.process(

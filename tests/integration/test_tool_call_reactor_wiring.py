@@ -93,7 +93,10 @@ async def test_reactor_middleware_only_processes_new_tool_calls():
     Integration test to verify that the reactor middleware only processes
     new tool calls and skips historical ones.
     """
+    from unittest.mock import AsyncMock, patch
+
     from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
     # Arrange
     config = AppConfig()
@@ -105,13 +108,12 @@ async def test_reactor_middleware_only_processes_new_tool_calls():
         ToolCallReactorMiddleware
     )
 
-    # Create a tool call that's already been processed
+    # Create a tool call that will be processed first time
     processed_tool_call = ToolCall(
         id="call_old",
         function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
         type="function",
     )
-    processed_tool_call._already_processed = True
 
     # Create a new tool call
     new_tool_call = ToolCall(
@@ -125,18 +127,35 @@ async def test_reactor_middleware_only_processes_new_tool_calls():
     )
     context = {"session_id": "test_session"}
 
-    # Act
-    result = await reactor_middleware.process(
-        response=message, session_id="test_session", context=context
-    )
+    # Mock the orchestrator's reactor to track calls
+    mock_process = AsyncMock()
+    with patch.object(
+        reactor_middleware._orchestrator._reactor, "process_tool_call", mock_process
+    ):
+        # Act - Process the message
+        result = await reactor_middleware.process(
+            response=message, session_id="test_session", context=context
+        )
 
-    # Assert
-    # The new tool call should be marked as processed
-    assert getattr(new_tool_call, "_already_processed", False) is True
-    # The processed tool call should still be marked as processed
-    assert getattr(processed_tool_call, "_already_processed", False) is True
-    # Result should be the original message
-    assert result is message
+        # Assert - Both tool calls should be processed (first time)
+        assert mock_process.call_count == 2
+
+        # Reset mock for second call
+        mock_process.reset_mock()
+
+        # Act - Process the same message again
+        result2 = await reactor_middleware.process(
+            response=message, session_id="test_session", context=context
+        )
+
+        # Assert - No new tool calls should be processed (deduplication)
+        assert mock_process.call_count == 0
+
+    # Assert - Results should be ProcessedResponse instances
+    assert isinstance(result, ProcessedResponse)
+    assert isinstance(result2, ProcessedResponse)
+    # Content should be equivalent to original message
+    assert result.content == message
 
 
 @pytest.mark.asyncio
@@ -170,10 +189,10 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
     context = {"session_id": "test_session"}
 
-    # Mock the reactor's process_tool_call method to track calls
+    # Mock the orchestrator's reactor process_tool_call method to track calls
     mock_process = AsyncMock()
     with patch.object(
-        reactor_middleware._tool_call_reactor, "process_tool_call", mock_process
+        reactor_middleware._orchestrator._reactor, "process_tool_call", mock_process
     ):
         # Act - Process the message twice
         await reactor_middleware.process(
@@ -183,7 +202,7 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
             response=message, session_id="test_session", context=context
         )
 
-        # Assert - Reactor should only be called once
+        # Assert - Reactor should only be called once (deduplication prevents second call)
         assert mock_process.call_count == 1
 
 
@@ -194,7 +213,10 @@ async def test_all_reactor_handlers_work_with_filtering():
     Integration test to verify that all registered reactor handlers
     work correctly with the tool call filtering logic.
     """
+    from unittest.mock import AsyncMock, patch
+
     from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
     # Arrange
     config = AppConfig()
@@ -220,23 +242,35 @@ async def test_all_reactor_handlers_work_with_filtering():
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
     context = {"session_id": "test_session"}
 
-    # Act - Process the message
-    result = await reactor_middleware.process(
-        response=message, session_id="test_session", context=context
-    )
+    # Mock the orchestrator's reactor to track calls
+    mock_process = AsyncMock()
+    with patch.object(
+        reactor_middleware._orchestrator._reactor, "process_tool_call", mock_process
+    ):
+        # Act - Process the message
+        result = await reactor_middleware.process(
+            response=message, session_id="test_session", context=context
+        )
 
-    # Assert - Tool call should be marked as processed
-    assert getattr(tool_call, "_already_processed", False) is True
-    # Result should be returned (not swallowed)
-    assert result is message
+        # Assert - Tool call should be processed (reactor called once)
+        assert mock_process.call_count == 1
+        # Result should be ProcessedResponse (not swallowed)
+        assert isinstance(result, ProcessedResponse)
+        assert result.content == message
 
-    # Act - Process again with the same message
-    result2 = await reactor_middleware.process(
-        response=message, session_id="test_session", context=context
-    )
+        # Reset mock for second call
+        mock_process.reset_mock()
 
-    # Assert - Should still work and return the message
-    assert result2 is message
+        # Act - Process again with the same message
+        result2 = await reactor_middleware.process(
+            response=message, session_id="test_session", context=context
+        )
+
+        # Assert - Tool call should NOT be processed again (deduplication)
+        assert mock_process.call_count == 0
+        # Should still work and return ProcessedResponse
+        assert isinstance(result2, ProcessedResponse)
+        assert result2.content == message
 
 
 @pytest.mark.asyncio
@@ -413,11 +447,16 @@ async def test_unified_steering_emits_both_log_formats_when_legacy_enabled(
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
     context = {"session_id": "test_legacy_log_session"}
 
-    # Act
+    # Act - Process the message to trigger steering handler
     with caplog.at_level(logging.INFO):
-        await reactor_middleware.process(
+        result = await reactor_middleware.process(
             response=message, session_id="test_legacy_log_session", context=context
         )
+
+    # Assert - Verify tool call was processed (result should be ProcessedResponse)
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+    assert isinstance(result, ProcessedResponse)
 
     # Assert - check for structured log
     assert "Unified steering evaluation" in caplog.text
@@ -439,6 +478,7 @@ async def test_unified_steering_emits_only_structured_log_when_legacy_disabled(
     import logging
 
     from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
     # Arrange
     config = app_config_legacy_log_disabled
@@ -463,11 +503,14 @@ async def test_unified_steering_emits_only_structured_log_when_legacy_disabled(
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
     context = {"session_id": "test_structured_log_session"}
 
-    # Act
+    # Act - Process the message to trigger steering handler
     with caplog.at_level(logging.INFO):
-        await reactor_middleware.process(
+        result = await reactor_middleware.process(
             response=message, session_id="test_structured_log_session", context=context
         )
+
+    # Assert - Verify tool call was processed (result should be ProcessedResponse)
+    assert isinstance(result, ProcessedResponse)
 
     # Assert - check for structured log
     assert "Unified steering evaluation" in caplog.text

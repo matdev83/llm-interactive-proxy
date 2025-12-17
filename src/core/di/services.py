@@ -909,25 +909,29 @@ def register_core_services(
         from src.core.services.tool_call_reactor_middleware import (
             ToolCallReactorFeature,
         )
-        from src.core.services.windows_double_ampersand_fixer import (
-            WindowsDoubleAmpersandFixer,
-        )
 
         tool_call_reactor = provider.get_required_service(ToolCallReactorService)
 
-        # Create double-ampersand fixer based on configuration
-        double_ampersand_enabled = getattr(
-            cfg.session, "double_ampersand_fixes_for_windows_enabled", True
+        # Get orchestrator and stream context resolver
+        from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+            IToolCallReactorOrchestrator,
         )
-        double_ampersand_fixer = WindowsDoubleAmpersandFixer(
-            enabled=double_ampersand_enabled
+        from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+            IToolCallStreamContextResolver,
         )
+
+        orchestrator = provider.get_required_service(IToolCallReactorOrchestrator)  # type: ignore[type-abstract]
+        stream_context_resolver = provider.get_required_service(IToolCallStreamContextResolver)  # type: ignore[type-abstract]
+
+        # Get configuration to determine if feature should be enabled
+        enabled = cfg.session.tool_call_reactor.enabled
 
         features.append(
             ToolCallReactorFeature(
+                orchestrator=orchestrator,
+                stream_context_resolver=stream_context_resolver,
                 tool_call_reactor=tool_call_reactor,
-                lifecycle_registry=lifecycle_registry,
-                double_ampersand_fixer=double_ampersand_fixer,
+                enabled=enabled,
             )
         )
 
@@ -2467,6 +2471,229 @@ def register_core_services(
         implementation_factory=_tool_call_lifecycle_registry_factory,
     )
 
+    # Register tool arguments parser
+    def _tool_arguments_parser_factory(
+        provider: IServiceProvider,
+    ) -> ToolArgumentsParser:
+        from src.core.services.tool_call_reactor.arguments_parser import (
+            ToolArgumentsParser,
+        )
+
+        # Optional: pass reactor for telemetry callback
+        reactor = provider.get_service(ToolCallReactorService)
+        return ToolArgumentsParser(telemetry_callback=reactor)
+
+    from src.core.interfaces.tool_arguments_parser_interface import (
+        IToolArgumentsParser,
+    )
+    from src.core.services.tool_call_reactor.arguments_parser import (
+        ToolArgumentsParser,
+    )
+
+    _add_singleton(
+        IToolArgumentsParser,  # type: ignore[type-abstract]
+        implementation_factory=_tool_arguments_parser_factory,
+    )
+    _add_singleton(
+        ToolArgumentsParser,
+        implementation_factory=lambda p: p.get_required_service(IToolArgumentsParser),  # type: ignore[type-abstract]
+    )
+
+    # Register tool arguments fixup pipeline
+    def _tool_arguments_fixup_pipeline_factory(
+        provider: IServiceProvider,
+    ) -> ToolArgumentsFixupPipeline:
+        from src.core.services.tool_call_reactor.arguments_fixup_pipeline import (
+            ToolArgumentsFixupPipeline,
+        )
+        from src.core.services.windows_double_ampersand_fixer import (
+            WindowsDoubleAmpersandFixer,
+        )
+
+        # Use existing WindowsDoubleAmpersandFixer if available, otherwise create new
+        windows_fixer = provider.get_service(WindowsDoubleAmpersandFixer)
+        return ToolArgumentsFixupPipeline(windows_ampersand_fixer=windows_fixer)
+
+    from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+        IToolArgumentsFixupPipeline,
+    )
+    from src.core.services.tool_call_reactor.arguments_fixup_pipeline import (
+        ToolArgumentsFixupPipeline,
+    )
+
+    _add_singleton(
+        IToolArgumentsFixupPipeline,  # type: ignore[type-abstract]
+        implementation_factory=_tool_arguments_fixup_pipeline_factory,
+    )
+    _add_singleton(
+        ToolArgumentsFixupPipeline,
+        implementation_factory=lambda p: p.get_required_service(IToolArgumentsFixupPipeline),  # type: ignore[type-abstract]
+    )
+
+    # Register tool call extractor
+    def _tool_call_extractor_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallExtractor:
+        from src.core.services.tool_call_reactor.extractor import ToolCallExtractor
+
+        return ToolCallExtractor()
+
+    from src.core.interfaces.tool_call_extractor_interface import IToolCallExtractor
+    from src.core.services.tool_call_reactor.extractor import ToolCallExtractor
+
+    _add_singleton(
+        IToolCallExtractor,  # type: ignore[type-abstract]
+        implementation_factory=_tool_call_extractor_factory,
+    )
+    _add_singleton(
+        ToolCallExtractor,
+        implementation_factory=lambda p: p.get_required_service(IToolCallExtractor),  # type: ignore[type-abstract]
+    )
+
+    # Register tool call normalizer
+    def _tool_call_normalizer_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallNormalizer:
+        from src.core.services.tool_call_reactor.normalizer import ToolCallNormalizer
+
+        return ToolCallNormalizer()
+
+    from src.core.interfaces.tool_call_normalizer_interface import IToolCallNormalizer
+    from src.core.services.tool_call_reactor.normalizer import ToolCallNormalizer
+
+    _add_singleton(
+        IToolCallNormalizer,  # type: ignore[type-abstract]
+        implementation_factory=_tool_call_normalizer_factory,
+    )
+    _add_singleton(
+        ToolCallNormalizer,
+        implementation_factory=lambda p: p.get_required_service(IToolCallNormalizer),  # type: ignore[type-abstract]
+    )
+
+    # Register tool call deduplicator
+    def _tool_call_deduplicator_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallDeduplicator:
+        from src.core.services.tool_call_reactor.deduplicator import (
+            ToolCallDeduplicator,
+        )
+
+        lifecycle_registry = provider.get_required_service(ToolCallLifecycleRegistry)
+        return ToolCallDeduplicator(lifecycle_registry=lifecycle_registry)
+
+    from src.core.interfaces.tool_call_deduplicator_interface import (
+        IToolCallDeduplicator,
+    )
+    from src.core.services.tool_call_reactor.deduplicator import ToolCallDeduplicator
+
+    _add_singleton(
+        IToolCallDeduplicator,  # type: ignore[type-abstract]
+        implementation_factory=_tool_call_deduplicator_factory,
+    )
+    _add_singleton(
+        ToolCallDeduplicator,
+        implementation_factory=lambda p: p.get_required_service(IToolCallDeduplicator),  # type: ignore[type-abstract]
+    )
+
+    # Register replacement response factory
+    def _replacement_response_factory_factory(
+        provider: IServiceProvider,
+    ) -> ReplacementResponseFactory:
+        from src.core.services.tool_call_reactor.replacement_response_factory import (
+            ReplacementResponseFactory,
+        )
+
+        return ReplacementResponseFactory()
+
+    from src.core.interfaces.replacement_response_factory_interface import (
+        IReplacementResponseFactory,
+    )
+    from src.core.services.tool_call_reactor.replacement_response_factory import (
+        ReplacementResponseFactory,
+    )
+
+    _add_singleton(
+        IReplacementResponseFactory,  # type: ignore[type-abstract]
+        implementation_factory=_replacement_response_factory_factory,
+    )
+    _add_singleton(
+        ReplacementResponseFactory,
+        implementation_factory=lambda p: p.get_required_service(IReplacementResponseFactory),  # type: ignore[type-abstract]
+    )
+
+    # Register stream context resolver
+    def _tool_call_stream_context_resolver_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallStreamContextResolver:
+        from src.core.services.tool_call_reactor.stream_context_resolver import (
+            ToolCallStreamContextResolver,
+        )
+
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return ToolCallStreamContextResolver(registry=registry)
+
+    from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+        IToolCallStreamContextResolver,
+    )
+    from src.core.services.tool_call_reactor.stream_context_resolver import (
+        ToolCallStreamContextResolver,
+    )
+
+    _add_singleton(
+        IToolCallStreamContextResolver,  # type: ignore[type-abstract]
+        implementation_factory=_tool_call_stream_context_resolver_factory,
+    )
+    _add_singleton(
+        ToolCallStreamContextResolver,
+        implementation_factory=lambda p: p.get_required_service(IToolCallStreamContextResolver),  # type: ignore[type-abstract]
+    )
+
+    # Register orchestrator
+    def _tool_call_reactor_orchestrator_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallReactorOrchestrator:
+        from src.core.services.tool_call_reactor.orchestrator import (
+            ToolCallReactorOrchestrator,
+        )
+
+        extractor = provider.get_required_service(IToolCallExtractor)  # type: ignore[type-abstract]
+        normalizer = provider.get_required_service(IToolCallNormalizer)  # type: ignore[type-abstract]
+        stream_context_resolver = provider.get_required_service(IToolCallStreamContextResolver)  # type: ignore[type-abstract]
+        deduplicator = provider.get_required_service(IToolCallDeduplicator)  # type: ignore[type-abstract]
+        arguments_parser = provider.get_required_service(IToolArgumentsParser)  # type: ignore[type-abstract]
+        arguments_fixup_pipeline = provider.get_required_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
+        reactor = provider.get_required_service(ToolCallReactorService)
+        replacement_factory = provider.get_required_service(IReplacementResponseFactory)  # type: ignore[type-abstract]
+        lifecycle_registry = provider.get_required_service(ToolCallLifecycleRegistry)
+
+        return ToolCallReactorOrchestrator(
+            extractor=extractor,
+            normalizer=normalizer,
+            stream_context_resolver=stream_context_resolver,
+            deduplicator=deduplicator,
+            arguments_parser=arguments_parser,
+            arguments_fixup_pipeline=arguments_fixup_pipeline,
+            reactor=reactor,
+            replacement_factory=replacement_factory,
+            lifecycle_registry=lifecycle_registry,
+        )
+
+    from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+        IToolCallReactorOrchestrator,
+    )
+    from src.core.services.tool_call_reactor.orchestrator import (
+        ToolCallReactorOrchestrator,
+    )
+
+    _add_singleton(
+        IToolCallReactorOrchestrator,  # type: ignore[type-abstract]
+        implementation_factory=_tool_call_reactor_orchestrator_factory,
+    )
+    _add_singleton(
+        ToolCallReactorOrchestrator,
+        implementation_factory=lambda p: p.get_required_service(IToolCallReactorOrchestrator),  # type: ignore[type-abstract]
+    )
+
     # NOTE: ToolCallReactorMiddleware is deprecated but still registered for backward
     # compatibility with tests. Production code should use ToolCallReactorFeature
     # (registered via MiddlewareApplicationManager) for proper streaming/non-streaming parity.
@@ -2474,23 +2701,30 @@ def register_core_services(
         provider: IServiceProvider,
     ) -> ToolCallReactorMiddleware:
         from src.core.config.app_config import AppConfig
+        from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+            IToolCallReactorOrchestrator,
+        )
+        from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+            IToolCallStreamContextResolver,
+        )
         from src.core.services.tool_call_reactor_middleware import (
             ToolCallReactorMiddleware,
         )
 
+        orchestrator = provider.get_required_service(IToolCallReactorOrchestrator)  # type: ignore[type-abstract]
+        stream_context_resolver = provider.get_required_service(IToolCallStreamContextResolver)  # type: ignore[type-abstract]
         reactor = provider.get_required_service(ToolCallReactorService)
 
         # Get configuration to determine if middleware should be enabled
         app_config: AppConfig = provider.get_required_service(AppConfig)
         enabled = app_config.session.tool_call_reactor.enabled
 
-        lifecycle = provider.get_required_service(ToolCallLifecycleRegistry)
-
         return ToolCallReactorMiddleware(
-            reactor,
+            orchestrator=orchestrator,
+            stream_context_resolver=stream_context_resolver,
+            tool_call_reactor=reactor,
             enabled=enabled,
             priority=-10,
-            lifecycle_registry=lifecycle,
         )
 
     from src.core.services.tool_call_reactor_middleware import (
@@ -2562,6 +2796,9 @@ def register_core_services(
         unified_config.file_sandboxing.strict_mode = app_config.sandboxing.strict_mode
         unified_config.file_sandboxing.allow_parent_access = (
             app_config.sandboxing.allow_parent_access
+        )
+        unified_config.file_sandboxing.default_tool_patterns = list(
+            app_config.sandboxing.default_tool_patterns
         )
         unified_config.file_sandboxing.custom_tool_patterns = list(
             app_config.sandboxing.custom_tool_patterns

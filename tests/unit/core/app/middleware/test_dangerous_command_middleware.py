@@ -25,8 +25,38 @@ class FakeReactor:
 
 @pytest.mark.asyncio
 async def test_reactor_swallows_dangerous_command_and_steers() -> None:
+    from unittest.mock import Mock
+
+    from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+        IToolCallReactorOrchestrator,
+    )
+    from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+        IToolCallStreamContextResolver,
+    )
+
     reactor = FakeReactor()
-    middleware = ToolCallReactorMiddleware(reactor, enabled=True)
+    mock_orchestrator = Mock(spec=IToolCallReactorOrchestrator)
+    mock_stream_resolver = Mock(spec=IToolCallStreamContextResolver)
+
+    # Configure mock orchestrator to return a response with steering message
+    async def handle_side_effect(response, session_id, context, is_streaming):
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        return ProcessedResponse(
+            content={"choices": [{"message": {"content": "steering"}}]},
+            metadata={"steering_message": "steering"},
+        )
+
+    mock_orchestrator.handle = AsyncMock(side_effect=handle_side_effect)
+    mock_stream_resolver.resolve_stream_key.return_value = "stream_key"
+    mock_stream_resolver.resolve_buffer_state.return_value = None
+
+    middleware = ToolCallReactorMiddleware(
+        orchestrator=mock_orchestrator,
+        stream_context_resolver=mock_stream_resolver,
+        tool_call_reactor=reactor,
+        enabled=True,
+    )
 
     dangerous_tool_call = {
         "id": "call_1",
@@ -60,6 +90,9 @@ async def test_reactor_swallows_dangerous_command_and_steers() -> None:
     assert isinstance(result.content, dict)
     assert result.content["choices"][0]["message"]["content"] == "steering"
     assert result.metadata["steering_message"] == "steering"
+
+    # Verify orchestrator was called
+    assert mock_orchestrator.handle.called
 
 
 @pytest.mark.asyncio

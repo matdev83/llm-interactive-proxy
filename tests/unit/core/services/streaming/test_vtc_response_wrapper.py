@@ -835,3 +835,91 @@ class TestVTCReactorIntegration:
         for chunk in result_chunks:
             if chunk.metadata:
                 assert not chunk.metadata.get("vtc_tool_calls_swallowed")
+
+    @pytest.mark.asyncio
+    async def test_vtc_uses_standardized_argument_contract(self):
+        """VTC wrapper should use standardized argument parsing/fixup pipeline."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+            FixupContext,
+            IToolArgumentsFixupPipeline,
+        )
+        from src.core.interfaces.tool_arguments_parser_interface import (
+            IToolArgumentsParser,
+        )
+        from src.core.interfaces.tool_call_reactor_interface import (
+            ToolCallReactionResult,
+        )
+        from src.core.interfaces.tool_call_reactor_internal import (
+            NormalizedToolArguments,
+            ToolArgumentsEnvelope,
+        )
+        from src.core.services.streaming.vtc_response_wrapper import (
+            wrap_processed_response_stream_with_vtc,
+        )
+
+        # Create mock parser and fixup pipeline
+        mock_parser = MagicMock(spec=IToolArgumentsParser)
+        mock_fixup = MagicMock(spec=IToolArgumentsFixupPipeline)
+
+        # Mock parser to return an envelope
+        mock_envelope = ToolArgumentsEnvelope(
+            parse_outcome="success",
+            normalized_arguments=NormalizedToolArguments({"command": "git status"}),
+        )
+        mock_parser.parse.return_value = mock_envelope
+
+        # Mock fixup to return the same envelope (no modifications)
+        mock_fixup.apply_fixups.return_value = mock_envelope
+
+        # Create mock reactor that does NOT swallow
+        mock_result = ToolCallReactionResult(should_swallow=False)
+        mock_reactor = MagicMock()
+        mock_reactor.process_tool_call = AsyncMock(return_value=mock_result)
+
+        xml_content = (
+            "I will run the command.\n\n"
+            "<execute_command>\n"
+            "<command>git status</command>\n"
+            "</execute_command>"
+        )
+
+        chunks = [
+            create_chunk(xml_content),
+            create_empty_chunk(),
+        ]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        result_chunks = []
+        async for chunk in wrap_processed_response_stream_with_vtc(
+            mock_stream(),
+            vtc_enabled=True,
+            tool_call_reactor=mock_reactor,
+            arguments_parser=mock_parser,
+            arguments_fixup_pipeline=mock_fixup,
+            session_id="test-session",
+            context={"backend_name": "test-backend", "model_name": "test-model"},
+        ):
+            result_chunks.append(chunk)
+
+        # Verify parser was called with raw arguments
+        assert mock_parser.parse.called
+        call_args = mock_parser.parse.call_args[0]
+        assert isinstance(call_args[0], str | dict)
+
+        # Verify fixup pipeline was called with envelope and context
+        assert mock_fixup.apply_fixups.called
+        fixup_call_args = mock_fixup.apply_fixups.call_args
+        assert isinstance(fixup_call_args[0][0], ToolArgumentsEnvelope)
+        assert isinstance(fixup_call_args[0][1], FixupContext)
+        assert fixup_call_args[0][1].tool_name == "execute_command"
+        assert fixup_call_args[0][1].backend_name == "test-backend"
+
+        # Verify reactor was called with normalized arguments
+        assert mock_reactor.process_tool_call.called
+        reactor_context = mock_reactor.process_tool_call.call_args[0][0]
+        assert reactor_context.tool_arguments == {"command": "git status"}

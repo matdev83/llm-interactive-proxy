@@ -223,3 +223,141 @@ class TestServiceRegistration:
         # Assert that unified pipeline is configured
         assert hasattr(response_processor, "_unified_pipeline")
         assert response_processor._unified_pipeline is not None
+
+    def test_tool_call_reactor_subsystem_registration(self) -> None:
+        """Test that all tool call reactor subsystem components are registered as singletons."""
+        services = ServiceCollection()
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        # Import all subsystem components and interfaces
+        from src.core.interfaces.replacement_response_factory_interface import (
+            IReplacementResponseFactory,
+        )
+        from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+            IToolArgumentsFixupPipeline,
+        )
+        from src.core.interfaces.tool_arguments_parser_interface import (
+            IToolArgumentsParser,
+        )
+        from src.core.interfaces.tool_call_deduplicator_interface import (
+            IToolCallDeduplicator,
+        )
+        from src.core.interfaces.tool_call_extractor_interface import IToolCallExtractor
+        from src.core.interfaces.tool_call_normalizer_interface import (
+            IToolCallNormalizer,
+        )
+        from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+            IToolCallReactorOrchestrator,
+        )
+        from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+            IToolCallStreamContextResolver,
+        )
+        from src.core.services.tool_call_reactor.arguments_fixup_pipeline import (
+            ToolArgumentsFixupPipeline,
+        )
+        from src.core.services.tool_call_reactor.arguments_parser import (
+            ToolArgumentsParser,
+        )
+        from src.core.services.tool_call_reactor.deduplicator import (
+            ToolCallDeduplicator,
+        )
+        from src.core.services.tool_call_reactor.extractor import ToolCallExtractor
+        from src.core.services.tool_call_reactor.normalizer import ToolCallNormalizer
+        from src.core.services.tool_call_reactor.orchestrator import (
+            ToolCallReactorOrchestrator,
+        )
+        from src.core.services.tool_call_reactor.replacement_response_factory import (
+            ReplacementResponseFactory,
+        )
+        from src.core.services.tool_call_reactor.stream_context_resolver import (
+            ToolCallStreamContextResolver,
+        )
+
+        # Test IToolCallExtractor / ToolCallExtractor
+        extractor1 = provider.get_required_service(IToolCallExtractor)  # type: ignore[type-abstract]
+        extractor2 = provider.get_required_service(IToolCallExtractor)  # type: ignore[type-abstract]
+        assert isinstance(extractor1, ToolCallExtractor)
+        assert extractor1 is extractor2
+
+        # Test IToolCallNormalizer / ToolCallNormalizer
+        normalizer1 = provider.get_required_service(IToolCallNormalizer)  # type: ignore[type-abstract]
+        normalizer2 = provider.get_required_service(IToolCallNormalizer)  # type: ignore[type-abstract]
+        assert isinstance(normalizer1, ToolCallNormalizer)
+        assert normalizer1 is normalizer2
+
+        # Test IToolCallDeduplicator / ToolCallDeduplicator
+        deduplicator1 = provider.get_required_service(IToolCallDeduplicator)  # type: ignore[type-abstract]
+        deduplicator2 = provider.get_required_service(IToolCallDeduplicator)  # type: ignore[type-abstract]
+        assert isinstance(deduplicator1, ToolCallDeduplicator)
+        assert deduplicator1 is deduplicator2
+
+        # Test IToolArgumentsParser / ToolArgumentsParser
+        parser1 = provider.get_required_service(IToolArgumentsParser)  # type: ignore[type-abstract]
+        parser2 = provider.get_required_service(IToolArgumentsParser)  # type: ignore[type-abstract]
+        assert isinstance(parser1, ToolArgumentsParser)
+        assert parser1 is parser2
+
+        # Test IToolArgumentsFixupPipeline / ToolArgumentsFixupPipeline
+        fixup1 = provider.get_required_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
+        fixup2 = provider.get_required_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
+        assert isinstance(fixup1, ToolArgumentsFixupPipeline)
+        assert fixup1 is fixup2
+
+        # Test IReplacementResponseFactory / ReplacementResponseFactory
+        factory1 = provider.get_required_service(IReplacementResponseFactory)  # type: ignore[type-abstract]
+        factory2 = provider.get_required_service(IReplacementResponseFactory)  # type: ignore[type-abstract]
+        assert isinstance(factory1, ReplacementResponseFactory)
+        assert factory1 is factory2
+
+        # Test IToolCallStreamContextResolver / ToolCallStreamContextResolver
+        resolver1 = provider.get_required_service(IToolCallStreamContextResolver)  # type: ignore[type-abstract]
+        resolver2 = provider.get_required_service(IToolCallStreamContextResolver)  # type: ignore[type-abstract]
+        assert isinstance(resolver1, ToolCallStreamContextResolver)
+        assert resolver1 is resolver2
+
+        # Test IToolCallReactorOrchestrator / ToolCallReactorOrchestrator
+        orchestrator1 = provider.get_required_service(IToolCallReactorOrchestrator)  # type: ignore[type-abstract]
+        orchestrator2 = provider.get_required_service(IToolCallReactorOrchestrator)  # type: ignore[type-abstract]
+        assert isinstance(orchestrator1, ToolCallReactorOrchestrator)
+        assert orchestrator1 is orchestrator2
+
+    def test_tool_call_reactor_feature_registration(self) -> None:
+        """Test that ToolCallReactorFeature is registered via MiddlewareApplicationManager."""
+        services = ServiceCollection()
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        from src.core.services.middleware_application_manager import (
+            MiddlewareApplicationManager,
+        )
+        from src.core.services.tool_call_reactor_middleware import (
+            ToolCallReactorFeature,
+        )
+
+        manager = provider.get_required_service(MiddlewareApplicationManager)
+        assert manager is not None
+
+        # Verify ToolCallReactorFeature is in the middleware list
+        reactor_features = [
+            mw for mw in manager._middleware if isinstance(mw, ToolCallReactorFeature)
+        ]
+        assert (
+            len(reactor_features) == 1
+        ), "ToolCallReactorFeature should be registered exactly once"
+        assert isinstance(reactor_features[0], ToolCallReactorFeature)
+
+    def test_tool_call_reactor_middleware_legacy_registration(self) -> None:
+        """Test that legacy ToolCallReactorMiddleware remains registered for backward compatibility."""
+        services = ServiceCollection()
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        from src.core.services.tool_call_reactor_middleware import (
+            ToolCallReactorMiddleware,
+        )
+
+        # Legacy middleware should be resolvable
+        middleware = provider.get_service(ToolCallReactorMiddleware)
+        assert middleware is not None
+        assert isinstance(middleware, ToolCallReactorMiddleware)
