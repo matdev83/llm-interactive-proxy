@@ -153,21 +153,21 @@ sequenceDiagram
 
 ### Core Typed Contracts (Internal)
 
-The refactor standardizes internal data exchange using typed dataclasses and Pydantic v2 models to avoid passing ad-hoc dict/list/str shapes between components. External/public integration points remain compatible (notably `ToolCallContext.tool_arguments` remains a `dict[str, Any]` per existing interface), but the subsystem produces that dict from a well-defined typed model.
+The refactor standardizes internal data exchange using typed dataclasses and Pydantic v2 models to avoid passing ad-hoc dict/list/str shapes between components. External/public integration points remain compatible (notably `ToolCallContext.tool_arguments` remains a legacy dictionary per existing interface), but the subsystem produces that dictionary only at the boundary from a typed internal contract.
 
 #### ToolArgumentsEnvelope (Pydantic v2)
 
 This model is the single internal representation for tool arguments across streaming/non-streaming paths. It enforces a **single** normalized argument shape: `normalized_args` is always a JSON-object-like dictionary.
 
 Normalization rules:
-- If parsed arguments are a JSON object → `normalized_args` is that object.
-- If parsed arguments are a JSON array → `normalized_args = {"__proxy_args_list__": <array>}`.
-- If parsing fails and only raw text exists → `normalized_args = {"__proxy_args_raw__": <raw_text>}`.
+- If parsed arguments are a JSON object → `normalized_arguments_json` is that object (as a compact JSON string).
+- If parsed arguments are a JSON array → `normalized_arguments_json` is `{"__proxy_args_list__": <array>}` (as a compact JSON string).
+- If parsing fails and only raw text exists → `normalized_arguments_json` is `{"__proxy_args_raw__": <raw_text>}` (as a compact JSON string).
 
 ```python
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -177,13 +177,13 @@ class ToolArgumentsEnvelope(BaseModel):
 
     parse_outcome: Literal["success", "recovered", "failed"] = "failed"
     raw_arguments: str | None = None
-    normalized_args: dict[str, Any] = Field(default_factory=dict)
+    normalized_arguments_json: str = Field(default="{}")
     was_modified_by_fixups: bool = False
 ```
 
 **External compatibility mapping**:
 - When building `ToolCallContext`, the subsystem shall set:
-  - `ToolCallContext.tool_arguments = ToolArgumentsEnvelope.normalized_args`
+  - `ToolCallContext.tool_arguments = json.loads(ToolArgumentsEnvelope.normalized_arguments_json)`
   - (Optionally) attach `parse_outcome` and fixup flags to reactor metadata to support observability without leaking secrets.
 
 #### ToolCallBufferState Contract (ABC)
@@ -194,14 +194,14 @@ To maintain strict dependency direction, interfaces under `src/core/interfaces/`
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from src.core.domain.chat import ToolCall
 
 
 class IToolCallBufferState(ABC):
     """Abstract view over per-stream tool-call buffering state."""
 
     @abstractmethod
-    def consume_new_reactor_calls(self) -> list[dict[str, Any]]:
+    def consume_new_reactor_calls(self) -> list[ToolCall]:
         """Return newly detected tool calls for the reactor and advance the cursor."""
         ...
 
@@ -256,22 +256,36 @@ Notes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ToolCallReactorContext(BaseModel):
+    """Typed view over reactor context data passed between layers.
+
+    This replaces cross-layer ad-hoc dictionary passing. The legacy pipeline may
+    still hold an untyped mapping; an adapter should construct this model at the boundary.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+
+    client_os: str | None = None
+    stream_key: str | None = None
+    buffer_state: object | None = None
 
 
 class IToolCallReactorOrchestrator(ABC):
     @abstractmethod
     async def handle(
         self,
-        response: Any,
+        response: object,
         session_id: str,
-        context: dict[str, Any],
+        context: ToolCallReactorContext,
         is_streaming: bool,
-    ) -> Any:
+    ) -> object:
         """Return either the original response/chunk or a replacement response."""
         ...
 ```
-- Preconditions: `context` is a dict (empty dict allowed).
+- Preconditions: `ToolCallReactorContext` is constructed at the boundary; `buffer_state` may be absent (degraded mode).
 - Postconditions: returned value is compatible with existing pipeline expectations (either unchanged response/chunk or a `ProcessedResponse` replacement).
 - Invariants: swallow decisions produce metadata keys required by retry and streaming processors.
 
@@ -298,7 +312,6 @@ class IToolCallReactorOrchestrator(ABC):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 from src.core.interfaces.tool_call_buffer_state import IToolCallBufferState
 
@@ -306,13 +319,13 @@ from src.core.interfaces.tool_call_buffer_state import IToolCallBufferState
 class IToolCallStreamContextResolver(ABC):
     @abstractmethod
     def resolve_stream_key(
-        self, session_id: str, context: dict[str, Any], response: Any
+        self, session_id: str, context: ToolCallReactorContext, response: object
     ) -> str:
         ...
 
     @abstractmethod
     def resolve_buffer_state(
-        self, context: dict[str, Any] | None, stream_key: str
+        self, context: ToolCallReactorContext | None, stream_key: str
     ) -> IToolCallBufferState | None:
         ...
 ```
@@ -337,18 +350,29 @@ class IToolCallStreamContextResolver(ABC):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from pydantic import BaseModel, ConfigDict
+
+from src.core.domain.chat import ToolCall
+
+
+class ToolCallReactionMetadata(BaseModel):
+    """Typed metadata emitted by the reactor for observability and retries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reaction_type: str
+    reactor_name: str | None = None
 
 
 class IReplacementResponseFactory(ABC):
     @abstractmethod
     def build_replacement(
         self,
-        original_response: Any,
+        original_response: object,
         replacement_content: str,
-        original_tool_call: dict[str, Any],
-        reaction_metadata: dict[str, Any] | None,
-    ) -> Any:
+        original_tool_call: ToolCall,
+        reaction_metadata: ToolCallReactionMetadata | None,
+    ) -> object:
         """Return a response compatible with `MiddlewareApplicationManager`."""
         ...
 ```
@@ -360,7 +384,7 @@ class IReplacementResponseFactory(ABC):
 The following metadata keys are treated as compatibility-critical internal contract between the tool-call reactor subsystem and downstream processing:
 - `tool_call_swallowed` (bool)
 - `steering_message` (str)
-- `swallowed_tool_calls` (list of tool call dicts)
+- `swallowed_tool_calls` (list of typed `ToolCall` models, serialized at the boundary)
 - `swallowed_original_content` (str, bounded)
 - `_steering_replacement` (bool)
 
@@ -417,4 +441,4 @@ If the repo prefers `xenon`, a single equivalent gate SHALL be chosen and docume
 ## Open Questions / Risks
 
 - VTC alignment: whether VTC should reuse the same argument parsing and fixup pipeline as the main feature (risk of behavior drift across clients).
-- Type contract mismatch: `ToolCallContext.tool_arguments` is typed as `dict[str, Any]`; this design resolves it by enforcing `ToolArgumentsEnvelope.normalized_args` as the sole shape passed to handlers (always a dict).
+- Type contract mismatch: `ToolCallContext.tool_arguments` is typed as a legacy dict; this design resolves it by enforcing `ToolArgumentsEnvelope.normalized_arguments_json` as the sole cross-component shape, with a single boundary conversion to the legacy dict when constructing `ToolCallContext`.

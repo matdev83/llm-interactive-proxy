@@ -177,9 +177,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from src.core.config.parameter_resolution import ParameterResolution
+
+class ConfigLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: Mapping[str, object]
 
 @dataclass(frozen=True)
 class SourceContext:
@@ -189,18 +195,26 @@ class SourceContext:
 
 class IConfigSource(ABC):
     @abstractmethod
-    def load(self, ctx: SourceContext) -> dict[str, Any]:
+    def load(self, ctx: SourceContext) -> ConfigLayer:
         ...
 ```
 
 #### IConfigMerger
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Sequence, Mapping
+
+from pydantic import BaseModel, ConfigDict
+
+
+class ConfigLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: Mapping[str, object]
 
 class IConfigMerger(ABC):
     @abstractmethod
-    def merge(self, layers: list[dict[str, Any]]) -> dict[str, Any]:
+    def merge(self, layers: Sequence[ConfigLayer]) -> ConfigLayer:
         ...
 ```
 
@@ -208,11 +222,20 @@ class IConfigMerger(ABC):
 ```python
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+
+from collections.abc import Mapping
+
+from pydantic import BaseModel, ConfigDict
+
+
+class ConfigLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: Mapping[str, object]
 
 class IConfigValidator(ABC):
     @abstractmethod
-    def validate_yaml(self, *, yaml_path: Path, data: Any) -> None:
+    def validate_yaml(self, *, yaml_path: Path, data: ConfigLayer) -> None:
         ...
 ```
 
@@ -222,9 +245,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from src.core.config.parameter_resolution import ParameterResolution
+
+class ConfigLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: Mapping[str, object]
 
 @dataclass(frozen=True)
 class BackendInstanceContext:
@@ -234,7 +263,7 @@ class BackendInstanceContext:
 
 class IBackendInstanceSource(ABC):
     @abstractmethod
-    def load_instances(self, ctx: BackendInstanceContext) -> dict[str, Any]:
+    def load_instances(self, ctx: BackendInstanceContext) -> ConfigLayer:
         ...
 ```
 
@@ -302,4 +331,3 @@ No secrets (API keys, tokens) are logged or included in error details.
 - `src/core/config/app_config.py` remains the canonical import path for `AppConfig` and nested config types; internally it delegates to the new modules.
 - Existing deprecated `src/core/config/config_loader.py` behavior remains deprecated; no new entry points are introduced.
 - The refactor is executed in small steps that keep tests green (facade first, then incremental extraction), with explicit fallbacks where necessary.
-

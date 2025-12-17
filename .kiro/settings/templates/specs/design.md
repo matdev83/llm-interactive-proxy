@@ -192,6 +192,8 @@ services.add_singleton(IServiceName, implementation_factory=_factory)
 
 Focus on the portions of the data landscape that change with this feature.
 
+- Cross-layer / cross-domain data passed between components should use standardized contracts (prefer **Pydantic v2 models** in `src/core/domain/`); avoid passing ad-hoc `dict[...]` payloads or wide unions between layers.
+
 ### Domain Model (`src/core/domain/`)
 - Domain entities and value objects
 - Business rules & invariants

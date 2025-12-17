@@ -7,6 +7,9 @@
 - Define explicit types for all parameters and returns
 - Use discriminated unions for error handling
 - Specify generic constraints clearly
+- For Python, avoid `Any`, ad-hoc `dict[...]` payloads, and wide unions in cross-layer / cross-domain interfaces.
+- For Python cross-boundary contracts, prefer standardized **Pydantic v2 models** (project default) or `dataclasses` when appropriate.
+- If a boundary must carry provider-specific or tool-specific opaque data, pass it as `object` wrapped in a named contract model (for example `ProviderRawChunk`), and normalize to typed domain models immediately after the boundary.
 
 ### 2. Design vs Implementation
 - **Focus on WHAT, not HOW**

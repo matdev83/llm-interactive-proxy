@@ -133,8 +133,8 @@ class ClientSession:
     auth_token: Optional[str]
     last_seen: datetime
     subscriptions: Set[str]
-    file_context: Optional[Dict[str, Any]]
-    conversation_history: List[Dict[str, Any]]
+    file_context: CodebuffJsonObject | None
+    conversation_history: list[CodebuffJsonObject]
 
 class ConnectionManager:
     """Manages WebSocket connections and sessions."""
@@ -182,12 +182,12 @@ class MessageRouter:
     async def route_message(
         self,
         websocket: WebSocket,
-        message: Dict[str, Any]
+        message: ClientMessage
     ) -> ServerMessage:
         """Parse, validate, and route a message."""
         
-    def validate_message(self, message: Dict[str, Any]) -> ClientMessage:
-        """Validate message against schema."""
+    def validate_message(self, raw_message: object) -> ClientMessage:
+        """Validate and parse the raw message into a typed contract."""
 ```
 
 ### Action Handlers
@@ -248,30 +248,30 @@ class FormatConverter:
     
     def codebuff_to_openai(
         self,
-        messages: List[Dict[str, Any]],
-        session_state: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        messages: list[CodebuffJsonObject],
+        session_state: CodebuffJsonObject
+    ) -> list[CodebuffJsonObject]:
         """Convert Codebuff messages to OpenAI format."""
         
     def create_response_chunk(
         self,
         user_input_id: str,
         text: str
-    ) -> Dict[str, Any]:
+    ) -> CodebuffJsonObject:
         """Create a response-chunk action."""
         
     def create_prompt_response(
         self,
         prompt_id: str,
-        session_state: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        session_state: CodebuffJsonObject
+    ) -> CodebuffJsonObject:
         """Create a prompt-response action."""
         
     def create_error_response(
         self,
         user_input_id: str,
         error_message: str
-    ) -> Dict[str, Any]:
+    ) -> CodebuffJsonObject:
         """Create a prompt-error action."""
 ```
 
@@ -281,6 +281,29 @@ class FormatConverter:
 
 ```python
 # Client Messages
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class CodebuffJsonObject(BaseModel):
+    """Typed JSON-object envelope for Codebuff protocol payload fragments."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class AgentNameEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agentId: str
+    agentName: str
+
+
+class AgentNames(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[AgentNameEntry] = Field(default_factory=list)
+
 class IdentifyMessage(BaseModel):
     type: Literal["identify"]
     txid: int
@@ -304,13 +327,13 @@ class PromptAction(BaseModel):
     type: Literal["prompt"]
     promptId: str
     prompt: Optional[str]
-    content: Optional[List[Dict[str, Any]]]
-    promptParams: Optional[Dict[str, Any]]
+    content: list[CodebuffJsonObject] | None = None
+    promptParams: CodebuffJsonObject | None = None
     fingerprintId: str
     authToken: Optional[str]
     costMode: str = "normal"
-    sessionState: Dict[str, Any]
-    toolResults: List[Dict[str, Any]]
+    sessionState: CodebuffJsonObject
+    toolResults: list[CodebuffJsonObject]
     model: Optional[str]
     repoUrl: Optional[str]
     agentId: Optional[str]
@@ -319,21 +342,17 @@ class InitAction(BaseModel):
     type: Literal["init"]
     fingerprintId: str
     authToken: Optional[str]
-    fileContext: Dict[str, Any]
+    fileContext: CodebuffJsonObject
     repoUrl: Optional[str]
 
 class ActionMessage(BaseModel):
     type: Literal["action"]
     txid: int
-    data: Union[PromptAction, InitAction]
+    data: PromptAction | InitAction = Field(discriminator="type")
 
-ClientMessage = Union[
-    IdentifyMessage,
-    PingMessage,
-    SubscribeMessage,
-    UnsubscribeMessage,
-    ActionMessage
-]
+ClientMessage = (
+    IdentifyMessage | PingMessage | SubscribeMessage | UnsubscribeMessage | ActionMessage
+)
 
 # Server Messages
 class AckMessage(BaseModel):
@@ -350,10 +369,10 @@ class ResponseChunkAction(BaseModel):
 class PromptResponseAction(BaseModel):
     type: Literal["prompt-response"]
     promptId: str
-    sessionState: Dict[str, Any]
-    toolCalls: Optional[List[Dict[str, Any]]]
-    toolResults: Optional[List[Dict[str, Any]]]
-    output: Optional[Dict[str, Any]]
+    sessionState: CodebuffJsonObject
+    toolCalls: list[CodebuffJsonObject] | None = None
+    toolResults: list[CodebuffJsonObject] | None = None
+    output: CodebuffJsonObject | None = None
 
 class PromptErrorAction(BaseModel):
     type: Literal["prompt-error"]
@@ -365,21 +384,21 @@ class PromptErrorAction(BaseModel):
 class InitResponseAction(BaseModel):
     type: Literal["init-response"]
     message: Optional[str]
-    agentNames: Optional[Dict[str, str]]
+    agentNames: AgentNames | None = None
     usage: float
     remainingBalance: float
     next_quota_reset: Optional[datetime]
 
 class ServerActionMessage(BaseModel):
     type: Literal["action"]
-    data: Union[
-        ResponseChunkAction,
-        PromptResponseAction,
-        PromptErrorAction,
-        InitResponseAction
-    ]
+    data: (
+        ResponseChunkAction
+        | PromptResponseAction
+        | PromptErrorAction
+        | InitResponseAction
+    ) = Field(discriminator="type")
 
-ServerMessage = Union[AckMessage, ServerActionMessage]
+ServerMessage = AckMessage | ServerActionMessage
 ```
 
 ### Session State
@@ -394,9 +413,9 @@ class SessionState:
     created_at: datetime
     last_seen: datetime
     subscriptions: Set[str]
-    file_context: Optional[Dict[str, Any]]
-    conversation_history: List[Dict[str, Any]]
-    active_requests: Dict[str, Any]  # prompt_id -> request state
+    file_context: CodebuffJsonObject | None
+    conversation_history: list[CodebuffJsonObject]
+    active_requests: list[CodebuffJsonObject]  # request states (prompt_id embedded in payload)
 ```
 
 ## Correctness Properties

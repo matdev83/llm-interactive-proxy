@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Analyze code complexity using radon and identify top complex files."""
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -81,8 +82,181 @@ def analyze_file(file_path: Path):
         return {"file": str(file_path), "error": str(e)}
 
 
+def validate_streaming_refactor_scope() -> int:
+    """
+    Validate complexity and LOC thresholds for streaming refactor scope.
+
+    Checks all modules in the refactor scope against thresholds:
+    - LOC < 600 per file (Requirements 1.1, 1.2)
+    - Max function CC < 50 (Requirement 1.3)
+    - Total module CC < 200 (Requirement 1.5)
+
+    Returns:
+        0 if all thresholds pass, 1 if any violations found
+    """
+    # Define refactor scope modules
+    scope_patterns = [
+        "src/core/ports/streaming_contracts.py",  # Facade
+        "src/core/domain/streaming/**/*.py",  # All domain modules
+        "src/core/ports/streaming/**/*.py",  # All ports modules
+        "src/core/transport/streaming/**/*.py",  # All transport modules
+        "src/core/services/streaming/error_mapping.py",  # Error mapping only
+    ]
+
+    # Collect all files in scope
+    scope_files = []
+    base_path = Path(".")
+
+    for pattern in scope_patterns:
+        if "**" in pattern:
+            # Handle glob patterns (recursive)
+            for py_file in base_path.glob(pattern):
+                if "__pycache__" not in str(py_file) and py_file.suffix == ".py":
+                    scope_files.append(py_file)
+        else:
+            # Single file pattern
+            py_file = base_path / pattern
+            if py_file.exists() and py_file.suffix == ".py":
+                scope_files.append(py_file)
+
+    # Remove duplicates and sort
+    scope_files = sorted(set(scope_files))
+
+    if not scope_files:
+        print("Warning: No files found in refactor scope")
+        return 1
+
+    # Thresholds from requirements.md
+    MAX_LOC = 600
+    MAX_FUNCTION_CC = 50
+    MAX_MODULE_CC = 200
+
+    violations = []
+    passed_count = 0
+
+    print("=" * 100)
+    print("STREAMING REFACTOR SCOPE VALIDATION")
+    print("=" * 100)
+    print(f"\nChecking {len(scope_files)} files against thresholds:")
+    print(f"  - LOC per file: < {MAX_LOC}")
+    print(f"  - Max function CC: < {MAX_FUNCTION_CC}")
+    print(f"  - Total module CC: < {MAX_MODULE_CC}")
+    print()
+
+    for file_path in scope_files:
+        result = analyze_file(file_path)
+        if "error" in result:
+            violations.append(
+                {
+                    "file": str(file_path),
+                    "error": result["error"],
+                    "type": "analysis_error",
+                }
+            )
+            continue
+
+        file_violations = []
+        rel_path = str(file_path.relative_to(base_path))
+
+        # Check LOC threshold
+        if result["lines"] >= MAX_LOC:
+            file_violations.append(
+                f"LOC violation: {result['lines']} lines (threshold: < {MAX_LOC})"
+            )
+
+        # Check max function CC threshold
+        if result["max_complexity"] >= MAX_FUNCTION_CC:
+            file_violations.append(
+                f"Max function CC violation: {result['max_complexity']} "
+                f"(threshold: < {MAX_FUNCTION_CC})"
+            )
+            # Find the violating function
+            max_block = max(
+                result["complexity_blocks"],
+                key=lambda x: x["complexity"],
+                default=None,
+            )
+            if max_block:
+                file_violations.append(
+                    f"  Violating function: {max_block['type']} {max_block['name']} "
+                    f"(line {max_block['lineno']})"
+                )
+
+        # Check total module CC threshold
+        if result["total_complexity"] >= MAX_MODULE_CC:
+            file_violations.append(
+                f"Total module CC violation: {result['total_complexity']} "
+                f"(threshold: < {MAX_MODULE_CC})"
+            )
+
+        if file_violations:
+            violations.append(
+                {
+                    "file": rel_path,
+                    "violations": file_violations,
+                    "metrics": {
+                        "lines": result["lines"],
+                        "max_complexity": result["max_complexity"],
+                        "total_complexity": result["total_complexity"],
+                    },
+                }
+            )
+        else:
+            passed_count += 1
+
+    # Report results
+    if violations:
+        print("=" * 100)
+        print(f"VALIDATION FAILED: {len(violations)} file(s) with violations")
+        print("=" * 100)
+        print()
+
+        for violation in violations:
+            print(f"[FAIL] {violation['file']}")
+            if "error" in violation:
+                print(f"   Error: {violation['error']}")
+            else:
+                if "metrics" in violation:
+                    metrics = violation["metrics"]
+                    print(
+                        f"   Metrics: {metrics['lines']} lines, "
+                        f"max CC: {metrics['max_complexity']}, "
+                        f"total CC: {metrics['total_complexity']}"
+                    )
+                print("   Violations:")
+                for v in violation["violations"]:
+                    print(f"     - {v}")
+            print()
+
+        print(f"[PASS] Passed: {passed_count}/{len(scope_files)} files")
+        return 1
+    else:
+        print("=" * 100)
+        print(f"[PASS] VALIDATION PASSED: All {len(scope_files)} files meet thresholds")
+        print("=" * 100)
+        return 0
+
+
 def main():
     """Main function to analyze all Python files."""
+    parser = argparse.ArgumentParser(
+        description="Analyze code complexity using radon",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--validate-refactor-scope",
+        action="store_true",
+        help="Validate streaming refactor scope against LOC/CC thresholds and exit",
+    )
+
+    args = parser.parse_args()
+
+    # If validation mode requested, run validation and exit
+    if args.validate_refactor_scope:
+        exit_code = validate_streaming_refactor_scope()
+        sys.exit(exit_code)
+
+    # Default: existing analysis/reporting behavior
     src_dir = Path("src")
     if not src_dir.exists():
         print(f"Error: {src_dir} does not exist")

@@ -82,6 +82,10 @@ Response with tool calls arrives
 A standalone service class that encapsulates the replacement logic. This makes the code testable and follows the existing pattern of `DangerousCommandService`.
 
 ```python
+from __future__ import annotations
+
+from src.core.domain.chat import ToolCall
+
 class WindowsDoubleAmpersandFixer:
     """Service that fixes double-ampersand command separators for Windows clients."""
     
@@ -160,19 +164,17 @@ class WindowsDoubleAmpersandFixer:
     
     def fix_tool_arguments(
         self, 
-        tool_arguments: Any, 
-        tool_name: str, 
+        tool_call: ToolCall,
         client_os: str | None
-    ) -> tuple[Any, bool]:
+    ) -> tuple[ToolCall, bool]:
         """Fix double-ampersands in tool arguments if applicable.
         
         Args:
-            tool_arguments: The tool arguments (dict, str, or other)
-            tool_name: The name of the tool
+            tool_call: Typed tool call contract (`ToolCall.function.arguments` is a JSON string)
             client_os: The detected client OS
             
         Returns:
-            Tuple of (possibly_modified_arguments, was_modified)
+            Tuple of (possibly_modified_tool_call, was_modified)
         """
 ```
 
@@ -191,9 +193,8 @@ tool_arguments = self._maybe_fix_droid_antigravity_path(
 )
 
 # NEW: Fix double-ampersand for Windows clients
-tool_arguments, was_modified = self._maybe_fix_windows_double_ampersand(
-    tool_arguments=tool_arguments,
-    tool_name=function_payload.get("name", "unknown"),
+tool_call, was_modified = self._maybe_fix_windows_double_ampersand(
+    tool_call=tool_call,
     client_os=self._get_client_os_from_session(session_id),
 )
 if was_modified:
@@ -201,7 +202,7 @@ if was_modified:
     self._write_back_modified_arguments(
         response=response,
         tool_call=tool_call,
-        new_arguments=tool_arguments,
+        new_arguments_json=tool_call.function.arguments,
     )
 ```
 
@@ -229,32 +230,26 @@ client_os = session.state.client_os if session else None
 The critical part is writing modified arguments back to the response. This requires modifying the `function_payload` in the tool call dict and potentially re-serializing if the response uses string format.
 
 ```python
+from __future__ import annotations
+
+from src.core.domain.chat import ToolCall
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+
 def _write_back_modified_arguments(
     self,
-    response: Any,
-    tool_call: dict[str, Any],
-    new_arguments: Any,
+    response: ProcessedResponse,
+    tool_call: ToolCall,
+    new_arguments_json: str,
 ) -> None:
     """Write modified arguments back to the response object.
     
     Args:
         response: The response object containing the tool call
-        tool_call: The tool call dict that was modified
-        new_arguments: The new arguments to write back
+        tool_call: The tool call to update
+        new_arguments_json: The new `ToolCall.function.arguments` JSON string
     """
-    function_payload = tool_call.get("function")
-    if not isinstance(function_payload, dict):
-        return
-    
-    # Serialize back to string if original was string
-    original_args = function_payload.get("arguments")
-    if isinstance(original_args, str):
-        if isinstance(new_arguments, dict):
-            function_payload["arguments"] = json.dumps(new_arguments)
-        else:
-            function_payload["arguments"] = str(new_arguments)
-    else:
-        function_payload["arguments"] = new_arguments
+    # NOTE: `ToolCall.function.arguments` is always a string in the typed domain model.
+    tool_call.function.arguments = new_arguments_json
 ```
 
 ## Data Models

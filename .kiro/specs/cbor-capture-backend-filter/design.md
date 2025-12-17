@@ -35,15 +35,43 @@ Display Results (Summary, Entries, Analysis)
 
 **Interface**:
 ```python
-def get_unique_backends(entries: list[dict[str, Any]]) -> dict[str, int]:
+from collections.abc import Mapping, Sequence
+
+from pydantic import BaseModel, ConfigDict
+
+
+class CaptureEntryMeta(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    be: str | None = None
+
+
+class CaptureEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ts: float
+    dir: int
+    seq: int
+    data: bytes
+    meta: CaptureEntryMeta | None = None
+
+
+class BackendCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str
+    count: int
+
+
+def get_unique_backends(entries: Sequence[CaptureEntry]) -> list[BackendCount]:
     """
     Extract unique backends from capture entries.
     
     Args:
-        entries: List of capture entry dictionaries
+        entries: List of typed capture entries
         
     Returns:
-        Dictionary mapping backend name to count of entries with that backend
+        List of backend/count pairs (sorted by count descending)
     """
 ```
 
@@ -60,14 +88,14 @@ def get_unique_backends(entries: list[dict[str, Any]]) -> dict[str, int]:
 **Interface**:
 ```python
 def filter_entries_by_backend(
-    entries: list[dict[str, Any]], 
+    entries: Sequence[CaptureEntry],
     backend_name: str | None
-) -> list[dict[str, Any]]:
+) -> list[CaptureEntry]:
     """
     Filter entries by backend name.
     
     Args:
-        entries: List of capture entry dictionaries
+        entries: List of typed capture entries
         backend_name: Backend name to filter by, or None for no filtering
         
     Returns:
@@ -104,20 +132,7 @@ def filter_entries_by_backend(
 ## Data Models
 
 ### Capture Entry Structure (existing)
-```python
-{
-    "ts": float,           # timestamp
-    "dir": int,            # direction (0-3)
-    "seq": int,            # sequence number
-    "data": bytes,         # raw data
-    "meta": {              # optional metadata
-        "be": str,         # backend name (e.g., "openai", "anthropic")
-        "mod": str,        # model name
-        "sid": str,        # session ID
-        # ... other fields
-    }
-}
-```
+See `CaptureEntry` / `CaptureEntryMeta` in the interface section above. The wire-capture reader may still yield untyped mappings; this feature normalizes to these models at the boundary and passes typed entries through the filter/discovery pipeline.
 
 ### Backend Catalog
 ```python

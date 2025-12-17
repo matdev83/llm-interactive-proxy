@@ -98,10 +98,11 @@ class ReplacementConfig:
 Per-session state tracking replacement status.
 
 ```python
-@dataclass
-class ReplacementState:
+class ReplacementState(DomainModel):
     """Tracks replacement state for a session."""
     
+    model_config = ConfigDict(extra="forbid")
+
     active: bool = False
     turns_remaining: int = 0
     original_backend: str = ""
@@ -136,29 +137,6 @@ class ReplacementState:
         """Deactivate replacement mode."""
         self.active = False
         self.turns_remaining = 0
-    
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize state for persistence."""
-        return {
-            "active": self.active,
-            "turns_remaining": self.turns_remaining,
-            "original_backend": self.original_backend,
-            "original_model": self.original_model,
-            "replacement_backend": self.replacement_backend,
-            "replacement_model": self.replacement_model,
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ReplacementState:
-        """Deserialize state from persistence."""
-        return cls(
-            active=data.get("active", False),
-            turns_remaining=data.get("turns_remaining", 0),
-            original_backend=data.get("original_backend", ""),
-            original_model=data.get("original_model", ""),
-            replacement_backend=data.get("replacement_backend", ""),
-            replacement_model=data.get("replacement_model", ""),
-        )
 ```
 
 ### 3. IModelReplacementService
@@ -482,18 +460,18 @@ class SessionState:
     
     # ... existing fields ...
     
-    replacement_state: dict[str, Any] | None = None
+    replacement_state: ReplacementState | None = None
     replacement_disabled: bool = False
     
     def get_replacement_state(self) -> ReplacementState:
         """Get replacement state from session."""
         if self.replacement_state is None:
             return ReplacementState()
-        return ReplacementState.from_dict(self.replacement_state)
+        return self.replacement_state
     
     def set_replacement_state(self, state: ReplacementState) -> None:
         """Set replacement state in session."""
-        self.replacement_state = state.to_dict()
+        self.replacement_state = state
 ```
 
 ## Correctness Properties

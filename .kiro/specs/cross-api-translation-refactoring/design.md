@@ -71,7 +71,9 @@ flowchart TB
 # src/core/interfaces/translator_protocol.py
 
 from collections.abc import Collection
-from typing import Any, Protocol
+from typing import Protocol
+
+from pydantic import BaseModel
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -88,19 +90,19 @@ class TranslatorProtocol(Protocol):
         """Return supported format keys, including aliases (e.g., 'responses', 'openai-responses')."""
         ...
     
-    def to_domain_request(self, request: Any) -> CanonicalChatRequest:
+    def to_domain_request(self, request: BaseModel) -> CanonicalChatRequest:
         """Convert API-specific request to canonical format."""
         ...
     
-    def from_domain_request(self, request: CanonicalChatRequest) -> dict[str, Any]:
+    def from_domain_request(self, request: CanonicalChatRequest) -> BaseModel:
         """Convert canonical request to API-specific format."""
         ...
     
-    def to_domain_response(self, response: Any) -> CanonicalChatResponse:
+    def to_domain_response(self, response: BaseModel) -> CanonicalChatResponse:
         """Convert API-specific response to canonical format."""
         ...
     
-    def from_domain_response(self, response: ChatResponse) -> dict[str, Any]:
+    def from_domain_response(self, response: ChatResponse) -> BaseModel:
         """Convert domain response to API-specific format."""
         ...
 
@@ -108,11 +110,11 @@ class TranslatorProtocol(Protocol):
 class StreamingTranslatorProtocol(Protocol):
     """Protocol for streaming chunk translation."""
     
-    def to_domain_stream_chunk(self, chunk: Any) -> dict[str, Any] | CanonicalStreamChunk:
+    def to_domain_stream_chunk(self, chunk: BaseModel) -> CanonicalStreamChunk:
         """Convert API-specific stream chunk to canonical format."""
         ...
     
-    def from_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
+    def from_domain_stream_chunk(self, chunk: CanonicalStreamChunk) -> BaseModel:
         """Convert canonical stream chunk to API-specific format."""
         ...
 ```
@@ -123,10 +125,15 @@ class StreamingTranslatorProtocol(Protocol):
 # src/core/domain/translators/base.py
 
 from abc import ABC, abstractmethod
-from typing import Any
+from pydantic import BaseModel
 
 from src.core.domain.base_translator import BaseTranslator as TranslationBaseTranslator
-from src.core.domain.chat import CanonicalChatRequest, CanonicalChatResponse, ChatResponse
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    CanonicalChatResponse,
+    CanonicalStreamChunk,
+    ChatResponse,
+)
 
 class BaseFormatTranslator(TranslationBaseTranslator, ABC):
     """Abstract base class for API format translators.
@@ -141,20 +148,20 @@ class BaseFormatTranslator(TranslationBaseTranslator, ABC):
         pass
     
     @abstractmethod
-    def to_domain_request(self, request: Any) -> CanonicalChatRequest:
+    def to_domain_request(self, request: BaseModel) -> CanonicalChatRequest:
         """Convert API-specific request to canonical format."""
         pass
     
     @abstractmethod
-    def to_domain_response(self, response: Any) -> CanonicalChatResponse:
+    def to_domain_response(self, response: BaseModel) -> CanonicalChatResponse:
         """Convert API-specific response to canonical format."""
         pass
     
-    def from_domain_request(self, request: CanonicalChatRequest) -> dict[str, Any]:
+    def from_domain_request(self, request: CanonicalChatRequest) -> BaseModel:
         """Convert canonical request to API-specific format. Optional override."""
         raise NotImplementedError("Translator does not support from_domain_request")
     
-    def from_domain_response(self, response: ChatResponse) -> dict[str, Any]:
+    def from_domain_response(self, response: ChatResponse) -> BaseModel:
         """Convert domain response to API-specific format. Optional override."""
         raise NotImplementedError("Translator does not support from_domain_response")
 
@@ -162,11 +169,11 @@ class BaseFormatTranslator(TranslationBaseTranslator, ABC):
 class StreamingTranslatorMixin:
     """Mixin for streaming translation capabilities."""
     
-    def to_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
+    def to_domain_stream_chunk(self, chunk: BaseModel) -> CanonicalStreamChunk:
         """Convert API-specific stream chunk to canonical format."""
         raise NotImplementedError("Streaming not supported")
     
-    def from_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
+    def from_domain_stream_chunk(self, chunk: CanonicalStreamChunk) -> BaseModel:
         """Convert canonical stream chunk to API-specific format."""
         raise NotImplementedError("Streaming not supported")
 ```
@@ -230,15 +237,15 @@ class OpenAITranslator(BaseFormatTranslator, StreamingTranslatorMixin):
     def format_names(self) -> set[str]:
         return {"openai"}
     
-    def to_domain_request(self, request: Any) -> CanonicalChatRequest:
+    def to_domain_request(self, request: BaseModel) -> CanonicalChatRequest:
         # OpenAI-specific request conversion logic
         ...
     
-    def to_domain_response(self, response: Any) -> CanonicalChatResponse:
+    def to_domain_response(self, response: BaseModel) -> CanonicalChatResponse:
         # OpenAI-specific response conversion logic
         ...
     
-    def to_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
+    def to_domain_stream_chunk(self, chunk: BaseModel) -> CanonicalStreamChunk:
         # OpenAI-specific streaming chunk conversion
         ...
 ```

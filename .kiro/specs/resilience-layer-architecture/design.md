@@ -412,12 +412,19 @@ class ResilienceAction:
 **ErrorContext**:
 ```python
 @dataclass
+class ErrorContextExtra:
+    """Typed envelope for optional error context details."""
+
+    data: Mapping[str, object]
+
+
+@dataclass
 class ErrorContext:
     instance_id: str
     model: str
     error: Exception
     request_id: str | None
-    extra: dict[str, Any]
+    extra: ErrorContextExtra
 ```
 
 ### Storage Model

@@ -125,6 +125,12 @@ class SessionMetrics:
 #### AggregatedStats
 ```python
 @dataclass
+class StatusCodeCount:
+    status_code: int
+    count: int
+
+
+@dataclass
 class AggregatedStats:
     # Counts
     request_count: int
@@ -151,10 +157,10 @@ class AggregatedStats:
     duration_stats: TimingStats
     
     # Status code breakdown
-    status_code_counts: dict[int, int]
+    status_code_counts: list[StatusCodeCount]
     
     # Breakdown dimensions applied
-    filters: dict[str, Any]
+    filters: StatisticsFilter
     
     # Time window for TPS calculation
     time_window_seconds: float
@@ -231,9 +237,17 @@ class IStatisticsService(Protocol):
     async def get_status_code_breakdown(
         self,
         filters: StatisticsFilter | None = None,
-    ) -> dict[str, dict[int, int]]:
+    ) -> list[StatusCodeBreakdownEntry]:
         """Get status code counts by backend:model."""
         ...
+```
+
+```python
+@dataclass
+class StatusCodeBreakdownEntry:
+    backend_type: str
+    model: str
+    counts: list[StatusCodeCount]
 ```
 
 #### StatisticsFilter

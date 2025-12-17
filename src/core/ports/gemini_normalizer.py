@@ -12,12 +12,10 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from src.core.ports.streaming_contracts import (
-    BaseStreamNormalizer,
-    SentinelManager,
-    StreamingContent,
-    handle_streaming_error,
-)
+from src.core.domain.streaming.sentinels import SentinelManager
+from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
+from src.core.services.streaming.error_mapping import handle_streaming_error
 
 logger = logging.getLogger(__name__)
 

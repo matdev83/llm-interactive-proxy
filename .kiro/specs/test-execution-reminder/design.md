@@ -257,6 +257,10 @@ class FileModificationDetector:
 Detects when agents signal task completion.
 
 ```python
+from __future__ import annotations
+
+from src.core.domain.chat import ToolCall
+
 class CompletionSignalDetector:
     """Detects completion signals in tool calls and messages."""
     
@@ -281,8 +285,7 @@ class CompletionSignalDetector:
     @classmethod
     def is_completion_signal(
         cls,
-        tool_name: str,
-        tool_arguments: dict[str, Any],
+        tool_call: ToolCall,
         response_text: str | None = None,
     ) -> bool:
         """Check if this represents a completion signal."""

@@ -45,6 +45,19 @@ This document describes the technical design for the `opencode-zen` backend conn
 **Purpose:** Main connector class that integrates with OpenCode's Zen gateway using stored OAuth credentials.
 
 ```python
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict
+
+
+class OpenCodeOAuthCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    access: str
+    refresh: str
+    expires: int
+
+
 class OpencodeZenConnector(OpenAIConnector):
     backend_type: str = "opencode-zen"
     VENDOR_PREFIX: str = "opencode-zen"
@@ -55,7 +68,7 @@ class OpencodeZenConnector(OpenAIConnector):
     _provider_key: str = "opencode"  # Key in auth.json
     
     # Token management
-    _oauth_credentials: dict[str, Any] | None = None
+    _oauth_credentials: OpenCodeOAuthCredentials | None = None
     _token_lock: asyncio.Lock
     _last_modified: float = 0
     
@@ -248,7 +261,7 @@ def __init__(
     self.name = "opencode-zen"
     self._default_endpoint = "https://api.gateway.opencode.ai/v1"
     self.is_functional = False
-    self._oauth_credentials: dict[str, Any] | None = None
+    self._oauth_credentials: OpenCodeOAuthCredentials | None = None
     self._credentials_path: Path | None = None
     self._last_modified: float = 0
     self._token_lock = asyncio.Lock()
@@ -259,7 +272,7 @@ def __init__(
 #### Initialization Method
 
 ```python
-async def initialize(self, **kwargs: Any) -> None:
+async def initialize(self, **kwargs: object) -> None:
     """Initialize backend with credential loading and validation."""
     logger.info("Initializing OpenCode Zen backend...")
     
@@ -367,7 +380,7 @@ async def _load_oauth_credentials(self) -> bool:
 ```python
 def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
     """Override to use OAuth access token for authentication."""
-    if not self._oauth_credentials or not self._oauth_credentials.get("access"):
+    if not self._oauth_credentials or not self._oauth_credentials.access:
         raise AuthenticationError(
             message="No valid OpenCode OAuth access token available. "
                     "Please run 'opencode auth login' to authenticate.",
@@ -375,7 +388,7 @@ def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, s
         )
     
     headers = {
-        "Authorization": f"Bearer {self._oauth_credentials['access']}",
+        "Authorization": f"Bearer {self._oauth_credentials.access}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -388,11 +401,11 @@ def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, s
 ```python
 async def chat_completions(
     self,
-    request_data: DomainModel | InternalDTO | dict[str, Any],
-    processed_messages: list[Any],
+    request_data: CanonicalChatRequest,
+    processed_messages: list[ChatMessage],
     effective_model: str,
     identity: IAppIdentityConfig | None = None,
-    **kwargs: Any,
+    **kwargs: object,
 ) -> ResponseEnvelope | StreamingResponseEnvelope:
     """Handle chat completions with credential validation."""
     

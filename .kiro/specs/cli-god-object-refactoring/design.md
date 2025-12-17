@@ -172,10 +172,10 @@ class DomainApplicator(Protocol):
     def apply(
         self,
         args: argparse.Namespace,
-        config_dict: dict[str, Any],
+        config: AppConfig,
         resolution: ParameterResolution,
-    ) -> None:
-        """Apply domain-specific arguments to config dict."""
+    ) -> AppConfig:
+        """Apply domain-specific CLI arguments to AppConfig and return an updated config."""
         ...
 
 class ConfigurationApplicator:
@@ -215,9 +215,9 @@ class ServerApplicator:
     def apply(
         self,
         args: argparse.Namespace,
-        config_dict: dict[str, Any],
+        config: AppConfig,
         resolution: ParameterResolution,
-    ) -> None:
+    ) -> AppConfig:
         """Apply host, port, timeout, command_prefix, etc."""
         ...
 
@@ -228,9 +228,9 @@ class LoggingApplicator:
     def apply(
         self,
         args: argparse.Namespace,
-        config_dict: dict[str, Any],
+        config: AppConfig,
         resolution: ParameterResolution,
-    ) -> None:
+    ) -> AppConfig:
         """Apply log_file, log_level, capture settings, etc."""
         ...
 
@@ -241,9 +241,9 @@ class BackendApplicator:
     def apply(
         self,
         args: argparse.Namespace,
-        config_dict: dict[str, Any],
+        config: AppConfig,
         resolution: ParameterResolution,
-    ) -> None:
+    ) -> AppConfig:
         """Apply default_backend, API keys, debugging overrides, etc."""
         ...
 

@@ -257,9 +257,26 @@ class IFailureRecoveryExecutor(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
+
+class WireCapturePayload(BaseModel):
+    """Typed payload envelope for wire-capture inputs.
+
+    This avoids passing untyped payloads across layers while still
+    supporting heterogeneous capture sources (JSON, text, bytes, exceptions).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["json", "text", "bytes", "exception"]
+    text: str | None = None
+    bytes_b64: str | None = None
+    exception_type: str | None = None
+    exception_message: str | None = None
 
 class IWireCaptureOrchestrator(ABC):
     @abstractmethod
@@ -282,7 +299,7 @@ class IWireCaptureOrchestrator(ABC):
         backend_type: str,
         model: str,
         key_name: str | None,
-        payload: Any,
+        payload: WireCapturePayload,
     ) -> None:
         """Best-effort capture of inbound response or error payload."""
         ...
@@ -301,7 +318,7 @@ class IWireCaptureOrchestrator(ABC):
 
 ### Error Strategy
 - Backend orchestration raises only domain exceptions rooted in `LLMProxyError`.
-- Any “foreign” exception (including status-code-carrying exceptions originating from libraries) is normalized via `IExceptionNormalizer` without importing FastAPI/Starlette types.
+- All “foreign” exceptions (including status-code-carrying exceptions originating from libraries) are normalized via `IExceptionNormalizer` without importing FastAPI/Starlette types.
 - Transport/controller layers map domain errors to HTTP using existing adapters (`src/core/transport/fastapi/exception_adapters.py`) and error handlers (`src/core/app/error_handlers.py`).
 
 ### Resilience bookkeeping policy

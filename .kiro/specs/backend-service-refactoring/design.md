@@ -28,7 +28,7 @@ These are concrete, observable behaviors from the current `BackendService` imple
 
 - `_wrap_stream_for_usage` is a no‑op when `IUsageTrackingService` is not injected or both record IDs are `None`.
 - TTFT is measured on the first *valid* completion token per `_is_valid_completion_token`.
-- Final usage is sourced, in priority order: `StopChunkWithUsage.usage`, `dict["usage"]`, then `ProcessedResponse.usage`.
+- Final usage is sourced, in priority order: `StopChunkWithUsage.usage`, the legacy `usage` field in the processed payload, then `ProcessedResponse.usage`.
 - On completion, wrapper records TTFT, total duration, and streaming TPS to both PTB and CTP records when present.
 
 ### Model Aliases
@@ -162,23 +162,27 @@ graph TB
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 class IStreamFormattingService(ABC):
     @abstractmethod
-    def stream_as_sse_bytes(self, stream: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    def stream_as_sse_bytes(
+        self, stream: AsyncIterator[ProcessedResponse]
+    ) -> AsyncIterator[bytes]:
         """Convert domain chunks to SSE-encoded bytes."""
     
     @abstractmethod
-    def is_valid_completion_token(self, chunk: Any) -> bool:
+    def is_valid_completion_token(self, chunk: ProcessedResponse) -> bool:
         """Check if chunk contains valid completion content."""
     
     @abstractmethod
-    def format_chunk_as_sse(self, content: Any) -> bytes:
+    def format_chunk_as_sse(self, chunk: ProcessedResponse) -> bytes:
         """Format a single chunk as SSE bytes."""
     
     @abstractmethod
-    def chunk_signals_done(self, content: Any, metadata: dict[str, Any] | None) -> bool:
+    def chunk_signals_done(self, chunk: ProcessedResponse) -> bool:
         """Check if chunk signals stream completion."""
 ```
 
@@ -191,17 +195,19 @@ class IStreamFormattingService(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 class IUsageTrackingWrapper(ABC):
     @abstractmethod
     def wrap_stream_for_usage(
         self,
-        stream: AsyncIterator[Any],
+        stream: AsyncIterator[ProcessedResponse],
         ctp_record_id: str | None,
         ptb_record_id: str | None,
         start_time: float,
-    ) -> AsyncIterator[Any]:
+    ) -> AsyncIterator[ProcessedResponse]:
         """Wrap stream to track usage metrics."""
 ```
 
@@ -214,7 +220,6 @@ class IUsageTrackingWrapper(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
 
 class IModelAliasResolver(ABC):
     @abstractmethod
@@ -231,17 +236,32 @@ class IModelAliasResolver(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
 from src.core.domain.chat import ChatRequest
+
+from src.core.interfaces.domain_entities_interface import ISession
+from src.core.interfaces.model_bases import DomainModel
+
+
+class URIParameters(DomainModel):
+    """Typed representation of the supported URI parameters.
+
+    This replaces ad-hoc untyped mappings passed across layers and provides
+    a single normalization/validation boundary for URI parameter application.
+    """
+
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    reasoning_effort: str | None = None
 
 class IURIParameterApplicator(ABC):
     @abstractmethod
     def apply(
         self,
         request: ChatRequest,
-        uri_params: dict[str, Any],
+        uri_params: URIParameters,
         backend_type: str,
-        session: Any | None = None,
+        session: ISession | None = None,
     ) -> ChatRequest:
         """Apply URI parameters to request with precedence resolution."""
 ```
@@ -255,12 +275,13 @@ class IURIParameterApplicator(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
 from src.core.domain.chat import ChatRequest
+
+from src.core.interfaces.domain_entities_interface import ISession
 
 class IReasoningConfigApplicator(ABC):
     @abstractmethod
-    def apply(self, request: ChatRequest, session: Any) -> ChatRequest:
+    def apply(self, request: ChatRequest, session: ISession) -> ChatRequest:
         """Apply reasoning configuration from session to request."""
 ```
 
@@ -273,21 +294,23 @@ class IReasoningConfigApplicator(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
+
+from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.domain_entities_interface import ISession
 
 class IPlanningPhaseManager(ABC):
     @abstractmethod
     async def apply_if_needed(
-        self, session: Any, default_backend: str
+        self, session: ISession, default_backend: str
     ) -> None:
         """Apply planning phase model override if conditions are met."""
     
     @abstractmethod
-    async def update_counters(self, session_id: str, response: Any) -> None:
+    async def update_counters(self, session_id: str, response: ResponseEnvelope) -> None:
         """Update planning phase counters after completion."""
     
     @abstractmethod
-    def count_file_writes(self, response: Any) -> int:
+    def count_file_writes(self, response: ResponseEnvelope) -> int:
         """Count file write tool calls in response."""
 ```
 
@@ -300,7 +323,7 @@ class IPlanningPhaseManager(ABC):
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Mapping
 from src.connectors.base import LLMBackend
 
 class IBackendLifecycleManager(ABC):
@@ -325,7 +348,7 @@ class IBackendLifecycleManager(ABC):
         """Check if backend is permanently disabled."""
     
     @abstractmethod
-    def get_active_backends(self) -> dict[str, LLMBackend]:
+    def get_active_backends(self) -> Mapping[str, LLMBackend]:
         """Get all active backend instances."""
 ```
 
@@ -347,7 +370,10 @@ class IExceptionNormalizer(ABC):
 
 ## Data Models
 
-No new data models are required. The refactoring uses existing domain models:
+New or clarified cross-layer contracts:
+- `URIParameters`: typed URI parameter model passed between routing/model parsing and request mutation.
+
+The refactoring otherwise uses existing domain models:
 
 - `ChatRequest`: Request payload for chat completions
 - `ResponseEnvelope`: Non-streaming response wrapper

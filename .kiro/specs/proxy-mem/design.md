@@ -150,7 +150,7 @@ class IMemoryService(Protocol):
         session_id: str, 
         role: str, 
         content: str,
-        metadata: dict[str, Any],
+        metadata: InteractionMetadata,
         user_id: str | None,
         tenant_id: str | None = None,
     ) -> None:
@@ -564,6 +564,23 @@ class TestRun(DomainModel):
 ### CapturedInteraction
 
 ```python
+class InteractionMetadata(DomainModel):
+    """Typed metadata attached to captured interactions.
+
+    This model defines the cross-layer contract for observability metadata and
+    avoids passing ad-hoc dictionaries between memory capture, persistence, and
+    analysis layers.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    backend_type: str | None = None
+    model: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+
+
 class CapturedInteraction(DomainModel):
     """A single captured interaction in a session."""
     
@@ -572,7 +589,7 @@ class CapturedInteraction(DomainModel):
     timestamp: datetime
     role: str  # "user" or "assistant"
     content: str
-    metadata: dict[str, Any]  # backend, model, tokens, etc.
+    metadata: InteractionMetadata
 ```
 
 ### SessionData
@@ -929,7 +946,7 @@ Analyze the current user prompt and the recent session summaries. Identify any s
 Provide a concise context summary (maximum {max_tokens} tokens) that includes:
 1. Relevant prior work on the same files, features, or components
 2. Important decisions or approaches that were established
-3. Any unfinished tasks or known issues that relate to the current work
+3. Unfinished tasks or known issues that relate to the current work
 4. Warnings about approaches that didn't work well
 
 ## Output Format

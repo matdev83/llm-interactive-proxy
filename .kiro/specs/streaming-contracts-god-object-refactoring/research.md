@@ -1,131 +1,160 @@
-# Research & Design Decisions: Streaming Contracts God Object Refactoring
+# Research & Design Decisions
 
 ## Summary
 - **Feature**: `streaming-contracts-god-object-refactoring`
-- **Discovery Scope**: Refactor / architecture hardening
+- **Discovery Scope**: Extension
 - **Key Findings**:
-  - `src/core/ports/streaming_contracts.py` is a mixed-responsibility module (contracts + parsing + serialization + error mapping).
-  - The “ports” layer currently imports `httpx` and embeds vendor error mapping, violating boundary direction.
-  - `StreamingContent` includes complex multi-provider parsing (`from_raw`) and transport serialization (`to_bytes`), inflating complexity and making unit testing difficult.
-  - The implementation approach for this spec is explicitly **Option B (Create New Components)**; the facade remains, but responsibilities move to new domain/ports/transport/services modules.
+  - `src/core/ports/streaming_contracts.py` is a mixed-responsibility “God Object” (contracts + parsing + serialization + vendor error mapping).
+  - The contracts layer imports `httpx`, violating boundary direction (2.1).
+  - Multiple pipelines emit SSE and done markers; tests assert byte-level SSE invariants (`b"data: [DONE]\n\n"`), so refactoring must preserve exact bytes (3.3, 4.4).
+  - The codebase contains two different interfaces named `IStreamNormalizer` (ports vs services); unification is out of scope but must be documented to prevent boundary confusion.
 
 ## Research Log
 
-### Current Public Surface (Compatibility Risk)
-Observed widespread imports of:
-- `StreamingContent`
-- `StopChunkWithUsage`, `UsageChunkLeakError`
-- `IStreamNormalizer`, `BaseStreamNormalizer`, `IStreamProcessor`, `IStreamAssembler`
-- `SentinelManager`
-- `StreamingErrorMapper`, `handle_streaming_error`
+### Existing Codebase Analysis
+- **Components Reviewed**:
+  - `src/core/ports/streaming_contracts.py` (primary refactor target)
+  - `src/core/ports/sse_assembler.py` (SSE assembly)
+  - `src/core/transport/fastapi/response_adapters.py` (FastAPI streaming adapter)
+  - `src/core/services/stream_formatting_service.py` and `src/core/services/backend_service.py` (wire-capture streaming adapter)
+  - Provider normalizers: `src/core/ports/openai_normalizer.py`, `src/core/ports/gemini_normalizer.py`, `src/core/ports/anthropic_normalizer.py`
+  - Streaming orchestration: `src/core/ports/streaming_orchestrator.py`, `src/core/ports/streaming_integration.py`
+  - Streaming processing pipeline: `src/core/services/streaming/stream_normalizer.py`
+- **Patterns Identified**:
+  - Legacy import surface is widespread (`from src.core.ports.streaming_contracts import ...`) and must remain stable (3.1).
+  - Done marker behavior is enforced at multiple layers and must not duplicate markers (4.4).
+  - StopChunkWithUsage is intentionally hostile to implicit serialization; many call sites rely on `dict(chunk)` conversion while preserving wrapper semantics (3.2, 4.1).
+  - Contracts and transports are currently entangled; multiple modules implement SSE framing rules (risk of drift).
+- **Implications**:
+  - A single transport serializer must become the canonical source of SSE bytes to prevent inconsistent framing across pipelines (3.3).
+  - The contracts surface must become a facade to reduce circular dependency risk and enable modular decomposition (1.1).
 
-Implication: the refactor must preserve `src.core.ports.streaming_contracts` as a stable import facade (re-export layer).
-
-### Current Responsibility Map (God Object Evidence)
-From initial scan of `src/core/ports/streaming_contracts.py`:
-- **Domain semantics**: usage stop-chunk wrapper and leak prevention.
-- **Domain model**: `StreamingContent` with invariants and metadata normalization.
-- **Provider parsing**: `from_raw` contains provider/format heuristics for OpenAI/Anthropic/Gemini, plus SSE parsing.
-- **Transport serialization**: `to_bytes` emits SSE including terminal framing and tool-call sanitization.
-- **Error mapping**: `httpx` exception mapping to `LLMProxyError` types.
-- **Contracts**: streaming interfaces/protocols.
-
-Implication: SRP is violated at module and class level; complexity is concentrated in methods that are hard to unit test in isolation.
-
-### Existing Related Modules (Integration Considerations)
-The codebase already contains streaming infrastructure outside `streaming_contracts.py`:
-- `src/core/ports/sse_assembler.py` (SSE output assembly)
-- Provider normalizers: `src/core/ports/openai_normalizer.py`, `src/core/ports/anthropic_normalizer.py`, `src/core/ports/gemini_normalizer.py`
-- `src/core/ports/streaming_orchestrator.py` (pipeline orchestration)
-- Service-side processing: `src/core/services/streaming/stream_normalizer.py` (applies processors; uses `StreamingContent.from_raw`)
-- Parsing helpers: `src/core/domain/streaming_data_parsers/raw_data_parser.py` (delegates back to `StreamingContent.from_raw`)
-
-Implication: `StreamingContent.from_raw` is a keystone dependency; the refactor should preserve it as a thin wrapper while moving branching logic into parser strategies.
-
-### Byte-Level Compatibility Requirements (Concrete Tests)
-
-The codebase contains multiple tests that require **byte-stable SSE behavior**, not just semantic equivalence. These must be treated as “byte-identical” constraints during refactor:
-
-- **Done marker exact bytes**: final marker must be exactly `b"data: [DONE]\\n\\n"` in multiple places, including:
+### Byte-Level SSE Contracts
+- **Context**: Tests assert exact SSE bytes and marker behavior, not just semantic equivalence.
+- **Sources Consulted**:
   - `tests/unit/transport/test_streaming_done_marker.py`
-  - `tests/unit/test_transport_adapters.py`
   - `tests/unit/test_streaming_normalizer.py`
   - `tests/unit/test_sse_assembler_unit.py`
-  - `tests/unit/test_response_adapters_properties.py`
   - `tests/unit/core/services/streaming/test_stream_formatting_service.py`
   - `tests/property/core/test_stream_formatting_service_properties.py`
-
-- **No duplicate done markers**: when upstream already emits `data: [DONE]\\n\\n`, the adapter must not append another marker:
-  - `tests/unit/transport/test_streaming_done_marker.py`
-
-- **StopChunkWithUsage produces payload + done**: stop chunks must serialize as an SSE `data:` payload that includes top-level usage, and the overall output must end with `data: [DONE]\\n\\n`:
   - `tests/unit/streaming/test_streaming_sse_serialization.py`
   - `tests/regression/test_stop_chunk_wrapper_preservation.py`
-  - `tests/unit/core/ports/test_usage_chunk_leak_prevention.py`
+- **Findings**:
+  - Final done marker must be exactly `b"data: [DONE]\\n\\n"` in multiple places.
+  - When upstream already emits `data: [DONE]\\n\\n`, adapters must not append another marker.
+  - StopChunkWithUsage must serialize as an SSE payload containing top-level usage followed by done marker.
+  - `format_chunk_as_sse` must pass through payloads already starting with `data:` and normalize raw `[DONE]` / `["DONE"]` to `data: [DONE]\\n\\n`.
+- **Implications**:
+  - Option B requires a dedicated transport serializer that implements these byte-level rules and is used (directly or via delegation) by legacy entry points (3.3, 4.4).
 
-- **Raw “data:” passthrough**: `StreamFormattingService.format_chunk_as_sse` must pass through any content already starting with `data:` unchanged, and must normalize raw `[DONE]` / `["DONE"]` to `data: [DONE]\\n\\n`:
-  - `tests/unit/core/services/streaming/test_stream_formatting_service.py`
+### Interface Naming Collision: `IStreamNormalizer` x2
+- **Context**: The same name is used for two distinct abstractions with different methods and roles.
+- **Sources Consulted**:
+  - `src/core/ports/streaming_contracts.py` (ports ABI: `normalize_stream`)
+  - `src/core/interfaces/streaming_response_processor_interface.py` (services ABI: `process_stream`)
+  - DI usage: `src/core/di/services.py`, `src/core/services/response_pipeline.py`, `src/connectors/streaming_utils.py`
+  - Ports pipeline usage: `src/core/ports/streaming_orchestrator.py`
+- **Findings**:
+  - Ports interface is provider-normalizer oriented.
+  - Services interface is middleware-pipeline oriented and DI-registered.
+- **Implications**:
+  - The refactor must avoid “crossing the streams” (ports components importing the services interface or vice versa) to prevent boundary violations and circular imports.
+  - The decision is to document the distinction and keep unification out of scope for this spec.
 
-Implementation implication (Option B): the new transport-layer serializer must reproduce these byte-level semantics exactly, and any legacy entry points (`StreamingContent.to_bytes`, `StreamFormattingService.format_chunk_as_sse`, `SSEAssembler`) should delegate to it rather than duplicating framing rules.
+### Error Mapping Reuse: `IExceptionNormalizer` is not a drop-in replacement
+- **Context**: The project already has `ExceptionNormalizer`, but streaming tests enforce `httpx`-specific mappings.
+- **Sources Consulted**:
+  - `src/core/services/exception_normalizer.py`
+  - `src/core/interfaces/exception_normalizer_interface.py`
+  - Streaming error mapping tests: `tests/property/test_streaming_error_properties.py`, `tests/unit/core/ports/test_streaming_error_propagation.py`
+- **Findings**:
+  - `ExceptionNormalizer` relies on `exc.status_code` duck-typing; `httpx.HTTPStatusError` exposes status via `exc.response.status_code`.
+  - Streaming requires deterministic mapping of `httpx.TimeoutException`, `httpx.ConnectError`, `httpx.HTTPStatusError`, and `json.JSONDecodeError` into `LLMProxyError` subclasses with stable metadata envelope keys.
+- **Implications**:
+  - Streaming error mapping must remain `httpx`-aware and live in the services layer to satisfy 2.1 while preserving behavior (3.3, 4.4).
 
-### Two “Stream Normalizer” Abstractions (Known Integration Challenge)
-
-There are two distinct interfaces in the current codebase that share the name `IStreamNormalizer`:
-
-1. **Ports/contracts normalizer** (provider-specific): `src/core/ports/streaming_contracts.py:IStreamNormalizer` with `normalize_stream(...) -> AsyncIterator[StreamingContent]`.
-2. **Services/processing normalizer** (middleware pipeline): `src/core/interfaces/streaming_response_processor_interface.py:IStreamNormalizer` with `process_stream(...) -> AsyncGenerator[StreamingContent | bytes, None]`.
-
-Observed usage patterns:
-- DI wiring and the unified response pipeline depend on the **services** interface (`src/core/di/services.py`, `src/core/services/response_pipeline.py`, `src/connectors/streaming_utils.py`).
-- The ports “streaming orchestrator” depends on the **ports/contracts** interface (`src/core/ports/streaming_orchestrator.py`) and the provider normalizers under `src/core/ports/*_normalizer.py`.
-
-Implementation implication (Option B): this refactor must keep the contracts layer stable and decomposed, but it does **not** need to unify these two interfaces immediately. Documentation and module boundaries should clearly label which interface is used where to prevent cross-layer coupling and circular imports.
-
-### Error Mapping Reuse Assessment (IExceptionNormalizer vs StreamingErrorMapper)
-
-The repo already has an exception normalization service:
-- `src/core/services/exception_normalizer.py:ExceptionNormalizer` implementing `src/core/interfaces/exception_normalizer_interface.py:IExceptionNormalizer`
-
-However, it is **not a drop-in replacement** for streaming error mapping because:
-- It relies on `exc.status_code` (duck-typed). `httpx.HTTPStatusError` uses `exc.response.status_code` instead, so it will not be normalized by default.
-- Streaming requires consistent mapping for `httpx.TimeoutException`, `httpx.ConnectError`, `httpx.HTTPStatusError`, and `json.JSONDecodeError` into `LLMProxyError` subclasses with `{provider, stream_id}` context and stable metadata (`finish_reason="error"`, `metadata.error.{type,message,code,retryable}`), as enforced by:
-  - `tests/property/test_streaming_error_properties.py`
-  - `tests/unit/core/ports/test_streaming_error_propagation.py`
-
-Implementation implication (Option B): move `StreamingErrorMapper` + `handle_streaming_error` into a **services-layer streaming error mapping module** and keep facade re-exports for backward compatibility. Optional later work may integrate `IExceptionNormalizer` behind that mapper, but it is not required for this refactor.
+### Complexity and LOC Guardrails
+- **Context**: Requirements specify hard limits for LOC and cyclomatic complexity for the refactor surface area.
+- **Sources Consulted**:
+  - `scripts/analyze_complexity.py`
+  - `.kiro/specs/streaming-contracts-god-object-refactoring/requirements.md`
+- **Findings**:
+  - Baseline: `src/core/ports/streaming_contracts.py` is 1858 LOC; max CC 111; total CC 396.
+  - The repo contains other high-CC files; gates must be scoped to streaming-contracts surface area to avoid unrelated failures.
+- **Implications**:
+  - Add scoped enforcement for 1.1–1.5 rather than broad “whole-repo” enforcement.
 
 ## Architecture Pattern Evaluation
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
 |--------|-------------|-----------|---------------------|------|
-| Facade + split modules | Keep `streaming_contracts.py` as re-export facade; move logic to smaller modules | Minimal churn; stable imports; meets size cap | Requires careful import ordering to avoid cycles | Recommended |
-| Big move/rename | Rename module and update all imports | Cleaner end-state | High churn; risky; breaks tests/callers | Rejected |
-| Partial split only | Only move `httpx` mapping out | Low effort | Leaves mega-method complexity intact | Insufficient |
+| Extend existing components | Split code within existing ports modules | Lower churn | High risk of “relocating” complexity; boundaries remain blurry | Not chosen |
+| Create new components | New layered modules + facade re-exports | Enforces boundaries; supports measurable gates | Requires careful migration to avoid circular imports | Chosen (Option B) |
+| Hybrid incremental | Facade + delegated methods + phased extraction | Lower regression risk | Temporary duplication; more steps | Used as sequencing technique within Option B |
 
-Note: The table above reflects early evaluation. The approved design and this spec now commit to **Option B** (“Create New Components”), which is implemented as “Facade + correctly layered new modules” rather than a rename or a partial split.
+## Design Decisions
 
-## Design Decisions (Expanded Rationale)
+### Decision: Commit to Option B (Create New Components)
+- **Context**: The target file violates hard LOC/CC constraints and boundary rules.
+- **Alternatives Considered**:
+  1. Extend existing components in place
+  2. Create new layered modules (Option B)
+- **Selected Approach**: Create domain/ports/transport/services modules and convert `src/core/ports/streaming_contracts.py` into a compatibility facade.
+- **Rationale**: Enforces clear boundaries (2.1) and enables enforceable complexity constraints (1.1–1.5) without “moving the monolith”.
+- **Trade-offs**: More files and careful import ordering required; mitigated by incremental migration and a facade.
+- **Follow-up**: Ensure new serializer/parsers preserve byte-level invariants and that gates are scoped to streaming-contracts surface area.
 
-### Decision: “No relocation” guardrails
-- **Context**: The user explicitly requires that the refactor does not simply move the same complexity from one file to another.
-- **Selected approach**: Enforce per-file (<600 LOC) and per-function (CC ≤ 50) targets and structure the design around strategies (parsers/serializers) rather than “lift and shift”.
-- **Verification**: Use radon metrics (via existing script or an enhanced reporting step) as a measurable gate.
+### Decision: Keep `StreamingContent.from_raw` and `StreamingContent.to_bytes` as delegators
+- **Context**: Many call sites and tests depend on these entry points (3.1).
+- **Alternatives Considered**:
+  1. Remove methods and update call sites
+  2. Keep methods but delegate to extracted modules
+- **Selected Approach**: Keep signatures stable and delegate to parsing and transport serialization modules.
+- **Rationale**: Preserves compatibility while satisfying 1.3 and 1.4 through decomposition.
+- **Trade-offs**: Requires careful API design for internal helpers to avoid circular imports.
 
-### Decision: Keep `StreamingContent.from_raw` and `.to_bytes` for compatibility, but delegate
-- **Context**: Many modules call these methods directly.
-- **Selected approach**: Keep method signatures stable; reduce them to delegators into dedicated parsing/serialization modules.
-- **Rationale**: Allows incremental migration with a stable public API while the underlying logic becomes modular.
+### Decision: Streaming error mapping moves to services layer
+- **Context**: Contracts layer must not import vendor libraries (2.1) but must preserve deterministic mapping behavior (tests).
+- **Alternatives Considered**:
+  1. Reuse `IExceptionNormalizer` directly
+  2. Keep `httpx` mapping in a dedicated streaming error mapping module
+- **Selected Approach**: Dedicated streaming error mapping module under `src/core/services/streaming/`.
+- **Rationale**: Preserves existing behavior and supports vendor imports while restoring boundary direction.
+- **Trade-offs**: Duplicates some normalization concepts; acceptable given differing input shapes and strict streaming metadata requirements.
+
+### Decision: DI Lifetime Selection
+- **Context**: Requirement 5.x prefers DI for new stateful collaborators.
+- **Selected Approach**: Keep extracted parsing/serialization/error-mapping collaborators stateless; avoid introducing new DI registrations unless state is required.
+- **Rationale**: Meets 5.1 and 5.2 by avoiding new state that would otherwise require DI.
+
+### Decision: Error Handling Strategy
+- **Context**: Streaming errors must yield structured terminal chunks.
+- **Selected Approach**: Preserve the current error metadata envelope (`finish_reason="error"` and `metadata.error` keys) and keep mapping deterministic.
+- **Rationale**: Existing tests enforce structure and determinism; regressions are high impact.
+
+## Testing Strategy Research
+
+### Existing Test Patterns
+- Unit tests for serialization/done markers and streaming content behavior.
+- Property tests for streaming contracts invariants and error mapping consistency.
+- Regression tests for StopChunkWithUsage wrapper preservation.
+
+### Coverage Requirements
+- Critical paths: done marker emission/deduplication (4.4), StopChunkWithUsage serialization and leak prevention (3.2, 4.1), tool-call sanitization (4.3), structured error chunks (4.4).
+- New tests expected: scoped complexity/LOC enforcement for refactor surface area (1.1–1.5).
 
 ## Risks & Mitigations
-- Risk: Subtle streaming regressions (SSE is sensitive) - Mitigation: keep behavior stable via existing tests + add focused characterization tests for edge cases.
-- Risk: Circular imports via facade re-exports - Mitigation: keep facade “dumb”, move cross-layer logic outward, and avoid importing orchestrators/assemblers from domain modules.
-- Risk: Metrics enforcement gap (script doesn’t cover new files by default) - Mitigation: extend `scripts/analyze_complexity.py` or add a dedicated check script in tasks phase.
+- Risk: Subtle SSE regressions due to multiple existing framing implementations - Mitigation: centralize byte-level rules in a single transport serializer and delegate legacy entry points (3.3, 4.4).
+- Risk: Circular imports via facade re-exports - Mitigation: keep facade re-export-only and ensure extracted modules do not import the facade.
+- Risk: Complexity gates fail due to unrelated modules - Mitigation: scope gates to streaming-contracts surface area only.
 
-## Open Questions (Defer to Implementation/Design Adjustments if Needed)
-- Whether the transport serializer should become the **single** implementation used by:
-  - `StreamingContent.to_bytes`
-  - `src/core/services/stream_formatting_service.py`
-  - `src/core/ports/sse_assembler.py`
-  - `src/core/transport/fastapi/response_adapters.py`
-  (recommended), or whether a phased migration is required to avoid large diff churn.
-- Whether/how to add an enforceable CI gate for LOC/CC thresholds (new script vs extending `scripts/analyze_complexity.py`) without impacting unrelated files.
+## Performance Considerations
+- The serializer and parsers are in the hot path; the decomposition must not introduce per-chunk I/O or unbounded allocations.
+- Prefer small strategy functions over large conditional blocks to reduce cyclomatic complexity while keeping runtime behavior stable.
+
+## References
+- `.kiro/specs/streaming-contracts-god-object-refactoring/design.md` - Architecture and contracts
+- `src/core/ports/streaming_contracts.py` - Current “God Object” module
+- `scripts/analyze_complexity.py` - Complexity reporting tool used for enforcement
+- `tests/unit/transport/test_streaming_done_marker.py` - Done marker byte-level invariants
+- `tests/unit/streaming/test_streaming_sse_serialization.py` - StopChunkWithUsage serialization invariants
