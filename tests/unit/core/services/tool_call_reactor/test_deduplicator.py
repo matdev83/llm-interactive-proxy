@@ -113,6 +113,34 @@ class TestFilterNewCalls:
         # Should skip already-processed call
         assert len(result) == 0
 
+    def test_filter_new_calls_uses_interface_method(self) -> None:
+        """Test that deduplicator uses is_processed() interface method."""
+        from unittest.mock import MagicMock
+
+        lifecycle_registry = ToolCallLifecycleRegistry()
+        resolver = ToolCallDeduplicator(lifecycle_registry)
+
+        stream_key = "test-stream"
+        call1 = ToolCall(
+            id="call_1",
+            function=FunctionCall(name="test_tool", arguments='{"key": "value"}'),
+        )
+
+        # Create mock buffer state
+        mock_buffer_state = MagicMock()
+        mock_buffer_state.is_processed.return_value = True
+        mock_buffer_state.consume_new_reactor_calls.return_value = []
+
+        # Filter calls
+        result = resolver.filter_new_calls(
+            [call1], stream_key, mock_buffer_state, is_streaming=False
+        )
+
+        # Should skip call because is_processed returns True
+        assert len(result) == 0
+        # Verify interface method was called
+        mock_buffer_state.is_processed.assert_called_once()
+
     def test_filter_new_calls_skips_duplicate_detections(self) -> None:
         """Test that duplicate detections are skipped via lifecycle registry."""
         lifecycle_registry = ToolCallLifecycleRegistry()

@@ -128,6 +128,33 @@ class TestStreamBufferAdapter:
         assert len(calls) == 1
         assert calls[0] is tool_call  # Should be same object
 
+    def test_is_processed_returns_false_when_not_processed(self) -> None:
+        """Test that is_processed returns False for unprocessed signatures."""
+        buffer_state = ToolCallBufferState()
+        adapter = StreamBufferAdapter(buffer_state)
+
+        assert adapter.is_processed("signature_1") is False
+
+    def test_is_processed_returns_true_when_processed(self) -> None:
+        """Test that is_processed returns True for processed signatures."""
+        buffer_state = ToolCallBufferState()
+        adapter = StreamBufferAdapter(buffer_state)
+
+        adapter.mark_processed("signature_1")
+        assert adapter.is_processed("signature_1") is True
+
+    def test_is_processed_multiple_signatures(self) -> None:
+        """Test is_processed with multiple signatures."""
+        buffer_state = ToolCallBufferState()
+        adapter = StreamBufferAdapter(buffer_state)
+
+        adapter.mark_processed("signature_1")
+        adapter.mark_processed("signature_2")
+
+        assert adapter.is_processed("signature_1") is True
+        assert adapter.is_processed("signature_2") is True
+        assert adapter.is_processed("signature_3") is False
+
     def test_mark_processed_adds_signature(self) -> None:
         """Test that mark_processed adds signature to processed_signatures."""
         buffer_state = ToolCallBufferState()

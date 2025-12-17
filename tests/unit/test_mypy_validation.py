@@ -12,6 +12,9 @@ from pathlib import Path
 
 import pytest
 
+# Ensure mypy validation tests run sequentially to prevent subprocess resource conflicts
+pytestmark = pytest.mark.xdist_group("mypy_validation")
+
 
 class TestMypyValidation:
     """Test class for mypy validation of source code."""

@@ -9,7 +9,7 @@ and safe telemetry recording without exposing secrets.
 from __future__ import annotations
 
 import json
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from json_repair import repair_json
 
@@ -53,15 +53,14 @@ class ToolArgumentsParser(IToolArgumentsParser):
 
     def __init__(
         self,
-        telemetry_callback: Any | None = None,
+        telemetry_callback: TelemetryRecorder | None = None,
     ) -> None:
         """Initialize the parser.
 
         Args:
-            telemetry_callback: Optional callback for recording repair outcomes.
-                Should have a method `record_tool_argument_repair_outcome(outcome: str)`.
-                Only outcome strings ("success", "recovered", "failed") are passed,
-                never argument content (Requirement 12.1).
+            telemetry_callback: Optional callback implementing TelemetryRecorder protocol
+                for recording repair outcomes. Only outcome strings ("success", "recovered",
+                "failed") are passed, never argument content (Requirement 12.1).
         """
         self._telemetry_callback = telemetry_callback
 
