@@ -832,7 +832,9 @@ async def test_property_streaming_content_structure_stability(
             ), "Chunk must have is_cancellation field"
 
             # Verify field types
-            assert isinstance(content.content, str), "content must be str"
+            assert isinstance(
+                content.content, str | dict | bytes
+            ), "content must be str, dict, or bytes"
             assert isinstance(content.metadata, dict), "metadata must be dict"
             assert isinstance(content.is_done, bool), "is_done must be bool"
             assert isinstance(content.is_empty, bool), "is_empty must be bool"

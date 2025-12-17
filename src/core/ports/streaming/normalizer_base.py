@@ -12,12 +12,12 @@ from collections.abc import AsyncIterator
 from typing import Any, ClassVar
 
 from src.core.domain.streaming.streaming_content import StreamingContent
-from src.core.ports.streaming.interfaces import IStreamNormalizer
+from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
 
 logger = logging.getLogger(__name__)
 
 
-class BaseStreamNormalizer(IStreamNormalizer):
+class BaseStreamNormalizer(IProviderStreamNormalizer):
     """Base implementation for stream normalizers.
 
     This class provides common functionality for normalizing streaming
@@ -294,7 +294,7 @@ class BaseStreamNormalizer(IStreamNormalizer):
         return chunk
 
     def normalize_stream(
-        self, stream: AsyncIterator[Any], provider: str
+        self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert provider-specific stream to StreamingContent.
 
@@ -302,7 +302,7 @@ class BaseStreamNormalizer(IStreamNormalizer):
         override this method to implement provider-specific parsing logic.
 
         Args:
-            stream: Raw stream from backend
+            stream: Raw stream from backend (opaque provider-specific data)
             provider: Provider name for context
 
         Yields:

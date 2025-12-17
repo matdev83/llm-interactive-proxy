@@ -49,11 +49,20 @@ class _PassthroughStreamNormalizer(IStreamNormalizer):
             from src.core.domain.streaming_content import StreamingContent
 
             async for item in iterator:
-                try:
-                    yield StreamingContent.from_raw(item)
-                except Exception:
-                    content = item.decode() if isinstance(item, bytes) else str(item)
-                    yield StreamingContent(content=content)
+                # If item is already StreamingContent, use it directly
+                # Otherwise, convert using from_raw (which handles transport-neutral formats only)
+                # Note: This is a fallback path - provider-specific formats should be
+                # normalized by provider normalizers before reaching here
+                if isinstance(item, StreamingContent):
+                    yield item
+                else:
+                    try:
+                        yield StreamingContent.from_raw(item)
+                    except Exception:
+                        content = (
+                            item.decode() if isinstance(item, bytes) else str(item)
+                        )
+                        yield StreamingContent(content=content)
 
     def reset(self) -> None:
         return None

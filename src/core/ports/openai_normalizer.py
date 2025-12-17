@@ -35,12 +35,12 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         super().__init__(provider="openai")
 
     async def normalize_stream(
-        self, stream: AsyncIterator[Any], provider: str
+        self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert OpenAI-specific stream to StreamingContent.
 
         Args:
-            stream: Raw stream from OpenAI backend
+            stream: Raw stream from OpenAI backend (opaque provider-specific data)
             provider: Provider name (should be "openai")
 
         Yields:

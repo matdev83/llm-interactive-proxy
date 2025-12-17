@@ -35,12 +35,12 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
         super().__init__(provider="anthropic")
 
     async def normalize_stream(
-        self, stream: AsyncIterator[Any], provider: str
+        self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert Anthropic-specific stream to StreamingContent.
 
         Args:
-            stream: Raw stream from Anthropic backend
+            stream: Raw stream from Anthropic backend (opaque provider-specific data)
             provider: Provider name (should be "anthropic")
 
         Yields:

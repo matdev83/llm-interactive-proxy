@@ -48,4 +48,3 @@ class PlainStringParser(IParserStrategy):
 
 
 __all__ = ["PlainStringParser"]
-

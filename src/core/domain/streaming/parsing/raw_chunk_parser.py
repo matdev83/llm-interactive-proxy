@@ -1,30 +1,29 @@
+from __future__ import annotations
+
 """
 Raw chunk parsing strategies.
 
 This module contains parser strategies for converting raw backend chunks
-into StreamingContent. The parser handles provider-specific formats including
-OpenAI, Anthropic, Gemini, SSE, and ProcessedResponse.
-"""
+into StreamingContent. The parser handles transport-neutral formats including
+OpenAI-style dicts, SSE, strings, bytes, and ProcessedResponse.
 
-from __future__ import annotations
+Provider-specific formats (Anthropic, Gemini) are not parsed here; they should
+be normalized by provider-specific normalizers before reaching this entry point.
+"""
 
 import logging
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.domain.streaming.parsing.anthropic_dict_parser import (
-    AnthropicDictParser,
-)
 from src.core.domain.streaming.parsing.fallback_parser import FallbackParser
 from src.core.domain.streaming.parsing.json_string_parser import (
     JSONStringParser,
 )
-from src.core.domain.streaming.parsing.gemini_dict_parser import GeminiDictParser
 from src.core.domain.streaming.parsing.openai_dict_parser import OpenAIDictParser
+from src.core.domain.streaming.parsing.parser_strategy import IParserStrategy
 from src.core.domain.streaming.parsing.passthrough_parser import (
     PassthroughParser,
 )
-from src.core.domain.streaming.parsing.parser_strategy import IParserStrategy
 from src.core.domain.streaming.parsing.plain_string_parser import (
     PlainStringParser,
 )
@@ -34,6 +33,9 @@ from src.core.domain.streaming.parsing.processed_response_parser import (
 from src.core.domain.streaming.parsing.sse_bytes_parser import SSEBytesParser
 from src.core.domain.streaming.parsing.sse_string_parser import SSEStringParser
 from src.core.domain.streaming.parsing.stop_chunk_parser import StopChunkParser
+from src.core.domain.streaming.parsing.streaming_content_dict_parser import (
+    StreamingContentDictParser,
+)
 from src.core.domain.streaming.stop_chunk_with_usage import (
     StopChunkWithUsage,
 )
@@ -45,33 +47,50 @@ logger = logging.getLogger(__name__)
 class RawChunkParser:
     """Parser for converting raw backend chunks into StreamingContent.
 
-    This parser uses a chain of strategy parsers to handle multiple input formats:
+    This parser uses a chain of strategy parsers to handle transport-neutral
+    input formats:
     - StreamingContent (passthrough)
     - ProcessedResponse
     - StopChunkWithUsage
-    - Dict (OpenAI, Anthropic, Gemini formats)
+    - OpenAI-style dicts (transport-neutral canonical format)
     - String (JSON, SSE, plain)
     - Bytes (SSE, JSON)
+    - Unknown dicts (treated as opaque content)
+
+    Provider-specific formats (Anthropic event dicts, Gemini JSON objects) are
+    not parsed here and should be normalized by provider-specific normalizers
+    before reaching this entry point.
     """
 
     def __init__(self) -> None:
         """Initialize the parser with strategy chain.
 
         Strategies are ordered by specificity - most specific parsers come first.
+
+        Note: This parser chain intentionally does NOT include AnthropicDictParser
+        or GeminiDictParser, even though those parser classes exist in this module.
+        Provider-specific formats (Anthropic event dicts, Gemini JSON objects) should
+        be normalized by provider-specific normalizers (e.g., AnthropicStreamNormalizer,
+        GeminiStreamNormalizer) before reaching this shared parsing entry point.
+        This enforces the architectural boundary that provider-specific parsing logic
+        belongs in provider adapters, not in shared contracts/domain code.
+
+        The OpenAIDictParser explicitly skips Anthropic/Gemini formats (see its
+        can_parse() method) to ensure provider-specific formats are handled by
+        their respective normalizers.
         """
         # Order matters: most specific parsers first
         self._strategies: list[IParserStrategy] = [
             PassthroughParser(),  # StreamingContent instances
             ProcessedResponseParser(),  # ProcessedResponse objects
             StopChunkParser(),  # StopChunkWithUsage (must be before dict parsers)
-            AnthropicDictParser(),  # Anthropic event dicts
-            OpenAIDictParser(),  # OpenAI-style dicts
-            GeminiDictParser(),  # Gemini JSON objects
+            StreamingContentDictParser(),  # Internal normalized dicts (content/metadata/is_done)
+            OpenAIDictParser(),  # OpenAI-style dicts (canonical/transport-neutral)
             SSEBytesParser(),  # Bytes/SSE
             SSEStringParser(),  # String SSE
             JSONStringParser(),  # JSON strings
             PlainStringParser(),  # Plain strings
-            FallbackParser(),  # Everything else (fallback)
+            FallbackParser(),  # Everything else (fallback - handles opaque dicts)
         ]
 
     def parse(self, raw_data: Any) -> StreamingContent:

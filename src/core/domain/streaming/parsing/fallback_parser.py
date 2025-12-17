@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 class FallbackParser(IParserStrategy):
     """Fallback parser for unsupported types.
 
-    Converts any remaining types to strings. This should be the last parser
-    in the chain.
+    Handles unknown types by preserving dicts as opaque content or converting
+    other types to strings. This should be the last parser in the chain.
     """
 
     def can_parse(self, raw_data: Any) -> bool:
@@ -36,12 +36,23 @@ class FallbackParser(IParserStrategy):
     def parse(self, raw_data: Any) -> StreamingContent:
         """Convert unsupported type to StreamingContent.
 
+        Unknown dict shapes are preserved as opaque dict content (not parsed).
+        Other types are converted to strings.
+
         Args:
             raw_data: Any unsupported type
 
         Returns:
-            StreamingContent with string representation as content
+            StreamingContent with dict content (for dicts) or string content (for others)
         """
+        # Preserve dicts as opaque content (provider-specific or unknown shapes)
+        if isinstance(raw_data, dict):
+            logger.debug(
+                f"Treating dict as opaque content (not parsed): {type(raw_data)}"
+            )
+            return StreamingContent(content=raw_data, raw_data=raw_data)
+
+        # Convert other types to strings
         logger.warning(
             f"Unsupported raw data type for StreamingContent: {type(raw_data)}"
         )
@@ -49,4 +60,3 @@ class FallbackParser(IParserStrategy):
 
 
 __all__ = ["FallbackParser"]
-

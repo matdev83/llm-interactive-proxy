@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable
-from typing import Any, cast
+from collections.abc import AsyncIterator
+from typing import cast
 
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 async def integrate_streaming_pipeline(
-    raw_stream: AsyncIterator[Any],
+    raw_stream: AsyncIterator[object],
     provider: str,
     stream_id: str | None = None,
     enable_loop_detection: bool = True,
@@ -56,7 +56,7 @@ async def integrate_streaming_pipeline(
     This provides backward compatibility while using the new infrastructure.
 
     Args:
-        raw_stream: Raw async iterator from backend's stream_completion()
+        raw_stream: Raw async iterator from backend's stream_completion() (opaque provider-specific data)
         provider: Provider name ("openai", "anthropic", "gemini")
         stream_id: Optional stream identifier
         enable_loop_detection: Whether to enable loop detection processor
@@ -71,86 +71,41 @@ async def integrate_streaming_pipeline(
     """
     processors: list[IStreamProcessor] = []
 
-    def _resolve_processor(
-        service_type: type[IStreamProcessor],
-        fallback_factory: Callable[[], IStreamProcessor],
-    ) -> IStreamProcessor:
-        from src.core.di.services import get_or_build_service_provider
+    # Resolve processors explicitly via DI or create stateless instances directly.
+    # This avoids implicit fallback construction patterns (requirement 5.2).
+    from src.core.di.services import get_or_build_service_provider
 
-        provider = None
-        try:
-            provider = get_or_build_service_provider()
-            resolved = provider.get_service(service_type)
-            if resolved:
-                return resolved
-        except Exception:
-            logger.debug(
-                "Unable to resolve %s from DI provider; falling back to local instance.",
-                service_type.__name__,
-                exc_info=True,
-            )
-
-        return fallback_factory()
-
-    def _default_loop_detection_processor() -> IStreamProcessor:
-        return PortsLoopDetectionProcessor()
-
-    def _default_tool_call_repair_processor() -> IStreamProcessor:
-        return PortsToolCallRepairProcessor()
-
-    def _default_service_tool_call_repair_processor() -> IStreamProcessor:
-        from src.core.di.services import get_or_build_service_provider
-
-        provider = get_or_build_service_provider()
-        repair_service = provider.get_required_service(ToolCallRepairService)
-        registry = provider.get_required_service(StreamingContextRegistry)
-        return ServiceToolCallRepairProcessor(
-            tool_call_repair_service=repair_service,
-            registry=registry,
-        )
-
-    def _default_vtc_preprocessor() -> IStreamProcessor:
-        from src.core.di.services import get_or_build_service_provider
-
-        provider = get_or_build_service_provider()
-        registry = provider.get_required_service(StreamingContextRegistry)
-        return VTCPreProcessor(registry=registry)
-
-    def _default_vtc_postprocessor() -> IStreamProcessor:
-        from src.core.di.services import get_or_build_service_provider
-
-        provider = get_or_build_service_provider()
-        registry = provider.get_required_service(StreamingContextRegistry)
-        return VTCPostProcessor(registry=registry)
+    di_provider = get_or_build_service_provider()
 
     # VTC Pre-processor: FIRST in pipeline (converts XML to internal format)
+    # This processor requires DI dependencies (StreamingContextRegistry)
     if vtc_enabled:
-        processors.append(
-            _resolve_processor(VTCPreProcessor, _default_vtc_preprocessor)
-        )
+        registry = di_provider.get_required_service(StreamingContextRegistry)
+        processors.append(VTCPreProcessor(registry=registry))
         logger.debug("VTC pre-processor enabled for stream %s", stream_id)
 
+    # Loop detection processor - stateless, can be created directly
     if enable_loop_detection:
-        processors.append(
-            _resolve_processor(
-                PortsLoopDetectionProcessor, _default_loop_detection_processor
-            )
-        )
+        processors.append(PortsLoopDetectionProcessor())
+
+    # Service-based tool call repair processor - requires DI dependencies
     if enable_tool_call_repair:
+        repair_service = di_provider.get_required_service(ToolCallRepairService)
+        registry = di_provider.get_required_service(StreamingContextRegistry)
         processors.append(
-            _resolve_processor(
-                ServiceToolCallRepairProcessor,
-                _default_service_tool_call_repair_processor,
+            ServiceToolCallRepairProcessor(
+                tool_call_repair_service=repair_service,
+                registry=registry,
             )
         )
+
+    # Ports-based tool call repair processor - stateless, can be created directly
     if enable_tool_call_repair:
-        processors.append(
-            _resolve_processor(
-                PortsToolCallRepairProcessor, _default_tool_call_repair_processor
-            )
-        )
+        processors.append(PortsToolCallRepairProcessor())
+
+    # Think tags processor - stateless, can be created directly
     if enable_think_tags:
-        processors.append(_resolve_processor(ThinkTagsProcessor, ThinkTagsProcessor))
+        processors.append(ThinkTagsProcessor())
 
     # Add usage calculation processor if prompt tokens are provided
     # This ensures usage is calculated after all other processors (like loop detection)
@@ -169,10 +124,10 @@ async def integrate_streaming_pipeline(
         processors.append(_usage_processor_factory())
 
     # VTC Post-processor: LAST in pipeline (converts internal format back to XML)
+    # This processor requires DI dependencies (StreamingContextRegistry)
     if vtc_enabled:
-        processors.append(
-            _resolve_processor(VTCPostProcessor, _default_vtc_postprocessor)
-        )
+        registry = di_provider.get_required_service(StreamingContextRegistry)
+        processors.append(VTCPostProcessor(registry=registry))
         logger.debug("VTC post-processor enabled for stream %s", stream_id)
 
     # Create pipeline for the provider

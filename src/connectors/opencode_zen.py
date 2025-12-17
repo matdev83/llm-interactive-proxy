@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -458,7 +459,9 @@ class OpencodeZenConnector(OpenAIConnector):
         """
         return self.is_functional and len(self._credential_validation_errors) == 0
 
-    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+    async def stream_completion(
+        self, request: CanonicalChatRequest
+    ) -> AsyncGenerator[object, None]:
         """Yield raw streaming chunks from the backend with 401 retry logic."""
         try:
             async for chunk in super().stream_completion(request):

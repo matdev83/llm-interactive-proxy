@@ -20,7 +20,7 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
@@ -839,7 +839,9 @@ class AnthropicBackend(LLMBackend):
                 logger.warning(f"Failed to cancel Anthropic message {message_id}: {e}")
 
     # StreamProducer protocol implementation
-    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+    async def stream_completion(
+        self, request: CanonicalChatRequest
+    ) -> AsyncGenerator[object, None]:
         """Yield raw streaming chunks from the backend.
 
         This method implements the StreamProducer protocol for integration
@@ -849,7 +851,7 @@ class AnthropicBackend(LLMBackend):
             request: The chat completion request
 
         Yields:
-            Raw streaming chunks from the backend (SSE format strings)
+            Raw streaming chunks from the backend (opaque provider-specific data)
         """
         # Build the request URL and payload
         base_url = (

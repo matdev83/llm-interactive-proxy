@@ -17,10 +17,10 @@ from src.core.domain.streaming.parsing.json_string_parser import (
     JSONStringParser,
 )
 from src.core.domain.streaming.parsing.openai_dict_parser import OpenAIDictParser
+from src.core.domain.streaming.parsing.parser_strategy import IParserStrategy
 from src.core.domain.streaming.parsing.passthrough_parser import (
     PassthroughParser,
 )
-from src.core.domain.streaming.parsing.parser_strategy import IParserStrategy
 from src.core.domain.streaming.parsing.plain_string_parser import (
     PlainStringParser,
 )

@@ -35,12 +35,12 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
         super().__init__(provider="gemini")
 
     async def normalize_stream(
-        self, stream: AsyncIterator[Any], provider: str
+        self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert Gemini-specific stream to StreamingContent.
 
         Args:
-            stream: Raw stream from Gemini backend
+            stream: Raw stream from Gemini backend (opaque provider-specific data)
             provider: Provider name (should be "gemini")
 
         Yields:

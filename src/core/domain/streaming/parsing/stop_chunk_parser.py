@@ -79,4 +79,3 @@ class StopChunkParser(IParserStrategy):
 
 
 __all__ = ["StopChunkParser"]
-

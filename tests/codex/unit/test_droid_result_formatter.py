@@ -20,7 +20,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"output": "file content here", "exit_code": 0},
-            original_tool="Read",
+            _original_tool="Read",
         )
         assert result == "file content here"
 
@@ -33,7 +33,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"error": "File not found", "exit_code": 1},
-            original_tool="Read",
+            _original_tool="Read",
         )
         assert result.startswith("Error: ")
         assert "File not found" in result
@@ -47,7 +47,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"output": "test_file.py\ntest_module.py", "exit_code": 0},
-            original_tool="Execute",
+            _original_tool="Execute",
         )
         assert result == "test_file.py\ntest_module.py"
 
@@ -60,7 +60,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"content": "Directory listing:\n- file1.py\n- file2.py"},
-            original_tool="LS",
+            _original_tool="LS",
         )
         assert result == "Directory listing:\n- file1.py\n- file2.py"
 
@@ -73,7 +73,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"result": "Search completed: 5 matches found"},
-            original_tool="Grep",
+            _original_tool="Grep",
         )
         assert result == "Search completed: 5 matches found"
 
@@ -86,7 +86,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"output": "", "exit_code": 0},
-            original_tool="Execute",
+            _original_tool="Execute",
         )
         assert result == ""
 
@@ -99,7 +99,7 @@ class TestDroidResultFormatter:
         translator = DroidToolTranslator()
         result = translator.format_result(
             {"custom_field": "value", "other": 123},
-            original_tool="Unknown",
+            _original_tool="Unknown",
         )
         # Should have some string representation
         assert isinstance(result, str)

@@ -24,7 +24,7 @@ class SentinelManager:
     DONE_MARKER = "[DONE]"
 
     @staticmethod
-    def create_done_chunk() -> "StreamingContent":
+    def create_done_chunk() -> StreamingContent:
         """Create standardized [DONE] chunk.
 
         Returns:
@@ -39,7 +39,7 @@ class SentinelManager:
         )
 
     @staticmethod
-    def is_done_marker(chunk: "StreamingContent") -> bool:
+    def is_done_marker(chunk: StreamingContent) -> bool:
         """Check if chunk is a [DONE] marker.
 
         Args:

@@ -21,6 +21,7 @@ from src.core.common.exceptions import (
     ParsingError,
     RateLimitExceededError,
 )
+from src.core.domain.streaming.contracts import StreamingErrorInfo
 
 logger = logging.getLogger(__name__)
 
@@ -152,22 +153,31 @@ async def handle_streaming_error(
         mapped_error, APITimeoutError | APIConnectionError | RateLimitExceededError
     )
 
-    # Build error metadata
-    error_metadata = {
-        "type": type(mapped_error).__name__,
-        "message": str(mapped_error),
-        "code": getattr(mapped_error, "code", "unknown"),
-        "retryable": retryable,
-    }
+    # Create typed error contract
+    # Ensure code is always present and not None
+    error_code = getattr(mapped_error, "code", None)
+    if error_code is None:
+        error_code = "unknown"
 
-    # Add status code if available
+    # Extract status_code if available
+    status_code: int | None = None
     if hasattr(mapped_error, "status_code"):
-        error_metadata["status_code"] = mapped_error.status_code
+        status_code = mapped_error.status_code
 
-    # Build metadata
+    error_info = StreamingErrorInfo(
+        type=type(mapped_error).__name__,
+        message=str(mapped_error),
+        code=error_code,
+        retryable=retryable,
+        status_code=status_code,
+    )
+
+    # Build metadata with typed error contract converted to dict
+    # Note: StreamingContent metadata expects dict, so we convert using model_dump
+    # The typed contract ensures structure validation
     metadata: dict[str, Any] = {
         "provider": provider,
-        "error": error_metadata,
+        "error": error_info.model_dump(exclude_none=True),
         "finish_reason": "error",
     }
 

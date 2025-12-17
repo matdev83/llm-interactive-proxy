@@ -1152,7 +1152,9 @@ class OpenAIConnector(LLMBackend):
         return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in models]
 
     # StreamProducer protocol implementation
-    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+    async def stream_completion(
+        self, request: CanonicalChatRequest
+    ) -> AsyncGenerator[object, None]:
         """Yield raw streaming chunks from the backend.
 
         This method implements the StreamProducer protocol for integration
@@ -1162,7 +1164,7 @@ class OpenAIConnector(LLMBackend):
             request: The chat completion request
 
         Yields:
-            Raw streaming chunks from the backend (SSE format strings)
+            Raw streaming chunks from the backend (opaque provider-specific data)
         """
         # Build the request URL and payload
         api_base = getattr(request, "api_base", None) or self.api_base_url

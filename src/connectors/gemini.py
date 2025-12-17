@@ -20,6 +20,7 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
@@ -931,7 +932,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             return None
 
     # StreamProducer protocol implementation
-    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+    async def stream_completion(
+        self, request: CanonicalChatRequest
+    ) -> AsyncGenerator[object, None]:
         """Yield raw streaming chunks from the backend.
 
         This method implements the StreamProducer protocol for integration
@@ -941,7 +944,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             request: The chat completion request
 
         Yields:
-            Raw streaming chunks from the backend (JSON-lines format)
+            Raw streaming chunks from the backend (opaque provider-specific data)
         """
         # Prepare payload
         from typing import cast

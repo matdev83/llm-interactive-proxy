@@ -64,8 +64,17 @@ class StreamNormalizer(IStreamNormalizer):
         stream_id = uuid4().hex
 
         async for chunk in stream:
-            # Convert raw chunk to StreamingContent
-            content = StreamingContent.from_raw(chunk)
+            # If chunk is already StreamingContent, use it directly
+            # Otherwise, convert using from_raw (which handles transport-neutral formats only)
+            # Provider-specific formats should be normalized by provider normalizers before reaching here
+            if isinstance(chunk, StreamingContent):
+                content = chunk
+            else:
+                # Convert raw chunk to StreamingContent
+                # Note: This should only receive transport-neutral formats.
+                # Provider-specific formats (Anthropic events, Gemini JSON-lines) should
+                # be normalized by provider normalizers before reaching this point.
+                content = StreamingContent.from_raw(chunk)
             is_keepalive = bool(content.metadata.get("_keepalive"))
 
             # Ensure a stable identifier for this stream so that stateful processors

@@ -7,9 +7,14 @@ including validation, metadata synchronization, and domain-level serialization.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.core.domain.streaming.contracts import StreamingChunk
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +287,213 @@ class StreamingContent:
 
         serializer = SSESerializer()
         return serializer.serialize(self)
+
+    def to_typed_chunk(self) -> StreamingChunk:
+        """Convert this StreamingContent to a typed StreamingChunk.
+
+        Returns:
+            A StreamingChunk with typed payload and metadata
+
+        Note:
+            This method provides a bridge to the typed contract representation
+            while preserving all data and behavior.
+
+        Important:
+            Internal metadata fields (those starting with underscore, e.g.,
+            `_virtual_tool_calls`, `_keepalive`) are NOT preserved in the
+            typed contract. This is an intentional design decision to keep
+            typed contracts clean and focused on public API fields. If you
+            need internal metadata fields, use the original StreamingContent
+            instance directly rather than converting to typed contract.
+        """
+        from src.core.domain.chat import ToolCall
+        from src.core.domain.streaming.contracts import (
+            StreamingChunk,
+            StreamingErrorInfo,
+            StreamingMetadata,
+            StreamingPayload,
+            StreamingUsage,
+        )
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        # Determine payload kind and content
+        payload: StreamingPayload
+        if isinstance(self.content, StopChunkWithUsage):
+            # StopChunkWithUsage should be converted to opaque_json
+            # Convert to plain dict first to avoid triggering protection
+            plain_dict = dict(self.content)
+            payload = StreamingPayload(
+                kind="opaque_json", opaque_json=json.dumps(plain_dict)
+            )
+        elif isinstance(self.content, str):
+            if len(self.content) == 0:
+                payload = StreamingPayload(kind="empty")
+            else:
+                payload = StreamingPayload(kind="text", text=self.content)
+        elif isinstance(self.content, dict):
+            payload = StreamingPayload(
+                kind="opaque_json", opaque_json=json.dumps(self.content)
+            )
+        elif isinstance(self.content, bytes):
+            binary_b64 = base64.b64encode(self.content).decode("utf-8")
+            payload = StreamingPayload(kind="binary", binary_b64=binary_b64)
+        else:
+            # Fallback: convert to string
+            payload = StreamingPayload(kind="text", text=str(self.content))
+
+        # Convert metadata
+        metadata_dict = dict(self.metadata)
+        tool_calls: list[ToolCall] | None = None
+        if "tool_calls" in metadata_dict:
+            tool_calls_raw = metadata_dict.pop("tool_calls")
+            if isinstance(tool_calls_raw, list):
+                tool_calls = []
+                for tc in tool_calls_raw:
+                    if isinstance(tc, ToolCall):
+                        tool_calls.append(tc)
+                    elif isinstance(tc, dict):
+                        try:
+                            tool_calls.append(ToolCall(**tc))
+                        except Exception:
+                            # If conversion fails, skip this tool call
+                            logger.warning(
+                                f"Failed to convert tool call dict to ToolCall: {tc}"
+                            )
+
+        error: StreamingErrorInfo | None = None
+        if "error" in metadata_dict:
+            error_dict = metadata_dict.pop("error")
+            if isinstance(error_dict, dict):
+                # Extract valid fields for StreamingErrorInfo (including status_code)
+                valid_fields = {
+                    "type": error_dict.get("type", ""),
+                    "message": error_dict.get("message", ""),
+                    "code": error_dict.get("code"),
+                    "retryable": error_dict.get("retryable"),
+                    "status_code": error_dict.get("status_code"),
+                }
+                try:
+                    error = StreamingErrorInfo(**valid_fields)
+                except Exception:
+                    logger.warning(
+                        f"Failed to convert error dict to StreamingErrorInfo: {error_dict}"
+                    )
+                    # Preserve original error dict in metadata if conversion fails
+                    metadata_dict["error"] = error_dict
+
+        # Convert usage (from attribute or metadata)
+        usage: StreamingUsage | None = None
+        usage_dict = self.usage or metadata_dict.get("usage")
+        if usage_dict and isinstance(usage_dict, dict):
+            try:
+                usage = StreamingUsage(**usage_dict)
+            except Exception:
+                logger.warning(
+                    f"Failed to convert usage dict to StreamingUsage: {usage_dict}"
+                )
+        if "usage" in metadata_dict:
+            metadata_dict.pop("usage")
+
+        metadata = StreamingMetadata(
+            provider=metadata_dict.get("provider"),
+            stream_id=metadata_dict.get("stream_id") or self.stream_id,
+            finish_reason=metadata_dict.get("finish_reason"),
+            role=metadata_dict.get("role"),
+            tool_calls=tool_calls,
+            reasoning_content=metadata_dict.get("reasoning_content"),
+            error=error,
+            usage=usage,
+        )
+
+        return StreamingChunk(
+            payload=payload,
+            metadata=metadata,
+            is_done=self.is_done,
+            is_empty=bool(self.is_empty) if self.is_empty is not None else False,
+            is_cancellation=self.is_cancellation,
+        )
+
+    @classmethod
+    def from_typed_chunk(cls, chunk: StreamingChunk) -> StreamingContent:
+        """Create a StreamingContent instance from a typed StreamingChunk.
+
+        Args:
+            chunk: The typed StreamingChunk to convert
+
+        Returns:
+            A new StreamingContent instance
+
+        Note:
+            This method provides a bridge from the typed contract representation
+            back to the legacy StreamingContent format while preserving all data.
+
+        Important:
+            Internal metadata fields (those starting with underscore) that were
+            lost during conversion to typed contract will NOT be restored. This
+            is expected behavior - internal fields are intentionally excluded
+            from typed contracts to keep them clean. If you need internal fields,
+            avoid round-trip conversion through typed contracts.
+        """
+
+        # Extract content based on payload kind
+        content: str | dict | bytes
+        if chunk.payload.kind == "text":
+            content = chunk.payload.text or ""
+        elif chunk.payload.kind == "opaque_json":
+            if chunk.payload.opaque_json:
+                try:
+                    content = json.loads(chunk.payload.opaque_json)
+                except json.JSONDecodeError:
+                    # Fallback to string if JSON parsing fails
+                    content = chunk.payload.opaque_json
+            else:
+                content = {}
+        elif chunk.payload.kind == "binary":
+            if chunk.payload.binary_b64:
+                content = base64.b64decode(chunk.payload.binary_b64)
+            else:
+                content = b""
+        else:  # empty
+            content = ""
+
+        # Convert metadata back to dict
+        metadata: dict[str, Any] = {}
+        if chunk.metadata.provider:
+            metadata["provider"] = chunk.metadata.provider
+        if chunk.metadata.stream_id:
+            metadata["stream_id"] = chunk.metadata.stream_id
+        if chunk.metadata.finish_reason:
+            metadata["finish_reason"] = chunk.metadata.finish_reason
+        if chunk.metadata.role:
+            metadata["role"] = chunk.metadata.role
+        if chunk.metadata.reasoning_content:
+            metadata["reasoning_content"] = chunk.metadata.reasoning_content
+
+        # Convert tool_calls back to dict list
+        if chunk.metadata.tool_calls:
+            metadata["tool_calls"] = [
+                tc.model_dump(exclude_none=True) if hasattr(tc, "model_dump") else tc
+                for tc in chunk.metadata.tool_calls
+            ]
+
+        # Convert error back to dict (exclude None values to match original)
+        if chunk.metadata.error:
+            metadata["error"] = chunk.metadata.error.model_dump(exclude_none=True)
+
+        # Extract usage (from metadata or as attribute)
+        usage: dict[str, Any] | None = None
+        if chunk.metadata.usage:
+            usage = chunk.metadata.usage.model_dump(exclude_none=True)
+
+        return cls(
+            content=content,
+            metadata=metadata,
+            is_done=chunk.is_done,
+            is_empty=chunk.is_empty,
+            stream_id=chunk.metadata.stream_id,
+            is_cancellation=chunk.is_cancellation,
+            usage=usage,
+        )
 
     @classmethod
     def from_raw(cls, raw_data: Any) -> StreamingContent:

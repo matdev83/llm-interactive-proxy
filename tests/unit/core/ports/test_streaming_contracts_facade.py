@@ -154,3 +154,25 @@ class TestFacadeBackwardCompatibility:
         assert SentinelManager is not None
         assert StreamingErrorMapper is not None
         assert handle_streaming_error is not None
+
+    def test_istream_normalizer_is_re_export_of_iprovider_stream_normalizer(self):
+        """IStreamNormalizer from facade should be IProviderStreamNormalizer."""
+        from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
+
+        # IStreamNormalizer from facade should be the same as IProviderStreamNormalizer
+        assert IStreamNormalizer is IProviderStreamNormalizer
+
+    def test_istream_normalizer_distinct_from_services_layer(self):
+        """IStreamNormalizer from facade should be distinct from services-layer interface."""
+        from src.core.interfaces.streaming_response_processor_interface import (
+            IStreamNormalizer as ServicesIStreamNormalizer,
+        )
+
+        # They should be different classes
+        assert IStreamNormalizer is not ServicesIStreamNormalizer
+
+        # Verify they have different method signatures
+        assert hasattr(IStreamNormalizer, "normalize_stream")
+        assert hasattr(ServicesIStreamNormalizer, "process_stream")
+        assert not hasattr(IStreamNormalizer, "process_stream")
+        assert not hasattr(ServicesIStreamNormalizer, "normalize_stream")

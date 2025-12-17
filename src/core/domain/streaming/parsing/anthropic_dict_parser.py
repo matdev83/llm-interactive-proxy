@@ -3,6 +3,12 @@ Anthropic dict parser.
 
 This parser handles Anthropic event dicts with 'type' fields like
 'content_block_delta' and 'message_delta'.
+
+Note: This parser exists for completeness but is NOT used in the RawChunkParser
+strategy chain. Provider-specific formats like Anthropic event dicts should be
+normalized by AnthropicStreamNormalizer before reaching the shared parsing
+entry point (StreamingContent.from_raw). This enforces architectural boundaries
+and keeps provider-specific logic in provider adapters, not shared domain code.
 """
 
 from __future__ import annotations
@@ -74,4 +80,3 @@ class AnthropicDictParser(IParserStrategy):
 
 
 __all__ = ["AnthropicDictParser"]
-

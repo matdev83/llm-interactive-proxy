@@ -95,8 +95,63 @@ class ReasoningStreamProcessor:
 
                 raw_content = processed_response.content
                 streaming_chunk = None
-                with contextlib.suppress(Exception):
-                    streaming_chunk = StreamingContent.from_raw(processed_response)
+
+                # Try to normalize via provider normalizer if provider info is available
+                # This ensures provider-specific formats are handled correctly
+                provider = None
+                if processed_response.metadata:
+                    provider = processed_response.metadata.get(
+                        "provider"
+                    ) or processed_response.metadata.get("backend_name")
+
+                if provider and isinstance(raw_content, dict | str | bytes):
+                    # Check if content looks like provider-specific format
+                    is_provider_specific = False
+                    if isinstance(raw_content, dict) and (
+                        raw_content.get("type")
+                        in (
+                            "content_block_delta",
+                            "message_delta",
+                            "message_start",
+                            "content_block_start",
+                        )
+                        or (
+                            "candidates" in raw_content and "choices" not in raw_content
+                        )
+                    ):
+                        is_provider_specific = True
+
+                    if is_provider_specific:
+                        try:
+                            # Normalize via provider normalizer (async)
+                            normalized_chunk = await self._normalize_via_provider(
+                                raw_content, provider
+                            )
+                            if normalized_chunk:
+                                streaming_chunk = normalized_chunk
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to normalize via provider normalizer: %s",
+                                    e,
+                                    exc_info=True,
+                                )
+                            # Fall back to from_raw
+                            with contextlib.suppress(Exception):
+                                streaming_chunk = StreamingContent.from_raw(
+                                    processed_response
+                                )
+                    else:
+                        # Transport-neutral format, use from_raw
+                        with contextlib.suppress(Exception):
+                            streaming_chunk = StreamingContent.from_raw(
+                                processed_response
+                            )
+                else:
+                    # No provider info or not provider-specific format, use from_raw
+                    with contextlib.suppress(Exception):
+                        streaming_chunk = StreamingContent.from_raw(processed_response)
+
                 chunk = self._normalize_chunk(raw_content)
                 if chunk is None:
                     if logger.isEnabledFor(logging.DEBUG):
@@ -573,6 +628,57 @@ class ReasoningStreamProcessor:
         """
         # Simple heuristic: ~4 chars per token
         return len(text) // 4
+
+    async def _normalize_via_provider(
+        self, raw_content: Any, provider: str
+    ) -> StreamingContent | None:
+        """Normalize a single chunk using provider normalizer.
+
+        Args:
+            raw_content: Raw content to normalize
+            provider: Provider name ("openai", "anthropic", "gemini")
+
+        Returns:
+            Normalized StreamingContent chunk, or None if normalization fails
+        """
+        from src.core.ports.anthropic_normalizer import AnthropicStreamNormalizer
+        from src.core.ports.gemini_normalizer import GeminiStreamNormalizer
+        from src.core.ports.openai_normalizer import OpenAIStreamNormalizer
+        from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
+
+        # Create appropriate normalizer
+        provider_lower = provider.lower()
+        normalizer: BaseStreamNormalizer
+        if provider_lower == "openai":
+            normalizer = OpenAIStreamNormalizer()
+        elif provider_lower == "anthropic":
+            normalizer = AnthropicStreamNormalizer()
+        elif provider_lower == "gemini":
+            normalizer = GeminiStreamNormalizer()
+        else:
+            # Unknown provider, return None to fall back to from_raw
+            return None
+
+        # Create single-item async iterator
+        async def single_item_stream() -> AsyncIterator[Any]:
+            yield raw_content
+
+        # Normalize and get first result
+        try:
+            async for normalized in normalizer.normalize_stream(
+                single_item_stream(), provider
+            ):
+                return normalized
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Error normalizing via provider normalizer: %s",
+                    e,
+                    exc_info=True,
+                )
+            return None
+
+        return None
 
     def _extract_tool_calls_from_chunk(
         self,

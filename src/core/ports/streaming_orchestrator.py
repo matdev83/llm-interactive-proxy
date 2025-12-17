@@ -61,7 +61,7 @@ class StreamingPipeline:
 
     async def process_stream(
         self,
-        raw_stream: AsyncIterator[Any],
+        raw_stream: AsyncIterator[object],
         provider: str,
         stream_id: str | None = None,
         output_format: str = "sse",
@@ -74,7 +74,7 @@ class StreamingPipeline:
         3. Assembly (StreamingContent → client format)
 
         Args:
-            raw_stream: Raw async iterator from backend
+            raw_stream: Raw async iterator from backend (opaque provider-specific data)
             provider: Provider name for context
             stream_id: Optional stream identifier
             output_format: Output format (default: "sse")

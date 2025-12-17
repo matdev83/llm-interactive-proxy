@@ -3,19 +3,25 @@ Streaming interfaces and protocols.
 
 This module contains the core interfaces for the streaming pipeline:
 - StreamProducer: Protocol for backend connectors
-- IStreamNormalizer: Interface for normalizing provider-specific formats
+- IProviderStreamNormalizer: Interface for normalizing provider-specific formats
+  (re-exported as IStreamNormalizer for backward compatibility)
 - IStreamProcessor: Interface for middleware processors
 - IStreamAssembler: Interface for converting to client formats
 
 These interfaces define contracts without any vendor/transport dependencies.
+
+Note: IProviderStreamNormalizer is distinct from the services-layer IStreamNormalizer
+which handles middleware pipeline normalization. External code should import
+IStreamNormalizer from streaming_contracts.py for backward compatibility.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any, Protocol
+from typing import Protocol
 
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.streaming.streaming_content import StreamingContent
 
 
@@ -26,14 +32,16 @@ class StreamProducer(Protocol):
     streaming responses.
     """
 
-    async def stream_completion(self, request: Any) -> AsyncIterator[Any]:
+    async def stream_completion(
+        self, request: CanonicalChatRequest
+    ) -> AsyncIterator[object]:
         """Yield raw streaming chunks from the backend.
 
         Args:
             request: The chat completion request
 
         Yields:
-            Raw streaming chunks from the backend
+            Raw streaming chunks from the backend (opaque provider-specific data)
         """
         ...
 
@@ -46,21 +54,26 @@ class StreamProducer(Protocol):
         ...
 
 
-class IStreamNormalizer(ABC):
-    """Interface for normalizing streaming responses.
+class IProviderStreamNormalizer(ABC):
+    """Interface for normalizing provider-specific streaming responses.
 
-    Normalizers convert provider-specific streaming formats into the
-    unified StreamingContent representation.
+    Provider normalizers convert provider-specific streaming formats into the
+    unified StreamingContent representation. This interface is distinct from
+    the services-layer IStreamNormalizer which handles middleware pipeline
+    normalization.
+
+    Note: This interface is re-exported as IStreamNormalizer from
+    streaming_contracts.py for backward compatibility.
     """
 
     @abstractmethod
     def normalize_stream(
-        self, stream: AsyncIterator[Any], provider: str
+        self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert provider-specific stream to StreamingContent.
 
         Args:
-            stream: Raw stream from backend
+            stream: Raw stream from backend (opaque provider-specific data)
             provider: Provider name for context
 
         Yields:
@@ -136,9 +149,14 @@ class IStreamAssembler(ABC):
         ...
 
 
+# Re-export IProviderStreamNormalizer as IStreamNormalizer for backward compatibility
+# External code should import IStreamNormalizer from streaming_contracts.py
+IStreamNormalizer = IProviderStreamNormalizer
+
 __all__ = [
     "StreamProducer",
-    "IStreamNormalizer",
+    "IProviderStreamNormalizer",
+    "IStreamNormalizer",  # Backward compatibility alias
     "IStreamProcessor",
     "IStreamAssembler",
 ]

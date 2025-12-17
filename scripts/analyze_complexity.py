@@ -82,30 +82,38 @@ def analyze_file(file_path: Path):
         return {"file": str(file_path), "error": str(e)}
 
 
-def validate_streaming_refactor_scope() -> int:
+def get_streaming_contracts_scope_files(base_path: Path | None = None) -> list[Path]:
     """
-    Validate complexity and LOC thresholds for streaming refactor scope.
+    Get all files in the streaming-contracts refactor scope.
 
-    Checks all modules in the refactor scope against thresholds:
-    - LOC < 600 per file (Requirements 1.1, 1.2)
-    - Max function CC < 50 (Requirement 1.3)
-    - Total module CC < 200 (Requirement 1.5)
+    Scope definition per design.md:
+    - src/core/ports/streaming_contracts.py
+    - src/core/ports/streaming/*.py (single level)
+    - src/core/domain/streaming/*.py (single level)
+    - src/core/domain/streaming/parsing/*.py (single level)
+    - src/core/transport/streaming/*.py (single level)
+    - src/core/services/streaming/error_mapping.py
+
+    Args:
+        base_path: Base path for file discovery. Defaults to current directory.
 
     Returns:
-        0 if all thresholds pass, 1 if any violations found
+        Sorted list of Path objects for files in scope.
     """
-    # Define refactor scope modules
+    if base_path is None:
+        base_path = Path(".")
+
+    # Define refactor scope modules per design.md specification
     scope_patterns = [
         "src/core/ports/streaming_contracts.py",  # Facade
-        "src/core/domain/streaming/**/*.py",  # All domain modules
-        "src/core/ports/streaming/**/*.py",  # All ports modules
-        "src/core/transport/streaming/**/*.py",  # All transport modules
+        "src/core/domain/streaming/**/*.py",  # All domain modules (recursive)
+        "src/core/ports/streaming/**/*.py",  # All ports modules (recursive)
+        "src/core/transport/streaming/**/*.py",  # All transport modules (recursive)
         "src/core/services/streaming/error_mapping.py",  # Error mapping only
     ]
 
     # Collect all files in scope
     scope_files = []
-    base_path = Path(".")
 
     for pattern in scope_patterns:
         if "**" in pattern:
@@ -120,28 +128,30 @@ def validate_streaming_refactor_scope() -> int:
                 scope_files.append(py_file)
 
     # Remove duplicates and sort
-    scope_files = sorted(set(scope_files))
+    return sorted(set(scope_files))
 
-    if not scope_files:
-        print("Warning: No files found in refactor scope")
-        return 1
 
-    # Thresholds from requirements.md
-    MAX_LOC = 600
-    MAX_FUNCTION_CC = 50
-    MAX_MODULE_CC = 200
+# Thresholds from requirements.md
+MAX_LOC = 600
+MAX_FUNCTION_CC = 50
+MAX_MODULE_CC = 200
 
+
+def validate_streaming_contracts_files(
+    scope_files: list[Path], base_path: Path
+) -> tuple[list[dict], int]:
+    """
+    Validate a list of files against streaming contracts thresholds.
+
+    Args:
+        scope_files: List of file paths to validate
+        base_path: Base path for relative path calculation
+
+    Returns:
+        Tuple of (violations list, passed count)
+    """
     violations = []
     passed_count = 0
-
-    print("=" * 100)
-    print("STREAMING REFACTOR SCOPE VALIDATION")
-    print("=" * 100)
-    print(f"\nChecking {len(scope_files)} files against thresholds:")
-    print(f"  - LOC per file: < {MAX_LOC}")
-    print(f"  - Max function CC: < {MAX_FUNCTION_CC}")
-    print(f"  - Total module CC: < {MAX_MODULE_CC}")
-    print()
 
     for file_path in scope_files:
         result = analyze_file(file_path)
@@ -203,6 +213,41 @@ def validate_streaming_refactor_scope() -> int:
             )
         else:
             passed_count += 1
+
+    return violations, passed_count
+
+
+def validate_streaming_refactor_scope() -> int:
+    """
+    Validate complexity and LOC thresholds for streaming refactor scope.
+
+    Checks all modules in the refactor scope against thresholds:
+    - LOC < 600 per file (Requirements 1.1, 1.2)
+    - Max function CC < 50 (Requirement 1.3)
+    - Total module CC < 200 (Requirement 1.5)
+
+    Returns:
+        0 if all thresholds pass, 1 if any violations found
+    """
+    base_path = Path(".")
+    scope_files = get_streaming_contracts_scope_files(base_path)
+
+    if not scope_files:
+        print("Warning: No files found in refactor scope")
+        return 1
+
+    print("=" * 100)
+    print("STREAMING REFACTOR SCOPE VALIDATION")
+    print("=" * 100)
+    print(f"\nChecking {len(scope_files)} files against thresholds:")
+    print(f"  - LOC per file: < {MAX_LOC}")
+    print(f"  - Max function CC: < {MAX_FUNCTION_CC}")
+    print(f"  - Total module CC: < {MAX_MODULE_CC}")
+    print()
+
+    violations, passed_count = validate_streaming_contracts_files(
+        scope_files, base_path
+    )
 
     # Report results
     if violations:

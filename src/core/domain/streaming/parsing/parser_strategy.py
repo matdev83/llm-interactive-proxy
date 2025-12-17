@@ -31,7 +31,6 @@ class IParserStrategy(ABC):
         Returns:
             True if this strategy can parse the data, False otherwise
         """
-        pass
 
     @abstractmethod
     def parse(self, raw_data: Any) -> StreamingContent:
@@ -46,8 +45,6 @@ class IParserStrategy(ABC):
         Raises:
             ValueError: If parsing fails (should not happen if can_parse returns True)
         """
-        pass
 
 
 __all__ = ["IParserStrategy"]
-

@@ -106,9 +106,7 @@ class OpenAIDictParser(IParserStrategy):
                     message = choice["message"]
                     if isinstance(message, dict) and "content" in message:
                         content_value = message.get("content")
-                        content = (
-                            content_value if content_value is not None else ""
-                        )
+                        content = content_value if content_value is not None else ""
                     if isinstance(message, dict):
                         tool_calls_val = message.get("tool_calls")
                         if isinstance(tool_calls_val, list) and tool_calls_val:
@@ -154,7 +152,12 @@ class OpenAIDictParser(IParserStrategy):
         # For chunks with usage data, preserve the original OpenAI-format
         # structure in content so downstream can recognize it and properly
         # serialize the usage field in the SSE output.
-        if usage and not content and isinstance(raw_data, dict) and "choices" in raw_data:
+        if (
+            usage
+            and not content
+            and isinstance(raw_data, dict)
+            and "choices" in raw_data
+        ):
             # OpenAI-format chunk with usage - preserve structure
             content = raw_data
 
@@ -168,4 +171,3 @@ class OpenAIDictParser(IParserStrategy):
 
 
 __all__ = ["OpenAIDictParser"]
-

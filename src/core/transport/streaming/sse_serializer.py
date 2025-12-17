@@ -7,11 +7,13 @@ done markers, and tool-call sanitization.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import Any, cast
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+from src.core.domain.streaming.contracts import StreamingChunk
 from src.core.domain.streaming.sentinels import SentinelManager
 from src.core.domain.streaming.stop_chunk_with_usage import (
     StopChunkWithUsage,
@@ -32,6 +34,102 @@ class SSESerializer:
     - StopChunkWithUsage special handling
     - Error and cancellation handling
     """
+
+    def _serialize_stop_chunk_with_usage(self, content: StreamingContent) -> bytes:
+        """Serialize StopChunkWithUsage to SSE bytes with usage at top level."""
+        # Convert to plain dict to avoid triggering __str__ protection
+        assert isinstance(content.content, StopChunkWithUsage)
+        plain_dict = dict(content.content)
+        logger.debug(
+            "[STREAMING] StreamingContent.to_bytes: Emitting StopChunkWithUsage "
+            "as top-level SSE with usage, chunk_id=%s, usage=%s",
+            plain_dict.get("id", "unknown"),
+            plain_dict.get("usage"),
+        )
+        return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
+
+    def _serialize_error_chunk(
+        self, chunk: StreamingChunk, content: StreamingContent
+    ) -> bytes | None:
+        """Serialize error chunk to SSE bytes. Returns None if not an error chunk."""
+        # Check for error metadata first
+        if chunk.metadata.finish_reason == "error" and (
+            chunk.metadata.error is not None or "error" in content.metadata
+        ):
+            # Get error dict - prefer typed contract, fallback to original metadata
+            if chunk.metadata.error is not None:
+                error_dict = chunk.metadata.error.model_dump(exclude_none=True)
+            else:
+                # Fallback: use original error dict if typed conversion failed
+                error_dict = content.metadata.get("error", {})
+                if not isinstance(error_dict, dict):
+                    error_dict = {}
+
+            error_data = {
+                "choices": [{"delta": {}, "finish_reason": "error"}],
+                "error": error_dict,
+            }
+
+            # Extract additional metadata fields (use original for non-typed fields)
+            for key in ["id", "model", "created"]:
+                if key in content.metadata:
+                    error_data[key] = content.metadata[key]
+            return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
+
+        # If content already carries error payload, preserve it
+        if isinstance(content.content, dict) and content.content.get("error"):
+            return f"data: {json.dumps(content.content)}\n\ndata: [DONE]\n\n".encode()
+
+        return None
+
+    def _serialize_cancellation_chunk(
+        self, chunk: StreamingChunk, content: StreamingContent
+    ) -> bytes | None:
+        """Serialize cancellation chunk to SSE bytes. Returns None if not cancellation."""
+        if chunk.is_cancellation and chunk.payload.kind != "empty":
+            data = {
+                "choices": [{"delta": {"content": str(content.content)}}],
+                "finish_reason": "cancelled",
+            }
+            # Extract additional metadata fields (use original for non-typed fields)
+            for key in ["id", "model", "created"]:
+                if key in content.metadata:
+                    data[key] = content.metadata[key]
+            return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
+
+        return None
+
+    def _serialize_done_chunk(
+        self, chunk: StreamingChunk, content: StreamingContent
+    ) -> bytes:
+        """Serialize done chunk to SSE bytes (may include content or just [DONE])."""
+        if content._is_empty_completion_payload():
+            return b"data: [DONE]\n\n"
+
+        # Check if content is just "[DONE]" marker (treat as pure done marker)
+        content_is_done_marker = (
+            content.content == "[DONE]"
+            or content.content == SentinelManager.DONE_MARKER
+            or content.content == b"[DONE]"
+        )
+
+        if (
+            content.content is not None
+            and content.content != ""
+            and not content_is_done_marker
+        ):
+            # If content is already an OpenAI-formatted chunk, emit it then [DONE]
+            if isinstance(content.content, dict) and "choices" in content.content:
+                return self._serialize_openai_chunk_with_done(chunk, content)
+
+            # Otherwise, fall through to normal content handling below
+        else:
+            # No meaningful content or content is just "[DONE]", emit [DONE]
+            return b"data: [DONE]\n\n"
+
+        # If we get here, there's content but it's not OpenAI-formatted
+        # Fall back to normal chunk serialization (shouldn't happen for done chunks)
+        return self._serialize_normal_chunk(chunk, content)
 
     def serialize(self, content: StreamingContent) -> bytes:
         """Serialize StreamingContent to SSE bytes.
@@ -66,80 +164,27 @@ class SSESerializer:
         # This prevents the usage data leak bug where JSON chunks appear in
         # conversation history.
         if isinstance(content.content, StopChunkWithUsage):
-            # Convert to plain dict to avoid triggering __str__ protection
-            plain_dict = dict(content.content)
-            logger.debug(
-                "[STREAMING] StreamingContent.to_bytes: Emitting StopChunkWithUsage "
-                "as top-level SSE with usage, chunk_id=%s, usage=%s",
-                plain_dict.get("id", "unknown"),
-                plain_dict.get("usage"),
-            )
-            # Emit as proper SSE with usage at top level, then [DONE]
-            return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
+            return self._serialize_stop_chunk_with_usage(content)
 
-        if content.is_done:
-            # Check for error metadata first
-            if (
-                content.metadata.get("finish_reason") == "error"
-                and "error" in content.metadata
-            ):
-                error_data = {
-                    "choices": [{"delta": {}, "finish_reason": "error"}],
-                    "error": content.metadata["error"],
-                }
+        # Convert to typed contract for internal processing
+        chunk = content.to_typed_chunk()
 
-                for key in ["id", "model", "created"]:
-                    if key in content.metadata:
-                        error_data[key] = content.metadata[key]
+        if chunk.is_done:
+            # Handle error chunks
+            error_bytes = self._serialize_error_chunk(chunk, content)
+            if error_bytes is not None:
+                return error_bytes
 
-                return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
+            # Handle cancellation chunks
+            cancellation_bytes = self._serialize_cancellation_chunk(chunk, content)
+            if cancellation_bytes is not None:
+                return cancellation_bytes
 
-            # If the content already carries an error payload, preserve it even when
-            # metadata is missing the error details.
-            if isinstance(content.content, dict) and content.content.get("error"):
-                return (
-                    f"data: {json.dumps(content.content)}\n\ndata: [DONE]\n\n".encode()
-                )
-
-            # Check for cancellation
-            if content.is_cancellation and content.content:
-                data = {
-                    "choices": [{"delta": {"content": str(content.content)}}],
-                    "finish_reason": "cancelled",
-                }
-                for key in ["id", "model", "created"]:
-                    if key in content.metadata:
-                        data[key] = content.metadata[key]
-                return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
-
-            if content._is_empty_completion_payload():
-                return b"data: [DONE]\n\n"
-
-            # Check if there's actual content to emit with the done marker
-            # This handles cases where the final chunk has both content and is_done=True
-            # BUT: if content is just "[DONE]" string, treat it as a pure done marker
-            content_is_done_marker = (
-                content.content == "[DONE]"
-                or content.content == SentinelManager.DONE_MARKER
-                or content.content == b"[DONE]"
-            )
-
-            if (
-                content.content is not None
-                and content.content != ""
-                and not content_is_done_marker
-            ):
-                # If content is already an OpenAI-formatted chunk, emit it then [DONE]
-                if isinstance(content.content, dict) and "choices" in content.content:
-                    return self._serialize_openai_chunk_with_done(content)
-
-                # Otherwise, fall through to normal content handling below
-            else:
-                # No meaningful content or content is just "[DONE]", emit [DONE]
-                return b"data: [DONE]\n\n"
+            # Handle done markers
+            return self._serialize_done_chunk(chunk, content)
 
         # Build delta object for non-done chunks
-        return self._serialize_normal_chunk(content)
+        return self._serialize_normal_chunk(chunk, content)
 
     def _normalize_openai_chat_completion_to_stream_chunk(
         self, payload: dict[str, Any]
@@ -194,11 +239,19 @@ class SSESerializer:
             normalized["object"] = "chat.completion.chunk"
         return normalized
 
-    def _serialize_openai_chunk_with_done(self, content: StreamingContent) -> bytes:
-        """Serialize an OpenAI-formatted chunk with done marker."""
+    def _serialize_openai_chunk_with_done(
+        self, chunk: StreamingChunk, content: StreamingContent
+    ) -> bytes:
+        """Serialize an OpenAI-formatted chunk with done marker.
+
+        Args:
+            chunk: Typed StreamingChunk contract
+            content: Original StreamingContent for accessing non-typed fields
+        """
         # Check if tool_calls are "virtual" (extracted from XML content).
         # Virtual tool calls should NOT be sent to client - they're only
         # used internally for unified processing. The XML remains in content.
+        # Note: _virtual_tool_calls is not in typed contract, use original metadata
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
 
         # Make a copy of content to potentially modify
@@ -273,19 +326,27 @@ class SSESerializer:
         if is_virtual:
             return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
 
-        # Non-virtual: Inject tool_calls from metadata into the delta if present
-        tool_calls = content.metadata.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls:
-            # Sanitize internal markers before sending to client
-            sanitized_calls = [
-                {
+        # Non-virtual: Inject tool_calls from typed metadata into the delta if present
+        tool_calls = chunk.metadata.tool_calls
+        if tool_calls:
+            # Convert ToolCall objects to dicts and sanitize internal markers
+            sanitized_calls = []
+            for tc in tool_calls:
+                if hasattr(tc, "model_dump"):
+                    tc_dict = tc.model_dump(exclude_none=True)
+                elif isinstance(tc, dict):
+                    tc_dict = tc
+                else:
+                    continue
+                # Sanitize internal markers
+                sanitized_dict = {
                     k: v
-                    for k, v in tc.items()
+                    for k, v in tc_dict.items()
                     if not k.startswith("_") and k != "extra_content"
                 }
-                for tc in tool_calls
-                if isinstance(tc, dict)
-            ]
+                if sanitized_dict:
+                    sanitized_calls.append(sanitized_dict)
+
             if sanitized_calls:
                 # Ensure choices and delta exist
                 choices = content_copy.get("choices", [])
@@ -363,9 +424,19 @@ class SSESerializer:
         return content_copy
 
     def _serialize_openai_formatted_dict(
-        self, working_content: dict[str, Any], content: StreamingContent
+        self,
+        working_content: dict[str, Any],
+        chunk: StreamingChunk,
+        content: StreamingContent,
     ) -> bytes:
-        """Serialize an OpenAI-formatted dict chunk."""
+        """Serialize an OpenAI-formatted dict chunk.
+
+        Args:
+            working_content: The dict content to serialize
+            chunk: Typed StreamingChunk contract
+            content: Original StreamingContent for accessing non-typed fields
+        """
+        # Note: _virtual_tool_calls is not in typed contract, use original metadata
         is_virtual_tc = content.metadata.get("_virtual_tool_calls", False)
 
         # Make a copy and normalize
@@ -380,107 +451,146 @@ class SSESerializer:
         if is_virtual_tc:
             content_copy = self._handle_virtual_tool_calls(content_copy)
         else:
-            # Inject tool_calls from metadata if present
-            tool_calls_to_inject = content.metadata.get("tool_calls")
-            if isinstance(tool_calls_to_inject, list) and tool_calls_to_inject:
-                content_copy = self._inject_tool_calls_into_chunk(
-                    content_copy, tool_calls_to_inject
-                )
+            # Inject tool_calls from typed metadata if present
+            tool_calls_to_inject = chunk.metadata.tool_calls
+            if tool_calls_to_inject:
+                # Convert ToolCall objects to dicts
+                tool_calls_dicts = []
+                for tc in tool_calls_to_inject:
+                    if hasattr(tc, "model_dump"):
+                        tool_calls_dicts.append(tc.model_dump(exclude_none=True))
+                    elif isinstance(tc, dict):
+                        tool_calls_dicts.append(tc)
+                if tool_calls_dicts:
+                    content_copy = self._inject_tool_calls_into_chunk(
+                        content_copy, tool_calls_dicts
+                    )
 
         result = f"data: {json.dumps(content_copy)}\n\n"
-        if content.is_done:
+        if chunk.is_done:
             result += "data: [DONE]\n\n"
         return result.encode()
 
     def _build_delta_metadata(
-        self, content: StreamingContent, delta: dict[str, Any]
+        self, chunk: StreamingChunk, content: StreamingContent, delta: dict[str, Any]
     ) -> None:
-        """Build delta metadata (role, tool_call_id, tool_calls, reasoning)."""
-        # Add role if present
-        role = content.metadata.get("role")
-        if isinstance(role, str) and role:
-            delta["role"] = role
+        """Build delta metadata (role, tool_call_id, tool_calls, reasoning).
 
-        # Add tool_call_id if present
+        Args:
+            chunk: Typed StreamingChunk contract
+            content: Original StreamingContent for accessing non-typed fields
+            delta: Dictionary to populate with delta metadata
+        """
+        # Add role if present (from typed contract)
+        if chunk.metadata.role:
+            delta["role"] = chunk.metadata.role
+
+        # Add tool_call_id if present (not in typed contract, use original)
         tool_call_id = content.metadata.get("tool_call_id")
         if isinstance(tool_call_id, str) and tool_call_id:
             delta["tool_call_id"] = tool_call_id
 
         # Add tool_calls if present and not virtual
+        # Note: _virtual_tool_calls is not in typed contract, use original metadata
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
-        tool_calls = content.metadata.get("tool_calls")
-        if isinstance(tool_calls, list) and tool_calls and not is_virtual:
-            sanitized_calls = self._sanitize_tool_calls(tool_calls)
-            if sanitized_calls:
-                delta["tool_calls"] = sanitized_calls
+        tool_calls = chunk.metadata.tool_calls
+        if tool_calls and not is_virtual:
+            # Convert ToolCall objects to dicts and sanitize
+            tool_calls_dicts = []
+            for tc in tool_calls:
+                if hasattr(tc, "model_dump"):
+                    tool_calls_dicts.append(tc.model_dump(exclude_none=True))
+                elif isinstance(tc, dict):
+                    tool_calls_dicts.append(tc)
+            if tool_calls_dicts:
+                sanitized_calls = self._sanitize_tool_calls(tool_calls_dicts)
+                if sanitized_calls:
+                    delta["tool_calls"] = sanitized_calls
 
-        # Add reasoning content if present
-        reasoning_value = content.metadata.get(
-            "reasoning_content"
-        ) or content.metadata.get("reasoning")
-        if isinstance(reasoning_value, str) and reasoning_value.strip():
+        # Add reasoning content if present (from typed contract)
+        reasoning_value = chunk.metadata.reasoning_content
+        if reasoning_value and reasoning_value.strip():
             delta["reasoning_content"] = reasoning_value
             delta.setdefault("reasoning", reasoning_value)
 
-    def _serialize_normal_chunk(self, content: StreamingContent) -> bytes:
-        """Serialize a normal (non-done) chunk."""
+    def _serialize_normal_chunk(
+        self, chunk: StreamingChunk, content: StreamingContent
+    ) -> bytes:
+        """Serialize a normal (non-done) chunk.
+
+        Args:
+            chunk: Typed StreamingChunk contract
+            content: Original StreamingContent for accessing non-typed fields
+        """
         # Build delta object
         delta: dict[str, Any] = {}
 
         # Add metadata to delta
-        self._build_delta_metadata(content, delta)
+        self._build_delta_metadata(chunk, content, delta)
 
-        # Add main content
-        if content.content is not None:
-            # Handle Pydantic models
-            working_content = content.content
-            if hasattr(working_content, "model_dump") and callable(
-                working_content.model_dump
-            ):
-                working_content = working_content.model_dump()
+        # Add main content from typed payload
+        if chunk.payload.kind == "text" and chunk.payload.text is not None:
+            delta["content"] = chunk.payload.text
+        elif chunk.payload.kind == "opaque_json" and chunk.payload.opaque_json:
+            # Parse JSON to check if it's OpenAI-formatted
+            try:
+                parsed_content = json.loads(chunk.payload.opaque_json)
+                if isinstance(parsed_content, dict):
+                    # Check if OpenAI-formatted chunk
+                    if "choices" in parsed_content or "usage" in parsed_content:
+                        return self._serialize_openai_formatted_dict(
+                            parsed_content, chunk, content
+                        )
 
-            # Handle different content types
-            if isinstance(working_content, bytes):
+                    # Check for StopChunkWithUsage misuse
+                    if isinstance(content.content, StopChunkWithUsage):
+                        raise UsageChunkLeakError(
+                            chunk_id=(
+                                parsed_content.get("id")
+                                if isinstance(parsed_content, dict)
+                                else None
+                            )
+                        )
+
+                    delta["content"] = chunk.payload.opaque_json
+                else:
+                    delta["content"] = chunk.payload.opaque_json
+            except json.JSONDecodeError:
+                delta["content"] = chunk.payload.opaque_json
+        elif chunk.payload.kind == "binary" and chunk.payload.binary_b64:
+            # Decode base64 binary content
+            try:
+                binary_data = base64.b64decode(chunk.payload.binary_b64)
+                delta["content"] = binary_data.decode("utf-8")
+            except (UnicodeDecodeError, ValueError):
                 try:
-                    delta["content"] = working_content.decode("utf-8")
-                except UnicodeDecodeError:
-                    delta["content"] = working_content.decode("latin-1")
-            elif isinstance(working_content, dict):
-                # Check if OpenAI-formatted chunk
-                if "choices" in working_content or "usage" in working_content:
-                    return self._serialize_openai_formatted_dict(
-                        working_content, content
-                    )
-
-                # Check for StopChunkWithUsage misuse
-                if isinstance(working_content, StopChunkWithUsage):
-                    raise UsageChunkLeakError(chunk_id=working_content.get("id"))
-
-                delta["content"] = json.dumps(working_content)
-            elif isinstance(working_content, str):
-                delta["content"] = working_content
-            else:
-                delta["content"] = str(working_content)
+                    delta["content"] = binary_data.decode("latin-1")
+                except Exception:
+                    delta["content"] = str(binary_data)
         else:
             delta["content"] = ""
 
         # Build response data
         response_data: dict[str, Any] = {"choices": [{"delta": delta}]}
 
-        # Add finish_reason
-        finish_reason = content.metadata.get("finish_reason")
-        response_data["choices"][0]["finish_reason"] = finish_reason  # type: ignore[index]
+        # Add finish_reason from typed contract
+        if chunk.metadata.finish_reason:
+            response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason  # type: ignore[index]
 
-        # Add metadata fields
+        # Add metadata fields (use original for non-typed fields like id, model, created)
+        metadata_dict = content.metadata
         for key in ["id", "model", "created"]:
-            if key in content.metadata:
-                response_data[key] = content.metadata[key]
+            if key in metadata_dict:
+                response_data[key] = metadata_dict[key]
 
-        if content.usage:
+        # Add usage from typed contract or original
+        if chunk.metadata.usage:
+            response_data["usage"] = chunk.metadata.usage.model_dump(exclude_none=True)
+        elif content.usage:
             response_data["usage"] = content.usage
 
         result = f"data: {json.dumps(response_data)}\n\n"
-        if content.is_done:
+        if chunk.is_done:
             result += "data: [DONE]\n\n"
         return result.encode()
 

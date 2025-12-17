@@ -16,6 +16,8 @@ clear boundaries between ports, domain, and services layers.
 
 from __future__ import annotations
 
+from typing import TypeAlias
+
 # Re-export domain models for backward compatibility
 from src.core.domain.streaming.sentinels import SentinelManager
 from src.core.domain.streaming.stop_chunk_with_usage import (
@@ -26,11 +28,14 @@ from src.core.domain.streaming.streaming_content import StreamingContent
 
 # Re-export interfaces from ports/streaming module
 from src.core.ports.streaming.interfaces import (
+    IProviderStreamNormalizer,
     IStreamAssembler,
-    IStreamNormalizer,
     IStreamProcessor,
     StreamProducer,
 )
+
+# Re-export IProviderStreamNormalizer as IStreamNormalizer for backward compatibility
+IStreamNormalizer: TypeAlias = IProviderStreamNormalizer
 
 # Re-export base normalizer from ports/streaming module
 from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer

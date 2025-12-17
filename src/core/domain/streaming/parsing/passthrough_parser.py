@@ -59,4 +59,3 @@ class PassthroughParser(IParserStrategy):
 
 
 __all__ = ["PassthroughParser"]
-
