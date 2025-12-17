@@ -1,0 +1,113 @@
+# Implementation Plan
+
+- [ ] 1. Establish enforceable quality gates for the DI refactor scope
+- [ ] 1.1 (P) Extend the existing complexity validator to cover the DI refactor scope
+  - Define the DI refactor scope as the DI facade, lifecycle/diagnostics helpers, and all registrar/helper modules.
+  - Enforce `<600` LOC per file and `<50` maximum function cyclomatic complexity for all DI-scope files.
+  - Expose a dedicated validation CLI flag for the DI scope and ensure output is consistent with existing scope validators.
+  - _Requirements: 4.1, 4.2_
+- [ ] 1.2 (P) Add project-level complexity lint configuration to match the required thresholds
+  - Ensure the standard lint configuration can report cyclomatic complexity for DI modules.
+  - Configure the complexity threshold to `50` so the lint signal matches the acceptance criteria.
+  - _Requirements: 4.2_
+
+- [ ] 2. Introduce a registrar orchestration layer with deterministic ordering
+- [ ] 2.1 Define feature-scoped DI registrars and a single orchestrator entry point
+  - Create cohesive registration entry points per feature area (core, streaming, persistence, security, tooling, backend, resilience).
+  - Enforce a deterministic registrar invocation order aligned with staged initialization.
+  - Preserve current service lifetimes and interface bindings as the baseline behavior.
+  - _Requirements: 1.1, 1.2, 2.1, 2.2_
+- [ ] 2.2 Create shared, idempotent registration utilities to reduce duplication
+  - Provide a consistent “register-if-absent” behavior so earlier registrations are not overridden.
+  - Standardize the pattern for binding interfaces to concrete implementations without duplicating factories.
+  - _Requirements: 1.2, 4.3_
+- [ ] 2.3 Add fast feedback tests for registrar determinism and idempotency
+  - Verify registrars can run on a fresh container without import errors and produce deterministic registrations.
+  - Verify repeated invocations do not change descriptor outcomes (idempotency).
+  - _Requirements: 1.2, 1.4, 2.4_
+
+- [ ] 3. Implement actionable DI resolution diagnostics (resolution path)
+- [ ] 3.1 (P) Add concurrency-safe resolution path capture when diagnostics are enabled
+  - Track the active dependency resolution stack per concurrent resolution.
+  - Ensure errors include the missing service type and the resolution path when diagnostics are enabled.
+  - Preserve default behavior and overhead when diagnostics are disabled.
+  - _Requirements: 1.3_
+- [ ] 3.2 Add tests for deterministic error shaping across failure modes
+  - Verify missing-service, scoped-from-root, and factory/constructor failures produce actionable errors with a resolution path when diagnostics are enabled.
+  - Verify behavior is unchanged (no extra details) when diagnostics are disabled.
+  - _Requirements: 1.3, 1.4_
+
+- [ ] 4. Remove DI technical debt by eliminating provider self-healing
+- [ ] 4.1 Split global provider lifecycle and post-build hooks from registration responsibilities
+  - Separate provider lifecycle concerns from pure registration so registrars remain side-effect-free.
+  - Preserve public DI entry points for compatibility while keeping the facade thin.
+  - _Requirements: 2.1, 2.3, 3.1_
+- [ ] 4.2 Remove provider rebuild/self-healing behavior and enforce deterministic failure
+  - Ensure missing DI wiring fails fast instead of being repaired at runtime.
+  - Ensure staged initialization plus tests act as the primary correctness mechanism.
+  - _Requirements: 1.1, 1.4, 3.1_
+- [ ] 4.3 Add regression coverage for removed self-healing behavior
+  - Validate that missing registrations are surfaced clearly (and with diagnostics details when enabled).
+  - Validate that the application still starts correctly when correctly wired.
+  - _Requirements: 1.1, 1.3, 1.4_
+
+- [ ] 5. Extract core registration responsibilities into the core registrar
+- [ ] 5.1 Move foundational registrations into the core registrar without behavior changes
+  - Preserve configuration registration semantics and precedence handling expectations.
+  - Preserve session, application state, and command pipeline DI bindings and lifetimes.
+  - _Requirements: 1.1, 1.2, 2.1, 3.2_
+- [ ] 5.2 Move request processing orchestration registrations into cohesive core modules
+  - Preserve interface-first wiring for the request processing orchestration and its internal phase components.
+  - Ensure optional features remain gated so disabled features do not block startup.
+  - _Requirements: 1.1, 1.2, 3.2, 3.3_
+- [ ] 5.3 Validate staged initialization and key service resolutions after core extraction
+  - Confirm core stages complete without DI errors using existing integration tests.
+  - Confirm critical services resolve with the same effective implementations and lifetime semantics.
+  - _Requirements: 1.1, 1.2, 1.4_
+
+- [ ] 6. Extract streaming and response pipeline registrations into the streaming registrar
+- [ ] 6.1 Move streaming pipeline wiring into a dedicated streaming registrar
+  - Preserve streaming processor ordering and configuration gating behavior.
+  - Preserve response processor wiring and interface bindings.
+  - _Requirements: 1.1, 1.2, 2.1, 3.3_
+- [ ] 6.2 Ensure post-build feature parity initialization remains correct and isolated
+  - Ensure parity initialization runs only after provider build and does not create import-time side effects.
+  - Keep post-build hooks separate from registrar registration logic.
+  - _Requirements: 2.3, 3.1_
+- [ ] 6.3 Run targeted streaming and DI integrity tests to catch regressions early
+  - Run the existing DI integrity and streaming-related tests and fix any wiring issues.
+  - _Requirements: 1.4_
+
+- [ ] 7. Extract persistence and memory subsystem registrations into cohesive registrars
+- [ ] 7.1 Move database configuration, engine, and repository registrations into persistence scope
+  - Preserve lifetime semantics and interface bindings for repositories and DB-related services.
+  - _Requirements: 1.1, 1.2, 2.1_
+- [ ] 7.2 Move memory subsystem DI wiring with strict “no import-time side effects” discipline
+  - Preserve optional feature gating for memory features so disabled features do not block startup.
+  - Ensure registration logic does not perform DB connects or runtime mutations beyond defining registrations.
+  - _Requirements: 2.3, 3.3_
+- [ ] 7.3 Validate that registration does not open connections or perform I/O at import time
+  - Add focused checks/tests ensuring persistence wiring remains lazy (connections created on use, not on registration/import).
+  - _Requirements: 2.3_
+
+- [ ] 8. Extract security, tooling, backend, and resilience wiring; then complete end-to-end validation
+- [ ] 8.1 Extract sandboxing and security-related registrations into a security registrar
+  - Preserve safety feature wiring and interface-first bindings.
+  - _Requirements: 2.1, 3.2_
+- [ ] 8.2 Extract tool-related registrations into a tooling registrar while preserving optional gating
+  - Preserve tool access control and tool-call-related wiring behavior.
+  - Ensure disabled tool features do not block startup.
+  - _Requirements: 2.1, 3.3_
+- [ ] 8.3 Extract backend and resilience wiring while preserving stage behavior
+  - Preserve backend discovery, routing, and failover wiring and any early-validation expectations.
+  - Ensure no new circular import couplings are introduced between wiring and runtime components.
+  - _Requirements: 1.1, 2.4, 3.3_
+- [ ] 8.4 Remove private-helper coupling from stages and align legacy registration paths
+  - Replace stage dependencies on private DI helpers with stable helper modules.
+  - Ensure any legacy/compat registration paths delegate to the same registrar orchestration to avoid drift.
+  - _Requirements: 2.2, 2.4_
+- [ ] 8.5 Run full verification and enforce DI scope quality gates
+  - Run the full relevant test suites and fix regressions attributable to DI refactoring.
+  - Run the DI-scope complexity/LOC validation and ensure all new DI modules stay within thresholds.
+  - _Requirements: 1.4, 4.1, 4.2_
+
