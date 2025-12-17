@@ -363,29 +363,8 @@ class TestBackendLifecycleManagerCacheKeyRules:
         assert not BackendLifecycleManager._is_per_session_cache_key("openai", "openai")
 
 
-class TestBackendLifecycleManagerEquivalence:
-    """Equivalence tests comparing to BackendService methods.
-
-    NOTE: These tests are skipped after Phase 4 refactoring because BackendService
-    is now a thin façade that delegates to BackendLifecycleManager. The equivalence
-    tests are no longer meaningful since BackendService now requires all dependencies
-    to be provided (no runtime fallbacks), making these tests difficult to maintain.
-
-    The BackendLifecycleManager functionality is thoroughly tested directly in other
-    test classes in this file.
-    """
-
-    @pytest.mark.skip(
-        reason="Skipped after Phase 4 - BackendService is now a thin façade. "
-        "BackendLifecycleManager is tested directly in other test classes."
-    )
-    @pytest.mark.asyncio
-    async def test_get_or_create_equivalence(self) -> None:
-        """BackendLifecycleManager.get_or_create should behave like BackendService."""
-
-    @pytest.mark.skip(
-        reason="Skipped after Phase 4 - BackendService is now a thin façade. "
-        "BackendLifecycleManager is tested directly in other test classes."
-    )
-    def test_is_per_session_cache_key_equivalence(self) -> None:
-        """_is_per_session_cache_key should match BackendService behavior."""
+# NOTE: Equivalence tests comparing BackendLifecycleManager to BackendService were removed
+# after Phase 4 refactoring. BackendService is now a thin façade that delegates to
+# BackendLifecycleManager, so equivalence tests are no longer meaningful.
+# BackendLifecycleManager functionality is thoroughly tested directly in other test
+# classes in this file (TestBackendLifecycleManagerGetOrCreate, etc.).
