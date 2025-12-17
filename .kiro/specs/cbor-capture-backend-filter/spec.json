@@ -1,6 +1,6 @@
 {
-  "feature_name": "request-processor-refactoring",
-  "created_at": "2025-12-15T13:34:24Z",
+  "feature_name": "cbor-capture-backend-filter",
+  "created_at": "2025-12-10T00:00:00Z",
   "updated_at": "2025-12-20T00:00:00Z",
   "language": "en",
   "phase": "implementation-complete",
@@ -10,10 +10,6 @@
       "approved": true
     },
     "design": {
-      "generated": true,
-      "approved": true
-    },
-    "tasks": {
       "generated": true,
       "approved": true
     }
