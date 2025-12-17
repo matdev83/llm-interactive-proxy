@@ -345,6 +345,7 @@ Prevent duplicate requests from exhausting rate limits. See [Request Deduplicati
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--fix-think-tags` | `FIX_THINK_TAGS_ENABLED=true` | Enable correction of `<think>` tags. |
+| `--disable-binary-file-edit-steering` | N/A | Disable binary file edit steering (overrides config). |
 | `--disable-dangerous-git-commands-protection` | `DANGEROUS_COMMAND_PREVENTION_ENABLED=false` | Disable dangerous command protection. |
 | N/A | `DANGEROUS_COMMAND_STEERING_MESSAGE` | Custom message for dangerous commands. |
 | N/A | `FIX_THINK_TAGS_STREAMING_BUFFER_SIZE` | Buffer size for think tag fix. |
