@@ -68,3 +68,4 @@ class TestCompletionSessionResolver:
         session_service.get_session.assert_not_called()
 
 
+
