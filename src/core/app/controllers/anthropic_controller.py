@@ -170,9 +170,7 @@ class AnthropicController:
             # Convert Anthropic request to canonical OpenAI request
             chat_request = anthropic_to_openai_request(anthropic_request)
 
-            # Convert FastAPI Request to RequestContext and process via core processor
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
-
+            # Read raw body bytes for capture and context
             try:
                 raw_body_bytes = await request.body()
             except Exception:
@@ -194,11 +192,13 @@ class AnthropicController:
                         "..." if len(raw_body_bytes) > len(preview) else "",
                     )
 
-            # Attach domain request and raw body to context for middleware/session resolver
-            with contextlib.suppress(Exception):
-                ctx.domain_request = chat_request  # type: ignore[attr-defined]
-                if raw_body_bytes:
-                    ctx.raw_body = raw_body_bytes  # type: ignore[attr-defined]
+            # Convert FastAPI Request to RequestContext with typed fields populated
+            ctx = fastapi_to_domain_request_context(
+                request,
+                attach_original=True,
+                domain_request=chat_request,
+                raw_body=raw_body_bytes if raw_body_bytes else None,
+            )
 
             # Ensure session_id is available in context if provided in request
             if hasattr(chat_request, "session_id") and chat_request.session_id:
@@ -289,7 +289,7 @@ class AnthropicController:
                             if first and first.message
                             else None
                         )
-                        usage = cr.usage or {}
+                        usage_summary = cr.usage
                         stop_reason = (
                             _map_finish_reason(first.finish_reason)
                             if first and first.finish_reason is not None
@@ -316,8 +316,16 @@ class AnthropicController:
                             "stop_reason": stop_reason,
                             "stop_sequence": None,
                             "usage": {
-                                "input_tokens": usage.get("prompt_tokens", 0),
-                                "output_tokens": usage.get("completion_tokens", 0),
+                                "input_tokens": (
+                                    usage_summary.prompt_tokens or 0
+                                    if usage_summary
+                                    else 0
+                                ),
+                                "output_tokens": (
+                                    usage_summary.completion_tokens or 0
+                                    if usage_summary
+                                    else 0
+                                ),
                             },
                         }
                     else:

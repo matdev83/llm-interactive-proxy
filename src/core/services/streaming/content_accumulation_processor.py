@@ -160,12 +160,19 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     usage_info is not None,
                     stream_id,
                 )
+                from src.core.domain.usage_summary import UsageSummary
+
+                usage_summary = None
+                if isinstance(usage_info, UsageSummary):
+                    usage_summary = usage_info
+                elif isinstance(usage_info, dict):
+                    usage_summary = UsageSummary.from_dict(usage_info)
                 return StreamingContent(
                     content=content.content,  # Keep original StopChunkWithUsage
                     is_done=content.is_done,
                     is_cancellation=content.is_cancellation,
                     metadata=output_metadata,
-                    usage=usage_info if isinstance(usage_info, dict) else None,
+                    usage=usage_summary,
                     raw_data=content.raw_data,
                 )
 
@@ -239,12 +246,19 @@ class ContentAccumulationProcessor(IStreamProcessor):
             # Pass through the original OpenAI-format chunk unchanged for SSE output
             # This ensures the client receives proper SSE chunks with choices/delta structure
             state.has_sent_content = True
+            from src.core.domain.usage_summary import UsageSummary
+
+            usage_summary = None
+            if isinstance(usage_info, UsageSummary):
+                usage_summary = usage_info
+            elif isinstance(usage_info, dict):
+                usage_summary = UsageSummary.from_dict(usage_info)
             return StreamingContent(
                 content=content.content,  # Keep original dict for SSE serialization
                 is_done=content.is_done,
                 is_cancellation=content.is_cancellation,
                 metadata=output_metadata,
-                usage=usage_info if isinstance(usage_info, dict) else None,
+                usage=usage_summary,
                 raw_data=content.raw_data,
             )
 

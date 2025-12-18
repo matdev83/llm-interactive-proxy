@@ -7,15 +7,17 @@ import logging
 import time
 from typing import Any
 
+from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     RateLimitExceededError,
 )
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.traffic_leg import TrafficLeg
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.backend_completion_collaborators import (
     IUsageAccountingOrchestrator,
 )
@@ -23,6 +25,7 @@ from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
+from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
 from src.core.interfaces.stream_session_id_resolver_interface import (
@@ -33,6 +36,31 @@ from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingW
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 logger = logging.getLogger(__name__)
+
+
+def _to_usage_summary(usage: Any) -> UsageSummary | None:
+    """Convert usage from various formats to UsageSummary.
+
+    Args:
+        usage: Usage data in various formats (dict, UsageSummary, StreamingUsage, etc.)
+
+    Returns:
+        UsageSummary instance or None
+    """
+    if usage is None:
+        return None
+    if isinstance(usage, UsageSummary):
+        return usage
+    if isinstance(usage, dict):
+        return UsageSummary.from_dict(usage)
+    # Try to extract dict from Pydantic models
+    if hasattr(usage, "model_dump"):
+        return UsageSummary.from_dict(usage.model_dump())
+    if hasattr(usage, "to_dict"):
+        return UsageSummary.from_dict(usage.to_dict())
+    if hasattr(usage, "__dict__"):
+        return UsageSummary.from_dict(usage.__dict__)
+    return None
 
 
 class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
@@ -63,7 +91,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         request: ChatRequest,
         backend_type: str,
         effective_model: str,
-        session: Any | None,
+        session: ISession | None,
         session_id_for_backend: str | None,
     ) -> tuple[int, str | None, str | None]:
         """Calculate tokens and record request usage."""
@@ -176,17 +204,24 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     usage = result.metadata.get("usage")
 
                 if usage:
-                    if not isinstance(usage, dict) and hasattr(usage, "model_dump"):
-                        usage = usage.model_dump()
+                    # Convert UsageSummary to dict if needed
+                    if hasattr(usage, "to_dict"):
+                        usage_dict = usage.to_dict()
+                    elif hasattr(usage, "model_dump"):
+                        usage_dict = usage.model_dump()
+                    elif isinstance(usage, dict):
+                        usage_dict = usage
+                    else:
+                        usage_dict = {}
 
-                    completion_tokens = usage.get("completion_tokens", 0)
+                    completion_tokens = usage_dict.get("completion_tokens", 0)
                     duration_ms = (time.time() - start_time) * 1000
 
                     if ptb_record_id:
                         await self._usage_tracking_service.record_response(
                             record_id=ptb_record_id,
                             completion_tokens=completion_tokens,
-                            backend_reported_usage=usage,
+                            backend_reported_usage=usage_dict,
                             http_status_code=getattr(result, "status_code", 200),
                             total_duration_ms=duration_ms,
                         )
@@ -195,7 +230,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         await self._usage_tracking_service.record_response(
                             record_id=ctp_record_id,
                             completion_tokens=completion_tokens,
-                            backend_reported_usage=usage,
+                            backend_reported_usage=usage_dict,
                             http_status_code=getattr(result, "status_code", 200),
                             total_duration_ms=duration_ms,
                         )
@@ -210,7 +245,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         backend_type: str,
         effective_model: str,
         context: RequestContext | None,
-        request: ChatRequest,
+        request: CanonicalChatRequest,
         session_id_for_backend: str | None,
     ) -> StreamingResponseEnvelope:
         """Handle streaming response with session ID injection and phase updates."""
@@ -243,7 +278,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         yield ProcessedResponse(
                             content=chunk.content,
                             metadata=metadata,
-                            usage=chunk.usage,
+                            usage=_to_usage_summary(chunk.usage),
                         )
                     else:
                         # Wrap raw chunk with session_id
@@ -297,7 +332,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
     async def handle_auth_failure(
         self,
         exc: Exception,
-        backend: Any,
+        backend: LLMBackend,
         backend_type: str,
         session_id_for_backend: str | None,
     ) -> None:
@@ -352,8 +387,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         backend_type: str,
         effective_model: str,
         context: RequestContext | None,
-        request: ChatRequest,
-        backend: Any,
+        request: CanonicalChatRequest,
+        backend: LLMBackend,
         normalized_exc: Exception | None = None,
     ) -> None:
         """Handle backend error (resilience updates)."""

@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+from pydantic.types import JsonValue
+
+from src.connectors.base import LLMBackend
+from src.core.domain.backend_target import BackendTarget
+from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.domain_entities_interface import ISession
 
 
 class IBackendAvailabilityChecker(ABC):
@@ -35,8 +42,10 @@ class ICompletionSessionResolver(ABC):
 
     @abstractmethod
     async def resolve_session(
-        self, context: Any | None, request: Any
-    ) -> tuple[Any | None, str | None]:
+        self,
+        context: RequestContext | None,
+        request: CanonicalChatRequest,
+    ) -> tuple[ISession | None, str | None]:
         """Resolve session and session ID for backend.
 
         Args:
@@ -54,8 +63,8 @@ class IBackendRequestPreparer(ABC):
 
     @abstractmethod
     async def prepare_request(
-        self, request: Any, context: Any | None
-    ) -> tuple[str, str, dict[str, str]]:
+        self, request: CanonicalChatRequest, context: RequestContext | None
+    ) -> BackendTarget:
         """Resolve target backend/model and apply URI parameters.
 
         Args:
@@ -63,20 +72,19 @@ class IBackendRequestPreparer(ABC):
             context: The request context
 
         Returns:
-            Tuple of (backend_type, effective_model, uri_params)
+            BackendTarget with backend, model, and URI parameters
         """
         ...
 
     @abstractmethod
     def synchronize_request_with_target(
-        self, request: Any, backend_type: str, effective_model: str
-    ) -> Any:
+        self, request: CanonicalChatRequest, target: BackendTarget
+    ) -> CanonicalChatRequest:
         """Synchronize the request object with the resolved target.
 
         Args:
             request: The chat request
-            backend_type: The resolved backend type
-            effective_model: The resolved model
+            target: The resolved backend target
 
         Returns:
             Updated request object
@@ -86,18 +94,18 @@ class IBackendRequestPreparer(ABC):
     @abstractmethod
     async def prepare_backend_request(
         self,
-        request: Any,
+        request: CanonicalChatRequest,
         backend_type: str,
-        session: Any | None,
-        uri_params: dict[str, str],
-    ) -> Any:
+        session: ISession | None,
+        uri_params: dict[str, JsonValue],
+    ) -> CanonicalChatRequest:
         """Prepare the request domain object for the backend.
 
         Args:
             request: The chat request
             backend_type: The backend type
             session: The session object
-            uri_params: URI parameters
+            uri_params: URI parameters (JSON-serializable values)
 
         Returns:
             The prepared backend request object
@@ -108,10 +116,10 @@ class IBackendRequestPreparer(ABC):
     def prepare_backend_kwargs(
         self,
         session_id_for_backend: str | None,
-        session: Any | None,
-        context: Any | None,
+        session: ISession | None,
+        context: RequestContext | None,
         backend_type: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """Prepare keyword arguments for the backend call.
 
         Args:
@@ -121,7 +129,7 @@ class IBackendRequestPreparer(ABC):
             backend_type: Backend type
 
         Returns:
-            Dictionary of kwargs for the backend call
+            Dictionary of kwargs for the backend call (JSON-serializable values)
         """
         ...
 
@@ -130,7 +138,9 @@ class IBackendInvoker(ABC):
     """Encapsulates backend acquisition and invocation."""
 
     @abstractmethod
-    async def acquire_backend(self, backend_type: str, session_id: str | None) -> Any:
+    async def acquire_backend(
+        self, backend_type: str, session_id: str | None
+    ) -> LLMBackend:
         """Get or create a backend instance.
 
         Args:
@@ -148,16 +158,20 @@ class IWireCaptureOrchestrator(ABC):
 
     @abstractmethod
     async def prepare_wire_capture_context(
-        self, backend_type: str, session: Any | None
+        self, backend_type: str, session: ISession | None
     ) -> Any | None:
         """Prepare wire capture context (e.g. identity).
+
+        Note: This returns identity object used by both wire capture and backend.
+        The return type remains Any to maintain compatibility with backend interface
+        which expects IAppIdentityConfig | None.
 
         Args:
             backend_type: The backend type
             session: The session object
 
         Returns:
-            Identity object if applicable
+            Identity object if applicable (IAppIdentityConfig or compatible type)
         """
         ...
 
@@ -166,8 +180,8 @@ class IWireCaptureOrchestrator(ABC):
         self,
         backend_type: str,
         effective_model: str,
-        domain_request: Any,
-        context: Any | None,
+        domain_request: CanonicalChatRequest,
+        context: RequestContext | None,
     ) -> None:
         """Capture outbound request payload.
 
@@ -194,12 +208,12 @@ class IWireCaptureOrchestrator(ABC):
     @abstractmethod
     async def capture_inbound_response(
         self,
-        context: Any | None,
+        context: RequestContext | None,
         session_id: str | None,
         backend_type: str,
         effective_model: str,
         key_name: str | None,
-        response_content: Any,
+        response_content: dict[str, JsonValue] | bytes | None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -209,14 +223,14 @@ class IWireCaptureOrchestrator(ABC):
             backend_type: Backend type
             effective_model: Model name
             key_name: Key name for redaction
-            response_content: The response content
+            response_content: The response content (JSON-serializable dict, bytes, or None)
         """
         ...
 
     @abstractmethod
     def wrap_inbound_stream(
         self,
-        context: Any | None,
+        context: RequestContext | None,
         session_id: str | None,
         backend_type: str,
         effective_model: str,
@@ -245,11 +259,11 @@ class IUsageAccountingOrchestrator(ABC):
     @abstractmethod
     async def calculate_and_record_usage(
         self,
-        domain_request: Any,
-        request: Any,
+        domain_request: CanonicalChatRequest,
+        request: CanonicalChatRequest,
         backend_type: str,
         effective_model: str,
-        session: Any | None,
+        session: ISession | None,
         session_id_for_backend: str | None,
     ) -> tuple[int, str | None, str | None]:
         """Calculate tokens and record request usage.
@@ -262,12 +276,12 @@ class IUsageAccountingOrchestrator(ABC):
     @abstractmethod
     async def wrap_response_for_usage(
         self,
-        result: Any,
+        result: ResponseEnvelope | StreamingResponseEnvelope,
         outbound_tokens: int,
         ctp_record_id: str | None,
         ptb_record_id: str | None,
         start_time: float,
-    ) -> Any:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Wrap response with usage tracking.
 
         Returns:
@@ -278,11 +292,11 @@ class IUsageAccountingOrchestrator(ABC):
     @abstractmethod
     async def handle_streaming_response(
         self,
-        result: Any,
+        result: StreamingResponseEnvelope,
         backend_type: str,
         effective_model: str,
-        context: Any | None,
-        request: Any,
+        context: RequestContext | None,
+        request: CanonicalChatRequest,
         session_id_for_backend: str | None,
     ) -> StreamingResponseEnvelope:
         """Handle streaming response with wire capture and session ID injection.
@@ -295,7 +309,7 @@ class IUsageAccountingOrchestrator(ABC):
     @abstractmethod
     async def handle_non_streaming_response(
         self,
-        result: Any,
+        result: ResponseEnvelope,
         backend_type: str,
         effective_model: str,
         session_id_for_backend: str | None,
@@ -311,7 +325,7 @@ class IUsageAccountingOrchestrator(ABC):
     async def handle_auth_failure(
         self,
         exc: Exception,
-        backend: Any,
+        backend: LLMBackend,
         backend_type: str,
         session_id_for_backend: str | None,
     ) -> None:
@@ -324,9 +338,9 @@ class IUsageAccountingOrchestrator(ABC):
         call_exc: Exception,
         backend_type: str,
         effective_model: str,
-        context: Any | None,
-        request: Any,
-        backend: Any,
+        context: RequestContext | None,
+        request: CanonicalChatRequest,
+        backend: LLMBackend,
         normalized_exc: Exception | None = None,
     ) -> None:
         """Handle backend error with normalization and wire capture."""
@@ -339,11 +353,11 @@ class IFailureRecoveryExecutor(ABC):
     @abstractmethod
     async def check_complex_failover(
         self,
-        request: Any,
+        request: CanonicalChatRequest,
         effective_model: str,
         backend_type: str,
         stream: bool,
-        context: Any | None = None,
+        context: RequestContext | None = None,
     ) -> bool:
         """Check if complex failover should be executed."""
         ...
@@ -351,12 +365,14 @@ class IFailureRecoveryExecutor(ABC):
     @abstractmethod
     async def execute_complex_failover(
         self,
-        request: Any,
+        request: CanonicalChatRequest,
         effective_model: str,
         backend_type: str,
         stream: bool,
-        call_completion_callback: Any,
-        context: Any | None = None,
+        call_completion_callback: Callable[
+            ..., Awaitable[ResponseEnvelope | StreamingResponseEnvelope]
+        ],
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy."""
         ...
@@ -371,9 +387,11 @@ class IFailureRecoveryExecutor(ABC):
         start_time: float,
         is_streaming: bool,
         content_started: bool,
-        request: Any,
-        call_completion_callback: Any,
-        context: Any | None = None,
+        request: CanonicalChatRequest,
+        call_completion_callback: Callable[
+            ..., Awaitable[ResponseEnvelope | StreamingResponseEnvelope]
+        ],
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Apply failure handling strategy to decide retry/failover."""
         ...

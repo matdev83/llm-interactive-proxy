@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
+from pydantic.types import JsonValue
+
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import StreamingContent
 
@@ -89,8 +92,8 @@ class NonStreamingAdapter:
             ProcessedResponse with accumulated content
         """
         final_content = ""
-        final_usage: dict[str, Any] | None = None
-        final_metadata: dict[str, Any] = {}
+        final_usage: UsageSummary | None = None
+        final_metadata: dict[str, JsonValue] = {}
 
         # Collect all chunks first to check for single-chunk optimization
         collected_chunks: list[StreamingContent | ProcessedResponse | bytes] = []
@@ -151,13 +154,13 @@ class NonStreamingAdapter:
                             # so it's available in the final response.
                             stop_chunk_usage = chunk.content.get("usage")
                             if stop_chunk_usage and isinstance(stop_chunk_usage, dict):
-                                final_usage = stop_chunk_usage
+                                final_usage = UsageSummary.from_dict(stop_chunk_usage)
                         else:
                             final_content += json.dumps(chunk.content)
                 if chunk.usage:
                     final_usage = chunk.usage
                 if chunk.metadata:
-                    final_metadata.update(chunk.metadata)
+                    final_metadata.update(cast(dict[str, JsonValue], chunk.metadata))
             elif isinstance(chunk, ProcessedResponse):
                 # Handle ProcessedResponse directly
                 if chunk.content:
@@ -227,7 +230,7 @@ def _extract_content(response: Any) -> str:
     return str(response) if response else ""
 
 
-def _extract_usage(response: Any) -> dict[str, Any] | None:
+def _extract_usage(response: Any) -> UsageSummary | None:
     """Extract usage from various response formats."""
     if isinstance(response, ProcessedResponse):
         return response.usage
@@ -238,12 +241,14 @@ def _extract_usage(response: Any) -> dict[str, Any] | None:
     if isinstance(response, dict):
         usage = response.get("usage")
         if isinstance(usage, dict):
-            return usage
+            return UsageSummary.from_dict(usage)
 
     if hasattr(response, "usage"):
         usage = getattr(response, "usage", None)
-        if isinstance(usage, dict):
+        if isinstance(usage, UsageSummary):
             return usage
+        if isinstance(usage, dict):
+            return UsageSummary.from_dict(usage)
 
     return None
 
@@ -285,13 +290,17 @@ def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
     if isinstance(response, ProcessedResponse):
         metadata = response.metadata or {}
         tool_calls = metadata.get("tool_calls")
-        if isinstance(tool_calls, list):
-            return tool_calls
+        if isinstance(tool_calls, list) and all(
+            isinstance(item, dict) for item in tool_calls
+        ):
+            return cast(list[dict[str, Any]], tool_calls)
 
     if isinstance(response, StreamingContent):
         tool_calls = response.metadata.get("tool_calls")
-        if isinstance(tool_calls, list):
-            return tool_calls
+        if isinstance(tool_calls, list) and all(
+            isinstance(item, dict) for item in tool_calls
+        ):
+            return cast(list[dict[str, Any]], tool_calls)
 
     if isinstance(response, dict):
         # Check in choices[0].message.tool_calls (OpenAI format)
@@ -302,11 +311,15 @@ def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
                 message = choice.get("message")
                 if isinstance(message, dict):
                     tool_calls = message.get("tool_calls")
-                    if isinstance(tool_calls, list):
-                        return tool_calls
+                    if isinstance(tool_calls, list) and all(
+                        isinstance(item, dict) for item in tool_calls
+                    ):
+                        return cast(list[dict[str, Any]], tool_calls)
         # Check direct tool_calls field
         tool_calls = response.get("tool_calls")
-        if isinstance(tool_calls, list):
-            return tool_calls
+        if isinstance(tool_calls, list) and all(
+            isinstance(item, dict) for item in tool_calls
+        ):
+            return cast(list[dict[str, Any]], tool_calls)
 
     return None

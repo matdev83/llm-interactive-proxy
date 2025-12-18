@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
+
+from pydantic.types import JsonValue
 
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ToolCall
@@ -218,10 +220,10 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                     replace_metadata_calls = True
 
                 if replace_metadata_calls:
-                    clean_tool_calls = []
+                    clean_tool_calls: list[JsonValue] = []
                     for tc_dict in normalized_tool_calls:
-                        clean_tc = {
-                            k: v
+                        clean_tc: dict[str, JsonValue] = {
+                            k: cast(JsonValue, v)
                             for k, v in tc_dict.items()
                             if k != "_already_processed"
                         }

@@ -166,9 +166,7 @@ class TestDroidPathFixupActivation:
             path = result.normalized_arguments.root.get("file_path")
             if path:
                 # If still relative, Droid fixup didn't apply
-                assert not (
-                    ":" in path or path.startswith(("/", "\\"))
-                )
+                assert not (":" in path or path.startswith(("/", "\\")))
 
     def test_droid_fixup_skips_absolute_paths(self) -> None:
         """Test that Droid fixup skips already absolute paths."""

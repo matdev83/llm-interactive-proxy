@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from src.core.interfaces.response_processor_interface import (
@@ -804,7 +804,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
 
         content: str = ""
         metadata: dict[str, Any] | None = None
-        usage: dict[str, Any] | None = None
+        usage: Any = None
 
         # Extract content from various response formats
         if hasattr(response, "content"):
@@ -845,7 +845,23 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             metadata = response.get("metadata")
             usage = response.get("usage")
 
-        return ProcessedResponse(content=content, metadata=metadata, usage=usage)
+        from pydantic.types import JsonValue
+
+        from src.core.domain.usage_summary import UsageSummary
+
+        usage_summary: UsageSummary | None = None
+        if isinstance(usage, UsageSummary):
+            usage_summary = usage
+        elif isinstance(usage, dict):
+            usage_summary = UsageSummary.from_dict(usage)
+
+        metadata_json: dict[str, JsonValue] | None = None
+        if isinstance(metadata, dict):
+            metadata_json = cast(dict[str, JsonValue], metadata)
+
+        return ProcessedResponse(
+            content=content, metadata=metadata_json, usage=usage_summary
+        )
 
     def _format_response_with_reasoning(
         self, response_content: str, reasoning_content: str, original_response: Any

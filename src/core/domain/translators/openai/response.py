@@ -12,6 +12,7 @@ from src.core.domain.chat import (
 )
 from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.usage_summary import UsageSummary
 
 
 def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -31,7 +32,9 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
                     finish_reason="stop",
                 )
             ],
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            usage=UsageSummary.from_dict(
+                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            ),
         )
 
     choices: list[ChatCompletionChoice] = []
@@ -103,7 +106,7 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
         created=response.get("created", int(time.time())),
         model=response.get("model", "unknown"),
         choices=choices,
-        usage=normalized_usage,
+        usage=UsageSummary.from_dict(normalized_usage) if normalized_usage else None,
         service_tier=response.get("service_tier"),
     )
 

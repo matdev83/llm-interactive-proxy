@@ -8,6 +8,7 @@ from src.connectors.gemini import GeminiBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_summary import UsageSummary
 from src.core.services.translation_service import TranslationService
 
 
@@ -67,9 +68,10 @@ async def test_gemini_extracts_usage_from_response():
 
     assert isinstance(result, ResponseEnvelope)
     assert result.usage is not None
-    assert result.usage["prompt_tokens"] == 25
-    assert result.usage["completion_tokens"] == 10
-    assert result.usage["total_tokens"] == 35
+    assert isinstance(result.usage, UsageSummary)
+    assert result.usage.prompt_tokens == 25
+    assert result.usage.completion_tokens == 10
+    assert result.usage.total_tokens == 35
 
 
 @pytest.mark.asyncio
@@ -123,12 +125,16 @@ async def test_gemini_calculates_usage_when_missing():
 
     assert isinstance(result, ResponseEnvelope)
     assert result.usage is not None
-    assert result.usage["prompt_tokens"] > 0
-    assert result.usage["completion_tokens"] > 0
-    assert result.usage["total_tokens"] > 0
+    assert isinstance(result.usage, UsageSummary)
+    assert result.usage.prompt_tokens is not None and result.usage.prompt_tokens > 0
     assert (
-        result.usage["total_tokens"]
-        == result.usage["prompt_tokens"] + result.usage["completion_tokens"]
+        result.usage.completion_tokens is not None
+        and result.usage.completion_tokens > 0
+    )
+    assert result.usage.total_tokens is not None and result.usage.total_tokens > 0
+    assert (
+        result.usage.total_tokens
+        == result.usage.prompt_tokens + result.usage.completion_tokens
     )
 
 
@@ -188,6 +194,10 @@ async def test_gemini_calculates_usage_when_zero():
 
     assert isinstance(result, ResponseEnvelope)
     assert result.usage is not None
-    assert result.usage["prompt_tokens"] > 0
-    assert result.usage["completion_tokens"] > 0
-    assert result.usage["total_tokens"] > 0
+    assert isinstance(result.usage, UsageSummary)
+    assert result.usage.prompt_tokens is not None and result.usage.prompt_tokens > 0
+    assert (
+        result.usage.completion_tokens is not None
+        and result.usage.completion_tokens > 0
+    )
+    assert result.usage.total_tokens is not None and result.usage.total_tokens > 0

@@ -159,13 +159,14 @@ class ResponsesController:
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 
-            # Convert FastAPI Request to RequestContext and process via core processor
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
-            # Attach domain request so session resolver can read session_id/extra_body
-            import contextlib
+            # Convert FastAPI Request to RequestContext with typed fields populated
+            from src.core.domain.chat import CanonicalChatRequest
 
-            with contextlib.suppress(Exception):
-                ctx.domain_request = domain_request  # type: ignore[attr-defined]
+            ctx = fastapi_to_domain_request_context(
+                request,
+                attach_original=True,
+                domain_request=cast(CanonicalChatRequest, domain_request),
+            )
 
             # Add schema information to context for structured output middleware
             if (

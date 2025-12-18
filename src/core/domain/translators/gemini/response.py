@@ -13,6 +13,7 @@ from src.core.domain.translation_utils.content_utils import _coerce_reasoning_te
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
 from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
+from src.core.domain.usage_summary import UsageSummary
 
 
 def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -90,10 +91,14 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                 )
             )
 
-    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    usage_dict: dict[str, Any] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
     if isinstance(response, dict) and "usageMetadata" in response:
         usage_metadata = response["usageMetadata"]
-        usage = _normalize_usage_metadata(usage_metadata, "gemini")
+        usage_dict = _normalize_usage_metadata(usage_metadata, "gemini")
 
     if not choices:
         choices = [
@@ -110,7 +115,7 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
         created=created,
         model=model,
         choices=choices,
-        usage=usage,
+        usage=UsageSummary.from_dict(usage_dict) if usage_dict else None,
     )
 
 
@@ -153,13 +158,13 @@ def from_domain_to_gemini_response(response: ChatResponse) -> dict[str, Any]:
         "usageMetadata": (
             {
                 "promptTokenCount": (
-                    response.usage.get("prompt_tokens", 0) if response.usage else 0
+                    response.usage.prompt_tokens or 0 if response.usage else 0
                 ),
                 "candidatesTokenCount": (
-                    response.usage.get("completion_tokens", 0) if response.usage else 0
+                    response.usage.completion_tokens or 0 if response.usage else 0
                 ),
                 "totalTokenCount": (
-                    response.usage.get("total_tokens", 0) if response.usage else 0
+                    response.usage.total_tokens or 0 if response.usage else 0
                 ),
             }
             if response.usage

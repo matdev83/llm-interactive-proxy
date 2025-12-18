@@ -57,7 +57,9 @@ class AnthropicDictParser(IParserStrategy):
 
         content: str | dict | bytes = ""
         is_done = False
-        usage: dict[str, Any] | None = None
+        from src.core.domain.usage_summary import UsageSummary
+
+        usage: UsageSummary | None = None
 
         event_type = raw_data.get("type")
 
@@ -67,7 +69,11 @@ class AnthropicDictParser(IParserStrategy):
                 content = delta.get("text", "")
 
         elif event_type == "message_delta":
-            usage = raw_data.get("usage")
+            raw_usage = raw_data.get("usage")
+            if isinstance(raw_usage, UsageSummary):
+                usage = raw_usage
+            elif isinstance(raw_usage, dict):
+                usage = UsageSummary.from_dict(raw_usage)
             is_done = True
 
         return StreamingContent(

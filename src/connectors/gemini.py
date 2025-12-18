@@ -861,7 +861,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
 
             # Extract usage from Gemini response
-            usage = self._extract_gemini_usage(data)
+            usage_dict = self._extract_gemini_usage(data)
+            from src.core.domain.usage_summary import UsageSummary
+
+            usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
 
             return ResponseEnvelope(
                 content=self.translation_service.to_domain_response(

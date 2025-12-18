@@ -2,6 +2,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic.types import JsonValue
+
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.model_bases import InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -19,8 +22,8 @@ class ResponseEnvelope(InternalDTO):
     headers: dict[str, str] | None = None
     status_code: int = 200
     media_type: str = "application/json"
-    usage: dict[str, Any] | None = None
-    metadata: dict[str, Any] | None = None
+    usage: UsageSummary | None = None
+    metadata: dict[str, JsonValue] | None = None
 
 
 @dataclass
@@ -38,7 +41,7 @@ class StreamingResponseEnvelope(InternalDTO):
     headers: dict[str, str] | None = None
     status_code: int = 200
     cancel_callback: Callable[[], Awaitable[None]] | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, JsonValue] | None = None
 
     @property
     def body_iterator(self) -> AsyncIterator[bytes]:

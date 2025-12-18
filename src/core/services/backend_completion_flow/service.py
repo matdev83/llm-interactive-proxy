@@ -13,7 +13,7 @@ from src.core.common.exceptions import (
     LLMProxyError,
     RateLimitExceededError,
 )
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_completion_collaborators import (
@@ -127,23 +127,29 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute completion orchestration with failover, retry, and observability."""
-        # Step 1: Prepare request (resolve target + synchronize)
-        (
-            backend_type,
-            effective_model,
-            uri_params,
-        ) = await self._request_preparer.prepare_request(request, context)
-        request = self._request_preparer.synchronize_request_with_target(
-            request, backend_type, effective_model
+        canonical_request = (
+            request
+            if isinstance(request, CanonicalChatRequest)
+            else CanonicalChatRequest.model_validate(request.model_dump())
         )
+        # Step 1: Prepare request (resolve target + synchronize)
+        target = await self._request_preparer.prepare_request(
+            canonical_request, context
+        )
+        canonical_request = self._request_preparer.synchronize_request_with_target(
+            canonical_request, target
+        )
+        backend_type = target.backend
+        effective_model = target.model
+        uri_params = target.uri_params
 
         # Step 2: Check if complex failover applies
         if allow_failover and await self._failover_executor.check_complex_failover(
-            request, effective_model, backend_type, stream, context
+            canonical_request, effective_model, backend_type, stream, context
         ):
             # Complex failover handled, return result
             return await self._failover_executor.execute_complex_failover(
-                request,
+                canonical_request,
                 effective_model,
                 backend_type,
                 stream,
@@ -167,7 +173,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             (
                 session,
                 session_id_for_backend,
-            ) = await self._session_resolver.resolve_session(context, request)
+            ) = await self._session_resolver.resolve_session(context, canonical_request)
 
             # Step 6: Acquire backend instance
             backend = await self._backend_invoker.acquire_backend(
@@ -176,7 +182,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
             # Step 7: Prepare backend request (configs + URI params)
             domain_request = await self._request_preparer.prepare_backend_request(
-                request, backend_type, session, uri_params
+                canonical_request, backend_type, session, uri_params
             )
 
             # Step 8: Prepare wire capture context (identity + backend config)
@@ -211,7 +217,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     ptb_record_id,
                 ) = await self._usage_accounting.calculate_and_record_usage(
                     domain_request=domain_request,
-                    request=request,
+                    request=canonical_request,
                     backend_type=backend_type,
                     effective_model=effective_model,
                     session=session,
@@ -222,7 +228,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 result: ResponseEnvelope | StreamingResponseEnvelope = (
                     await backend.chat_completions(
                         request_data=domain_request,
-                        processed_messages=request.messages,
+                        processed_messages=canonical_request.messages,
                         effective_model=effective_model,
                         identity=identity,
                         **backend_call_kwargs,
@@ -383,7 +389,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     backend_type=current_backend,
                     effective_model=effective_model,
                     context=context,
-                    request=request,
+                    request=canonical_request,
                     backend=backend,
                     normalized_exc=normalized_exc,
                 )
@@ -398,7 +404,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         start_time=start_time,
                         is_streaming=stream,
                         content_started=content_started,
-                        request=request,
+                        request=canonical_request,
                         context=context,
                         call_completion_callback=self.call_completion,
                     )

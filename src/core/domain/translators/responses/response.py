@@ -14,6 +14,7 @@ from src.core.domain.translation_utils.content_utils import _coerce_reasoning_te
 from src.core.domain.translation_utils.tool_utils import _normalize_tool_arguments
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
 from src.core.domain.translators.openai.response import openai_to_domain_response
+from src.core.domain.usage_summary import UsageSummary
 
 
 def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -164,7 +165,7 @@ def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
         created=response.get("created", int(time.time())),
         model=response.get("model", "unknown"),
         choices=choices,
-        usage=normalized_usage,
+        usage=UsageSummary.from_dict(normalized_usage) if normalized_usage else None,
         system_fingerprint=response.get("system_fingerprint"),
     )
 

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
+from pydantic.types import JsonValue
+
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 
@@ -15,12 +18,13 @@ class ResolvedTarget(NamedTuple):
     Attributes:
         backend: The resolved backend name
         model: The resolved model name
-        uri_params: URI parameters extracted from the model string
+        uri_params: URI parameters extracted from the model string.
+            Values must be JSON-serializable (JsonValue).
     """
 
     backend: str
     model: str
-    uri_params: dict[str, Any]
+    uri_params: dict[str, JsonValue]
 
 
 class IBackendModelResolver(ABC):
@@ -34,7 +38,7 @@ class IBackendModelResolver(ABC):
     @abstractmethod
     async def resolve_target(
         self, request: ChatRequest, context: RequestContext | None = None
-    ) -> ResolvedTarget:
+    ) -> BackendTarget:
         """Resolve backend, model, and URI parameters from request.
 
         This method applies the following resolution order:
@@ -49,12 +53,12 @@ class IBackendModelResolver(ABC):
             context: Optional request context
 
         Returns:
-            ResolvedTarget with backend, model, and URI parameters
+            BackendTarget with backend, model, and URI parameters
         """
 
     @abstractmethod
     def synchronize_request_with_target(
-        self, request: ChatRequest, resolved: ResolvedTarget
+        self, request: ChatRequest, resolved: BackendTarget
     ) -> ChatRequest:
         """Update request to match resolved backend and model.
 
@@ -63,7 +67,7 @@ class IBackendModelResolver(ABC):
 
         Args:
             request: Original chat request
-            resolved: Resolved target information
+            resolved: Resolved target information (BackendTarget)
 
         Returns:
             Updated request with synchronized backend/model

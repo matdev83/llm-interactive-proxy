@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.common.exceptions import AuthenticationError, BackendError
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -91,10 +92,10 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock preparer to return success
-    harness.request_preparer.prepare_request.return_value = (
-        "backend_a",
-        "model_a",
-        {},
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
     )
     harness.request_preparer.synchronize_request_with_target.return_value = request
     harness.failover_executor.check_complex_failover.return_value = False
@@ -164,10 +165,10 @@ async def test_auth_failure_invalidates_backend(harness: OrchestratorHarness) ->
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
-    harness.request_preparer.prepare_request.return_value = (
-        "backend_a",
-        "model_a",
-        {},
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
     )
     harness.request_preparer.synchronize_request_with_target.return_value = request
     harness.failover_executor.check_complex_failover.return_value = False
@@ -222,10 +223,10 @@ async def test_captures_inbound_error_payload(harness: OrchestratorHarness) -> N
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
-    harness.request_preparer.prepare_request.return_value = (
-        "backend_a",
-        "model_a",
-        {},
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
     )
     harness.request_preparer.synchronize_request_with_target.return_value = request
     harness.failover_executor.check_complex_failover.return_value = False
@@ -282,10 +283,10 @@ async def test_records_usage_for_streaming(harness: OrchestratorHarness) -> None
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
-    harness.request_preparer.prepare_request.return_value = (
-        "backend_a",
-        "model_a",
-        {},
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
     )
     harness.request_preparer.synchronize_request_with_target.return_value = request
     harness.failover_executor.check_complex_failover.return_value = False
@@ -334,10 +335,10 @@ async def test_records_usage_for_non_streaming(harness: OrchestratorHarness) -> 
     context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
 
     # Mock setup
-    harness.request_preparer.prepare_request.return_value = (
-        "backend_a",
-        "model_a",
-        {},
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
     )
     harness.request_preparer.synchronize_request_with_target.return_value = request
     harness.failover_executor.check_complex_failover.return_value = False

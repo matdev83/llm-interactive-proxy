@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
+from pydantic.types import JsonValue
+
 from src.core.config.app_config import AppConfig
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.request_context import RequestContext
@@ -19,7 +22,6 @@ from src.core.interfaces.backend_lifecycle_manager_interface import (
 )
 from src.core.interfaces.backend_model_resolver_interface import (
     IBackendModelResolver,
-    ResolvedTarget,
 )
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
@@ -70,7 +72,7 @@ class BackendModelResolver(IBackendModelResolver):
 
     async def resolve_target(
         self, request: ChatRequest, context: RequestContext | None = None
-    ) -> ResolvedTarget:
+    ) -> BackendTarget:
         """Resolve backend, model, and URI parameters from request.
 
         Resolution order:
@@ -134,7 +136,7 @@ class BackendModelResolver(IBackendModelResolver):
         effective_model = self._model_alias_resolver.resolve(effective_model)
 
         # Parse model string with URI parameters
-        uri_params: dict[str, Any] = {}
+        uri_params: dict[str, JsonValue] = {}
 
         if not backend_type:
             # No backend type set yet - parse from model string
@@ -214,14 +216,14 @@ class BackendModelResolver(IBackendModelResolver):
                     )
                 effective_model = static_route
 
-        return ResolvedTarget(
+        return BackendTarget(
             backend=backend_type,
             model=effective_model,
             uri_params=uri_params,
         )
 
     def synchronize_request_with_target(
-        self, request: ChatRequest, resolved: ResolvedTarget
+        self, request: ChatRequest, resolved: BackendTarget
     ) -> ChatRequest:
         """Update request to match resolved backend and model.
 

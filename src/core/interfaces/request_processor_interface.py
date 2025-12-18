@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+
+from pydantic.types import JsonValue
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -18,13 +19,13 @@ class IRequestMiddleware(ABC):
 
     @abstractmethod
     async def process(
-        self, request: ChatRequest, context: dict[str, Any] | None = None
+        self, request: ChatRequest, context: dict[str, JsonValue] | None = None
     ) -> ChatRequest:
         """Process a chat request.
 
         Args:
             request: The chat request to process
-            context: Additional context
+            context: Additional context (JSON-serializable values)
 
         Returns:
             The processed chat request
@@ -43,13 +44,13 @@ class IRequestProcessor(ABC):
     async def process_request(
         self,
         context: RequestContext,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
+        request_data: DomainModel | InternalDTO | dict[str, JsonValue],
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request in a transport-agnostic way.
 
         Args:
             context: Transport-agnostic request context containing headers/cookies/state
-            request_data: The parsed request data (domain ChatRequest or legacy dict)
+            request_data: The parsed request data (domain ChatRequest or legacy dict with JSON-serializable values)
 
         Returns:
             Either a ResponseEnvelope for non-streaming requests or

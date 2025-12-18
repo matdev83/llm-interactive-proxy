@@ -163,7 +163,14 @@ class ResponseParser(IResponseParser):
         """
         Extracts usage information from a parsed response dictionary.
         """
-        return parsed_response.get("usage")
+        usage = parsed_response.get("usage")
+        from src.core.domain.usage_summary import UsageSummary
+
+        if isinstance(usage, UsageSummary):
+            return usage.to_legacy_dict()
+        if isinstance(usage, dict):
+            return usage
+        return None
 
     def extract_metadata(
         self, parsed_response: dict[str, Any]

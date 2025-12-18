@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.common.exceptions import JSONParsingError, ValidationError
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
@@ -201,17 +203,18 @@ class StructuredOutputFeature(IResponseFeature):
 
     def _add_error_metadata(self, response: Any, error_msg: str) -> None:
         """Add error metadata to response."""
-        error_info = {
+        error_info: dict[str, JsonValue] = {
             "structured_output_error": error_msg,
             "schema_validation_attempted": True,
             "structured_output_validated": False,
         }
 
-        if hasattr(response, "metadata") and response.metadata is not None:
+        if (
+            hasattr(response, "metadata")
+            and response.metadata is not None
+            or isinstance(response, ProcessedResponse)
+        ):
             response.metadata.update(error_info)
-        elif isinstance(response, ProcessedResponse):
-            metadata = response.metadata or {}
-            metadata.update(error_info)
 
     def _is_stream_end(self, context: dict[str, Any]) -> bool:
         """Check if this is the end of a stream."""

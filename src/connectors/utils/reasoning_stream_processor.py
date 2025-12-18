@@ -98,11 +98,13 @@ class ReasoningStreamProcessor:
 
                 # Try to normalize via provider normalizer if provider info is available
                 # This ensures provider-specific formats are handled correctly
-                provider = None
+                provider: str | None = None
                 if processed_response.metadata:
-                    provider = processed_response.metadata.get(
+                    provider_candidate = processed_response.metadata.get(
                         "provider"
                     ) or processed_response.metadata.get("backend_name")
+                    if isinstance(provider_candidate, str):
+                        provider = provider_candidate
 
                 if provider and isinstance(raw_content, dict | str | bytes):
                     # Check if content looks like provider-specific format

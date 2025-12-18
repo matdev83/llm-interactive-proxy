@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from src.core.domain.usage_summary import UsageSummary
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.utils.token_count import count_tokens
 
@@ -71,11 +72,13 @@ class UsageCalculationProcessor:
                 )
                 total_tokens = self.prompt_tokens + completion_tokens
 
-                chunk.usage = {
-                    "prompt_tokens": self.prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                }
+                chunk.usage = UsageSummary.from_dict(
+                    {
+                        "prompt_tokens": self.prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                    }
+                )
 
                 logger.debug(
                     "Calculated usage for stream: prompt=%d, completion=%d, total=%d",

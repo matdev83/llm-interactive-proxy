@@ -16,6 +16,7 @@ from src.core.app.controllers.request_processor_resolver import (
 )
 from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatRequest,
@@ -401,15 +402,13 @@ class ChatController:
                             exc_info=True,
                         )
 
-            # Convert FastAPI Request to RequestContext and process via core processor
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
-            # Attach domain request so session resolver can read session_id/extra_body
-            import contextlib
-
-            with contextlib.suppress(Exception):
-                ctx.domain_request = domain_request  # type: ignore[attr-defined]
-                if raw_body_bytes:
-                    ctx.raw_body = raw_body_bytes  # type: ignore[attr-defined]
+            # Convert FastAPI Request to RequestContext with typed fields populated
+            ctx = fastapi_to_domain_request_context(
+                request,
+                attach_original=True,
+                domain_request=cast(CanonicalChatRequest, domain_request),
+                raw_body=raw_body_bytes if raw_body_bytes else None,
+            )
 
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
@@ -527,23 +526,29 @@ class ChatController:
                             else:
                                 created_val = int(_time.time())
 
+                            from src.core.domain.usage_summary import UsageSummary
+
+                            raw_usage = metadata.get(
+                                "usage",
+                                {
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "total_tokens": 0,
+                                },
+                            )
+                            usage_summary = None
+                            if isinstance(raw_usage, UsageSummary):
+                                usage_summary = raw_usage
+                            elif isinstance(raw_usage, dict):
+                                usage_summary = UsageSummary.from_dict(raw_usage)
+
                             # Create the response using Pydantic model
                             response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
                                 choices=[choice],
-                                usage=cast(
-                                    "dict[str, Any] | None",
-                                    metadata.get(
-                                        "usage",
-                                        {
-                                            "prompt_tokens": 0,
-                                            "completion_tokens": 0,
-                                            "total_tokens": 0,
-                                        },
-                                    ),
-                                ),
+                                usage=usage_summary,
                             )
 
                             return _inject_reasoning_aliases(response.model_dump())
@@ -602,15 +607,21 @@ class ChatController:
                                 finish_reason=finish_reason,  # type: ignore[arg-type]
                             )
 
+                            from src.core.domain.usage_summary import UsageSummary
+
+                            raw_usage = metadata.get("usage")
+                            usage_summary = None
+                            if isinstance(raw_usage, UsageSummary):
+                                usage_summary = raw_usage
+                            elif isinstance(raw_usage, dict):
+                                usage_summary = UsageSummary.from_dict(raw_usage)
+
                             response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
                                 choices=[choice],
-                                usage=cast(
-                                    "dict[str, Any] | None",
-                                    metadata.get("usage"),
-                                ),
+                                usage=usage_summary,
                             )
 
                             return response.model_dump()
@@ -662,23 +673,28 @@ class ChatController:
                                 else:
                                     created_val = int(_time.time())
 
+                                from src.core.domain.usage_summary import UsageSummary
+
+                                if metadata:
+                                    raw_usage = metadata.get("usage")
+                                else:
+                                    raw_usage = {
+                                        "prompt_tokens": 0,
+                                        "completion_tokens": 0,
+                                        "total_tokens": 0,
+                                    }
+                                usage_summary = None
+                                if isinstance(raw_usage, UsageSummary):
+                                    usage_summary = raw_usage
+                                elif isinstance(raw_usage, dict):
+                                    usage_summary = UsageSummary.from_dict(raw_usage)
+
                                 response = ChatResponse(
                                     id=response_id,
                                     created=created_val,
                                     model=model_name,
                                     choices=[choice],
-                                    usage=(
-                                        cast(
-                                            "dict[str, Any] | None",
-                                            metadata.get("usage"),
-                                        )
-                                        if metadata
-                                        else {
-                                            "prompt_tokens": 0,
-                                            "completion_tokens": 0,
-                                            "total_tokens": 0,
-                                        }
-                                    ),
+                                    usage=usage_summary,
                                 )
 
                                 return response.model_dump()
@@ -743,6 +759,7 @@ class ChatController:
                             "total_tokens": (usage.get("input_tokens", 0) or 0)
                             + (usage.get("output_tokens", 0) or 0),
                         }
+                        from src.core.domain.usage_summary import UsageSummary
 
                         # Use Pydantic models instead of manual dict construction
                         # Create the message using Pydantic model
@@ -771,7 +788,7 @@ class ChatController:
                                 "model", getattr(domain_request, "model", "gpt-4")
                             ),
                             choices=[choice],
-                            usage=openai_usage,
+                            usage=UsageSummary.from_dict(openai_usage),
                         )
 
                         return response
@@ -811,17 +828,21 @@ class ChatController:
                         finish_reason="stop",
                     )
 
+                    from src.core.domain.usage_summary import UsageSummary
+
                     # Create the response using Pydantic model
                     response = ChatResponse(
                         id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
                         created=int(time.time()),
                         model=getattr(domain_request, "model", "gpt-4"),
                         choices=[choice],
-                        usage={
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
+                        usage=UsageSummary.from_dict(
+                            {
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "total_tokens": 0,
+                            }
+                        ),
                     )
 
                     return response

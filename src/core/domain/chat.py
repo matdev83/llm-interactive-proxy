@@ -4,6 +4,7 @@ from typing import Any, TypeVar
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.domain.base import ValueObject
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.model_bases import DomainModel
 
 # Define a type variable for generic methods
@@ -326,7 +327,7 @@ class ChatResponse(ValueObject):
     created: int
     model: str
     choices: list[ChatCompletionChoice]
-    usage: dict[str, Any] | None = None
+    usage: UsageSummary | None = None
     system_fingerprint: str | None = None
     service_tier: str | None = None  # Actual service tier used for the request
     object: str = "chat.completion"

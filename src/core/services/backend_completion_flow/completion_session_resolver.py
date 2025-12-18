@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     ICompletionSessionResolver,
 )
+from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.session_service_interface import ISessionService
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,10 @@ class CompletionSessionResolver(ICompletionSessionResolver):
         self._session_service = session_service
 
     async def resolve_session(
-        self, context: RequestContext | None, request: ChatRequest
-    ) -> tuple[Any | None, str | None]:
+        self, context: RequestContext | None, request: CanonicalChatRequest
+    ) -> tuple[ISession | None, str | None]:
         """Resolve session from context or request."""
-        session: Any | None = None
+        session: ISession | None = None
         session_id_for_backend: str | None = None
 
         # Resolve session from context when available

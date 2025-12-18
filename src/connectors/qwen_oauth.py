@@ -1124,6 +1124,7 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # Yield the final stop chunk with usage merged in
             # Import the protective wrapper to detect accidental stringification
+            from src.core.domain.usage_summary import UsageSummary
             from src.core.ports.streaming_contracts import StopChunkWithUsage
 
             if final_stop_chunk:
@@ -1138,7 +1139,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 yield ProcessedResponse(
                     content=final_content,
                     metadata=getattr(final_stop_chunk, "metadata", None),
-                    usage=usage,
+                    usage=UsageSummary.from_dict(usage) if usage else None,
                 )
             elif usage:
                 # No stop chunk was buffered but we have usage - create a proper stop chunk
@@ -1152,7 +1153,8 @@ class QwenOAuthConnector(OpenAIConnector):
                 }
                 # Wrap with protective class
                 yield ProcessedResponse(
-                    content=StopChunkWithUsage(final_chunk), usage=usage
+                    content=StopChunkWithUsage(final_chunk),
+                    usage=UsageSummary.from_dict(usage),
                 )
 
         # Return a new handle with the deduplicated iterator
@@ -1365,16 +1367,20 @@ class QwenOAuthConnector(OpenAIConnector):
             should_calculate_usage = False
 
             if isinstance(response_envelope, ResponseEnvelope):
+                from src.core.domain.usage_summary import UsageSummary
+
+                if isinstance(response_envelope.usage, dict):
+                    response_envelope.usage = UsageSummary.from_dict(
+                        response_envelope.usage
+                    )
                 if not response_envelope.usage:
                     should_calculate_usage = True
                     logger.debug("No usage information in response, calculating...")
                 else:
                     # Check if any of the usage values are zero (indicating missing data)
-                    prompt_tokens = response_envelope.usage.get("prompt_tokens", 0)
-                    completion_tokens = response_envelope.usage.get(
-                        "completion_tokens", 0
-                    )
-                    total_tokens = response_envelope.usage.get("total_tokens", 0)
+                    prompt_tokens = response_envelope.usage.prompt_tokens or 0
+                    completion_tokens = response_envelope.usage.completion_tokens or 0
+                    total_tokens = response_envelope.usage.total_tokens or 0
 
                     if (
                         prompt_tokens == 0
@@ -1390,7 +1396,7 @@ class QwenOAuthConnector(OpenAIConnector):
                     calculated_usage = self._calculate_token_usage(
                         response_envelope, processed_messages, model_name
                     )
-                    response_envelope.usage = calculated_usage
+                    response_envelope.usage = UsageSummary.from_dict(calculated_usage)
 
             return response_envelope
 

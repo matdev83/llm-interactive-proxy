@@ -17,6 +17,8 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.config.edit_precision_temperatures import (
     EditPrecisionTemperaturesConfig,
 )
@@ -83,7 +85,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 self._compiled.append(re.compile(pattern, re.IGNORECASE | re.DOTALL))
 
     async def process(
-        self, request: ChatRequest, context: dict[str, Any] | None = None
+        self, request: ChatRequest, context: dict[str, JsonValue] | None = None
     ) -> ChatRequest:
         """Process a ChatRequest and apply precision tuning if edit-failure prompts are detected."""
         if not request or not request.messages:

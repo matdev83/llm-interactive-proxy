@@ -8,6 +8,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from pydantic.types import JsonValue
+
 if TYPE_CHECKING:
     from src.core.domain.chat import ChatRequest
 
@@ -19,7 +21,7 @@ class IURIParameterApplicator(ABC):
     def apply(
         self,
         request: ChatRequest,
-        uri_params: dict[str, Any],
+        uri_params: dict[str, JsonValue],
         backend_type: str,
         session: Any | None = None,
     ) -> ChatRequest:

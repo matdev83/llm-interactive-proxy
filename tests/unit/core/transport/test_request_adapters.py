@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.transport.fastapi.request_adapters import (
     fastapi_to_domain_request_context,
 )
@@ -38,3 +39,52 @@ def test_request_context_agent_falls_back_to_user_agent_truncated() -> None:
     assert ctx.agent is not None
     assert len(ctx.agent) == 80
     assert ctx.agent == long_ua[:80]
+
+
+class TestRequestAdapterTypedFields:
+    """Test adapter population of typed RequestContext fields."""
+
+    def test_adapter_accepts_domain_request_parameter(self) -> None:
+        """Test that adapter can accept optional domain_request parameter."""
+        req = _DummyRequest({})
+        request = CanonicalChatRequest(
+            model="test-model", messages=[ChatMessage(role="user", content="test")]
+        )
+        ctx = fastapi_to_domain_request_context(
+            req, domain_request=request  # type: ignore[arg-type]
+        )
+        assert ctx.domain_request == request
+        assert isinstance(ctx.domain_request, CanonicalChatRequest)
+
+    def test_adapter_accepts_raw_body_parameter(self) -> None:
+        """Test that adapter can accept optional raw_body parameter."""
+        req = _DummyRequest({})
+        raw_bytes = b"test body content"
+        ctx = fastapi_to_domain_request_context(
+            req, raw_body=raw_bytes  # type: ignore[arg-type]
+        )
+        assert ctx.raw_body == raw_bytes
+        assert isinstance(ctx.raw_body, bytes)
+
+    def test_adapter_populates_both_domain_request_and_raw_body(self) -> None:
+        """Test that adapter can populate both domain_request and raw_body."""
+        req = _DummyRequest({})
+        request = CanonicalChatRequest(
+            model="test-model", messages=[ChatMessage(role="user", content="test")]
+        )
+        raw_bytes = b"test body"
+        ctx = fastapi_to_domain_request_context(
+            req, domain_request=request, raw_body=raw_bytes  # type: ignore[arg-type]
+        )
+        assert ctx.domain_request == request
+        assert ctx.raw_body == raw_bytes
+
+    def test_adapter_backward_compatibility_without_optional_params(self) -> None:
+        """Test that existing calls without optional params still work."""
+        req = _DummyRequest({"X-Agent": "test-agent"})
+        ctx = fastapi_to_domain_request_context(req)  # type: ignore[arg-type]
+        # Existing fields should work
+        assert ctx.agent == "test-agent"
+        # New fields should have defaults
+        assert ctx.domain_request is None
+        assert ctx.raw_body is None

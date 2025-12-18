@@ -9,6 +9,7 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
 )
 from src.core.domain.translators.openai.response import openai_to_domain_response
+from src.core.domain.usage_summary import UsageSummary
 
 
 def raw_text_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -29,6 +30,8 @@ def raw_text_to_domain_response(response: Any) -> CanonicalChatResponse:
                     finish_reason="stop",
                 )
             ],
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            usage=UsageSummary.from_dict(
+                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            ),
         )
     return openai_to_domain_response(response)

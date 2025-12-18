@@ -79,6 +79,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.domain.usage_summary import UsageSummary
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -621,13 +622,15 @@ class GeminiCliAcpConnector(GeminiBackend):
                             finish_reason="stop",
                         )
                     ],
-                    usage={
-                        "prompt_tokens": self._estimate_tokens(user_message),
-                        "completion_tokens": self._estimate_tokens(full_response),
-                        "total_tokens": self._estimate_tokens(
-                            user_message + full_response
-                        ),
-                    },
+                    usage=UsageSummary.from_dict(
+                        {
+                            "prompt_tokens": self._estimate_tokens(user_message),
+                            "completion_tokens": self._estimate_tokens(full_response),
+                            "total_tokens": self._estimate_tokens(
+                                user_message + full_response
+                            ),
+                        }
+                    ),
                 )
 
                 response_envelope = ResponseEnvelope(

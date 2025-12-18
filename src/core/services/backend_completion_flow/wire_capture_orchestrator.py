@@ -6,15 +6,18 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
+from pydantic.types import JsonValue
+
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IWireCaptureOrchestrator,
 )
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
@@ -41,7 +44,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         self._backend_config_service = backend_config_service
 
     async def prepare_wire_capture_context(
-        self, backend_type: str, session: Any | None
+        self, backend_type: str, session: ISession | None
     ) -> Any | None:
         """Prepare identity and backend config for wire capture.
 
@@ -50,7 +53,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             session: Optional session object
 
         Returns:
-            Identity object with session context
+            Identity object with session context (IAppIdentityConfig or compatible)
         """
         app_config_typed: AppConfig = cast(AppConfig, self._config)
 
@@ -88,7 +91,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         self,
         backend_type: str,
         effective_model: str,
-        domain_request: ChatRequest,
+        domain_request: CanonicalChatRequest,
         context: RequestContext | None,
     ) -> None:
         """Capture outbound wire payload (best-effort).
@@ -160,12 +163,12 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
 
     async def capture_inbound_response(
         self,
-        context: Any | None,
+        context: RequestContext | None,
         session_id: str | None,
         backend_type: str,
         effective_model: str,
         key_name: str | None,
-        response_content: Any,
+        response_content: dict[str, JsonValue] | bytes | None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -175,7 +178,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             backend_type: Backend type
             effective_model: Model name
             key_name: Key name for redaction
-            response_content: The response content
+            response_content: The response content (JSON-serializable dict, bytes, or None)
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():

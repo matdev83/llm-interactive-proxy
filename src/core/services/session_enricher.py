@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.request_processor_internal import ISessionEnricher
@@ -71,7 +71,7 @@ class SessionEnricher(ISessionEnricher):
         - Project directory auto-resolution
         """
         # Attach domain_request to context for intelligent session resolution
-        context.domain_request = request  # type: ignore
+        context.domain_request = cast(CanonicalChatRequest, request)
 
         # Resolve session and update agent if needed
         session_id = await self._session_manager.resolve_session_id(context)

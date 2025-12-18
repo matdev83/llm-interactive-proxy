@@ -11,6 +11,8 @@ import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
+from pydantic.types import JsonValue
+
 from src.core.common.exceptions import BackendError, DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
@@ -34,6 +36,37 @@ from src.core.services.history_compaction_service import HistoryCompactionServic
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 logger = logging.getLogger(__name__)
+
+
+def _filter_json_serializable_metadata(
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Filter metadata to only include JSON-serializable values.
+
+    Excludes non-serializable values like ChatRequest objects (original_request).
+
+    Args:
+        metadata: Source metadata dictionary
+
+    Returns:
+        Dictionary containing only JSON-serializable values
+    """
+
+    json_serializable_metadata: dict[str, JsonValue] = {}
+    for key, value in metadata.items():
+        # Skip non-JSON-serializable values like ChatRequest objects
+        if key == "original_request":
+            continue
+        try:
+            # Test if value is JSON-serializable
+            json.dumps(value)
+            # Type narrowing: value passed json.dumps check
+            json_serializable_metadata[key] = value  # type: ignore[assignment]
+        except (TypeError, ValueError):
+            # Skip non-serializable values
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Skipping non-JSON-serializable metadata key: {key}")
+    return json_serializable_metadata  # type: ignore[return-value]
 
 
 class BackendRequestManager(IBackendRequestManager):
@@ -488,9 +521,26 @@ class BackendRequestManager(IBackendRequestManager):
                         ):
                             if backend_response.metadata is None:
                                 backend_response.metadata = {}
-                            backend_response.metadata.update(
-                                processed_response.metadata
-                            )
+                            # Filter metadata to only include JSON-serializable values
+                            # (original_request and other complex objects are excluded)
+                            import json
+
+                            json_serializable_metadata = {}
+                            for key, value in processed_response.metadata.items():
+                                # Skip non-JSON-serializable values like ChatRequest objects
+                                if key == "original_request":
+                                    continue
+                                try:
+                                    # Test if value is JSON-serializable
+                                    json.dumps(value)
+                                    json_serializable_metadata[key] = value
+                                except (TypeError, ValueError):
+                                    # Skip non-serializable values
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            f"Skipping non-JSON-serializable metadata key: {key}"
+                                        )
+                            backend_response.metadata.update(json_serializable_metadata)
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -766,8 +816,9 @@ class BackendRequestManager(IBackendRequestManager):
         This unified method ensures parity between streaming and non-streaming paths.
         It applies middleware to detect if the LLM repeats blocked tool calls.
         """
+
         # Add retry metadata for downstream tracking
-        retry_metadata_update = {
+        retry_metadata_update: dict[str, JsonValue] = {
             "steering_retry_occurred": True,
             "dangerous_command_retry_count": retry_count,
             "tool_call_reactor_retry_count": retry_count,
@@ -793,7 +844,11 @@ class BackendRequestManager(IBackendRequestManager):
                     retry_response.metadata = {}
 
                 if hasattr(processed_retry, "metadata") and processed_retry.metadata:
-                    retry_response.metadata.update(processed_retry.metadata)
+                    # Filter metadata to only include JSON-serializable values
+                    filtered_metadata = _filter_json_serializable_metadata(
+                        processed_retry.metadata
+                    )
+                    retry_response.metadata.update(filtered_metadata)
 
                 retry_response.metadata.update(retry_metadata_update)
 
@@ -1068,7 +1123,7 @@ class BackendRequestManager(IBackendRequestManager):
                             terminal_content = self._DANGEROUS_TERMINAL_ERROR.format(
                                 count=current_retry_count + 1
                             )
-                            terminal_metadata = {
+                            terminal_metadata: dict[str, JsonValue] = {
                                 "dangerous_command_limit_exceeded": True,
                                 "dangerous_command_retry_count": current_retry_count
                                 + 1,
@@ -1380,6 +1435,15 @@ class BackendRequestManager(IBackendRequestManager):
         async def _attach_stream_context(
             stream: AsyncIterator[ProcessedResponse | Any],
         ) -> AsyncIterator[ProcessedResponse]:
+            original_request_payload: JsonValue | None = None
+            try:
+                if hasattr(original_request, "model_dump"):
+                    original_request_payload = cast(
+                        JsonValue, original_request.model_dump(mode="json")
+                    )
+            except Exception:
+                original_request_payload = None
+
             # Extract client_os from context for downstream middleware
             client_os_value = None
             if hasattr(context, "processing_context") and context.processing_context:
@@ -1387,24 +1451,30 @@ class BackendRequestManager(IBackendRequestManager):
 
             async for chunk in stream:
                 if isinstance(chunk, ProcessedResponse):
-                    processed_metadata = dict(chunk.metadata or {})
-                    processed_metadata.setdefault("original_request", original_request)
+                    processed_metadata: dict[str, JsonValue] = dict(chunk.metadata)
+                    if original_request_payload is not None:
+                        processed_metadata.setdefault(
+                            "original_request", original_request_payload
+                        )
                     processed_metadata.setdefault("session_id", session_id)
                     if client_os_value:
-                        processed_metadata.setdefault("client_os", client_os_value)
+                        processed_metadata.setdefault(
+                            "client_os", cast(JsonValue, client_os_value)
+                        )
                     chunk.metadata = processed_metadata
                     yield chunk
                     continue
 
-                metadata: dict[str, Any] = {}
+                metadata: dict[str, JsonValue] = {}
                 if hasattr(chunk, "metadata"):
                     raw_metadata = chunk.metadata
                     if isinstance(raw_metadata, dict):
-                        metadata = dict(raw_metadata)
-                metadata.setdefault("original_request", original_request)
+                        metadata = cast(dict[str, JsonValue], dict(raw_metadata))
+                if original_request_payload is not None:
+                    metadata.setdefault("original_request", original_request_payload)
                 metadata.setdefault("session_id", session_id)
                 if client_os_value:
-                    metadata.setdefault("client_os", client_os_value)
+                    metadata.setdefault("client_os", cast(JsonValue, client_os_value))
                 content_value = getattr(chunk, "content", chunk)
                 yield ProcessedResponse(content=content_value, metadata=metadata)
 

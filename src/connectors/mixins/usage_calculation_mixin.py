@@ -54,7 +54,9 @@ class UsageCalculationMixin:
         # Parse existing usage to check if calculation is needed
         existing_usage = None
         if response_envelope.usage:
-            existing_usage = OpenRouterUsage.from_dict(response_envelope.usage)
+            existing_usage = OpenRouterUsage.from_dict(
+                response_envelope.usage.to_legacy_dict()
+            )
 
         # Check if usage needs to be calculated
         should_calculate = False
@@ -83,10 +85,16 @@ class UsageCalculationMixin:
             calculated_usage = self._calculate_usage_from_content(
                 response_envelope, request_messages, model_name, existing_usage
             )
-            response_envelope.usage = calculated_usage
+            from src.core.domain.usage_summary import UsageSummary
+
+            response_envelope.usage = UsageSummary.from_dict(calculated_usage)
         elif existing_usage is not None:
             # Normalize existing usage to OpenRouter format
-            response_envelope.usage = existing_usage.to_openrouter_dict()
+            from src.core.domain.usage_summary import UsageSummary
+
+            response_envelope.usage = UsageSummary.from_dict(
+                existing_usage.to_openrouter_dict()
+            )
 
         return response_envelope
 

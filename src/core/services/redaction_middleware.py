@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Any
+
+from pydantic.types import JsonValue
 
 from src.core.common.env_utils import get_env_flag
 from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
@@ -52,7 +53,7 @@ class RedactionMiddleware(IRequestMiddleware):
         self._strict_command_detection = strict_command_detection
 
     async def process(
-        self, request: ChatRequest, context: dict[str, Any] | None = None
+        self, request: ChatRequest, context: dict[str, JsonValue] | None = None
     ) -> ChatRequest:
         """Process a request to redact sensitive information.
 
@@ -75,7 +76,8 @@ class RedactionMiddleware(IRequestMiddleware):
         # Get session_id for caching optimization
         session_id: str | None = None
         if context:
-            session_id = context.get("session_id")
+            session_id_value = context.get("session_id")
+            session_id = session_id_value if isinstance(session_id_value, str) else None
 
         # Get the redaction cache for session-level optimization
         cache = get_global_redaction_cache() if session_id else None

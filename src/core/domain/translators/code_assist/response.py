@@ -8,6 +8,7 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
 )
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.usage_summary import UsageSummary
 
 
 def _map_gemini_finish_reason(finish_reason: str | None) -> str | None:
@@ -51,7 +52,9 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                     finish_reason="stop",
                 )
             ],
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            usage=UsageSummary.from_dict(
+                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            ),
         )
 
     response_wrapper = response.get("response", {})
@@ -106,5 +109,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                 finish_reason=finish_reason,
             )
         ],
-        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        usage=UsageSummary.from_dict(
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        ),
     )

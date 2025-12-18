@@ -13,6 +13,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from src.core.domain.usage_summary import UsageSummary
+
 if TYPE_CHECKING:
     from src.core.domain.streaming.contracts import StreamingChunk
 
@@ -33,7 +35,7 @@ class StreamingContent:
     is_empty: bool | None = None
     stream_id: str | None = None
     is_cancellation: bool = False
-    usage: dict[str, Any] | None = None
+    usage: UsageSummary | None = None
     raw_data: Any | None = None
 
     def __post_init__(self) -> None:
@@ -481,9 +483,11 @@ class StreamingContent:
             metadata["error"] = chunk.metadata.error.model_dump(exclude_none=True)
 
         # Extract usage (from metadata or as attribute)
-        usage: dict[str, Any] | None = None
+        usage: UsageSummary | None = None
         if chunk.metadata.usage:
-            usage = chunk.metadata.usage.model_dump(exclude_none=True)
+            usage = UsageSummary.from_dict(
+                chunk.metadata.usage.model_dump(exclude_none=True)
+            )
 
         return cls(
             content=content,
@@ -516,3 +520,5 @@ class StreamingContent:
 
 
 __all__ = ["StreamingContent"]
+
+

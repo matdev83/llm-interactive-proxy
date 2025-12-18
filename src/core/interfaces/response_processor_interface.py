@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pydantic.types import JsonValue
+
+from src.core.domain.usage_summary import UsageSummary
+
 
 class ProcessedResponse:
     """Result of response processing."""
@@ -11,23 +15,23 @@ class ProcessedResponse:
     def __init__(
         self,
         content: Any = "",
-        usage: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        usage: UsageSummary | None = None,
+        metadata: dict[str, JsonValue] | None = None,
     ):
         """Initialize a processed response.
 
         Args:
             content: The response content
-            usage: Usage information
-            metadata: Additional metadata
+            usage: Usage information (canonical UsageSummary contract)
+            metadata: Additional metadata (JSON-serializable values)
         """
         self.content = content
         self.usage = usage
         self.metadata = metadata or {}
 
     content: Any | None
-    usage: dict[str, Any] | None = None
-    metadata: dict[str, Any] = {}
+    usage: UsageSummary | None = None
+    metadata: dict[str, JsonValue] = {}
 
 
 class IResponseProcessor(ABC):
@@ -42,14 +46,14 @@ class IResponseProcessor(ABC):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> ProcessedResponse:
         """Process a complete LLM response.
 
         Args:
             response: The raw LLM response
             session_id: The session ID associated with this request
-            context: Optional contextual information for downstream middleware
+            context: Optional contextual information for downstream middleware (JSON-serializable values)
 
         Returns:
             A processed response object
@@ -60,14 +64,14 @@ class IResponseProcessor(ABC):
         self,
         response_iterator: AsyncIterator[Any],
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming LLM response.
 
         Args:
             response_iterator: An async iterator of response chunks
             session_id: The session ID associated with this request
-            context: Optional contextual information for downstream middleware
+            context: Optional contextual information for downstream middleware (JSON-serializable values)
 
         Returns:
             An async iterator of processed response chunks
@@ -104,7 +108,7 @@ class IResponseMiddleware(ABC):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
         is_streaming: bool = False,
         stop_event: Any = None,
     ) -> Any:
@@ -112,7 +116,7 @@ class IResponseMiddleware(ABC):
         Args:
             response: The response or chunk to process
             session_id: The session ID associated with this request
-            context: Additional context for processing
+            context: Additional context for processing (JSON-serializable values)
             is_streaming: A boolean indicating if the middleware is applied during streaming.
             stop_event: An optional event to signal early termination during streaming.
         Returns:
@@ -198,7 +202,7 @@ class IResponseFeature(ABC):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
     ) -> Any:
         """Process a non-streaming response.
 
@@ -208,7 +212,7 @@ class IResponseFeature(ABC):
         Args:
             response: The complete response to process
             session_id: The session ID associated with this request
-            context: Additional context for processing
+            context: Additional context for processing (JSON-serializable values)
 
         Returns:
             The processed response
@@ -219,7 +223,7 @@ class IResponseFeature(ABC):
         self,
         chunk: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
     ) -> Any:
         """Process a streaming chunk.
 
@@ -229,7 +233,7 @@ class IResponseFeature(ABC):
         Args:
             chunk: The streaming chunk to process
             session_id: The session ID associated with this request
-            context: Additional context for processing
+            context: Additional context for processing (JSON-serializable values)
 
         Returns:
             The processed chunk
@@ -239,7 +243,7 @@ class IResponseFeature(ABC):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
         is_streaming: bool = False,
         stop_event: Any = None,
     ) -> Any:
@@ -252,7 +256,7 @@ class IResponseFeature(ABC):
         Args:
             response: The response or chunk to process
             session_id: The session ID associated with this request
-            context: Additional context for processing
+            context: Additional context for processing (JSON-serializable values)
             is_streaming: Whether this is a streaming chunk
             stop_event: Optional event to signal early termination
 

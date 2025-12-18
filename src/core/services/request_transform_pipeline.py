@@ -15,6 +15,8 @@ import contextlib
 import logging
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -242,7 +244,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             api_keys=api_keys,
             command_prefix=command_prefix or "!/",
         )
-        redaction_context = {
+        redaction_context: dict[str, JsonValue] = {
             "commands_disabled": commands_disabled,
             "session_id": session_id,
         }

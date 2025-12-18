@@ -448,3 +448,228 @@ async def test_redaction_fails_open_on_middleware_error(
 
             # Verify we got the original request back unchanged
             assert result == basic_request
+
+
+# ==============================================================================
+# Test Requirement 5.1, 5.2: Copy-on-Write Immutability
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_transform_pipeline_preserves_original_request_instance(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+    basic_request: ChatRequest,
+    basic_session: Mock,
+) -> None:
+    """
+    Requirement 5.1, 5.2: Contract mutations must use copy-on-write.
+
+    This test verifies that the original request instance remains unchanged
+    after transformation, and that mutations produce new instances.
+    """
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+
+    # Store original request ID for identity check
+    original_id = id(basic_request)
+    original_messages = basic_request.messages.copy()
+    original_temperature = basic_request.temperature
+
+    # Mock transformations to modify the request
+    async def mock_redaction(ctx, session, session_id, request):
+        # Modify temperature to verify copy-on-write
+        return request.model_copy(update={"temperature": 0.5})
+
+    async def mock_precision(ctx, session, session_id, request):
+        # Modify temperature again
+        return request.model_copy(update={"temperature": 0.3})
+
+    async def mock_filtering(ctx, session, session_id, request):
+        return request
+
+    pipeline._apply_redaction = mock_redaction  # type: ignore
+    pipeline._apply_edit_precision = mock_precision  # type: ignore
+    pipeline._apply_tool_filtering = mock_filtering  # type: ignore
+
+    # Execute transformation
+    result = await pipeline.transform(
+        request_context, basic_session, "test-session-id", basic_request
+    )
+
+    # Verify original request instance is unchanged
+    assert id(basic_request) == original_id, "Original request instance was mutated"
+    assert (
+        basic_request.temperature == original_temperature
+    ), "Original request temperature was mutated"
+    assert (
+        basic_request.messages == original_messages
+    ), "Original request messages were mutated"
+
+    # Verify result is a new instance
+    assert id(result) != original_id, "Result should be a new instance"
+    assert result.temperature == 0.3, "Result should have modified temperature"
+
+
+@pytest.mark.asyncio
+async def test_edit_precision_preserves_original_request(
+    request_context: RequestContext,
+    basic_request: ChatRequest,
+    basic_session: Mock,
+) -> None:
+    """
+    Requirement 5.2: Edit precision tuning must preserve original request.
+    """
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_config = MagicMock()
+    mock_config.edit_precision.enabled = True
+    mock_config.edit_precision.temperature = 0.1
+    mock_app_state.get_setting.return_value = mock_config
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+
+    # Set original temperature
+    original_request = basic_request.model_copy(update={"temperature": 0.8})
+    original_id = id(original_request)
+    original_temp = original_request.temperature
+
+    # Mock edit precision to apply changes
+    with patch(
+        "src.core.services.edit_precision_middleware.EditPrecisionTuningMiddleware"
+    ) as mock_middleware_cls:
+        mock_instance = AsyncMock()
+        # Return modified request
+        modified_request = original_request.model_copy(update={"temperature": 0.1})
+        mock_instance.process.return_value = modified_request
+        mock_middleware_cls.return_value = mock_instance
+
+        with patch(
+            "src.core.config.edit_precision_temperatures.load_edit_precision_temperatures_config"
+        ) as mock_load:
+            mock_load.return_value = None
+
+            result = await pipeline._apply_edit_precision(
+                request_context, basic_session, "test-session-id", original_request
+            )
+
+            # Verify original is unchanged
+            assert id(original_request) == original_id
+            assert original_request.temperature == original_temp
+            # Verify result is modified
+            assert result.temperature == 0.1
+            assert id(result) != original_id
+
+
+@pytest.mark.asyncio
+async def test_tool_filtering_preserves_original_request(
+    request_context: RequestContext,
+    basic_request: ChatRequest,
+    basic_session: Mock,
+) -> None:
+    """
+    Requirement 5.2: Tool filtering must preserve original request.
+    """
+    # Create request with tools
+    request_with_tools = basic_request.model_copy(
+        update={
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {"name": "tool1", "description": "Test"},
+                },
+                {
+                    "type": "function",
+                    "function": {"name": "tool2", "description": "Test"},
+                },
+            ]
+        }
+    )
+    original_id = id(request_with_tools)
+    original_tools_count = len(request_with_tools.tools or [])
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_policy_service = MagicMock()
+    # Filter out one tool
+    filtered_tools = [request_with_tools.tools[0]]
+    mock_policy_service.filter_tool_definitions.return_value = (
+        filtered_tools,
+        {"policy_applied": "test", "filtered_tool_names": ["tool2"]},
+    )
+    mock_app_state.get_service.return_value = mock_policy_service
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+
+    result = await pipeline._apply_tool_filtering(
+        request_context, basic_session, "test-session-id", request_with_tools
+    )
+
+    # Verify original is unchanged
+    assert id(request_with_tools) == original_id
+    assert len(request_with_tools.tools or []) == original_tools_count
+
+    # Verify result is modified
+    assert id(result) != original_id
+    assert len(result.tools or []) == 1
+
+
+@pytest.mark.asyncio
+async def test_redaction_preserves_original_request(
+    request_context: RequestContext,
+    basic_request: ChatRequest,
+    basic_session: Mock,
+) -> None:
+    """
+    Requirement 5.2: Redaction must preserve original request instance.
+    """
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_config = MagicMock()
+    mock_config.auth.redact_api_keys_in_prompts = True
+    mock_config.command_prefix = "!/"
+    mock_app_state.get_setting.return_value = mock_config
+    mock_app_state.get_command_prefix.return_value = "!/"
+    mock_app_state.get_disable_commands.return_value = False
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+
+    # Create request with API key in content
+    original_request = basic_request.model_copy(
+        update={
+            "messages": [
+                ChatMessage(
+                    role="user", content="My API key is FAKE_API_KEY_PLACEHOLDER_12345"
+                )
+            ]
+        }
+    )
+    original_id = id(original_request)
+    original_content = original_request.messages[0].content
+
+    # Mock redaction to actually redact
+    with patch(
+        "src.core.services.redaction_middleware.RedactionMiddleware"
+    ) as mock_redaction_cls:
+        mock_instance = AsyncMock()
+        # Return request with redacted content
+        redacted_message = ChatMessage(
+            role="user", content="My API key is sk-***REDACTED***"
+        )
+        redacted_request = original_request.model_copy(
+            update={"messages": [redacted_message]}
+        )
+        mock_instance.process.return_value = redacted_request
+        mock_redaction_cls.return_value = mock_instance
+
+        with patch(
+            "src.core.common.logging_utils.discover_api_keys_from_config_and_env"
+        ) as mock_discover:
+            mock_discover.return_value = ["FAKE_API_KEY_PLACEHOLDER_12345"]
+
+            result = await pipeline._apply_redaction(
+                request_context, basic_session, "test-session-id", original_request
+            )
+
+            # Verify original is unchanged
+            assert id(original_request) == original_id
+            assert original_request.messages[0].content == original_content
+            # Verify result is modified
+            assert result.messages[0].content != original_content
+            assert id(result) != original_id

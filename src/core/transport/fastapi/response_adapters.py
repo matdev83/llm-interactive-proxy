@@ -503,7 +503,11 @@ def to_fastapi_response(
         return _create_other_response(content, status_code, headers, media_type)
 
 
-def _normalize_response_envelope(domain_response: Any) -> ResponseEnvelope:
+def _normalize_response_envelope(
+    domain_response: (
+        ResponseEnvelope | StreamingResponseEnvelope | ProcessedResponse | ChatResponse
+    ),
+) -> ResponseEnvelope:
     if isinstance(domain_response, ResponseEnvelope):
         return domain_response
     elif isinstance(domain_response, ChatResponse):
@@ -551,6 +555,10 @@ def _normalize_usage_dict(usage: Any) -> dict[str, Any] | None:
 
     Preserves extended fields (reasoning_tokens, cached_tokens, cost) when present.
     """
+    from src.core.domain.usage_summary import UsageSummary
+
+    if isinstance(usage, UsageSummary):
+        usage = usage.to_legacy_dict()
     if not isinstance(usage, dict):
         return None
 
@@ -744,7 +752,9 @@ def _ensure_usage(
     usage_to_apply: dict[str, Any] | None = usage if usage else None
 
     if usage_to_apply:
-        envelope.usage = usage_to_apply
+        from src.core.domain.usage_summary import UsageSummary
+
+        envelope.usage = UsageSummary.from_dict(usage_to_apply)
         if isinstance(payload, dict):
             payload["usage"] = usage_to_apply
 
@@ -1694,12 +1704,19 @@ def to_fastapi_streaming_response(
                                     "Failed to merge streaming usage", exc_info=True
                                 )
 
+                    from src.core.domain.usage_summary import UsageSummary
+
+                    usage_summary = (
+                        UsageSummary.from_dict(best_usage)
+                        if isinstance(best_usage, dict)
+                        else None
+                    )
                     streaming_content = StreamingContent(
                         content=enriched,
                         metadata=metadata,
                         is_done=is_done,
                         stream_id=metadata.get("stream_id") if metadata else None,
-                        usage=best_usage if isinstance(best_usage, dict) else None,
+                        usage=usage_summary,
                     )
 
                     yield streaming_content

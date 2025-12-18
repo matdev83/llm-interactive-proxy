@@ -10,6 +10,12 @@ def test_parse_model_with_single_parameter() -> None:
     assert backend == "openai"
     assert model == "gpt-4"
     assert params == {"temperature": "0.5"}
+    # Verify params are JSON-serializable (strings from query parsing)
+    assert isinstance(params, dict)
+    # JsonValue is a type alias, so we check for JSON-serializable types directly
+    import json
+
+    json.dumps(params)  # Should not raise
 
 
 def test_parse_model_with_multiple_parameters() -> None:
@@ -50,6 +56,8 @@ def test_parse_model_without_parameters() -> None:
     assert backend == "openai"
     assert model == "gpt-4"
     assert params == {}
+    # Verify empty dict is compatible with dict[str, JsonValue]
+    assert isinstance(params, dict)
 
 
 def test_parse_model_with_empty_query_string() -> None:

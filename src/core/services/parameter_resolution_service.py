@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic.types import JsonValue
+
 logger = logging.getLogger(__name__)
 
 
@@ -139,7 +141,7 @@ class ParameterResolutionService:
 
     def resolve_parameters(
         self,
-        uri_params: dict[str, Any] | None = None,
+        uri_params: dict[str, JsonValue] | None = None,
         header_params: dict[str, Any] | None = None,
         config_params: dict[str, Any] | None = None,
         session_params: dict[str, Any] | None = None,
@@ -202,7 +204,7 @@ class ParameterResolutionService:
     def _resolve_single_parameter(
         self,
         param_name: str,
-        uri_params: dict[str, Any],
+        uri_params: dict[str, JsonValue],
         header_params: dict[str, Any],
         config_params: dict[str, Any],
         session_params: dict[str, Any],

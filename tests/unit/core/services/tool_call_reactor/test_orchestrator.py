@@ -453,9 +453,7 @@ class TestProcessingFlow:
         context = ToolCallReactorContext(stream_key="test-stream")
 
         # Test non-streaming
-        await orchestrator.handle(
-            response, "test-session", context, is_streaming=False
-        )
+        await orchestrator.handle(response, "test-session", context, is_streaming=False)
 
         # Verify non-streaming called reactor
         assert mock_reactor.process_tool_call.call_count == 1
@@ -469,9 +467,7 @@ class TestProcessingFlow:
         mock_arguments_fixup_pipeline.apply_fixups.return_value = envelope
 
         # Test streaming
-        await orchestrator.handle(
-            response, "test-session", context, is_streaming=True
-        )
+        await orchestrator.handle(response, "test-session", context, is_streaming=True)
 
         # Both should call reactor (same behavior)
         assert mock_reactor.process_tool_call.call_count == call_count_before + 1

@@ -187,7 +187,14 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
 
                 if is_quota:
                     self._quota_exceeded = True
-                    error_chunk = {
+                    from pydantic.types import JsonValue
+
+                    error_details: dict[str, JsonValue] = {
+                        "message": str(e),
+                        "type": "quota_exceeded",
+                        "code": 429,
+                    }
+                    error_chunk: dict[str, JsonValue] = {
                         "id": "chatcmpl-error",
                         "object": "chat.completion.chunk",
                         "created": 0,
@@ -195,17 +202,13 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
                         "choices": [
                             {"index": 0, "delta": {}, "finish_reason": "error"}
                         ],
-                        "error": {
-                            "message": str(e),
-                            "type": "quota_exceeded",
-                            "code": 429,
-                        },
+                        "error": error_details,
                     }
                     yield ProcessedResponse(
                         content=error_chunk,
                         metadata={
                             "finish_reason": "error",
-                            "error": error_chunk["error"],
+                            "error": error_details,
                             "id": error_chunk["id"],
                             "model": error_chunk["model"],
                         },
@@ -236,23 +239,26 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
         graceful quota handling patterns in this module.
         """
 
-        error_chunk = {
+        from pydantic.types import JsonValue
+
+        error_details: dict[str, JsonValue] = {
+            "message": "quota exceeded",
+            "type": "quota_exceeded",
+            "code": 429,
+        }
+        error_chunk: dict[str, JsonValue] = {
             "id": "chatcmpl-error-compat",
             "object": "chat.completion.chunk",
             "created": 0,
             "model": "compat",
             "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-            "error": {
-                "message": "quota exceeded",
-                "type": "quota_exceeded",
-                "code": 429,
-            },
+            "error": error_details,
         }
         yield ProcessedResponse(
             content=error_chunk,
             metadata={
                 "finish_reason": "error",
-                "error": error_chunk["error"],
+                "error": error_details,
                 "id": error_chunk["id"],
                 "model": error_chunk["model"],
             },

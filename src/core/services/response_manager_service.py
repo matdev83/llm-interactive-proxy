@@ -17,6 +17,7 @@ from src.core.domain.command_results import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
@@ -345,11 +346,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     created=int(time.time()),
                     model="gpt-4",
                     choices=[choice],
-                    usage={
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    },
+                    usage=UsageSummary.from_dict(
+                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                    ),
                 )
 
                 return _AwaitableDict(response.model_dump(exclude_none=True))
@@ -394,11 +393,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             created=int(time.time()),
             model="gpt-4",  # Mock model
             choices=[choice],
-            usage={
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
+            usage=UsageSummary.from_dict(
+                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            ),
         )
 
         return response.model_dump()

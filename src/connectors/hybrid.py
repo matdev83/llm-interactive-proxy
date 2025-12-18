@@ -903,7 +903,9 @@ class HybridConnector(LLMBackend):
     ) -> ProcessedResponse | None:
         """Create a processed response chunk that surfaces reasoning to clients."""
 
-        reasoning_metadata = {
+        from pydantic.types import JsonValue
+
+        reasoning_metadata: dict[str, JsonValue] = {
             "hybrid_phase": "reasoning",
             "reasoning_backend": reasoning_backend,
             "reasoning_model": reasoning_model,

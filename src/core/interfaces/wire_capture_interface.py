@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.domain.request_context import RequestContext
 
 
@@ -55,9 +57,18 @@ class IWireCapture(ABC):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: Any,
+        response_content: dict[str, JsonValue] | bytes | None,
     ) -> None:
-        """Capture a full non-streaming inbound response."""
+        """Capture a full non-streaming inbound response.
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend: Backend name
+            model: Model name
+            key_name: Key name for redaction
+            response_content: Response content (JSON-serializable dict, bytes, or None)
+        """
 
     @abstractmethod
     def wrap_inbound_stream(
@@ -81,9 +92,18 @@ class IWireCapture(ABC):
         backend: str | None,
         model: str | None,
         key_name: str | None,
-        response_content: Any,
+        response_content: dict[str, JsonValue] | bytes | None,
     ) -> None:
-        """Capture a full non-streaming outbound response to the client."""
+        """Capture a full non-streaming outbound response to the client.
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend: Backend name (optional)
+            model: Model name (optional)
+            key_name: Key name for redaction
+            response_content: Response content (JSON-serializable dict, bytes, or None)
+        """
 
     @abstractmethod
     def wrap_outbound_stream(

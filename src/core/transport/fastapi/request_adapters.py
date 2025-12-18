@@ -11,19 +11,25 @@ import logging
 
 from fastapi import Request
 
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
 
 
 def fastapi_to_domain_request_context(
-    request: Request, attach_original: bool = False
+    request: Request,
+    attach_original: bool = False,
+    domain_request: CanonicalChatRequest | None = None,
+    raw_body: bytes | None = None,
 ) -> RequestContext:
     """Convert a FastAPI request to a domain request context.
 
     Args:
         request: The FastAPI request object
         attach_original: Whether to attach the original request object to the context
+        domain_request: Optional canonical domain request to attach to context
+        raw_body: Optional raw HTTP body bytes to attach to context
 
     Returns:
         A domain request context
@@ -68,7 +74,13 @@ def fastapi_to_domain_request_context(
             request.state, "request_state", {}
         ),  # noqa: DIP-violation-adapter-layer
         agent=agent,
+        domain_request=domain_request,
+        raw_body=raw_body,
     )
+
+    # Capture original domain request for provenance tracking (Requirement 5.3)
+    if domain_request is not None:
+        context.capture_original_domain_request(domain_request)
 
     # Attach the original request if requested
     if attach_original:

@@ -12,6 +12,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic.types import JsonValue
+
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.interfaces.model_bases import InternalDTO
 
 
@@ -177,6 +180,38 @@ class RequestContext(InternalDTO):
     agent: str | None = None
     original_request: Any | None = None
     processing_context: ProcessingContext | None = None
+    # Explicit typed fields for cross-layer data exchange
+    domain_request: CanonicalChatRequest | None = None
+    raw_body: bytes | None = None
+    backend: str | None = None
+    effective_model: str | None = None
+    extensions: dict[str, JsonValue] = field(default_factory=dict)
+    """
+    Extension container for vendor- and protocol-specific data.
+    
+    This is the single, explicitly named extension container permitted to remain
+    open-ended for cross-layer data exchange. All values must be JSON-serializable
+    (JsonValue: str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]).
+    
+    Extension fields should be used sparingly and only when:
+    - The data is vendor/protocol-specific and not part of the canonical contract
+    - The data is needed across layers but doesn't warrant a first-class typed field
+    
+    Frequently-used extension keys should be promoted to first-class typed fields
+    in RequestContext or domain models when they become stable.
+    """
+    # Provenance tracking: store original contract values for debugging/accounting
+    original_domain_request: CanonicalChatRequest | None = None
+    """Original domain request before any mutations (copy-on-write provenance).
+    
+    This field stores the original contract instance before any transformations
+    are applied. It enables debugging and accounting by providing access to
+    the original values even after mutations occur.
+    
+    Requirement 5.3: When modifications occur, the LLM Proxy shall retain
+    provenance sufficient for debugging and accounting, including the reason
+    for modification and the ability to access the original value.
+    """
 
     def __post_init__(self) -> None:
         if not isinstance(self.headers, RequestHeaders):
@@ -258,3 +293,27 @@ class RequestContext(InternalDTO):
         return (
             self.processing_context.modification_tracker.requires_usage_recalculation()
         )
+
+    def capture_original_domain_request(self, request: CanonicalChatRequest) -> None:
+        """Capture the original domain request for provenance tracking.
+
+        This method stores the original contract instance before any mutations
+        occur. It should be called when the domain_request is first set.
+
+        Requirement 5.3: When modifications occur, the LLM Proxy shall retain
+        provenance sufficient for debugging and accounting, including the reason
+        for modification and the ability to access the original value.
+
+        Args:
+            request: The original domain request to capture
+        """
+        if self.original_domain_request is None:
+            self.original_domain_request = request
+
+    def get_original_domain_request(self) -> CanonicalChatRequest | None:
+        """Get the original domain request before any mutations.
+
+        Returns:
+            The original domain request, or None if not captured
+        """
+        return self.original_domain_request

@@ -79,22 +79,21 @@ class DefaultSessionResolver(ISessionResolver):
         session_id: str | None = None
 
         # Try to get session ID from domain request attached to context if available
-        if hasattr(context, "domain_request"):
-            from src.core.domain.chat import ChatRequest
+        from src.core.domain.chat import ChatRequest
 
-            domain_request = getattr(context, "domain_request", None)
-            if domain_request is not None and isinstance(domain_request, ChatRequest):
-                session_id = domain_request.session_id
-                if not session_id:
-                    # Fallback: some clients pass session_id via extra_body
-                    try:
-                        extra = getattr(domain_request, "extra_body", None)
-                        if isinstance(extra, dict):
-                            eb_sid = extra.get("session_id")
-                            if isinstance(eb_sid, str) and eb_sid:
-                                session_id = eb_sid
-                    except Exception:
-                        session_id = None
+        domain_request = context.domain_request
+        if domain_request is not None and isinstance(domain_request, ChatRequest):
+            session_id = domain_request.session_id
+            if not session_id:
+                # Fallback: some clients pass session_id via extra_body
+                try:
+                    extra = getattr(domain_request, "extra_body", None)
+                    if isinstance(extra, dict):
+                        eb_sid = extra.get("session_id")
+                        if isinstance(eb_sid, str) and eb_sid:
+                            session_id = eb_sid
+                except Exception:
+                    session_id = None
 
         if not session_id:
             # Try to get session ID from headers

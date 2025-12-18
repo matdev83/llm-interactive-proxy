@@ -12,6 +12,7 @@ from src.core.domain.chat import (
 )
 from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.usage_summary import UsageSummary
 
 
 def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -31,7 +32,9 @@ def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
                     finish_reason="stop",
                 )
             ],
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            usage=UsageSummary.from_dict(
+                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            ),
         )
 
     content_blocks = response.get("content") or []
@@ -85,7 +88,7 @@ def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
         created=int(time.time()),
         model=response.get("model", "unknown"),
         choices=choices,
-        usage=normalized_usage,
+        usage=UsageSummary.from_dict(normalized_usage) if normalized_usage else None,
     )
 
 
@@ -130,8 +133,8 @@ def from_domain_to_anthropic_response(response: ChatResponse) -> dict[str, Any]:
     usage: dict[str, Any] | None = None
     if response.usage:
         usage = {
-            "input_tokens": response.usage.get("prompt_tokens", 0),
-            "output_tokens": response.usage.get("completion_tokens", 0),
+            "input_tokens": response.usage.prompt_tokens or 0,
+            "output_tokens": response.usage.completion_tokens or 0,
         }
 
     return {

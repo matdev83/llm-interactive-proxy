@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Any, cast
 
+from pydantic.types import JsonValue
+
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     BackendError,
@@ -13,6 +15,7 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import _collect_api_keys
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -372,11 +375,7 @@ class BackendService(IBackendService):
         Returns:
             A request object updated with the resolved backend/model information.
         """
-        from src.core.interfaces.backend_model_resolver_interface import (
-            ResolvedTarget,
-        )
-
-        resolved = ResolvedTarget(
+        resolved = BackendTarget(
             backend=backend_type,
             model=effective_model,
             uri_params={},  # URI params not needed for synchronization
@@ -648,7 +647,7 @@ class BackendService(IBackendService):
     def _apply_uri_parameters(
         self,
         request: ChatRequest,
-        uri_params: dict[str, Any],
+        uri_params: dict[str, JsonValue],
         backend_type: str,
         session: Any | None = None,
     ) -> ChatRequest:

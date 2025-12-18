@@ -8,7 +8,8 @@ Refactored to use decomposed services following SOLID principles.
 from __future__ import annotations
 
 import logging
-from typing import Any
+
+from pydantic.types import JsonValue
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -16,6 +17,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.model_replacement_service_interface import (
     IModelReplacementService,
 )
@@ -82,7 +84,9 @@ class RequestProcessor(IRequestProcessor):
         self._replacement_service = replacement_service
 
     async def process_request(
-        self, context: RequestContext, request_data: Any
+        self,
+        context: RequestContext,
+        request_data: DomainModel | InternalDTO | dict[str, JsonValue],
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
         if logger.isEnabledFor(logging.DEBUG):
@@ -124,7 +128,7 @@ class RequestProcessor(IRequestProcessor):
         # "In staged initialization wiring, the replacement service is currently not injected
         # into RequestProcessor, so this code path is typically inactive." If this feature
         # becomes more active or complex, consider extracting to a ModelReplacementHandler component.
-        original_backend = getattr(context, "backend", None)
+        original_backend = context.backend
         original_model = request_data.model
 
         if self._replacement_service is not None and original_backend is not None:

@@ -699,6 +699,7 @@ class StreamingExecutor:
             from src.core.ports.streaming_contracts import StopChunkWithUsage
 
             usage: dict[str, Any] | None = None
+            usage_summary = None
             try:
                 completion_tokens = self._token_estimator.estimate_tokens(
                     generated_text
@@ -708,6 +709,9 @@ class StreamingExecutor:
                     "completion_tokens": completion_tokens,
                     "total_tokens": (prompt_tokens or 0) + completion_tokens,
                 }
+                from src.core.domain.usage_summary import UsageSummary
+
+                usage_summary = UsageSummary.from_dict(usage)
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(TRACE_LEVEL, f"[STREAMING] Calculated usage: {usage}")
             except Exception as e:
@@ -729,7 +733,7 @@ class StreamingExecutor:
                 yield ProcessedResponse(
                     content=final_content,
                     metadata=final_stop_chunk.metadata,
-                    usage=usage,
+                    usage=usage_summary,
                 )
             else:
                 logger.debug(
@@ -745,7 +749,7 @@ class StreamingExecutor:
                     final_chunk = StopChunkWithUsage(final_chunk)
                 yield ProcessedResponse(
                     content=final_chunk,
-                    usage=usage,
+                    usage=usage_summary,
                     metadata={"model": prepared.effective_model},
                 )
 

@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from pydantic import Field
+from pydantic.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
 
 def parse_model_with_params(
     model: str, default_backend: str = ""
-) -> tuple[str, str, dict[str, Any]]:
+) -> tuple[str, str, dict[str, JsonValue]]:
     """Parse model string with optional URI parameters.
 
     Handles multiple formats with optional query parameters:
@@ -64,19 +65,19 @@ def parse_model_with_params(
 
     Returns:
         Tuple of (backend_type, model_name, uri_params)
-        where uri_params is a dict with parsed parameter values
+        where uri_params is a dict with JSON-serializable parameter values (strings from query parsing)
 
     Examples:
         >>> parse_model_with_params("openai:gpt-4?temperature=0.5")
-        ("openai", "gpt-4", {"temperature": ["0.5"]})
+        ("openai", "gpt-4", {"temperature": "0.5"})
 
         >>> parse_model_with_params("backend:model_group/model?temperature=0.2&reasoning_effort=low")
-        ("backend", "model_group/model", {"temperature": ["0.2"], "reasoning_effort": ["low"]})
+        ("backend", "model_group/model", {"temperature": "0.2", "reasoning_effort": "low"})
 
         >>> parse_model_with_params("openai:gpt-4")
         ("openai", "gpt-4", {})
     """
-    uri_params: dict[str, Any] = {}
+    uri_params: dict[str, JsonValue] = {}
 
     try:
         base_model = model

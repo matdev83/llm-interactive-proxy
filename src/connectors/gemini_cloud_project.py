@@ -1203,7 +1203,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             response_json = api_response.json()
 
             # Extract usage from Code Assist response (similar to Gemini format)
-            usage = self._extract_code_assist_usage(response_json)
+            usage_dict = self._extract_code_assist_usage(response_json)
+            from src.core.domain.usage_summary import UsageSummary
+
+            usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
 
             # Translate the response from Code Assist format to domain format
             domain_response = self.translation_service.to_domain_response(

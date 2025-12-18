@@ -15,6 +15,7 @@ from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
@@ -278,7 +279,8 @@ class ResponseProcessor(IResponseProcessor):
             # Parse the raw response using the injected parser
             parsed_data = self._response_parser.parse_response(response)
             content = self._response_parser.extract_content(parsed_data)
-            usage = self._response_parser.extract_usage(parsed_data)
+            usage_dict = self._response_parser.extract_usage(parsed_data)
+            usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
             metadata = self._response_parser.extract_metadata(parsed_data) or {}
 
             # Build initial ProcessedResponse for pipeline

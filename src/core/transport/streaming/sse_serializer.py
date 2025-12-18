@@ -587,7 +587,8 @@ class SSESerializer:
         if chunk.metadata.usage:
             response_data["usage"] = chunk.metadata.usage.model_dump(exclude_none=True)
         elif content.usage:
-            response_data["usage"] = content.usage
+            to_dict = getattr(content.usage, "to_legacy_dict", None)
+            response_data["usage"] = to_dict() if callable(to_dict) else content.usage
 
         result = f"data: {json.dumps(response_data)}\n\n"
         if chunk.is_done:

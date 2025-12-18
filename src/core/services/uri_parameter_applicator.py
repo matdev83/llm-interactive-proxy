@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic.types import JsonValue
+
 from src.core.interfaces.uri_parameter_applicator_interface import (
     IURIParameterApplicator,
 )
@@ -33,7 +35,7 @@ class URIParameterApplicator(IURIParameterApplicator):
     def apply(
         self,
         request: ChatRequest,
-        uri_params: dict[str, Any],
+        uri_params: dict[str, JsonValue],
         backend_type: str,
         session: Any | None = None,
     ) -> ChatRequest:
@@ -73,7 +75,7 @@ class URIParameterApplicator(IURIParameterApplicator):
     def _apply_uri_parameters(
         self,
         request: ChatRequest,
-        uri_params: dict[str, Any],
+        uri_params: dict[str, JsonValue],
         backend_type: str,
         session: Any | None,
     ) -> ChatRequest:

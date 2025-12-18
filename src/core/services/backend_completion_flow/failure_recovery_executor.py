@@ -8,12 +8,14 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.common.exceptions import (
     BackendError,
     LLMProxyError,
     RateLimitExceededError,
 )
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_completion_collaborators import (
@@ -50,7 +52,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
 
     async def check_complex_failover(
         self,
-        request: ChatRequest,
+        request: CanonicalChatRequest,
         effective_model: str,
         backend_type: str,
         stream: bool,
@@ -70,7 +72,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
 
     async def execute_complex_failover(
         self,
-        request: ChatRequest,
+        request: CanonicalChatRequest,
         effective_model: str,
         backend_type: str,
         stream: bool,
@@ -325,7 +327,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                         ProcessedResponse,
                     )
 
-                    error_details = {
+                    error_details: dict[str, JsonValue] = {
                         "type": type(e).__name__,
                         "message": str(e),
                         "retryable": False,
@@ -414,7 +416,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         start_time: float,
         is_streaming: bool,
         content_started: bool,
-        request: ChatRequest,
+        request: CanonicalChatRequest,
         call_completion_callback: Callable[
             ..., Awaitable[ResponseEnvelope | StreamingResponseEnvelope]
         ],

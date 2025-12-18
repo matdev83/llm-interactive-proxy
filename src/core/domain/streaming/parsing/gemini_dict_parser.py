@@ -124,16 +124,24 @@ class GeminiDictParser(IParserStrategy):
                 is_done = True
 
         # Extract usage metadata (Gemini uses 'usageMetadata')
-        usage: dict[str, Any] | None = None
+        from src.core.domain.usage_summary import UsageSummary
+
+        usage: UsageSummary | None = None
         usage_metadata = raw_data.get("usageMetadata")
         if isinstance(usage_metadata, dict):
-            usage = {
-                "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-                "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-                "total_tokens": usage_metadata.get("totalTokenCount", 0),
-            }
+            usage = UsageSummary.from_dict(
+                {
+                    "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+                    "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
+                    "total_tokens": usage_metadata.get("totalTokenCount", 0),
+                }
+            )
         else:
-            usage = raw_data.get("usage")  # type: ignore[assignment]
+            raw_usage = raw_data.get("usage")
+            if isinstance(raw_usage, UsageSummary):
+                usage = raw_usage
+            elif isinstance(raw_usage, dict):
+                usage = UsageSummary.from_dict(raw_usage)
 
         return StreamingContent(
             content=content,

@@ -377,11 +377,13 @@ class StreamingResponseAccumulator:
         if usage_data:
             response_content["usage"] = usage_data
 
+        from src.core.domain.usage_summary import UsageSummary
+
         return ResponseEnvelope(
             content=response_content,
             headers=headers,
             status_code=status_code,
-            usage=usage_data,
+            usage=UsageSummary.from_dict(usage_data) if usage_data else None,
         )
 
 
@@ -430,7 +432,9 @@ def response_envelope_to_stream_chunk(
         ],
     }
 
-    metadata: dict[str, Any] = {
+    from pydantic.types import JsonValue
+
+    metadata: dict[str, JsonValue] = {
         "finish_reason": "stop",
         "id": chunk_id,
         "model": model,
@@ -438,6 +442,6 @@ def response_envelope_to_stream_chunk(
         "graceful_degradation": True,
     }
     if response.usage:
-        metadata["usage"] = response.usage
+        metadata["usage"] = response.usage.to_legacy_dict()
 
     return ProcessedResponse(content=payload, metadata=metadata, usage=response.usage)

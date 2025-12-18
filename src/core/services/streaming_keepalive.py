@@ -12,6 +12,8 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 
+from pydantic.types import JsonValue
+
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,7 @@ def _keepalive_processed_response(
     stream_id: str | None,
 ) -> ProcessedResponse:
     created = int(time.time())
-    metadata: dict[str, object] = {
+    metadata: dict[str, JsonValue] = {
         "_keepalive": True,
         "id": completion_id,
         "model": model,

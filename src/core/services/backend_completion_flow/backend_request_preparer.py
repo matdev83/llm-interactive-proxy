@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import cast
+
+from pydantic.types import JsonValue
 
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatRequest
+from src.core.domain.backend_target import BackendTarget
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendRequestPreparer,
@@ -14,6 +17,7 @@ from src.core.interfaces.backend_completion_collaborators import (
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_model_resolver_interface import IBackendModelResolver
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.reasoning_config_applicator_interface import (
     IReasoningConfigApplicator,
 )
@@ -43,34 +47,27 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         self._config = config
 
     async def prepare_request(
-        self, request: ChatRequest, context: RequestContext | None
-    ) -> tuple[str, str, dict[str, Any]]:
+        self, request: CanonicalChatRequest, context: RequestContext | None
+    ) -> BackendTarget:
         """Resolve backend type, effective model, and URI parameters."""
-        resolved = await self._backend_model_resolver.resolve_target(request, context)
-        return resolved.backend, resolved.model, resolved.uri_params
+        return await self._backend_model_resolver.resolve_target(request, context)
 
     def synchronize_request_with_target(
-        self, request: ChatRequest, backend_type: str, effective_model: str
-    ) -> ChatRequest:
+        self, request: CanonicalChatRequest, target: BackendTarget
+    ) -> CanonicalChatRequest:
         """Ensure the request payload reflects the resolved backend and model."""
-        from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
-
-        resolved = ResolvedTarget(
-            backend=backend_type,
-            model=effective_model,
-            uri_params={},  # URI params not needed for synchronization
+        result = self._backend_model_resolver.synchronize_request_with_target(
+            request, target
         )
-        return self._backend_model_resolver.synchronize_request_with_target(
-            request, resolved
-        )
+        return cast(CanonicalChatRequest, result)
 
     async def prepare_backend_request(
         self,
-        request: ChatRequest,
+        request: CanonicalChatRequest,
         backend_type: str,
-        session: Any | None,
-        uri_params: dict[str, Any],
-    ) -> ChatRequest:
+        session: ISession | None,
+        uri_params: dict[str, JsonValue],
+    ) -> CanonicalChatRequest:
         """Apply reasoning config, backend config, and URI parameters to the request."""
         domain_request: ChatRequest = request
 
@@ -106,17 +103,19 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                         exc_info=True,
                     )
 
-        return domain_request
+        return cast(CanonicalChatRequest, domain_request)
 
     def prepare_backend_kwargs(
         self,
         session_id_for_backend: str | None,
-        session: Any | None,
+        session: ISession | None,
         context: RequestContext | None,
         backend_type: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """Prepare kwargs for backend call."""
-        backend_call_kwargs: dict[str, Any] = {}
+        from pydantic.types import JsonValue
+
+        backend_call_kwargs: dict[str, JsonValue] = {}
 
         if session_id_for_backend:
             backend_call_kwargs["session_id"] = session_id_for_backend
@@ -139,13 +138,13 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         if context is not None and backend_type == "cline":
             try:
                 incoming_headers = getattr(context, "headers", None)
-                headers_dict: dict[str, Any] | None = None
+                headers_dict: dict[str, JsonValue] | None = None
 
                 to_dict = getattr(incoming_headers, "to_dict", None)
                 if callable(to_dict):
-                    headers_dict = cast(dict[str, Any], to_dict())
+                    headers_dict = cast(dict[str, JsonValue], to_dict())
                 elif incoming_headers:
-                    headers_dict = dict(incoming_headers)
+                    headers_dict = dict(incoming_headers)  # type: ignore[assignment]
 
                 if headers_dict is not None:
                     backend_call_kwargs["incoming_headers"] = headers_dict

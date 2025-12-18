@@ -583,7 +583,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 request_data, source_format="gemini"
             )
             with contextlib.suppress(Exception):
-                ctx.domain_request = domain_request  # type: ignore[attr-defined]
+                ctx.domain_request = domain_request
                 if getattr(domain_request, "session_id", None):
                     ctx.session_id = domain_request.session_id
             if wire_capture and wire_capture.enabled():
@@ -820,7 +820,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             # Create a new request with stream=True
             domain_request = domain_request.model_copy(update={"stream": True})
             with contextlib.suppress(Exception):
-                ctx.domain_request = domain_request  # type: ignore[attr-defined]
+                ctx.domain_request = domain_request
                 if getattr(domain_request, "session_id", None):
                     ctx.session_id = domain_request.session_id
             if wire_capture and wire_capture.enabled():
