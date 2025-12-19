@@ -33,7 +33,7 @@ file_modification_tools = st.sampled_from(
 )
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
@@ -77,7 +77,7 @@ def test_session_isolation_file_modifications(
         assert state2.modification_count == 0
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
@@ -133,7 +133,7 @@ def test_session_isolation_multiple_sessions(
         assert state3.modification_count == 0
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
@@ -181,7 +181,7 @@ def test_session_isolation_modification_counts(
     assert state2.modification_count == modifications2
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,

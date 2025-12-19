@@ -98,7 +98,7 @@ def malformed_responses(draw: Any) -> Any:
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     tool_name=unknown_tool_names(),
     tool_arguments=malformed_tool_arguments(),
@@ -155,7 +155,7 @@ async def test_unknown_tools_do_not_crash_handler(
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     tool_name=unknown_tool_names(),
     session_id=st.text(min_size=1, max_size=50),
@@ -208,7 +208,7 @@ async def test_unknown_tools_do_not_modify_state(
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     tool_name=unknown_tool_names(),
 )

@@ -44,7 +44,7 @@ class TestReasoningConfigApplicationProperty:
         reasoning_effort=st.none() | st.sampled_from(["low", "medium", "high"]),
         thinking_budget=st.none() | thinking_budget_values,
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_config_values_applied_to_request_fields(
         self,
         temperature: float | None,

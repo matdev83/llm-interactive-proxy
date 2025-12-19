@@ -90,14 +90,22 @@ async def integrate_streaming_pipeline(
 
     # Service-based tool call repair processor - requires DI dependencies
     if enable_tool_call_repair:
-        repair_service = di_provider.get_required_service(ToolCallRepairService)
-        registry = di_provider.get_required_service(StreamingContextRegistry)
-        processors.append(
-            ServiceToolCallRepairProcessor(
-                tool_call_repair_service=repair_service,
-                registry=registry,
+        repair_service = di_provider.get_service(ToolCallRepairService)
+        if repair_service is not None:
+            registry = di_provider.get_required_service(StreamingContextRegistry)
+            processors.append(
+                ServiceToolCallRepairProcessor(
+                    tool_call_repair_service=repair_service,
+                    registry=registry,
+                )
             )
-        )
+        else:
+            logger.warning(
+                "ToolCallRepairService not available in DI container; "
+                "skipping service-based tool call repair processor. "
+                "Ports-based processor will still be used.",
+                extra={"stream_id": stream_id, "provider": provider},
+            )
 
     # Ports-based tool call repair processor - stateless, can be created directly
     if enable_tool_call_repair:

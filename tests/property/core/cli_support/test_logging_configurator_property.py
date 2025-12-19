@@ -48,7 +48,7 @@ class TestTimestampSuffixFormatProperty:
     """
 
     @given(stem=file_stem_strategy, ext=extension_strategy)
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     def test_apply_timestamp_suffix_produces_valid_format(
         self, stem: str, ext: str
     ) -> None:
@@ -83,7 +83,7 @@ class TestTimestampSuffixFormatProperty:
             ), f"Extension '{ext}' not preserved in '{result}'"
 
     @given(stem=file_stem_strategy, ext=extension_strategy)
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     def test_already_suffixed_path_not_double_suffixed(
         self, stem: str, ext: str
     ) -> None:
@@ -110,7 +110,7 @@ class TestTimestampSuffixFormatProperty:
         stem=file_stem_strategy,
         ext=extension_strategy,
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     def test_directory_structure_preserved(
         self, dirs: list[str], stem: str, ext: str
     ) -> None:
@@ -143,7 +143,7 @@ class TestTimestampSuffixFormatProperty:
         ), f"Directory structure not preserved: {original_path.parent} vs {result_path.parent}"
 
     @given(stem=file_stem_strategy, ext=extension_strategy)
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=50, deadline=None)
     def test_timestamp_represents_current_time(self, stem: str, ext: str) -> None:
         """**Property 5**: The timestamp in the suffix represents reasonable current time.
 

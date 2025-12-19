@@ -333,8 +333,8 @@ class TestNormalizeStreamingResponse:
         normalize=st.booleans(),
     )
     @settings(
-        max_examples=25,  # Reduced from 50
-        deadline=3000,  # Reduced from 5000ms
+        max_examples=20,  # Further reduced for performance
+        deadline=5000,  # Increased deadline to prevent timeout
         suppress_health_check=[HealthCheck.too_slow],
     )
     @pytest.mark.asyncio

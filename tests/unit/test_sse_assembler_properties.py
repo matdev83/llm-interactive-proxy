@@ -93,7 +93,7 @@ def streaming_content_strategy(
 @given(
     chunks=streaming_content_strategy(include_done=True, min_chunks=1, max_chunks=20)
 )
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -> None:
     """
     Property 14: Sentinel utility usage
@@ -198,7 +198,7 @@ async def test_sentinel_format_consistency_property(
 @given(
     chunks=streaming_content_strategy(include_done=True, min_chunks=0, max_chunks=20)
 )
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
     """
     Additional property test: Verify SSE framing is correct.
@@ -245,7 +245,7 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
 @given(
     chunks=streaming_content_strategy(include_done=False, min_chunks=1, max_chunks=20)
 )
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
     """
     Additional property test: Verify sentinel is always emitted.

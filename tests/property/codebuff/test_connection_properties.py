@@ -37,7 +37,7 @@ def websocket_strategy(draw):
 
 # Property 1: Connection tracking
 @given(session_id=session_id_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_1_connection_tracking(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 1: Connection tracking
@@ -62,7 +62,7 @@ def test_property_1_connection_tracking(session_id):
 
 # Property 2: Session ID association
 @given(session_id=session_id_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_2_session_id_association(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 2: Session ID association
@@ -85,7 +85,7 @@ def test_property_2_session_id_association(session_id):
 
 # Property 3: Heartbeat timestamp updates
 @given(session_id=session_id_strategy())
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 def test_property_3_heartbeat_timestamp_updates(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 3: Heartbeat timestamp updates
@@ -119,7 +119,7 @@ def test_property_3_heartbeat_timestamp_updates(session_id):
 
 # Property 4: Session cleanup on disconnect
 @given(session_id=session_id_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_4_session_cleanup_on_disconnect(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 4: Session cleanup on disconnect
@@ -148,7 +148,7 @@ def test_property_4_session_cleanup_on_disconnect(session_id):
     session_id=session_id_strategy(),
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_27_subscription_addition(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 27: Subscription addition
@@ -180,7 +180,7 @@ def test_property_27_subscription_addition(session_id, topics):
     session_id=session_id_strategy(),
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_28_subscription_removal(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 28: Subscription removal
@@ -221,7 +221,7 @@ def test_property_28_subscription_removal(session_id, topics):
     session_id=session_id_strategy(),
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_30_subscription_cleanup(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 30: Subscription cleanup

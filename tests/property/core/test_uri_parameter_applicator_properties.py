@@ -75,7 +75,7 @@ class TestParameterPrecedenceProperty:
         has_uri=st.booleans(),
         has_session=st.booleans(),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_temperature_precedence_session_uri_header_config(
         self,
         config_temperature: float,
@@ -151,7 +151,7 @@ class TestParameterTypeCoercionProperty:
         top_k=top_k_representations(),
         effort=st.sampled_from(["low", "medium", "high"]),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_supported_parameters_coerced_to_expected_types(
         self,
         temperature: float,

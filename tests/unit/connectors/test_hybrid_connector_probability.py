@@ -313,7 +313,7 @@ async def test_hybrid_connector_triggers_backoff_after_slow_reasoning(
     )
 
     with patch(
-        "src.connectors.hybrid.time.time",
+        "src.connectors.hybrid_backend.orchestration.orchestrator.time.time",
         side_effect=[0.0] + [5.0] * 10,
     ):
         await hybrid_connector.chat_completions(

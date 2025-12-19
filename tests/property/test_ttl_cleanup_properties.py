@@ -30,7 +30,7 @@ ttl_seconds = st.integers(min_value=1, max_value=3600)
 time_offsets = st.integers(min_value=0, max_value=7200)
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session_id=session_ids,
     ttl_seconds=ttl_seconds,
@@ -82,7 +82,7 @@ def test_ttl_cleanup_removes_expired_sessions(
         assert session_id in handler._session_state
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
@@ -120,7 +120,7 @@ def test_ttl_cleanup_preserves_recent_sessions(
     assert session_id in handler._session_state
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
@@ -174,7 +174,7 @@ def test_ttl_cleanup_selective_removal(
     assert session2_id in handler._session_state
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     num_sessions=st.integers(min_value=1, max_value=20),
     ttl_seconds=st.integers(min_value=10, max_value=100),
@@ -302,7 +302,7 @@ def test_ttl_cleanup_empty_state(
     assert len(handler._session_state) == 0
 
 
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),

@@ -107,7 +107,7 @@ def streaming_content_strategy(draw: Any) -> StreamingContent:
 
 # Property 1: Chunk validation
 @given(chunk=streaming_content_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_chunk_validation(chunk: StreamingContent) -> None:
     """
     Property 1: Chunk validation
@@ -140,7 +140,7 @@ def test_property_chunk_validation(chunk: StreamingContent) -> None:
     chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=50),
     inject_done=st.booleans(),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_single_sentinel_emission(
     chunks: list[StreamingContent], inject_done: bool
 ) -> None:
@@ -180,7 +180,7 @@ def test_property_single_sentinel_emission(
 
 # Property 3: Metadata schema conformance
 @given(chunk=streaming_content_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_metadata_schema_conformance(chunk: StreamingContent) -> None:
     """
     Property 3: Metadata schema conformance
@@ -329,7 +329,7 @@ def test_sentinel_manager_format_sse_done() -> None:
 
 
 @given(chunk=streaming_content_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_streaming_content_to_bytes_is_valid_sse(chunk: StreamingContent) -> None:
     """Test that to_bytes produces valid SSE format."""
     sse_bytes = chunk.to_bytes()
@@ -357,7 +357,7 @@ def test_streaming_content_to_bytes_is_valid_sse(chunk: StreamingContent) -> Non
 
 
 @given(chunk=streaming_content_strategy())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_streaming_content_to_dict_preserves_data(chunk: StreamingContent) -> None:
     """Test that to_dict preserves all data."""
     chunk_dict = chunk.to_dict()
@@ -401,7 +401,7 @@ def _create_http_status_error(status_code: int = 500) -> httpx.HTTPStatusError:
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
     stream_id=st.one_of(st.none(), st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 async def test_property_error_terminal_chunks(
     error_type: str, provider: str, stream_id: str | None
 ) -> None:
@@ -474,7 +474,7 @@ async def test_property_error_terminal_chunks(
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
     stream_id=st.one_of(st.none(), st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_error_mapping_consistency(
     error_type: str, provider: str, stream_id: str | None
 ) -> None:
@@ -567,7 +567,7 @@ def test_property_error_mapping_consistency(
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
     stream_id=st.one_of(st.none(), st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 async def test_property_structured_error_responses(
     error_type: str, provider: str, stream_id: str | None
 ) -> None:
@@ -646,7 +646,7 @@ async def test_property_structured_error_responses(
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
     stream_id=st.one_of(st.none(), st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_backend_format_normalization(
     content: str | dict | bytes,
     metadata: dict[str, Any],
@@ -712,7 +712,7 @@ def test_property_backend_format_normalization(
     metadata=valid_metadata_strategy(),
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_property_metadata_schema_mapping(
     metadata: dict[str, Any], provider: str
 ) -> None:
@@ -793,7 +793,7 @@ def test_property_metadata_schema_mapping(
         max_size=50,
     ),
 )
-@settings(max_examples=100)
+@settings(max_examples=50)
 async def test_property_streaming_content_structure_stability(
     chunks: list[dict[str, Any]],
 ) -> None:

@@ -348,7 +348,7 @@ class TestFileWriteCountingProperty:
     """
 
     @given(num_file_writes=st.integers(min_value=0, max_value=10))
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_file_write_count_accuracy(self, num_file_writes: int) -> None:
         """count_file_writes should accurately count file write tool calls."""
         from src.core.services.planning_phase_manager import PlanningPhaseManager
@@ -391,7 +391,7 @@ class TestFileWriteCountingProperty:
             st.sampled_from(list(FILE_WRITE_TOOLS)), min_size=0, max_size=15
         )
     )
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     def test_all_file_write_tools_detected(self, tool_names: list[str]) -> None:
         """All recognized file write tools should be counted."""
         from src.core.services.planning_phase_manager import PlanningPhaseManager

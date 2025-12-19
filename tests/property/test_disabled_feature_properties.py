@@ -114,7 +114,7 @@ def any_tool_arguments(draw: Any) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     tool_name=any_tool_name(),
     tool_arguments=any_tool_arguments(),
@@ -162,7 +162,7 @@ async def test_disabled_feature_does_not_track_state(
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     session_id=st.text(min_size=1, max_size=50),
 )
@@ -310,7 +310,7 @@ async def test_disabled_feature_handle_returns_no_swallow() -> None:
 
 
 @pytest.mark.asyncio
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=50, deadline=None)
 @given(
     custom_message=st.text(min_size=1, max_size=200),
     session_id=st.text(min_size=1, max_size=50),

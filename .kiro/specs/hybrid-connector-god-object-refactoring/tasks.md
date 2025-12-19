@@ -16,13 +16,13 @@ This implementation plan decomposes the 2,301-line `HybridConnector` God Object 
 
 Create the `hybrid_backend/` package skeleton and extract domain models. This phase has no behavioral changes - existing tests continue to pass.
 
-- [ ] 1. Create package structure for `src/connectors/hybrid_backend/`
+- [x] 1. Create package structure for `src/connectors/hybrid_backend/`
   - Create `__init__.py` with public exports placeholder
   - Create `protocols.py` skeleton with docstring
   - Create `models/`, `services/`, `orchestration/`, `infrastructure/` subdirectories with `__init__.py`
   - _Requirements: 1_
 
-- [ ] 2. Extract `HybridModelSpec` dataclass to `models/model_spec.py`
+- [x] 2. Extract `HybridModelSpec` dataclass to `models/model_spec.py`
   - Move dataclass from `hybrid.py` with `frozen=True`
   - Add comprehensive docstring and type hints
   - Re-export from `models/__init__.py`
@@ -30,7 +30,7 @@ Create the `hybrid_backend/` package skeleton and extract domain models. This ph
   - Run QA: `ruff check --fix && black && mypy`
   - _Requirements: 6.1_
 
-- [ ] 3. Extract `ReasoningPhaseResult` dataclass to `models/phase_result.py`
+- [x] 3. Extract `ReasoningPhaseResult` dataclass to `models/phase_result.py`
   - Move dataclass from `hybrid.py` (keep mutable - has list fields)
   - Use `TYPE_CHECKING` for `ProcessedResponse` import
   - Add `has_tool_calls()` method
@@ -39,7 +39,7 @@ Create the `hybrid_backend/` package skeleton and extract domain models. This ph
   - Run QA: `ruff check --fix && black && mypy`
   - _Requirements: 6.2_
 
-- [ ] 4. Create new `ReasoningText` dataclass in `models/reasoning_text.py`
+- [x] 4. Create new `ReasoningText` dataclass in `models/reasoning_text.py`
   - Implement with `frozen=True` for immutability
   - Fields: `tagged: str`, `plain: str`, `backend: str`
   - Add comprehensive docstring
@@ -47,7 +47,7 @@ Create the `hybrid_backend/` package skeleton and extract domain models. This ph
   - Run QA
   - _Requirements: 6.3_
 
-- [ ] 5. Create new `InjectionDecision` dataclass in `models/injection_decision.py`
+- [x] 5. Create new `InjectionDecision` dataclass in `models/injection_decision.py`
   - Implement with `frozen=True` for immutability
   - Fields: `should_inject: bool`, `reason: str`, `is_first_turn: bool`, `probability_used: float`
   - Add comprehensive docstring
@@ -55,7 +55,7 @@ Create the `hybrid_backend/` package skeleton and extract domain models. This ph
   - Run QA
   - _Requirements: 6.4_
 
-- [ ] 6. **CHECKPOINT**: Verify existing tests still pass
+- [x] 6. **CHECKPOINT**: Verify existing tests still pass
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/test_hybrid*.py -v`
   - Run: `.venv\Scripts\python.exe -m pytest tests/integration/connectors/test_hybrid*.py -v`
   - Verify no import errors or behavioral changes
@@ -69,58 +69,58 @@ Create the `hybrid_backend/` package skeleton and extract domain models. This ph
 
 Define all Protocol interfaces in `protocols.py`. Pure type definitions - no implementation yet.
 
-- [ ] 7. Define `IModelSpecParser` protocol in `protocols.py`
+- [x] 7. Define `IModelSpecParser` protocol in `protocols.py`
   - Single method: `parse(model_spec: str) -> HybridModelSpec`
   - Add `@runtime_checkable` decorator
   - Document preconditions (valid format), postconditions (parsed spec), exceptions (ValueError)
   - _Requirements: 3_
 
-- [ ] 8. Define `IParameterApplicator` protocol in `protocols.py`
+- [x] 8. Define `IParameterApplicator` protocol in `protocols.py`
   - Methods: `apply_reasoning_params()`, `apply_execution_params()`
   - Accept `DomainModel | InternalDTO | dict[str, Any]` for flexibility
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 9. Define `IReasoningMarkupProcessor` protocol in `protocols.py`
+- [x] 9. Define `IReasoningMarkupProcessor` protocol in `protocols.py`
   - Methods: `normalize()`, `format_for_model()`, `extract_plain_text()`
   - Return `ReasoningText` from `normalize()`
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 10. Define `IMessageAugmentor` protocol in `protocols.py`
+- [x] 10. Define `IMessageAugmentor` protocol in `protocols.py`
   - Single method: `augment(messages, reasoning_output, execution_backend) -> list`
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 11. Define `IResponseFilter` protocol in `protocols.py`
+- [x] 11. Define `IResponseFilter` protocol in `protocols.py`
   - Methods: `filter_content(content: Any) -> Any`, `filter_stream(response) -> StreamingResponseEnvelope`
   - Note: `filter_stream` is async
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 12. Define `IResponseBuilder` protocol in `protocols.py`
+- [x] 12. Define `IResponseBuilder` protocol in `protocols.py`
   - Methods: `build_reasoning_chunk()`, `build_tool_call_response()`, `prepend_reasoning_to_stream()`
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 13. Define `IInjectionPolicy` protocol in `protocols.py`
+- [x] 13. Define `IInjectionPolicy` protocol in `protocols.py`
   - Methods: `should_inject() -> InjectionDecision`, `update_backoff(success: bool) -> None`
   - Add `@runtime_checkable` decorator
   - Document stateful nature in docstring
   - _Requirements: 3_
 
-- [ ] 14. Define `IPhaseExecutor` protocol in `protocols.py`
+- [x] 14. Define `IPhaseExecutor` protocol in `protocols.py`
   - Async methods: `execute_reasoning_phase()`, `execute_execution_phase()`
   - Document timeout and error handling in docstrings
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 15. Define `IHybridOrchestrator` protocol in `protocols.py`
+- [x] 15. Define `IHybridOrchestrator` protocol in `protocols.py`
   - Single async method: `execute() -> ResponseEnvelope | StreamingResponseEnvelope`
   - Add `@runtime_checkable` decorator
   - _Requirements: 3_
 
-- [ ] 16. Run QA on `protocols.py`
+- [x] 16. Run QA on `protocols.py`
   - Run: `.venv\Scripts\python.exe -m ruff check --fix src/connectors/hybrid_backend/protocols.py`
   - Run: `.venv\Scripts\python.exe -m mypy src/connectors/hybrid_backend/protocols.py`
   - _Requirements: NFR 1_
@@ -135,14 +135,14 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.1 ModelSpecParser
 
-- [ ] 17. Write unit tests for `ModelSpecParser` (RED)
+- [x] 17. Write unit tests for `ModelSpecParser` (RED)
   - Create `tests/unit/connectors/hybrid_backend/test_model_spec_parser.py`
   - Test valid formats: single backend, dual backend, with params
   - Test invalid formats: missing brackets, invalid syntax, empty string
   - Test edge cases: URL-encoded params, special characters
   - _Requirements: 2.1_
 
-- [ ] 18. Implement `ModelSpecParser` in `services/model_spec_parser.py` (GREEN)
+- [x] 18. Implement `ModelSpecParser` in `services/model_spec_parser.py` (GREEN)
   - Extract `_parse_hybrid_model_spec()` logic from `hybrid.py`
   - Implement `IModelSpecParser` protocol
   - Preserve existing error messages for backward compatibility
@@ -152,14 +152,14 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.2 ReasoningMarkupProcessor
 
-- [ ] 19. Write unit tests for `ReasoningMarkupProcessor` (RED) (P)
+- [x] 19. Write unit tests for `ReasoningMarkupProcessor` (RED) (P)
   - Create `tests/unit/connectors/hybrid_backend/test_reasoning_markup_processor.py`
   - Test `normalize()`: canonical tags, closure, partial input
   - Test `format_for_model()`: backend-specific tag selection
   - Test `extract_plain_text()`: tag stripping, nested tags
   - _Requirements: 2.4_
 
-- [ ] 20. Implement `ReasoningMarkupProcessor` in `services/reasoning_markup_processor.py` (GREEN)
+- [x] 20. Implement `ReasoningMarkupProcessor` in `services/reasoning_markup_processor.py` (GREEN)
   - Extract tag processing methods from `hybrid.py`:
     - `_normalize_reasoning_markup()`
     - `_apply_reasoning_tag_wrapping()`
@@ -176,14 +176,14 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.3 ResponseFilter
 
-- [ ] 21. Write unit tests for `ResponseFilter` (RED) (P)
+- [x] 21. Write unit tests for `ResponseFilter` (RED) (P)
   - Create `tests/unit/connectors/hybrid_backend/test_response_filter.py`
   - Test `filter_content()`: string, dict, bytes, SSE chunks
   - Test `filter_stream()`: async generator filtering
   - Test nested JSON filtering
   - _Requirements: 2.5_
 
-- [ ] 22. Implement `ResponseFilter` in `services/response_filter.py` (GREEN)
+- [x] 22. Implement `ResponseFilter` in `services/response_filter.py` (GREEN)
   - Extract filtering methods from `hybrid.py`:
     - `_strip_reasoning_tags()`
     - `_filter_response_content()`
@@ -196,7 +196,7 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.4 ParameterApplicator
 
-- [ ] 23. Write unit tests for `ParameterApplicator` (RED) (P)
+- [x] 23. Write unit tests for `ParameterApplicator` (RED) (P)
   - Create `tests/unit/connectors/hybrid_backend/test_parameter_applicator.py`
   - Test Pydantic model handling
   - Test dict handling
@@ -204,7 +204,7 @@ Implement all service layer components following TDD (test first, then implement
   - Test URI parameter overrides
   - _Requirements: 2.2_
 
-- [ ] 24. Implement `ParameterApplicator` in `services/parameter_applicator.py` (GREEN)
+- [x] 24. Implement `ParameterApplicator` in `services/parameter_applicator.py` (GREEN)
   - Extract parameter methods from `hybrid.py`:
     - `_apply_reasoning_params()`
     - `_apply_parameter_overrides()`
@@ -215,7 +215,7 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.5 MessageAugmentor
 
-- [ ] 25. Write unit tests for `MessageAugmentor` (RED) (P)
+- [x] 25. Write unit tests for `MessageAugmentor` (RED) (P)
   - Create `tests/unit/connectors/hybrid_backend/test_message_augmentor.py`
   - Test system message injection (backend supports system role)
   - Test user message prepending (backend doesn't support system role)
@@ -223,7 +223,7 @@ Implement all service layer components following TDD (test first, then implement
   - Mock `IReasoningMarkupProcessor` dependency
   - _Requirements: 2.3_
 
-- [ ] 26. Implement `MessageAugmentor` in `services/message_augmentor.py` (GREEN)
+- [x] 26. Implement `MessageAugmentor` in `services/message_augmentor.py` (GREEN)
   - Extract augmentation methods from `hybrid.py`:
     - `_augment_messages()`
     - `_inject_as_system_message()`
@@ -236,7 +236,7 @@ Implement all service layer components following TDD (test first, then implement
 
 ### 3.6 ResponseBuilder
 
-- [ ] 27. Write unit tests for `ResponseBuilder` (RED) (P)
+- [x] 27. Write unit tests for `ResponseBuilder` (RED) (P)
   - Create `tests/unit/connectors/hybrid_backend/test_response_builder.py`
   - Test `build_reasoning_chunk()`: streaming chunk construction
   - Test `build_tool_call_response()`: tool-call-only scenarios
@@ -244,7 +244,7 @@ Implement all service layer components following TDD (test first, then implement
   - Mock `IReasoningMarkupProcessor` dependency
   - _Requirements: 2.6_
 
-- [ ] 28. Implement `ResponseBuilder` in `services/response_builder.py` (GREEN)
+- [x] 28. Implement `ResponseBuilder` in `services/response_builder.py` (GREEN)
   - Extract builder methods from `hybrid.py`:
     - `_build_reasoning_stream_chunk()`
     - `_build_tool_call_only_response()`
@@ -256,7 +256,7 @@ Implement all service layer components following TDD (test first, then implement
   - Run tests and QA
   - _Requirements: 2.6_
 
-- [ ] 29. **CHECKPOINT**: Run all Phase 3 tests
+- [x] 29. **CHECKPOINT**: Run all Phase 3 tests
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/hybrid_backend/ -v`
   - Verify all services pass their unit tests
   - Run: `.venv\Scripts\python.exe -m mypy src/connectors/hybrid_backend/services/`
@@ -272,13 +272,13 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
 
 ### 4.1 IdentityResolver
 
-- [ ] 30. Write unit tests for `IdentityResolver` (RED)
+- [x] 30. Write unit tests for `IdentityResolver` (RED)
   - Create `tests/unit/connectors/hybrid_backend/test_identity_resolver.py`
   - Test preference order: backend-specific → request → global
   - Test None handling at each level
   - _Requirements: 9_
 
-- [ ] 31. Implement `IdentityResolver` in `infrastructure/identity_resolver.py` (GREEN)
+- [x] 31. Implement `IdentityResolver` in `infrastructure/identity_resolver.py` (GREEN)
   - Extract `_resolve_backend_identity()` from `hybrid.py`
   - Simple utility class (no protocol needed)
   - Inject `AppConfig` via constructor
@@ -287,7 +287,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
 
 ### 4.2 PhaseExecutor
 
-- [ ] 32. Write unit tests for `PhaseExecutor` (RED)
+- [x] 32. Write unit tests for `PhaseExecutor` (RED)
   - Create `tests/unit/connectors/hybrid_backend/test_phase_executor.py`
   - Test `execute_reasoning_phase()`: backend resolution, streaming capture, timeout
   - Test `execute_execution_phase()`: backend resolution, augmented messages
@@ -295,7 +295,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
   - Mock `BackendService`, `BackendFactory`, `URIParameterValidator`
   - _Requirements: 9_
 
-- [ ] 33. Implement `PhaseExecutor` in `infrastructure/phase_executor.py` (GREEN)
+- [x] 33. Implement `PhaseExecutor` in `infrastructure/phase_executor.py` (GREEN)
   - Extract phase execution methods from `hybrid.py`:
     - `_execute_reasoning_phase()`
     - `_execute_execution_phase()`
@@ -310,7 +310,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
 
 ### 4.3 InjectionPolicy
 
-- [ ] 34. Write unit tests for `InjectionPolicy` (RED)
+- [x] 34. Write unit tests for `InjectionPolicy` (RED)
   - Create `tests/unit/connectors/hybrid_backend/test_injection_policy.py`
   - Test first-turn forcing (`forced_initial_turns` window)
   - Test probability-based injection (deterministic with seed)
@@ -318,7 +318,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
   - Test `InjectionDecision` return values and reasons
   - _Requirements: 8_
 
-- [ ] 35. Implement `InjectionPolicy` in `orchestration/injection_policy.py` (GREEN)
+- [x] 35. Implement `InjectionPolicy` in `orchestration/injection_policy.py` (GREEN)
   - Extract injection logic from `chat_completions()` in `hybrid.py`:
     - `_is_first_user_turn()`
     - Probability calculation
@@ -331,7 +331,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
 
 ### 4.4 HybridOrchestrator
 
-- [ ] 36. Write unit tests for `HybridOrchestrator` (RED)
+- [x] 36. Write unit tests for `HybridOrchestrator` (RED)
   - Create `tests/unit/connectors/hybrid_backend/test_orchestrator.py`
   - Test full flow: parse → inject → reasoning → augment → execution → filter → build
   - Test short-circuit: tool-call-only response (Req 7.5)
@@ -341,7 +341,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
   - Mock all service dependencies
   - _Requirements: 7_
 
-- [ ] 37. Implement `HybridOrchestrator` in `orchestration/orchestrator.py` (GREEN)
+- [x] 37. Implement `HybridOrchestrator` in `orchestration/orchestrator.py` (GREEN)
   - Extract orchestration logic from `chat_completions()` in `hybrid.py`
   - Inject all 7 service dependencies via constructor:
     - `IModelSpecParser`
@@ -357,10 +357,10 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
   - Run tests and QA
   - _Requirements: 7, 4_
 
-- [ ] 38. **CHECKPOINT**: Run all Phase 4 tests
+- [x] 38. **CHECKPOINT**: Run all Phase 4 tests
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/hybrid_backend/ -v`
   - Verify orchestrator and infrastructure pass tests
-  - Run: `.venv\Scripts\python.exe -m mypy src/connectors/hybrid_backend/`
+  - Run: `.venv\Scripts\python.exe -m mypy src/connectors/hybrid_backend/infrastructure/ src/connectors/hybrid_backend/orchestration/`
   - _Requirements: 11, NFR 1_
 
 ---
@@ -371,7 +371,7 @@ Implement infrastructure layer (backend interaction) and orchestration layer (fl
 
 Convert `HybridConnector` to thin facade, update exports, run full regression suite.
 
-- [ ] 39. Implement `_build_orchestrator()` method in `hybrid.py`
+- [x] 39. Implement `_build_orchestrator()` method in `hybrid.py`
   - Follow the wiring order from design.md:
     1. Stateless services (no dependencies)
     2. Services with service dependencies
@@ -382,19 +382,19 @@ Convert `HybridConnector` to thin facade, update exports, run full regression su
   - Run QA on `hybrid.py`
   - _Requirements: 4, 10_
 
-- [ ] 40. Update `HybridConnector.chat_completions()` to delegate to orchestrator
+- [x] 40. Update `HybridConnector.chat_completions()` to delegate to orchestrator
   - Replace method body with single delegation call
   - Preserve method signature exactly
   - Run QA on `hybrid.py`
   - _Requirements: 10_
 
-- [ ] 41. Update `HybridConnector.initialize()` to slim façade version
+- [x] 41. Update `HybridConnector.initialize()` to slim façade version
   - Handle backend registry resolution if not provided
   - Add logging for successful initialization
   - Run QA on `hybrid.py`
   - _Requirements: 10_
 
-- [ ] 42. Clean up `hybrid.py` - remove extracted methods
+- [x] 42. Clean up `hybrid.py` - remove extracted methods
   - Remove all methods that were extracted to services
   - Keep only facade methods: `__init__`, `initialize`, `get_available_models`, `chat_completions`, `_build_orchestrator`
   - Keep backward-compatible re-exports for models
@@ -402,30 +402,30 @@ Convert `HybridConnector` to thin facade, update exports, run full regression su
   - Run QA on `hybrid.py`
   - _Requirements: 1, 10_
 
-- [ ] 43. Update `hybrid_backend/__init__.py` public exports
+- [x] 43. Update `hybrid_backend/__init__.py` public exports
   - Export: `HybridOrchestrator`, `HybridModelSpec`, `ReasoningPhaseResult`, `ReasoningText`, `InjectionDecision`
   - Export all `I*` protocols for type checking
   - _Requirements: 1_
 
-- [ ] 44. Write architectural layer boundary tests
+- [x] 44. Write architectural layer boundary tests
   - Create `tests/unit/connectors/hybrid_backend/test_layer_boundaries.py`
   - Implement `test_no_upward_layer_imports()`
   - Implement `test_models_have_no_internal_dependencies()`
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/hybrid_backend/test_layer_boundaries.py -v`
   - _Requirements: 5_
 
-- [ ] 45. **CHECKPOINT**: Run existing hybrid tests (regression)
+- [x] 45. **CHECKPOINT**: Run existing hybrid tests (regression)
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/test_hybrid*.py -v`
   - Run: `.venv\Scripts\python.exe -m pytest tests/integration/connectors/test_hybrid*.py -v`
   - All tests must pass WITHOUT modification
   - _Requirements: 10, 11_
 
-- [ ] 46. Run full test suite
+- [x] 46. Run full test suite
   - Run: `.venv\Scripts\python.exe -m pytest -m "not slow" -v`
   - Verify zero regressions across entire codebase
   - _Requirements: 11_
 
-- [ ] 47. Run final quality checks
+- [x] 47. Run final quality checks
   - Run: `.venv\Scripts\python.exe -m ruff check src/connectors/hybrid_backend/ src/connectors/hybrid.py`
   - Run: `.venv\Scripts\python.exe -m mypy src/connectors/hybrid_backend/ src/connectors/hybrid.py`
   - Run: `.venv\Scripts\python.exe -m black --check src/connectors/hybrid_backend/ src/connectors/hybrid.py`
@@ -435,22 +435,22 @@ Convert `HybridConnector` to thin facade, update exports, run full regression su
 
 ## Post-Implementation Verification
 
-- [ ] 48. Verify all requirements are satisfied
-  - [ ] Req 1: Package structure created with 4 subdirectories
-  - [ ] Req 2.1-2.6: All 6 services extracted with SRP
-  - [ ] Req 3: All 9 protocols defined with `@runtime_checkable`
-  - [ ] Req 4: Orchestrator uses constructor injection
-  - [ ] Req 5: Layer boundaries enforced (architectural test passes)
-  - [ ] Req 6: All 4 domain models in `models/` package (6.1-6.4), with immutability (6.5)
-  - [ ] Req 7: `HybridOrchestrator.execute()` ≤100 lines, timeout handling, tool-call short-circuit
-  - [ ] Req 8: `InjectionPolicy` encapsulates decision logic
-  - [ ] Req 9: `PhaseExecutor` handles backend interaction with observability
-  - [ ] Req 10: Public API unchanged, backward compatible
-  - [ ] Req 11: 100% existing tests pass
-  - [ ] NFR 1-4: Code quality, performance, maintainability, observability
+- [x] 48. Verify all requirements are satisfied
+  - [x] Req 1: Package structure created with 4 subdirectories
+  - [x] Req 2.1-2.6: All 6 services extracted with SRP
+  - [x] Req 3: All 9 protocols defined with `@runtime_checkable`
+  - [x] Req 4: Orchestrator uses constructor injection
+  - [x] Req 5: Layer boundaries enforced (architectural test passes)
+  - [x] Req 6: All 4 domain models in `models/` package (6.1-6.4), with immutability (6.5)
+  - [x] Req 7: `HybridOrchestrator.execute()` ≤100 lines, timeout handling, tool-call short-circuit
+  - [x] Req 8: `InjectionPolicy` encapsulates decision logic
+  - [x] Req 9: `PhaseExecutor` handles backend interaction with observability
+  - [x] Req 10: Public API unchanged, backward compatible
+  - [x] Req 11: 100% existing tests pass
+  - [x] NFR 1-4: Code quality, performance, maintainability, observability
   - _Requirements: All_
 
-- [ ] 49. Update spec.json to implementation-complete
+- [x] 49. Update spec.json to implementation-complete
   - Set `phase` to `implementation-complete`
   - Set `implementation_status` to `complete`
   - Set `ready_for_implementation` to `false` (done)
@@ -483,13 +483,13 @@ Convert `HybridConnector` to thin facade, update exports, run full regression su
 
 ## Checklist Before Marking Complete
 
-- [ ] All acceptance criteria from requirements are covered
-- [ ] Unit tests pass with good coverage (one per service)
-- [ ] Integration tests verify full flow (existing tests pass)
-- [ ] Architectural tests verify layer boundaries
-- [ ] No lint errors (`ruff check .`)
-- [ ] Type checks pass (`mypy src/connectors/hybrid_backend/`)
-- [ ] Error handling uses existing exception hierarchy
-- [ ] Async/await used correctly (no blocking I/O)
-- [ ] `HybridConnector` reduced from 2,301 to ~150 lines
-- [ ] Each service file ≤300 lines
+- [x] All acceptance criteria from requirements are covered
+- [x] Unit tests pass with good coverage (one per service)
+- [x] Integration tests verify full flow (existing tests pass)
+- [x] Architectural tests verify layer boundaries
+- [x] No lint errors (`ruff check .`)
+- [x] Type checks pass (`mypy src/connectors/hybrid_backend/`)
+- [x] Error handling uses existing exception hierarchy
+- [x] Async/await used correctly (no blocking I/O)
+- [x] `HybridConnector` reduced from 2,301 to ~150 lines
+- [x] Each service file ≤300 lines

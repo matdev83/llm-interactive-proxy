@@ -809,7 +809,7 @@ class TestReasoningParameterOverrides:
         # Should add reasoning_effort
         assert overridden["reasoning_effort"] == "high"
 
-    @patch("src.connectors.hybrid.logger")
+    @patch("src.connectors.hybrid_backend.compatibility.logger")
     def test_parameter_override_logging(self, mock_logger, hybrid_connector):
         """Test parameter override logging."""
         request_data = {"reasoning_effort": "medium"}

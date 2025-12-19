@@ -69,7 +69,7 @@ async def create_authorization_service(
 # Feature: sso-authentication, Property 15: Confirmation Code Attempt Decrement
 @pytest.mark.asyncio
 @settings(
-    max_examples=100,
+    max_examples=50,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

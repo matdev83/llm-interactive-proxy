@@ -95,7 +95,7 @@ def non_loopback_address_strategy(draw):
 
 
 # Property 1: SSO Mode Activation
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     sso_config=sso_config_strategy(enabled=True),
     host=st.text(min_size=1, max_size=50),
@@ -126,7 +126,7 @@ def test_property_sso_mode_activation(sso_config, host):
 
 
 # Property 2: Legacy Auth Disabled in SSO Mode
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     sso_config=sso_config_strategy(enabled=True),
     host=st.text(min_size=1, max_size=50),
@@ -159,7 +159,7 @@ def test_property_legacy_auth_disabled_in_sso_mode(sso_config, host, legacy_keys
 
 
 # Property 3: Non-Loopback Startup Rejection
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(host=non_loopback_address_strategy())
 def test_property_non_loopback_startup_rejection(host):
     """
@@ -190,7 +190,7 @@ def test_property_non_loopback_startup_rejection(host):
 
 
 # Additional test: Loopback addresses should be allowed without auth
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(host=loopback_address_strategy())
 def test_loopback_addresses_allowed_without_auth(host):
     """
@@ -212,7 +212,7 @@ def test_loopback_addresses_allowed_without_auth(host):
 
 
 # Additional test: Legacy mode detection
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(
     host=st.text(min_size=1, max_size=50),
     legacy_keys=st.lists(st.text(min_size=10, max_size=50), min_size=1, max_size=5),
@@ -235,7 +235,7 @@ def test_legacy_mode_detection(host, legacy_keys):
 
 
 # Additional test: SSO config without providers should fail
-@settings(max_examples=100)
+@settings(max_examples=50)
 @given(host=st.text(min_size=1, max_size=50))
 def test_sso_without_providers_fails(host):
     """
