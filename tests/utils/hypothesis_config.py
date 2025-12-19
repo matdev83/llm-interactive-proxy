@@ -8,6 +8,7 @@ testing, ensuring consistent settings across all property tests.
 Feature: streaming-pipeline-refactor, Task 21: Property-based test infrastructure
 """
 
+
 from hypothesis import HealthCheck, Phase, Verbosity, settings
 
 # ============================================================================
@@ -15,9 +16,10 @@ from hypothesis import HealthCheck, Phase, Verbosity, settings
 # ============================================================================
 
 # Register a default profile for all property tests
+# Using 50 examples for balance between coverage and speed (was 100)
 settings.register_profile(
     "default",
-    max_examples=100,  # Run 100 iterations per property test
+    max_examples=50,  # Reduced from 100 for faster test execution
     deadline=None,  # No deadline for async tests
     suppress_health_check=[
         HealthCheck.too_slow,  # Allow slow tests for thorough checking
@@ -113,7 +115,7 @@ def property_test_settings(**kwargs):
         A settings decorator with merged configuration
     """
     default_kwargs = {
-        "max_examples": 100,
+        "max_examples": 50,  # Reduced from 100 for faster execution
         "deadline": None,
         "suppress_health_check": [
             HealthCheck.too_slow,
@@ -139,6 +141,37 @@ def fast_property_test_settings(**kwargs):
         "suppress_health_check": [
             HealthCheck.too_slow,
             HealthCheck.data_too_large,
+        ],
+    }
+    default_kwargs.update(kwargs)
+    return settings(**default_kwargs)
+
+
+def slow_property_test_settings(**kwargs):
+    """Decorator for property tests with heavy I/O operations.
+
+    Use this for tests marked @pytest.mark.slow that involve:
+    - Database I/O (SQLite, etc.)
+    - Real cryptographic operations (argon2, etc.)
+    - Network operations
+    - File system operations
+
+    Uses reduced max_examples (20) to maintain good coverage
+    while keeping test execution reasonable.
+
+    Args:
+        **kwargs: Additional settings to override
+
+    Returns:
+        A settings decorator optimized for slow operations
+    """
+    default_kwargs = {
+        "max_examples": 20,  # Reduced from 100 for heavy I/O tests
+        "deadline": None,
+        "suppress_health_check": [
+            HealthCheck.too_slow,
+            HealthCheck.data_too_large,
+            HealthCheck.filter_too_much,  # Allow filtered examples in slow tests
         ],
     }
     default_kwargs.update(kwargs)

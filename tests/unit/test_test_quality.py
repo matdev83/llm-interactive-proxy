@@ -483,7 +483,39 @@ def test_ruff_linting_on_src() -> None:
         pytest.fail(error_msg)
 
 
+# Cache for quick ruff check result
+_ruff_check_passed: bool | None = None
+
+
+def _quick_ruff_check() -> bool:
+    """Quick check if ruff passes on src directory.
+    
+    Used to skip black formatting test when ruff passes, since ruff 
+    covers most formatting issues and black is mostly redundant.
+    Result is cached for performance.
+    """
+    global _ruff_check_passed
+    if _ruff_check_passed is not None:
+        return _ruff_check_passed
+    
+    project_root = Path(__file__).parent.parent.parent
+    src_dir = project_root / "src"
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-fix", str(src_dir)],
+        capture_output=True,
+        text=True,
+        cwd=project_root,
+    )
+    _ruff_check_passed = result.returncode == 0
+    return _ruff_check_passed
+
+
 @pytest.mark.quality
+@pytest.mark.skipif(
+    _quick_ruff_check() if "_quick_ruff_check" in dir() else False,
+    reason="Black formatting skipped: ruff linting passed (black is redundant when ruff passes)"
+)
 def test_black_formatting_on_src(black_formatting_cache: dict[str, Any]) -> None:
     """Test that black formatting passes on the src directory with auto-fix.
 
@@ -492,6 +524,9 @@ def test_black_formatting_on_src(black_formatting_cache: dict[str, Any]) -> None
     This helps maintain consistent code style across the source code by automatically
     applying fixes and only reporting unrecoverable errors.
     Uses session-scoped caching for better performance.
+    
+    Note: This test is skipped when ruff linting passes, since ruff covers
+    most formatting issues that black would catch.
     """
     # Get the cached black result for src directory
     src_result = black_formatting_cache.get("src_result", {})

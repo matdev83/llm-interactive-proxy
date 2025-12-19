@@ -343,20 +343,18 @@ class TestAutomatedRecoveryIntegration:
         track_event("resilience_test_passed")
 
     @pytest.mark.slow
-    @pytest.mark.timeout(180)
+    @pytest.mark.timeout(30)  # Reduced from 180 - test no longer waits for real delays
     @pytest.mark.asyncio
     async def test_recovery_with_default_configuration(self, connector, mock_request):
         """
         Test recovery behavior with the default configuration loaded from AppConfig.
 
-        Note: Configuration values may vary. This test verifies that configuration
-        is properly loaded and recovery behavior works.
+        Note: This test verifies configuration loading and basic behavior.
+        It uses fast recovery overrides to avoid waiting for production retry delays
+        while still testing the configuration loading path.
         """
-        # Override fast recovery for this test to use default configuration
-        connector._fast_recovery = False
-        connector._degradation_config = GracefulDegradationConfig.from_config(
-            connector.config
-        )
+        # Load default configuration to verify it works
+        default_config = GracefulDegradationConfig.from_config(connector.config)
 
         events = []
 
@@ -367,17 +365,26 @@ class TestAutomatedRecoveryIntegration:
         track_event("config_test_start")
 
         # Verify configuration was loaded (don't assert specific values)
-        assert connector._degradation_config.retry_delays is not None
-        assert len(connector._degradation_config.retry_delays) > 0
-        assert connector._degradation_config.max_total_attempts > 0
-        assert connector._degradation_config.cooldown_duration > 0
-        assert connector._degradation_config.recovery_probe_interval > 0
+        assert default_config.retry_delays is not None
+        assert len(default_config.retry_delays) > 0
+        assert default_config.max_total_attempts > 0
+        assert default_config.cooldown_duration > 0
+        assert default_config.recovery_probe_interval > 0
 
         track_event("config_verified")
 
-        # Setup: Pro model fails initially, recovers after 5 seconds
+        # Apply default config but then override delays for fast execution
+        # This tests the config loading path without waiting 15+ seconds
+        connector._fast_recovery = False
+        connector._degradation_config = default_config
+        # Override delays for test speed while keeping all other config values
+        connector._degradation_config.retry_delays = [0.1, 0.2]
+        connector._degradation_config.cooldown_duration = 0.5
+        connector._degradation_config.recovery_probe_interval = 0.1
+
+        # Setup: Pro model fails initially, recovers quickly
         current_time = time.time()
-        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 5.0)
+        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 0.3)
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)
         # First call fails, second succeeds (retry behavior)
@@ -400,7 +407,7 @@ class TestAutomatedRecoveryIntegration:
         connector.set_api_behavior(
             "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
-        connector.set_recovery_timeline("gemini-2.5-pro", time.time() + 5.0)
+        connector.set_recovery_timeline("gemini-2.5-pro", time.time() + 0.3)
 
         with contextlib.suppress(BackendError):
             await connector.chat_completions(
@@ -416,7 +423,7 @@ class TestAutomatedRecoveryIntegration:
                 track_event("cooldown_applied")
 
                 # Wait for recovery timeline then manually trigger probes
-                await asyncio.sleep(6)
+                await asyncio.sleep(0.5)
 
                 # Manual recovery probe
                 recovery_success = await connector._probe_model_recovery(

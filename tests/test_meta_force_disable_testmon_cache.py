@@ -17,4 +17,3 @@ import pytest
 def test_meta_force_disable_testmon_cache():
     """Dummy test that always passes."""
     assert True
-

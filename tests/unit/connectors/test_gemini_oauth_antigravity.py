@@ -394,6 +394,7 @@ class TestGeminiOAuthAntigravityConnector:
         mock_response.status_code = 429
         mock_response.json.return_value = quota_error
         mock_response.text = json.dumps(quota_error)
+        mock_response.headers = {}  # Ensure headers is a dict, not a Mock
 
         async_to_thread = AsyncMock(return_value=mock_response)
 
@@ -420,6 +421,7 @@ class TestGeminiOAuthAntigravityConnector:
         request.stream = True
         request.messages = []
         request.extra_body = {}
+        request.tools = []  # Ensure tools is an empty list, not a Mock
 
         envelope = await connector._chat_completions_code_assist_streaming(
             request, [], "gemini-2.5-flash"

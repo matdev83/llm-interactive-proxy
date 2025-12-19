@@ -1,5 +1,6 @@
-import ast
+import io
 import os
+import tokenize
 
 import pytest
 
@@ -20,26 +21,114 @@ def get_python_files(directory):
                 yield os.path.join(root, file)
 
 
-def check_imports(file_path):
-    with open(file_path, encoding="utf-8") as f:
-        try:
-            tree = ast.parse(f.read(), filename=file_path)
-        except SyntaxError:
-            pytest.fail(f"SyntaxError in {file_path}")
+def matches_forbidden_module(module_name):
+    for forbidden in FORBIDDEN_IMPORTS:
+        if module_name == forbidden or module_name.startswith(forbidden + "."):
+            return True
+    return False
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                for forbidden in FORBIDDEN_IMPORTS:
-                    if alias.name == forbidden or alias.name.startswith(
-                        forbidden + "."
-                    ):
-                        return f"Line {node.lineno}: import {alias.name}"
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            for forbidden in FORBIDDEN_IMPORTS:
-                if node.module == forbidden or node.module.startswith(forbidden + "."):
-                    return f"Line {node.lineno}: from {node.module} import ..."
+
+def advance_to_statement_end(tokens, index):
+    while index < len(tokens):
+        token = tokens[index]
+        if token.type == tokenize.NEWLINE or token.string == ";":
+            return index + 1
+        index += 1
+    return index
+
+
+def parse_from_module(tokens, index):
+    parts = []
+    while index < len(tokens):
+        token = tokens[index]
+        if token.type == tokenize.NL:
+            index += 1
+            continue
+        if token.type == tokenize.NAME and token.string == "import":
+            break
+        if token.type == tokenize.NAME:
+            parts.append(token.string)
+        elif token.string == ".":
+            parts.append(".")
+        elif token.type == tokenize.NEWLINE or token.string == ";":
+            break
+        index += 1
+    module_name = "".join(parts).lstrip(".")
+    return module_name or None, index
+
+
+def parse_import_modules(tokens, index):
+    modules = []
+    current = []
+    while index < len(tokens):
+        token = tokens[index]
+        if token.type == tokenize.NL:
+            index += 1
+            continue
+        if token.type == tokenize.NEWLINE or token.string == ";":
+            break
+        if token.type == tokenize.NAME:
+            if token.string == "as":
+                if current:
+                    modules.append("".join(current))
+                    current = []
+                index += 1
+                while index < len(tokens) and tokens[index].type == tokenize.NL:
+                    index += 1
+                if index < len(tokens) and tokens[index].type == tokenize.NAME:
+                    index += 1
+                continue
+            current.append(token.string)
+        elif token.string == ".":
+            if current:
+                current.append(".")
+        elif token.string == ",":
+            if current:
+                modules.append("".join(current))
+                current = []
+        index += 1
+    if current:
+        modules.append("".join(current))
+    return modules, index
+
+
+def find_forbidden_import(tokens):
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.type == tokenize.NAME and token.string == "from":
+            module_name, next_index = parse_from_module(tokens, index + 1)
+            if module_name and matches_forbidden_module(module_name):
+                return f"Line {token.start[0]}: from {module_name} import ..."
+            index = advance_to_statement_end(tokens, next_index)
+            continue
+        if token.type == tokenize.NAME and token.string == "import":
+            modules, next_index = parse_import_modules(tokens, index + 1)
+            for module_name in modules:
+                if matches_forbidden_module(module_name):
+                    return f"Line {token.start[0]}: import {module_name}"
+            index = advance_to_statement_end(tokens, next_index)
+            continue
+        index += 1
     return None
+
+
+def check_imports(file_path):
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            source = f.read()
+    except OSError as exc:
+        pytest.fail(f"Unable to read {file_path}: {exc}")
+
+    if not any(forbidden in source for forbidden in FORBIDDEN_IMPORTS):
+        return None
+
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except tokenize.TokenError as exc:
+        pytest.fail(f"TokenError in {file_path}: {exc}")
+
+    return find_forbidden_import(tokens)
 
 
 @pytest.mark.parametrize("directory", REQUIRED_CLEAN_DIRECTORIES)

@@ -234,6 +234,7 @@ class TestGeminiOAuthFreeQuotaDetection:
         mock_response.status_code = 429
         mock_response.json.return_value = quota_error
         mock_response.text = "quota exceeded"
+        mock_response.headers = {}  # Ensure headers is a dict, not a Mock
 
         async_to_thread = AsyncMock(return_value=mock_response)
 
@@ -253,9 +254,7 @@ class TestGeminiOAuthFreeQuotaDetection:
                 "src.connectors.gemini_oauth_free.asyncio.to_thread",
                 async_to_thread,
             ),
-            patch(
-                "src.connectors.gemini_oauth_base.tiktoken.get_encoding"
-            ) as mock_encoding,
+            patch("tiktoken.get_encoding") as mock_encoding,
             patch.object(
                 connector.translation_service,
                 "from_domain_to_gemini_request",

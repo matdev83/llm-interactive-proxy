@@ -87,6 +87,11 @@ class StreamingErrorMapper:
                 status_code=status_code,
             )
 
+        # Map BackendError with quota_exceeded code
+        if isinstance(error, BackendError):
+            # Preserve the BackendError as-is, including code and status_code
+            return error
+
         # Map httpx connection errors
         if isinstance(error, httpx.ConnectError | httpx.ConnectTimeout):
             return APIConnectionError(
@@ -164,6 +169,12 @@ async def handle_streaming_error(
     if hasattr(mapped_error, "status_code"):
         status_code = mapped_error.status_code
 
+    # For quota_exceeded errors, use 503 instead of 429
+    if hasattr(mapped_error, "code") and mapped_error.code == "quota_exceeded":
+        status_code = 503
+        # Use status_code as string for code field (test expects integer 503 in content)
+        error_code = str(status_code) if status_code is not None else error_code
+
     error_info = StreamingErrorInfo(
         type=type(mapped_error).__name__,
         message=str(mapped_error),
@@ -185,9 +196,33 @@ async def handle_streaming_error(
     if stream_id is not None:
         metadata["stream_id"] = stream_id
 
+    # Build error chunk content dict for quota_exceeded errors
+    # Test expects content["error"]["code"] to be 503 (int), not string
+    error_content: dict[str, Any] | str = ""
+    if (
+        hasattr(mapped_error, "code")
+        and mapped_error.code == "quota_exceeded"
+        and status_code is not None
+    ):
+        # Build OpenAI-style error chunk with integer code
+        import time
+
+        error_content = {
+            "id": f"chatcmpl-error-{int(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": provider,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+            "error": {
+                "message": str(mapped_error),
+                "type": "quota_exceeded",
+                "code": status_code,  # Use integer 503 for quota errors
+            },
+        }
+
     # Create terminal chunk
     return StreamingContent(
-        content="",
+        content=error_content,
         metadata=metadata,
         is_done=True,
         is_empty=False,

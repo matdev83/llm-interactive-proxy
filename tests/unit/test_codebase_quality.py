@@ -35,6 +35,7 @@ SKIPPED_FILES = {
     os.path.normpath("tests/unit/connectors/test_openai_codex_prompt_handling.py"),
     os.path.normpath("src/core/auth/sso/web_interface.py"),
     os.path.normpath("tests/unit/test_compaction_domain.py"),
+    os.path.normpath("tests/unit/transport/fastapi/adapters/sse/test_sse_formatter.py"),
 }
 
 

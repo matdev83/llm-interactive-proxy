@@ -234,6 +234,7 @@ class StreamingContextRegistry:
             and state.vtc.pending_text == ""
             and not state.vtc.extracted_tool_calls
             and not state.execute_fragments
+            and not state.tool_calls.tracked_tags  # Don't drop if tags are tracked
         ):
             self._states.pop(stream_id, None)
 

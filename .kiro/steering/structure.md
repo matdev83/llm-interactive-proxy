@@ -24,6 +24,8 @@ Where most cross-cutting proxy logic lives.
 - `src/core/di/`: DI container implementation + registrations
 - `src/core/config/`: config models/loaders/validation and precedence logic
 - `src/core/transport/fastapi/`: adapters between domain envelopes and FastAPI request/response types
+  - `adapters/`: modular layer components for response transformation (SSE, metadata, usage, sanitization, capture, streaming, response builders)
+  - `response_adapters.py`: thin facade delegating to adapters/ layer components
 - `src/core/commands/`: chat-embedded command pipeline (parsing/execution/steering integration)
 - `src/core/simulation/`: replay/inspection utilities for debugging captured traffic
 - `src/core/database/`: SQLModel models + Alembic migrations + repositories

@@ -232,18 +232,22 @@ class TestShellExecution:
     async def test_execute_command_timeout(
         self, executor: UniversalToolExecutor
     ) -> None:
-        """Test timeout handling for long-running commands."""
-        # Create a command that sleeps longer than the timeout
+        """Test timeout handling for long-running commands.
+
+        Uses minimal timeouts to keep test fast while validating behavior.
+        """
+        # Create a command that runs longer than the timeout
+        # Using short durations to keep test fast
         import platform
 
         if platform.system() == "Windows":
-            # Use ping as a reliable timeout test on Windows
-            sleep_cmd = "ping -n 11 127.0.0.1 > nul"
+            # Use ping with minimal count on Windows (2s is enough)
+            sleep_cmd = "ping -n 3 127.0.0.1 > nul"
         else:
-            sleep_cmd = "sleep 10"
+            sleep_cmd = "sleep 2"
 
         result = await executor.execute_tool(
-            "shell", {"command": sleep_cmd, "timeout": 1}
+            "shell", {"command": sleep_cmd, "timeout": 0.5}  # 0.5s timeout for speed
         )
 
         # Should have a non-zero exit code and timeout message

@@ -14,7 +14,10 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.models import TokenRecord
-from tests.utils.hypothesis_config import property_test_settings
+from tests.utils.hypothesis_config import (
+    property_test_settings,
+    slow_property_test_settings,
+)
 
 # Strategy for generating valid datetime objects
 datetime_strategy = st.datetimes(
@@ -331,7 +334,7 @@ def test_property_23_authentication_state_consistency(
 
 
 @given(st.integers(min_value=1, max_value=5))
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for crypto operations
 @pytest.mark.slow
 def test_property_7_token_entropy_sufficiency(
     num_tokens: int,
@@ -373,7 +376,7 @@ def test_property_7_token_entropy_sufficiency(
 
 
 @given(st.integers(min_value=2, max_value=5))
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for crypto operations
 @pytest.mark.slow
 def test_property_6_token_generation_uniqueness(
     num_tokens: int,
@@ -406,7 +409,7 @@ def test_property_6_token_generation_uniqueness(
 
 
 @given(st.integers(min_value=1, max_value=5))
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for crypto operations
 @pytest.mark.slow  # Uses production crypto parameters
 def test_property_8_token_storage_security(
     num_tokens: int,

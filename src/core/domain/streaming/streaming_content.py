@@ -44,6 +44,14 @@ class StreamingContent:
             self.is_empty = self._compute_is_empty()
         else:
             self.is_empty = bool(self.is_empty)
+
+        # Defensive invariant: is_empty must never mark non-empty content as empty.
+        # Some generators/tests may construct StreamingContent with a stale/precomputed
+        # is_empty value; if so, recompute to prevent dropping real content downstream.
+        computed_is_empty = self._compute_is_empty()
+        if self.is_empty and not computed_is_empty:
+            self.is_empty = computed_is_empty
+
         self._validate()
         self._synchronize_stream_id()
         self._synchronize_completion_state()

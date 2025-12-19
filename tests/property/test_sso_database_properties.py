@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -18,7 +18,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
 from src.core.auth.sso.models import TokenRecord
-from tests.utils.hypothesis_config import property_test_settings
+from tests.utils.hypothesis_config import (
+    slow_property_test_settings,
+)
 
 # Strategy for generating valid datetime objects
 datetime_strategy = st.datetimes(
@@ -111,7 +113,7 @@ async def cleanup_temp_database(db_path: str, temp_dir: str):
 
 
 @given(token_data=token_record_with_plaintext_strategy())
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for database I/O
 @pytest.mark.asyncio
 @pytest.mark.slow  # Uses database and real crypto
 async def test_property_24_token_soft_delete(
@@ -184,7 +186,7 @@ async def test_property_24_token_soft_delete(
         max_size=5,
     )
 )
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for database I/O
 @pytest.mark.asyncio
 @pytest.mark.slow  # Uses database and real crypto
 async def test_property_24_multiple_tokens_soft_delete(
@@ -254,7 +256,7 @@ async def test_property_24_multiple_tokens_soft_delete(
 
 
 @given(token_data=token_record_with_plaintext_strategy())
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for database I/O
 @pytest.mark.asyncio
 @pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_database_status_synchronization(
@@ -295,7 +297,10 @@ async def test_property_14_database_status_synchronization(
                 (token_record.id,),
             )
             row = await cursor.fetchone()
-            time_before_update = datetime.fromisoformat(row["last_authenticated_at"])
+            # Parse and normalize to naive datetime for comparison
+            time_before_update = datetime.fromisoformat(
+                row["last_authenticated_at"]
+            ).replace(tzinfo=None)
 
         # Small delay to ensure timestamp difference
         time.sleep(0.01)
@@ -303,7 +308,9 @@ async def test_property_14_database_status_synchronization(
         # Change authentication status
         new_auth_status = not initial_auth_status
         new_expiry = (
-            datetime.utcnow() + timedelta(hours=24) if new_auth_status else None
+            datetime.now(timezone.utc) + timedelta(hours=24)
+            if new_auth_status
+            else None
         )
 
         await repository.update_auth_status(
@@ -332,13 +339,20 @@ async def test_property_14_database_status_synchronization(
             # Verify authentication status was updated
             assert bool(row["is_authenticated"]) == new_auth_status
 
-            # Verify timestamp was updated
-            last_auth_time = datetime.fromisoformat(row["last_authenticated_at"])
-            assert last_auth_time >= time_before_update
+            # Verify timestamp was updated (normalize to naive for comparison)
+            last_auth_time = datetime.fromisoformat(
+                row["last_authenticated_at"]
+            ).replace(tzinfo=None)
+            assert last_auth_time >= time_before_update.replace(tzinfo=None)
 
             # Verify expiry was updated correctly
             if new_expiry:
                 stored_expiry = datetime.fromisoformat(row["auth_expires_at"])
+                # Normalize both to UTC-aware for comparison
+                if stored_expiry.tzinfo is None:
+                    stored_expiry = stored_expiry.replace(tzinfo=timezone.utc)
+                if new_expiry.tzinfo is None:
+                    new_expiry = new_expiry.replace(tzinfo=timezone.utc)
                 # Allow small time difference due to serialization
                 assert abs((stored_expiry - new_expiry).total_seconds()) < 2
             else:
@@ -355,7 +369,7 @@ async def test_property_14_database_status_synchronization(
         max_size=5,
     ),
 )
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for database I/O
 @pytest.mark.asyncio
 @pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_multiple_status_changes(
@@ -393,7 +407,10 @@ async def test_property_14_multiple_status_changes(
                 (token_record.id,),
             )
             row = await cursor.fetchone()
-            previous_timestamp = datetime.fromisoformat(row["last_authenticated_at"])
+            # Normalize to naive datetime for comparison
+            previous_timestamp = datetime.fromisoformat(
+                row["last_authenticated_at"]
+            ).replace(tzinfo=None)
 
         # Apply each status change
         import time
@@ -426,16 +443,18 @@ async def test_property_14_multiple_status_changes(
                 assert row is not None
                 assert bool(row["is_authenticated"]) == new_status
 
-                # Verify timestamp was updated (should be >= previous)
-                current_timestamp = datetime.fromisoformat(row["last_authenticated_at"])
-                assert current_timestamp >= previous_timestamp
+                # Verify timestamp was updated (should be >= previous, normalize for comparison)
+                current_timestamp = datetime.fromisoformat(
+                    row["last_authenticated_at"]
+                ).replace(tzinfo=None)
+                assert current_timestamp >= previous_timestamp.replace(tzinfo=None)
                 previous_timestamp = current_timestamp
     finally:
         await cleanup_temp_database(temp_database, temp_dir)
 
 
 @given(token_data=token_record_with_plaintext_strategy())
-@property_test_settings()
+@slow_property_test_settings()  # Reduced iterations for database I/O
 @pytest.mark.asyncio
 @pytest.mark.slow  # Uses database and time.sleep
 async def test_property_14_timestamp_monotonicity(
@@ -474,7 +493,10 @@ async def test_property_14_timestamp_monotonicity(
                 (token_record.id,),
             )
             row = await cursor.fetchone()
-            initial_timestamp = datetime.fromisoformat(row["last_authenticated_at"])
+            # Normalize to naive datetime for comparison
+            initial_timestamp = datetime.fromisoformat(
+                row["last_authenticated_at"]
+            ).replace(tzinfo=None)
 
         # Perform multiple status updates
         for _ in range(3):
@@ -482,7 +504,7 @@ async def test_property_14_timestamp_monotonicity(
             await repository.update_auth_status(
                 token_record.id,
                 True,
-                datetime.utcnow() + timedelta(hours=24),
+                datetime.now(timezone.utc) + timedelta(hours=24),
             )
 
             # Verify timestamp never decreases
@@ -493,9 +515,11 @@ async def test_property_14_timestamp_monotonicity(
                     (token_record.id,),
                 )
                 row = await cursor.fetchone()
-                current_timestamp = datetime.fromisoformat(row["last_authenticated_at"])
+                current_timestamp = datetime.fromisoformat(
+                    row["last_authenticated_at"]
+                ).replace(tzinfo=None)
 
                 # Timestamp should be >= initial timestamp
-                assert current_timestamp >= initial_timestamp
+                assert current_timestamp >= initial_timestamp.replace(tzinfo=None)
     finally:
         await cleanup_temp_database(temp_database, temp_dir)

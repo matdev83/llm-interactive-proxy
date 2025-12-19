@@ -189,10 +189,11 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
                     self._quota_exceeded = True
                     from pydantic.types import JsonValue
 
+                    # Use 503 to trigger upstream failover/retry logic for quota exhaustion
                     error_details: dict[str, JsonValue] = {
-                        "message": str(e),
+                        "message": f"Service temporarily unavailable (quota exceeded): {e}",
                         "type": "quota_exceeded",
-                        "code": 429,
+                        "code": 503,
                     }
                     error_chunk: dict[str, JsonValue] = {
                         "id": "chatcmpl-error",

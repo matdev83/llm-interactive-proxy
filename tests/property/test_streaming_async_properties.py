@@ -56,7 +56,18 @@ async def test_property_27_incremental_middleware_processing(
             or (isinstance(chunk.content, str) and not chunk.content.strip())
         )
         if needs_content:
-            chunk.content = f"chunk_{i}"
+            # Create new chunk with updated content to force is_empty recomputation
+            chunk = StreamingContent(
+                content=f"chunk_{i}",
+                metadata=chunk.metadata,
+                is_done=chunk.is_done,
+                is_empty=None,  # Force recomputation
+                stream_id=chunk.stream_id,
+                is_cancellation=chunk.is_cancellation,
+                usage=chunk.usage,
+                raw_data=chunk.raw_data,
+            )
+            chunks[i] = chunk
 
     normalizer = StreamNormalizer([_PassthroughProcessor()])
     stream = async_iter(chunks)
