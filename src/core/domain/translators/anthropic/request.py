@@ -5,6 +5,89 @@ from typing import Any
 from src.core.domain.chat import CanonicalChatRequest
 
 
+def _convert_tools_to_anthropic(tools: list[Any]) -> list[dict[str, Any]]:
+    anthropic_tools: list[dict[str, Any]] = []
+    for tool in tools:
+        if isinstance(tool, dict) and "function" in tool:
+            anthropic_tools.append({"type": "function", "function": tool["function"]})
+        elif not isinstance(tool, dict):
+            tool_dict = tool.model_dump()
+            if "function" in tool_dict:
+                anthropic_tools.append(
+                    {"type": "function", "function": tool_dict["function"]}
+                )
+    return anthropic_tools
+
+
+def _convert_tool_choice_to_anthropic(tool_choice: Any) -> Any | None:
+    if isinstance(tool_choice, dict):
+        if tool_choice.get("type") == "function":
+            return tool_choice
+        if "function" in tool_choice:
+            return {"type": "function", "function": tool_choice["function"]}
+        return None
+    if tool_choice in {"auto", "none"}:
+        return tool_choice
+    return None
+
+
+def _apply_anthropic_extra_body(
+    payload: dict[str, Any], extra_body: dict[str, Any]
+) -> None:
+    metadata = extra_body.get("metadata")
+    if metadata:
+        payload["metadata"] = metadata
+
+    thinking_config = extra_body.get("thinking")
+    if thinking_config is not None:
+        if isinstance(thinking_config, dict):
+            payload["thinking"] = thinking_config
+        elif hasattr(thinking_config, "model_dump"):
+            payload["thinking"] = thinking_config.model_dump()
+        else:
+            payload["thinking"] = {"type": str(thinking_config)}
+
+    service_tier = extra_body.get("service_tier")
+    if service_tier is not None:
+        payload["service_tier"] = service_tier
+
+    response_format = extra_body.get("response_format")
+    if response_format and response_format.get("type") == "json_schema":
+        json_schema = response_format.get("json_schema", {})
+        schema = json_schema.get("schema", {})
+        schema_name = json_schema.get("name")
+        schema_description = json_schema.get("description")
+        strict = json_schema.get("strict", True)
+
+        import json
+
+        schema_instruction = (
+            "\n\nYou must respond with valid JSON that conforms to this schema"
+        )
+        if schema_name:
+            schema_instruction += f" for '{schema_name}'"
+        if schema_description:
+            schema_instruction += f" ({schema_description})"
+        schema_instruction += f":\n\n{json.dumps(schema, indent=2)}"
+
+        if strict:
+            schema_instruction += "\n\nIMPORTANT: The response must strictly adhere to this schema. Do not include any additional fields or deviate from the specified structure."
+        else:
+            schema_instruction += "\n\nNote: The response should generally follow this schema, but minor variations may be acceptable."
+
+        schema_instruction += (
+            "\n\nRespond only with the JSON object, no additional text or formatting."
+        )
+
+        if payload.get("system"):
+            if isinstance(payload["system"], str):
+                payload["system"] += schema_instruction
+            else:
+                payload["system"] = schema_instruction
+        else:
+            payload["system"] = f"You are a helpful assistant.{schema_instruction}"
+
+
 def anthropic_to_domain_request(request: Any) -> CanonicalChatRequest:
     """Translate an Anthropic request to a CanonicalChatRequest."""
     from src.core.domain.translation import Translation
@@ -162,87 +245,19 @@ def from_domain_to_anthropic_request(request: CanonicalChatRequest) -> dict[str,
         payload["top_k"] = request.top_k
 
     if request.tools:
-        anthropic_tools = []
-        for tool in request.tools:
-            if isinstance(tool, dict) and "function" in tool:
-                anthropic_tools.append(
-                    {"type": "function", "function": tool["function"]}
-                )
-            elif not isinstance(tool, dict):
-                tool_dict = tool.model_dump()
-                if "function" in tool_dict:
-                    anthropic_tools.append(
-                        {"type": "function", "function": tool_dict["function"]}
-                    )
-
+        anthropic_tools = _convert_tools_to_anthropic(request.tools)
         if anthropic_tools:
             payload["tools"] = anthropic_tools
 
     if request.tool_choice:
-        if isinstance(request.tool_choice, dict):
-            if request.tool_choice.get("type") == "function":
-                payload["tool_choice"] = request.tool_choice
-            elif "function" in request.tool_choice:
-                payload["tool_choice"] = {
-                    "type": "function",
-                    "function": request.tool_choice["function"],
-                }
-        elif request.tool_choice in {"auto", "none"}:
-            payload["tool_choice"] = request.tool_choice
+        tool_choice = _convert_tool_choice_to_anthropic(request.tool_choice)
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
 
     if request.stop:
         payload["stop_sequences"] = Translation._normalize_stop_sequences(request.stop)
 
     if request.extra_body and isinstance(request.extra_body, dict):
-        metadata = request.extra_body.get("metadata")
-        if metadata:
-            payload["metadata"] = metadata
-
-        thinking_config = request.extra_body.get("thinking")
-        if thinking_config is not None:
-            if isinstance(thinking_config, dict):
-                payload["thinking"] = thinking_config
-            elif hasattr(thinking_config, "model_dump"):
-                payload["thinking"] = thinking_config.model_dump()
-            else:
-                payload["thinking"] = {"type": str(thinking_config)}
-
-        service_tier = request.extra_body.get("service_tier")
-        if service_tier is not None:
-            payload["service_tier"] = service_tier
-
-        response_format = request.extra_body.get("response_format")
-        if response_format and response_format.get("type") == "json_schema":
-            json_schema = response_format.get("json_schema", {})
-            schema = json_schema.get("schema", {})
-            schema_name = json_schema.get("name")
-            schema_description = json_schema.get("description")
-            strict = json_schema.get("strict", True)
-
-            import json
-
-            schema_instruction = (
-                "\n\nYou must respond with valid JSON that conforms to this schema"
-            )
-            if schema_name:
-                schema_instruction += f" for '{schema_name}'"
-            if schema_description:
-                schema_instruction += f" ({schema_description})"
-            schema_instruction += f":\n\n{json.dumps(schema, indent=2)}"
-
-            if strict:
-                schema_instruction += "\n\nIMPORTANT: The response must strictly adhere to this schema. Do not include any additional fields or deviate from the specified structure."
-            else:
-                schema_instruction += "\n\nNote: The response should generally follow this schema, but minor variations may be acceptable."
-
-            schema_instruction += "\n\nRespond only with the JSON object, no additional text or formatting."
-
-            if payload.get("system"):
-                if isinstance(payload["system"], str):
-                    payload["system"] += schema_instruction
-                else:
-                    payload["system"] = schema_instruction
-            else:
-                payload["system"] = f"You are a helpful assistant.{schema_instruction}"
+        _apply_anthropic_extra_body(payload, request.extra_body)
 
     return payload

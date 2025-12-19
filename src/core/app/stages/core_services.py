@@ -84,6 +84,30 @@ class CoreServicesStage(InitializationStage):
         services.add_singleton(
             ToolCallRepairService, implementation_factory=_tool_repair_factory
         )
+
+        # Register IToolCallRepairService interface binding
+        try:
+            from typing import cast
+
+            from src.core.interfaces.tool_call_repair_service_interface import (
+                IToolCallRepairService,
+            )
+
+            def itool_call_repair_factory(
+                provider: IServiceProvider,
+            ) -> ToolCallRepairService:
+                return provider.get_required_service(ToolCallRepairService)
+
+            services.add_singleton(
+                cast(type, IToolCallRepairService),
+                implementation_factory=itool_call_repair_factory,
+            )
+        except ImportError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Could not register IToolCallRepairService interface: {e}"
+                )
+
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Registered ToolCallRepairService with cap=%d bytes",
@@ -266,6 +290,21 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to register core services from DI module: {e}")
             raise
+
+        # Register streaming and tooling services via registrars
+        # These are needed for services like IResponseParser, IStreamNormalizer, etc.
+        try:
+            from src.core.di.registrations import streaming, tooling
+
+            streaming.register(services, config)
+            tooling.register(services, config)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered streaming and tooling services via registrars")
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Could not register streaming/tooling services: {e}", exc_info=True
+                )
 
         # Register connection activity tracker (if enabled)
         self._register_activity_tracker(services, config)

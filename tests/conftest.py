@@ -23,6 +23,14 @@ if TYPE_CHECKING:
 
 """Test fixtures and utilities."""
 
+_TESTMON_DATAFILE_ENV = "TESTMON_DATAFILE"
+if _TESTMON_DATAFILE_ENV not in os.environ:
+    # Keep pytest-testmon data under .pytest_cache to avoid read-only repo artifacts.
+    repo_root = Path(__file__).resolve().parents[1]
+    testmon_dir = repo_root / ".pytest_cache"
+    testmon_dir.mkdir(parents=True, exist_ok=True)
+    os.environ[_TESTMON_DATAFILE_ENV] = str(testmon_dir / ".testmondata")
+
 
 def _module_is_available(name: str) -> bool:
     """Return True if the optional module can be imported."""

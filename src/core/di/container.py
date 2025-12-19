@@ -7,18 +7,19 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from src.core.common.exceptions import ServiceResolutionError
-from src.core.interfaces.app_settings_interface import IAppSettings
-from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.di.diagnostics import (
+    enrich_factory_error,
+    enrich_missing_service_error,
+    enrich_scoped_from_root_error,
+    pop_resolution,
+    push_resolution,
+)
 from src.core.interfaces.di_interface import (
     IServiceCollection,
     IServiceProvider,
     IServiceScope,
     ServiceLifetime,
 )
-from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.session_service_interface import ISessionService
 
 T = TypeVar("T")
 
@@ -119,9 +120,12 @@ class ScopedServiceProvider(IServiceProvider):
         service = self.get_service(service_type)
         if service is None:
             type_name = getattr(service_type, "__name__", str(service_type))
-            raise ServiceResolutionError(
+            base_error = ServiceResolutionError(
                 f"No service registered for {type_name}", service_name=type_name
             )
+            enriched_error = enrich_missing_service_error(service_type, base_error)
+            pop_resolution()  # Pop after enriching error (service was pushed in _get_service)
+            raise enriched_error
         return service
 
     def has_service(self, service_type: type[T]) -> bool:
@@ -160,9 +164,12 @@ class ServiceProvider(IServiceProvider):
         service = self.get_service(service_type)
         if service is None:
             type_name = getattr(service_type, "__name__", str(service_type))
-            raise ServiceResolutionError(
+            base_error = ServiceResolutionError(
                 f"No service registered for {type_name}", service_name=type_name
             )
+            enriched_error = enrich_missing_service_error(service_type, base_error)
+            pop_resolution()  # Pop after enriching error (service was pushed in _get_service)
+            raise enriched_error
         return service
 
     def has_service(self, service_type: type[T]) -> bool:
@@ -177,82 +184,120 @@ class ServiceProvider(IServiceProvider):
         self, service_type: type[T], scope: ServiceScope | None
     ) -> T | None:
         """Internal method to get a service of the given type."""
-        descriptor = self._descriptors.get(service_type)
-        if descriptor is None:
-            if self._diagnostics:
-                type_name = getattr(service_type, "__name__", str(service_type))
-                self._diag_logger.warning(
-                    "DI: no descriptor for %s; registered=%d",
-                    type_name,
-                    len(self._descriptors),
-                )
-            return None
+        push_resolution(service_type)
+        try:
+            descriptor = self._descriptors.get(service_type)
+            if descriptor is None:
+                if self._diagnostics:
+                    type_name = getattr(service_type, "__name__", str(service_type))
+                    self._diag_logger.warning(
+                        "DI: no descriptor for %s; registered=%d",
+                        type_name,
+                        len(self._descriptors),
+                    )
+                # Don't pop here - keep on stack for error enrichment
+                return None
 
-        # Check if it's a singleton with existing instance
-        if descriptor.instance is not None:
-            return descriptor.instance  # type: ignore[no-any-return]
+            # Check if it's a singleton with existing instance
+            if descriptor.instance is not None:
+                pop_resolution()  # Pop before returning successfully resolved service
+                return descriptor.instance  # type: ignore[no-any-return]
 
-        # Handle based on lifetime
-        if descriptor.lifetime == ServiceLifetime.SINGLETON:
-            # Check for cached singleton instance
-            if service_type in self._singleton_instances:
-                return self._singleton_instances[service_type]  # type: ignore[no-any-return]
+            # Handle based on lifetime
+            if descriptor.lifetime == ServiceLifetime.SINGLETON:
+                # Check for cached singleton instance
+                if service_type in self._singleton_instances:
+                    pop_resolution()  # Pop before returning successfully resolved service
+                    return self._singleton_instances[service_type]  # type: ignore[no-any-return]
 
-            # Create and cache singleton instance
-            instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
-            self._singleton_instances[service_type] = instance
-            return instance  # type: ignore[no-any-return]
+                # Create and cache singleton instance
+                instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+                self._singleton_instances[service_type] = instance
+                pop_resolution()  # Pop before returning successfully resolved service
+                return instance  # type: ignore[no-any-return]
 
-        elif descriptor.lifetime == ServiceLifetime.SCOPED:
-            if scope is None:
-                # Handle Mock objects which don't have __name__
-                type_name = getattr(service_type, "__name__", str(service_type))
-                raise RuntimeError(
-                    f"Cannot resolve scoped service {type_name} from root provider"
-                )
+            elif descriptor.lifetime == ServiceLifetime.SCOPED:
+                if scope is None:
+                    # Handle Mock objects which don't have __name__
+                    type_name = getattr(service_type, "__name__", str(service_type))
+                    if self._diagnostics:
+                        pop_resolution()  # Pop before raising error
+                        raise enrich_scoped_from_root_error(service_type)
+                    pop_resolution()  # Pop before raising error
+                    raise RuntimeError(
+                        f"Cannot resolve scoped service {type_name} from root provider"
+                    )
 
-            # Check for cached scoped instance
-            if service_type in scope._instances:
-                return scope._instances[service_type]  # type: ignore[no-any-return]
+                # Check for cached scoped instance
+                if service_type in scope._instances:
+                    pop_resolution()  # Pop before returning successfully resolved service
+                    return scope._instances[service_type]  # type: ignore[no-any-return]
 
-            # Create and cache scoped instance
-            instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
-            scope._instances[service_type] = instance
-            return instance  # type: ignore[no-any-return]
+                # Create and cache scoped instance
+                instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+                scope._instances[service_type] = instance
+                pop_resolution()  # Pop before returning successfully resolved service
+                return instance  # type: ignore[no-any-return]
 
-        else:  # TRANSIENT
-            return self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+            else:  # TRANSIENT
+                instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+                pop_resolution()  # Pop before returning successfully resolved service
+                return instance  # type: ignore[no-any-return]
+        except Exception:
+            # On any exception, pop before re-raising
+            pop_resolution()
+            raise
 
     def _create_instance(
         self, descriptor: ServiceDescriptor, scope: ServiceScope | None
     ) -> Any:
         """Create an instance of a service."""
-        # Use factory if provided
-        if descriptor.implementation_factory:
-            provider = scope.service_provider if scope else self
-            return descriptor.implementation_factory(provider)
-
-        # Otherwise, create instance of implementation type
-        impl_type = descriptor.implementation_type
-        if impl_type is None:
-            raise RuntimeError("Implementation type is None and no factory provided")
-
-        # Check if constructor needs service provider
+        service_type = descriptor.service_type
+        push_resolution(service_type)
         try:
-            signature = inspect.signature(impl_type)
-            has_provider_param = any(
-                param.name == "service_provider"
-                and param.annotation == IServiceProvider
-                for param in signature.parameters.values()
-            )
-        except (ValueError, TypeError):
-            has_provider_param = False
+            # Use factory if provided
+            if descriptor.implementation_factory:
+                provider = scope.service_provider if scope else self
+                try:
+                    return descriptor.implementation_factory(provider)
+                except Exception as e:
+                    if self._diagnostics:
+                        raise enrich_factory_error(service_type, e) from e
+                    raise
 
-        if has_provider_param:
-            provider = scope.service_provider if scope else self
-            return impl_type(service_provider=provider)
-        else:
-            return impl_type()
+            # Otherwise, create instance of implementation type
+            impl_type = descriptor.implementation_type
+            if impl_type is None:
+                error = RuntimeError(
+                    "Implementation type is None and no factory provided"
+                )
+                if self._diagnostics:
+                    raise enrich_factory_error(service_type, error) from error
+                raise error
+
+            # Check if constructor needs service provider
+            try:
+                signature = inspect.signature(impl_type)
+                has_provider_param = any(
+                    param.name == "service_provider"
+                    and param.annotation == IServiceProvider
+                    for param in signature.parameters.values()
+                )
+            except (ValueError, TypeError):
+                has_provider_param = False
+
+            try:
+                if has_provider_param:
+                    provider = scope.service_provider if scope else self
+                    return impl_type(service_provider=provider)
+                else:
+                    return impl_type()
+            except Exception as e:
+                if self._diagnostics:
+                    raise enrich_factory_error(service_type, e) from e
+                raise
+        finally:
+            pop_resolution()
 
 
 class ServiceCollection(IServiceCollection):
@@ -342,141 +387,28 @@ class ServiceCollection(IServiceCollection):
 
     def build_service_provider(self) -> IServiceProvider:
         """Build a service provider with the registered services."""
-        return ServiceProvider(self._descriptors.copy())
+        provider = ServiceProvider(self._descriptors.copy())
+        # Execute post-build hooks (handler registration, etc.)
+        try:
+            from src.core.di.provider_lifecycle import post_build_hooks
+
+            post_build_hooks(provider)
+        except Exception:
+            # Don't fail if hooks can't be executed (e.g., in tests)
+            pass
+        return provider
 
     def register_app_services(self) -> None:
-        from src.core.config.app_config import AppConfig
-        from src.core.domain.translators.defaults import (
-            ensure_default_translator_factories_registered,
-        )
-        from src.core.domain.translators.registry import (
-            TranslatorRegistry,
-            get_global_translator_registry,
-        )
-        from src.core.interfaces.usage_tracking_interface import (
-            IUsageTrackingService,  # type: ignore[import-untyped]
-        )
-        from src.core.services.app_settings_service import AppSettings
-        from src.core.services.application_state_service import (
-            ApplicationStateService,  # type: ignore[import-untyped]
-        )
-        from src.core.services.backend_factory import (
-            BackendFactory,  # type: ignore[import-untyped]
-        )
-        from src.core.services.backend_processor import (
-            BackendProcessor,  # type: ignore[import-untyped]
-        )
-        from src.core.services.backend_registry import (
-            BackendRegistry,  # type: ignore[import-untyped]
-            backend_registry,
-        )
-        from src.core.services.backend_request_manager_service import (
-            BackendRequestManager,  # type: ignore[import-untyped]
-        )
+        """Register all application services via registrar orchestration.
 
-        # Legacy CommandService removed - use NewCommandService from di/services.py
-        from src.core.services.content_rewriter_service import ContentRewriterService
-        from src.core.services.request_processor_service import RequestProcessor
-        from src.core.services.session_service import (
-            SessionService,  # type: ignore[import-untyped]
-        )
-        from src.core.services.translation_service import TranslationService
-        from src.core.services.usage_tracking_service import (
-            UsageTrackingService,  # type: ignore[import-untyped]
-        )
+        This legacy method delegates to the registrar orchestrator to ensure
+        consistent registration across all code paths and avoid drift.
+        """
+        from src.core.di.registrations._orchestrator import register_all
 
-        # Register all application services
-        self.add_singleton(IApplicationState, ApplicationStateService)
-        self.add_singleton(IAppSettings, AppSettings)
-
-        # Register AppConfig as singleton
-        self.add_singleton(
-            AppConfig, implementation_factory=lambda _: AppConfig.from_env()
-        )
-
-        def _translator_registry_factory(
-            provider: IServiceProvider,
-        ) -> TranslatorRegistry:
-            registry = get_global_translator_registry()
-            ensure_default_translator_factories_registered(registry)
-            return registry
-
-        self.add_singleton(
-            TranslatorRegistry, implementation_factory=_translator_registry_factory
-        )
-
-        self.add_singleton(TranslationService)
-
-        # Register BackendFactory with proper factory
-        import httpx
-
-        def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
-            """Create BackendFactory with all required dependencies."""
-            # Get endpoint registry if available (for health checks)
-            endpoint_registry = None
-            try:
-                from src.core.services.health.endpoint_registry import (
-                    EndpointRegistry,
-                )
-
-                endpoint_registry = provider.get_service(EndpointRegistry)
-            except Exception:
-                pass  # Health checks not enabled
-
-            return BackendFactory(  # noqa: DI-bypass
-                provider.get_required_service(httpx.AsyncClient),
-                provider.get_required_service(BackendRegistry),
-                provider.get_required_service(AppConfig),
-                provider.get_required_service(TranslationService),
-                endpoint_registry,
-            )
-
-        self.add_singleton(
-            BackendFactory, implementation_factory=_backend_factory_factory
-        )
-        # Use the global backend registry instance so that connector auto-
-        # registration (performed at import time) is visible to the DI
-        # container. Creating a new BackendRegistry here would yield an empty
-        # registry in scoped providers and break backend resolution.
-        self.add_instance(BackendRegistry, backend_registry)
-
-        def _usage_tracking_service_factory(
-            provider: IServiceProvider,
-        ) -> UsageTrackingService:
-            from src.core.database.repositories.usage_repository import (
-                SessionMetricsRepository,
-                UsageRecordRepository,
-            )
-
-            usage_repo = provider.get_required_service(UsageRecordRepository)
-            session_repo = provider.get_required_service(SessionMetricsRepository)
-            return UsageTrackingService(usage_repo, session_repo)
-
-        self.add_singleton(
-            IUsageTrackingService,
-            implementation_factory=_usage_tracking_service_factory,
-        )
-        self.add_singleton(ISessionService, SessionService)
-
-        # ICommandService registered in register_core_services()
-        def _content_rewriter_factory(
-            provider: IServiceProvider,
-        ) -> ContentRewriterService:
-            app_config = provider.get_required_service(AppConfig)
-            return ContentRewriterService(app_config=app_config)
-
-        self.add_singleton(
-            ContentRewriterService, implementation_factory=_content_rewriter_factory
-        )
-
-        self.add_scoped(IBackendProcessor, BackendProcessor)
-        self.add_scoped(IBackendRequestManager, BackendRequestManager)
-        self.add_scoped(IRequestProcessor, RequestProcessor)
-
-        # Register additional core services including ToolCallReactor
-        from src.core.di.services import register_core_services
-
-        register_core_services(self)
+        # Delegate to orchestrator which calls all registrars in deterministic order
+        # Use None for app_config to let registrars handle defaults
+        register_all(self, None)
 
     def register_singleton(
         self,

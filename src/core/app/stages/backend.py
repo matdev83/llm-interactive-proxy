@@ -73,10 +73,14 @@ class BackendStage(InitializationStage):
         # Validate static_route backend early - fail fast if invalid
         self._validate_static_route_backend(config)
 
-        self._register_backend_registry(services)
-        self._register_translation_service(services)
-        self._register_backend_factory(services)
-        self._register_backend_config_provider(services)
+        # Backend registrations are now handled by backend registrar
+        # Register backend services via registrar
+        from src.core.di.registrations import backend
+
+        backend.register(services, config)
+
+        # BackendService registration is handled by core registrar or this stage
+        # Check if already registered, if not register it here for backward compatibility
         self._register_backend_service(services)
 
         if logger.isEnabledFor(logging.INFO):
@@ -394,11 +398,13 @@ class BackendStage(InitializationStage):
                 resilience_coordinator: ResilienceCoordinator | None = (
                     provider.get_service(ResilienceCoordinator)
                 )
-                # Resolve failure handling strategy from DI or construct from config (Phase 4B)
-                from src.core.di.services import _resolve_failure_strategy
+                # Resolve failure handling strategy from DI or construct from config
+                from src.core.di.registration_helpers.failure_handling import (
+                    resolve_failure_strategy,
+                )
 
                 failure_handling_strategy: IFailureHandlingStrategy | None = (
-                    _resolve_failure_strategy(provider, app_config, routing_service)
+                    resolve_failure_strategy(provider, app_config, routing_service)
                 )
                 usage_tracking_service: IUsageTrackingService | None = (
                     provider.get_service(cast(type, IUsageTrackingService))

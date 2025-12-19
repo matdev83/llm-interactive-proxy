@@ -77,55 +77,20 @@ class ResponsesController:
         Returns:
             An HTTP response
         """
-        # Validate and normalize the incoming request payload
-        try:
-            responses_request = (
-                request_data
-                if isinstance(request_data, ResponsesRequest)
-                else ResponsesRequest.model_validate(request_data)
-            )
-            responses_request = cast(ResponsesRequest, responses_request)
-        except ValidationError as exc:
-            raise self._map_validation_error(exc) from exc
-
-        # Extract request metadata for logging
-        request_id = getattr(request.state, "request_id", None) or f"req-{id(request)}"
-        model = responses_request.model
-        response_format = responses_request.response_format
-        has_schema = bool(response_format and response_format.json_schema)
-
-        schema_name = None
-        if has_schema and response_format and response_format.json_schema:
-            json_schema = response_format.json_schema
-            schema_name = getattr(json_schema, "name", "unnamed")
-
-            # Perform comprehensive JSON schema validation
-            try:
-                self._validate_json_schema(json_schema.get_schema())
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"JSON schema validation passed - request_id={request_id}, schema_name={schema_name}"
-                    )
-            except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"JSON schema validation failed - request_id={request_id}, schema_name={schema_name}, error={e}"
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": {
-                            "message": f"Invalid JSON schema: {e!s}",
-                            "type": "invalid_schema",
-                            "code": "invalid_schema",
-                        }
-                    },
-                )
+        responses_request = self._parse_responses_request(request_data)
+        request_id = self._resolve_request_id(request)
+        has_schema, schema_name = self._validate_schema_if_present(
+            request_id=request_id,
+            responses_request=responses_request,
+        )
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Responses API request received - request_id={request_id}, model={model}, "
-                f"has_schema={has_schema}, schema_name={schema_name}"
+                "Responses API request received - request_id=%s, model=%s, has_schema=%s, schema_name=%s",
+                request_id,
+                responses_request.model,
+                has_schema,
+                schema_name,
             )
 
         try:
@@ -133,16 +98,12 @@ class ResponsesController:
             translation_service = self._translation_service
 
             # Log schema validation attempt if schema is present
-            if (
-                has_schema
-                and response_format
-                and response_format.json_schema
-                and logger.isEnabledFor(logging.DEBUG)
-            ):
-                logger.debug(
-                    f"Schema validation requested - request_id={request_id}, schema_name={schema_name}, "
-                    f"strict={getattr(response_format.json_schema, 'strict', True)}"
-                )
+            self._log_schema_validation_attempt(
+                request_id=request_id,
+                responses_request=responses_request,
+                has_schema=has_schema,
+                schema_name=schema_name,
+            )
 
             try:
                 domain_request = translation_service.to_domain_request(
@@ -159,60 +120,13 @@ class ResponsesController:
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 
-            # Convert FastAPI Request to RequestContext with typed fields populated
-            from src.core.domain.chat import CanonicalChatRequest
-
-            ctx = fastapi_to_domain_request_context(
-                request,
-                attach_original=True,
-                domain_request=cast(CanonicalChatRequest, domain_request),
+            ctx = self._build_request_context(
+                request=request,
+                domain_request=domain_request,
+                responses_request=responses_request,
+                request_id=request_id,
+                schema_name=schema_name,
             )
-
-            # Add schema information to context for structured output middleware
-            if (
-                hasattr(responses_request, "response_format")
-                and responses_request.response_format
-            ):
-                response_format = responses_request.response_format
-                if (
-                    hasattr(response_format, "json_schema")
-                    and response_format.json_schema
-                ):
-                    json_schema = response_format.json_schema
-                    # Add schema to context for middleware processing
-                    from src.core.domain.request_context import ProcessingContext
-
-                    if ctx.processing_context is None:
-                        ctx.processing_context = ProcessingContext(values={})
-                    schema_dict = json_schema.get_schema()
-                    if not isinstance(schema_dict, dict) or "type" not in schema_dict:
-                        raise HTTPException(
-                            status_code=400,
-                            detail={
-                                "error": {
-                                    "message": "Invalid JSON schema: missing 'type' field",
-                                    "type": "invalid_request_error",
-                                    "code": "invalid_schema",
-                                }
-                            },
-                        )
-
-                    ctx.processing_context.values.update(
-                        {
-                            "response_schema": schema_dict,
-                            "strict_schema_validation": getattr(
-                                json_schema, "strict", True
-                            ),
-                            "schema_name": getattr(json_schema, "name", "unknown"),
-                            "request_id": request_id,
-                        }
-                    )
-
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Schema context added to processing pipeline - request_id={request_id}, "
-                            f"schema_name={schema_name}, strict={getattr(json_schema, 'strict', True)}"
-                        )
             # Process the request using the request processor
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -474,6 +388,163 @@ class ResponsesController:
                         "code": "internal_error",
                     }
                 },
+            )
+
+    @staticmethod
+    def _resolve_request_id(request: Request) -> str:
+        return getattr(request.state, "request_id", None) or f"req-{id(request)}"
+
+    @staticmethod
+    def _parse_responses_request(
+        request_data: ResponsesRequest | dict[str, Any],
+    ) -> ResponsesRequest:
+        try:
+            responses_request = (
+                request_data
+                if isinstance(request_data, ResponsesRequest)
+                else ResponsesRequest.model_validate(request_data)
+            )
+            return cast(ResponsesRequest, responses_request)
+        except ValidationError as exc:
+            raise ResponsesController._map_validation_error(exc) from exc
+
+    def _validate_schema_if_present(
+        self, *, request_id: str, responses_request: ResponsesRequest
+    ) -> tuple[bool, str | None]:
+        response_format = responses_request.response_format
+        has_schema = bool(response_format and response_format.json_schema)
+        if not (has_schema and response_format and response_format.json_schema):
+            return False, None
+
+        json_schema = response_format.json_schema
+        schema_name = getattr(json_schema, "name", "unnamed")
+        try:
+            self._validate_json_schema(json_schema.get_schema())
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "JSON schema validation passed - request_id=%s, schema_name=%s",
+                    request_id,
+                    schema_name,
+                )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "JSON schema validation failed - request_id=%s, schema_name=%s, error=%s",
+                    request_id,
+                    schema_name,
+                    exc,
+                )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": f"Invalid JSON schema: {exc!s}",
+                        "type": "invalid_schema",
+                        "code": "invalid_schema",
+                    }
+                },
+            )
+
+        return True, schema_name
+
+    def _log_schema_validation_attempt(
+        self,
+        *,
+        request_id: str,
+        responses_request: ResponsesRequest,
+        has_schema: bool,
+        schema_name: str | None,
+    ) -> None:
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        if not has_schema:
+            return
+        response_format = responses_request.response_format
+        json_schema = (
+            getattr(response_format, "json_schema", None) if response_format else None
+        )
+        if json_schema is None:
+            return
+        logger.debug(
+            "Schema validation requested - request_id=%s, schema_name=%s, strict=%s",
+            request_id,
+            schema_name,
+            getattr(json_schema, "strict", True),
+        )
+
+    def _build_request_context(
+        self,
+        *,
+        request: Request,
+        domain_request: Any,
+        responses_request: ResponsesRequest,
+        request_id: str,
+        schema_name: str | None,
+    ) -> Any:
+        from src.core.domain.chat import CanonicalChatRequest
+
+        ctx = fastapi_to_domain_request_context(
+            request,
+            attach_original=True,
+            domain_request=cast(CanonicalChatRequest, domain_request),
+        )
+
+        self._attach_schema_context(
+            ctx=ctx,
+            responses_request=responses_request,
+            request_id=request_id,
+            schema_name=schema_name,
+        )
+        return ctx
+
+    def _attach_schema_context(
+        self,
+        *,
+        ctx: Any,
+        responses_request: ResponsesRequest,
+        request_id: str,
+        schema_name: str | None,
+    ) -> None:
+        response_format = getattr(responses_request, "response_format", None)
+        json_schema = (
+            getattr(response_format, "json_schema", None) if response_format else None
+        )
+        if json_schema is None:
+            return
+
+        from src.core.domain.request_context import ProcessingContext
+
+        if ctx.processing_context is None:
+            ctx.processing_context = ProcessingContext(values={})
+
+        schema_dict = json_schema.get_schema()
+        if not isinstance(schema_dict, dict) or "type" not in schema_dict:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": "Invalid JSON schema: missing 'type' field",
+                        "type": "invalid_request_error",
+                        "code": "invalid_schema",
+                    }
+                },
+            )
+
+        ctx.processing_context.values.update(
+            {
+                "response_schema": schema_dict,
+                "strict_schema_validation": getattr(json_schema, "strict", True),
+                "schema_name": getattr(json_schema, "name", "unknown"),
+                "request_id": request_id,
+            }
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Schema context added to processing pipeline - request_id=%s, schema_name=%s, strict=%s",
+                request_id,
+                schema_name,
+                getattr(json_schema, "strict", True),
             )
 
     @staticmethod

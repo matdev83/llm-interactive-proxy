@@ -271,6 +271,32 @@ class TestQwenOAuthConnectorUnit:
     @pytest.mark.asyncio
     async def test_chat_completions_streaming(self, connector, mock_client):
         """Test streaming chat completion."""
+        # Set up DI container with required streaming services
+        from src.core.di.container import ServiceCollection
+        from src.core.di.services import set_service_provider
+        from src.core.ports.streaming_processors import (
+            LoopDetectionProcessor,
+            ThinkTagsProcessor,
+            ToolCallRepairProcessor,
+        )
+        from src.core.services.streaming.stream_context_registry import (
+            StreamingContextRegistry,
+        )
+        from src.core.services.streaming.tool_call_repair_processor import (
+            ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
+        )
+        from src.core.services.tool_call_repair_service import ToolCallRepairService
+
+        services = ServiceCollection()
+        services.add_singleton(LoopDetectionProcessor)
+        services.add_singleton(ToolCallRepairProcessor)
+        services.add_singleton(ThinkTagsProcessor)
+        services.add_singleton(ToolCallRepairService)
+        services.add_singleton(StreamingContextRegistry)
+        services.add_singleton(ServiceToolCallRepairProcessor)
+        provider = services.build_service_provider()
+        set_service_provider(provider)
+
         # Set up connector state properly (simulate what initialize() would do)
         connector._oauth_credentials = {
             "access_token": "test-access-token",

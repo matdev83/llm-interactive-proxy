@@ -75,20 +75,23 @@ class SOLIDViolationDetector(ast.NodeVisitor):
 
     def __init__(self, file_path: str):
         self.file_path = file_path
+        normalized_path = file_path.replace("\\", "/")
         self.violations: list[ArchitecturalViolation] = []
-        self.is_domain_layer = "/domain/" in file_path
-        self.is_service_layer = "/services/" in file_path
-        self.is_interface_layer = "/interfaces/" in file_path
+        self.is_domain_layer = "/domain/" in normalized_path
+        self.is_service_layer = "/services/" in normalized_path
+        self.is_interface_layer = "/interfaces/" in normalized_path
         self.is_test_file = (
-            "/tests/" in file_path
-            or "test" in file_path.lower()
-            or file_path.endswith(("_test.py", "test_.py"))
-            or file_path.startswith("test_")
-            or "/test_" in file_path
-            or "conftest.py" in file_path
-            or "scripts/verify_gemini_antigravity_fixes.py" in file_path
+            "/tests/" in normalized_path
+            or "test" in normalized_path.lower()
+            or normalized_path.endswith(("_test.py", "test_.py"))
+            or normalized_path.startswith("test_")
+            or "/test_" in normalized_path
+            or "conftest.py" in normalized_path
+            or "scripts/verify_gemini_antigravity_fixes.py" in normalized_path
         )
-        self.is_di_registration_file = "services.py" in file_path or "di/" in file_path
+        self.is_di_registration_file = (
+            "services.py" in normalized_path or "/di/" in normalized_path
+        )
         self.current_class: str | None = None
         self.current_method: str | None = None
         self.imports: dict[str, str] = {}  # Track imports for later analysis

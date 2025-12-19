@@ -35,6 +35,17 @@ async def connector() -> AsyncIterator[OpenAICodexConnector]:
     reset_renderer_registry()
     client = httpx.AsyncClient()
     config = AppConfig()
+
+    # Register TranslationService before creating connector (required by connector DI)
+    from src.core.di.container import ServiceCollection
+    from src.core.di.registrations import backend
+    from src.core.di.services import set_service_provider
+
+    services = ServiceCollection()
+    backend.register(services, config)
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+
     instance = OpenAICodexConnector(client=client, config=config)
     try:
         yield instance

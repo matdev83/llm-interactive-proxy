@@ -1,11 +1,8 @@
-import contextlib
 from unittest.mock import MagicMock
 
+from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.di.services import (
-    _ensure_tool_call_reactor_services,
-    register_core_services,
-)
+from src.core.di.services import register_core_services
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
@@ -33,11 +30,12 @@ class TestDIIntegration:
     def test_extracted_services_registration(self):
         """Verify that all new services are registered in the DI container."""
         collection = ServiceCollection()
+        config = AppConfig()
 
         # Register dependencies required by some services
         collection.add_instance(BackendFactory, MagicMock(spec=BackendFactory))
 
-        register_core_services(collection)
+        register_core_services(collection, config)
         provider = collection.build_service_provider()
 
         # Check resolution of all new interfaces
@@ -67,14 +65,11 @@ class TestDIIntegration:
             ResilienceCoordinator, MagicMock(spec=ResilienceCoordinator)
         )
 
-        register_core_services(collection)
+        config = AppConfig()
+        register_core_services(collection, config)
         provider = collection.build_service_provider()
 
-        # Ensure we have required tool call services (handled by special helper usually)
-        with contextlib.suppress(Exception):
-            # If this fails (e.g. missing config), we might still proceed if basic services are there
-            provider = _ensure_tool_call_reactor_services(provider)
-
+        # All required services should be registered by register_core_services
         backend_service = provider.get_service(IBackendService)
         assert isinstance(backend_service, BackendService)
 

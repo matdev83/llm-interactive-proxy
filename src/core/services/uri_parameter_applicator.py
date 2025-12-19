@@ -80,240 +80,273 @@ class URIParameterApplicator(IURIParameterApplicator):
         session: Any | None,
     ) -> ChatRequest:
         """Internal method to apply URI parameters."""
-
-        def _coerce_parameter(name: str, value: Any) -> Any | None:
-            """Coerce parameter values into canonical types."""
-            if value is None:
-                return None
-
-            try:
-                if name in {"temperature", "top_p"}:
-                    return float(value)
-                if name == "top_k":
-                    if isinstance(value, float):
-                        if not value.is_integer():
-                            raise ValueError(f"{value!r} is not an integer value")
-                        return int(value)
-                    if isinstance(value, int):
-                        return value
-
-                    string_value = str(value).strip()
-                    float_value = float(string_value)
-                    if not float_value.is_integer():
-                        raise ValueError(f"{value!r} is not an integer value")
-                    return int(float_value)
-                if name == "reasoning_effort":
-                    return str(value)
-            except (TypeError, ValueError) as exc:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Failed to coerce raw value {value!r} to type for {name}: {exc}"
-                    )
-                return None
-
-            return value
-
-        def _assign_param(target: dict[str, Any], name: str, value: Any) -> None:
-            coerced = _coerce_parameter(name, value)
-            if coerced is not None:
-                target[name] = coerced
-
-        def _assign_from_obj(target: dict[str, Any], obj: Any, name: str) -> None:
-            if obj is None:
-                return
-            value = getattr(obj, name, None)
-            if value is not None:
-                _assign_param(target, name, value)
-
-        # Import validation and resolution services
-        from src.core.services.parameter_resolution_service import (
-            ParameterResolutionService,
-        )
-        from src.core.services.uri_parameter_validator import URIParameterValidator
-
-        # Validate and normalize URI parameters
-        try:
-            validator = URIParameterValidator()
-            normalized_uri_params, validation_errors = validator.validate_and_normalize(
-                uri_params
-            )
-
-            if validation_errors and logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"URI parameter validation errors for {backend_type}: "
-                    f"{', '.join(validation_errors)}. Invalid parameters excluded."
-                )
-        except Exception as validation_error:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Failed to validate URI parameters for {backend_type}: "
-                    f"{validation_error}. Continuing without URI parameters."
-                )
+        normalized_uri_params = self._validate_uri_params(uri_params, backend_type)
+        if normalized_uri_params is None:
             return request
 
-        # Extract parameters from other sources
-        # 1. Config parameters (from backend config or app config)
-        config_params: dict[str, Any] = {}
+        config_params = self._extract_config_params(backend_type)
+        header_params = self._extract_header_params(request, backend_type)
+        session_params = self._extract_session_params(session, backend_type)
+        self._apply_edit_precision_overrides(request, session_params)
+
+        resolved = self._resolve_parameters(
+            normalized_uri_params=normalized_uri_params,
+            header_params=header_params,
+            config_params=config_params,
+            session_params=session_params,
+            backend_type=backend_type,
+        )
+        if resolved is None:
+            return request
+
+        return self._apply_resolved_parameters(request, resolved, backend_type)
+
+    @staticmethod
+    def _coerce_parameter(name: str, value: Any) -> Any | None:
+        if value is None:
+            return None
+
         try:
-            if self._config:
-                from src.core.config.app_config import AppConfig
+            if name in {"temperature", "top_p"}:
+                return float(value)
+            if name == "top_k":
+                if isinstance(value, float):
+                    if not value.is_integer():
+                        raise ValueError(f"{value!r} is not an integer value")
+                    return int(value)
+                if isinstance(value, int):
+                    return value
 
-                app_config = cast(AppConfig, self._config)
-                backend_config = app_config.backends.get(backend_type)
-                if backend_config:
-                    for param_name in (
-                        "temperature",
-                        "top_p",
-                        "top_k",
-                        "reasoning_effort",
-                    ):
-                        _assign_from_obj(config_params, backend_config, param_name)
-
-                    extra_cfg = getattr(backend_config, "extra", None)
-                    if isinstance(extra_cfg, dict):
-                        for param_name in (
-                            "temperature",
-                            "top_p",
-                            "top_k",
-                            "reasoning_effort",
-                        ):
-                            if param_name in extra_cfg:
-                                _assign_param(
-                                    config_params, param_name, extra_cfg[param_name]
-                                )
-        except Exception as config_error:
+                string_value = str(value).strip()
+                float_value = float(string_value)
+                if not float_value.is_integer():
+                    raise ValueError(f"{value!r} is not an integer value")
+                return int(float_value)
+            if name == "reasoning_effort":
+                return str(value)
+        except (TypeError, ValueError) as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Failed to extract config parameters for {backend_type}: "
-                    f"{config_error}",
+                    "Failed to coerce raw value %r to type for %s: %s",
+                    value,
+                    name,
+                    exc,
+                )
+            return None
+
+        return value
+
+    @classmethod
+    def _assign_param(cls, target: dict[str, Any], name: str, value: Any) -> None:
+        coerced = cls._coerce_parameter(name, value)
+        if coerced is not None:
+            target[name] = coerced
+
+    @classmethod
+    def _assign_from_obj(cls, target: dict[str, Any], obj: Any, name: str) -> None:
+        if obj is None:
+            return
+        value = getattr(obj, name, None)
+        if value is not None:
+            cls._assign_param(target, name, value)
+
+    @staticmethod
+    def _param_names() -> tuple[str, ...]:
+        return ("temperature", "top_p", "top_k", "reasoning_effort")
+
+    def _validate_uri_params(
+        self, uri_params: dict[str, JsonValue], backend_type: str
+    ) -> dict[str, Any] | None:
+        from src.core.services.uri_parameter_validator import URIParameterValidator
+
+        try:
+            validator = URIParameterValidator()
+            normalized, errors = validator.validate_and_normalize(uri_params)
+            if errors and logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "URI parameter validation errors for %s: %s. Invalid parameters excluded.",
+                    backend_type,
+                    ", ".join(errors),
+                )
+            return normalized
+        except Exception as exc:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to validate URI parameters for %s: %s. Continuing without URI parameters.",
+                    backend_type,
+                    exc,
+                )
+            return None
+
+    def _extract_config_params(self, backend_type: str) -> dict[str, Any]:
+        config_params: dict[str, Any] = {}
+        try:
+            if not self._config:
+                return config_params
+
+            from src.core.config.app_config import AppConfig
+
+            app_config = cast(AppConfig, self._config)
+            backend_config = app_config.backends.get(backend_type)
+            if not backend_config:
+                return config_params
+
+            for param_name in self._param_names():
+                self._assign_from_obj(config_params, backend_config, param_name)
+
+            extra_cfg = getattr(backend_config, "extra", None)
+            if isinstance(extra_cfg, dict):
+                for param_name in self._param_names():
+                    if param_name in extra_cfg:
+                        self._assign_param(
+                            config_params, param_name, extra_cfg[param_name]
+                        )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract config parameters for %s: %s",
+                    backend_type,
+                    exc,
                     exc_info=True,
                 )
 
-        # 2. Header parameters (from request extra_body or headers)
+        return config_params
+
+    def _extract_header_params(
+        self, request: ChatRequest, backend_type: str
+    ) -> dict[str, Any]:
         header_params: dict[str, Any] = {}
         try:
             if request.extra_body:
-                for param_name in (
-                    "temperature",
-                    "top_p",
-                    "top_k",
-                    "reasoning_effort",
-                ):
+                for param_name in self._param_names():
                     if param_name in request.extra_body:
-                        _assign_param(
-                            header_params,
-                            param_name,
-                            request.extra_body[param_name],
+                        self._assign_param(
+                            header_params, param_name, request.extra_body[param_name]
                         )
 
-            for param_name in ("temperature", "top_p", "top_k", "reasoning_effort"):
+            for param_name in self._param_names():
                 value = getattr(request, param_name, None)
                 if value is not None:
-                    _assign_param(header_params, param_name, value)
-        except Exception as header_error:
+                    self._assign_param(header_params, param_name, value)
+        except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Failed to extract header parameters for {backend_type}: "
-                    f"{header_error}",
+                    "Failed to extract header parameters for %s: %s",
+                    backend_type,
+                    exc,
                     exc_info=True,
                 )
 
-        # 3. Session parameters (from session reasoning config)
-        session_params: dict[str, Any] = {}
-        if session is not None:
-            try:
-                reasoning_config = getattr(
-                    session, "get_reasoning_mode", lambda: None
-                )()
-                if reasoning_config is not None:
-                    for param_name in (
-                        "temperature",
-                        "top_p",
-                        "top_k",
-                        "reasoning_effort",
-                    ):
-                        _assign_from_obj(session_params, reasoning_config, param_name)
-            except Exception as session_error:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Failed to extract session parameters for {backend_type}: "
-                        f"{session_error}",
-                        exc_info=True,
-                    )
+        return header_params
 
-        # Apply one-shot overrides from edit-precision middleware
+    def _extract_session_params(
+        self, session: Any | None, backend_type: str
+    ) -> dict[str, Any]:
+        session_params: dict[str, Any] = {}
+        if session is None:
+            return session_params
+
+        try:
+            reasoning_config = getattr(session, "get_reasoning_mode", lambda: None)()
+            if reasoning_config is not None:
+                for param_name in self._param_names():
+                    self._assign_from_obj(session_params, reasoning_config, param_name)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract session parameters for %s: %s",
+                    backend_type,
+                    exc,
+                    exc_info=True,
+                )
+
+        return session_params
+
+    @staticmethod
+    def _apply_edit_precision_overrides(
+        request: ChatRequest, session_params: dict[str, Any]
+    ) -> None:
         try:
             extra_body = getattr(request, "extra_body", None)
-            if isinstance(extra_body, dict) and extra_body.get("_edit_precision_mode"):
-                if getattr(request, "temperature", None) is not None:
-                    session_params["temperature"] = request.temperature
-                if getattr(request, "top_p", None) is not None:
-                    session_params["top_p"] = request.top_p
-                if getattr(request, "top_k", None) is not None:
-                    session_params["top_k"] = request.top_k
-        except Exception as edit_precision_error:
+            if not (
+                isinstance(extra_body, dict) and extra_body.get("_edit_precision_mode")
+            ):
+                return
+            if getattr(request, "temperature", None) is not None:
+                session_params["temperature"] = request.temperature
+            if getattr(request, "top_p", None) is not None:
+                session_params["top_p"] = request.top_p
+            if getattr(request, "top_k", None) is not None:
+                session_params["top_k"] = request.top_k
+        except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Failed to apply edit-precision overrides: %s",
-                    edit_precision_error,
+                    exc,
                     exc_info=True,
                 )
 
-        # Resolve parameters using ParameterResolutionService
+    def _resolve_parameters(
+        self,
+        *,
+        normalized_uri_params: dict[str, Any],
+        header_params: dict[str, Any],
+        config_params: dict[str, Any],
+        session_params: dict[str, Any],
+        backend_type: str,
+    ) -> Any | None:
+        from src.core.services.parameter_resolution_service import (
+            ParameterResolutionService,
+        )
+
         try:
             resolution_service = ParameterResolutionService()
-            resolved = resolution_service.resolve_parameters(
+            return resolution_service.resolve_parameters(
                 uri_params=normalized_uri_params,
                 header_params=header_params,
                 config_params=config_params,
                 session_params=session_params,
                 backend=backend_type,
             )
-        except Exception as resolution_error:
+        except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to resolve parameters for {backend_type}: "
-                    f"{resolution_error}. Continuing without URI parameters."
+                    "Failed to resolve parameters for %s: %s. Continuing without URI parameters.",
+                    backend_type,
+                    exc,
                 )
-            return request
+            return None
 
-        # Apply resolved parameters to request
+    @staticmethod
+    def _apply_resolved_parameters(
+        request: ChatRequest, resolved: Any, backend_type: str
+    ) -> ChatRequest:
         try:
             resolved_params = resolved.to_dict()
-            if resolved_params:
-                updates: dict[str, Any] = {}
+            if not resolved_params:
+                return request
 
-                if "temperature" in resolved_params:
-                    updates["temperature"] = resolved_params["temperature"]
-                if "top_p" in resolved_params:
-                    updates["top_p"] = resolved_params["top_p"]
-                if "top_k" in resolved_params:
-                    updates["top_k"] = resolved_params["top_k"]
-                if "reasoning_effort" in resolved_params:
-                    updates["reasoning_effort"] = resolved_params["reasoning_effort"]
+            updates: dict[str, Any] = {}
+            for param_name in ("temperature", "top_p", "top_k", "reasoning_effort"):
+                if param_name in resolved_params:
+                    updates[param_name] = resolved_params[param_name]
 
-                # Also update extra_body
-                if request.extra_body:
-                    extra_body_dict = dict(request.extra_body)
-                else:
-                    extra_body_dict = {}
+            extra_body_dict = dict(request.extra_body) if request.extra_body else {}
+            extra_body_dict.update(resolved_params)
+            updates["extra_body"] = extra_body_dict
 
-                extra_body_dict.update(resolved_params)
-                updates["extra_body"] = extra_body_dict
-
-                request = request.model_copy(update=updates)
-
-                debug_info = resolved.get_debug_info()
-                if debug_info and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Applied URI parameters for {backend_type}: {debug_info}"
-                    )
-        except Exception as apply_error:
+            updated = request.model_copy(update=updates)
+            debug_info = resolved.get_debug_info()
+            if debug_info and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Applied URI parameters for %s: %s", backend_type, debug_info
+                )
+            return updated
+        except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to apply resolved parameters for {backend_type}: "
-                    f"{apply_error}. Continuing with original request."
+                    "Failed to apply resolved parameters for %s: %s. Continuing with original request.",
+                    backend_type,
+                    exc,
                 )
             return request
-
-        return request

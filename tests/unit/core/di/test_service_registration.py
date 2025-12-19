@@ -37,8 +37,16 @@ class TestServiceRegistration:
 
     def test_stream_normalizer_registration(self) -> None:
         """Test that IStreamNormalizer resolves to StreamNormalizer as a singleton."""
+        from src.core.config.app_config import AppConfig
+        from src.core.di.registrations import core, streaming, tooling
+
         services = ServiceCollection()
-        register_core_services(services)
+        config = AppConfig()
+        # Register core, tooling, and streaming services
+        # (StreamNormalizer is now in streaming registrar, but depends on tooling services)
+        core.register(services, config)
+        tooling.register(services, config)
+        streaming.register(services, config)
         provider = services.build_service_provider()
 
         # Resolve IStreamNormalizer
@@ -94,31 +102,32 @@ class TestServiceRegistration:
         # The collection should be empty initially (only descriptors dict exists)
         assert hasattr(collection, "_descriptors")
 
-    def test_get_service_provider_recovers_tool_call_services(
+    def test_get_service_provider_fails_fast_on_missing_services(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Ensure get_service_provider restores ToolCallReactor services if missing."""
-        import src.core.di.services as services_module
+        """Ensure get_service_provider fails fast instead of self-healing."""
+        from src.core.di import provider_lifecycle
 
         minimal_services = ServiceCollection()
-        monkeypatch.setattr(
-            services_module,
-            "_service_collection",
-            minimal_services,
-            raising=False,
-        )
         minimal_provider = minimal_services.build_service_provider()
-        services_module.set_service_provider(minimal_provider)
+        provider_lifecycle.set_service_provider(minimal_provider)
 
         from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
+        # Missing service should raise ServiceResolutionError
         with pytest.raises(ServiceResolutionError):
             minimal_provider.get_required_service(ToolCallReactorService)
 
-        recovered_provider = services_module.get_service_provider()
-        assert (
-            recovered_provider.get_required_service(ToolCallReactorService) is not None
-        )
+        # get_service_provider should return the provider as-is (no self-healing)
+        retrieved_provider = provider_lifecycle.get_service_provider()
+        assert retrieved_provider is minimal_provider
+
+        # Provider should still not have the service
+        assert retrieved_provider.get_service(ToolCallReactorService) is None
+
+        # Attempting to get it should still fail
+        with pytest.raises(ServiceResolutionError):
+            retrieved_provider.get_required_service(ToolCallReactorService)
 
     def test_response_processor_streaming_pipeline_setup(self) -> None:
         """

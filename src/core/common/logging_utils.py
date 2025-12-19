@@ -334,8 +334,9 @@ class ApiKeyRedactionFilter(logging.Filter):
         super().__init__()
         self.mask = mask
         keys = set(api_keys or [])
-        # Remove falsy values
-        keys = {k for k in keys if k}
+        # Remove falsy/short values: API keys are long, and very short "keys"
+        # (e.g., single characters) can cause catastrophic over-redaction in logs.
+        keys = {k for k in keys if isinstance(k, str) and len(k) >= 8}
         # Build list of compiled patterns: explicit keys and default token patterns
         self.patterns: list[re.Pattern] = []
         if keys:

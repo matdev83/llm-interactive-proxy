@@ -129,6 +129,13 @@ class OpenAIDictParser(IParserStrategy):
                     }:
                         is_done = True
 
+                    # Preserve terminal marker chunks even when they don't include
+                    # delta content (e.g., {"delta": {}, "finish_reason": "stop"}).
+                    # This prevents upstream filtering of "empty" chunks from dropping
+                    # finish_reason/usage metadata needed downstream.
+                    if not content and normalized_reason:
+                        content = raw_data
+
         # Capture top-level error from OpenAI-style error responses
         # This handles streaming error responses like rate limit errors
         # that have format: {"choices": [{"delta": {}, "finish_reason": "error"}], "error": {...}}
@@ -137,6 +144,7 @@ class OpenAIDictParser(IParserStrategy):
             # Also store the full error response as content for debugging
             if not content:
                 content = raw_data
+            is_done = True
 
         # Extract metadata fields
         if "id" in raw_data:

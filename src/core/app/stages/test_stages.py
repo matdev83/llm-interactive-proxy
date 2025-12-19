@@ -94,10 +94,16 @@ class MockBackendStage(BaseTestBackendStage):
         """Register mock backend services."""
         logger.info("Initializing mock backend services...")
 
+        # Register backend services (including TranslationService) via backend registrar
+        # This ensures TranslationService is available before we try to use it
+        from src.core.di.registrations import backend
+
+        backend.register(services, config)
+
         # Register mock backend config provider first
         self._register_backend_config_provider(services)
 
-        # Get translation service first (it should be registered by CoreServicesStage)
+        # Get translation service (now registered by backend registrar)
         provider = services.build_service_provider()
         translation_service: TranslationService = provider.get_required_service(
             TranslationService

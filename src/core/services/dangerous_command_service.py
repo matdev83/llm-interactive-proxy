@@ -208,3 +208,37 @@ class DangerousCommandService:
                 if rule.pattern.search(candidate):
                     return rule, original_command
         return None
+
+    def might_be_dangerous(self, tool_name: str, arguments: Any) -> bool:
+        """Fast pre-check for whether arguments contain a dangerous command.
+
+        This method is optimized for low overhead (used by can_handle) and avoids
+        iterating all rules. It relies on the combined pattern to indicate that
+        at least one rule *could* match.
+        """
+        normalized_tool_name = tool_name.lower() if isinstance(tool_name, str) else ""
+        if normalized_tool_name not in self._normalized_tool_names:
+            return False
+
+        command_to_check = self._extract_command_string(arguments)
+        if not command_to_check:
+            return False
+
+        if (
+            self._command_service
+            and hasattr(self._command_service, "is_safe_dev_tool_command")
+            and self._command_service.is_safe_dev_tool_command(command_to_check)
+        ):
+            return False
+
+        if len(command_to_check) > self.config.max_command_length:
+            command_to_check = command_to_check[: self.config.max_command_length]
+
+        normalized_for_detection = self._normalize_for_detection(command_to_check)
+        if _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection):
+            return True
+
+        stripped = self._strip_git_leading_options(normalized_for_detection)
+        return stripped != normalized_for_detection and bool(
+            _COMBINED_DANGEROUS_PATTERN.search(stripped)
+        )

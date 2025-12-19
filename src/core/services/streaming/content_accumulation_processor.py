@@ -55,214 +55,234 @@ class ContentAccumulationProcessor(IStreamProcessor):
         self._registry.reset_content_states()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
-        # Clean up stale states on each request to prevent memory leaks
         self._cleanup_stale_states()
 
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
+        self._reset_state_for_steering_replacement(content, state, stream_id)
 
-        # CRITICAL: Handle steering replacement - clear accumulated content
-        # This prevents steering responses from being appended to previous content
-        if (
+        openai_chunk = self._resolve_openai_chunk(content)
+        if openai_chunk is not None:
+            return self._process_openai_chunk(
+                content=content,
+                openai_chunk=openai_chunk,
+                stream_id=stream_id,
+                state=state,
+            )
+
+        return self._process_non_openai_chunk(
+            content=content,
+            stream_id=stream_id,
+            state=state,
+        )
+
+    @staticmethod
+    def _resolve_openai_chunk(content: StreamingContent) -> dict[str, Any] | None:
+        if isinstance(content.content, dict) and "choices" in content.content:
+            return content.content
+        if isinstance(content.raw_data, dict) and "choices" in content.raw_data:
+            return content.raw_data
+        return None
+
+    @staticmethod
+    def _reset_state_for_steering_replacement(
+        content: StreamingContent, state: StreamBufferState, stream_id: str
+    ) -> None:
+        if not (
             content.metadata
             and content.metadata.get("_steering_replacement")
             and (state.chunks or state.reasoning_chunks)
         ):
+            return
+
+        logger.debug(
+            "ContentAccumulationProcessor: Clearing %d accumulated chunks "
+            "for steering replacement, stream_id=%s",
+            len(state.chunks),
+            stream_id,
+        )
+        state.chunks.clear()
+        state.encoded_chunks.clear()
+        state.chunk_lengths.clear()
+        state.byte_length = 0
+        state.reasoning_chunks.clear()
+        state.metadata_snapshot.clear()
+        state.completed = False
+        state.has_sent_content = False
+
+    def _process_stop_chunk_with_usage(
+        self,
+        content: StreamingContent,
+        openai_chunk: dict[str, Any],
+        stream_id: str,
+        state: StreamBufferState,
+    ) -> StreamingContent:
+        from src.core.domain.usage_summary import UsageSummary
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        assert isinstance(openai_chunk, StopChunkWithUsage)
+
+        usage_info = openai_chunk.get("usage") or content.usage
+        output_metadata = dict(content.metadata or {})
+        if usage_info:
+            output_metadata["usage"] = usage_info
+
+        if state.chunks and not state.has_sent_content:
+            final_content = "".join(state.chunks)
+            if final_content:
+                logger.debug(
+                    "ContentAccumulationProcessor: Merging %d bytes of buffered content "
+                    "into StopChunkWithUsage, stream_id=%s",
+                    len(final_content),
+                    stream_id,
+                )
+                if "choices" not in openai_chunk:
+                    openai_chunk["choices"] = [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"}
+                    ]
+
+                choices = openai_chunk.get("choices")
+                if isinstance(choices, list) and choices:
+                    first_choice = choices[0]
+                    if isinstance(first_choice, dict):
+                        delta = first_choice.setdefault("delta", {})
+                        if isinstance(delta, dict):
+                            existing_content = delta.get("content", "")
+                            delta["content"] = existing_content + final_content
+
+                            if state.reasoning_chunks:
+                                final_reasoning = "".join(state.reasoning_chunks)
+                                existing_reasoning = delta.get("reasoning_content", "")
+                                delta["reasoning_content"] = (
+                                    existing_reasoning + final_reasoning
+                                )
+
+            state.chunks.clear()
+            state.encoded_chunks.clear()
+            state.chunk_lengths.clear()
+            state.byte_length = 0
+            state.reasoning_chunks.clear()
+            state.completed = True
+            self._registry.clear_content_state(stream_id)
+
+        logger.debug(
+            "ContentAccumulationProcessor: Passing through StopChunkWithUsage unchanged, "
+            "chunk_id=%s, has_usage=%s, stream_id=%s",
+            openai_chunk.get("id", "unknown"),
+            usage_info is not None,
+            stream_id,
+        )
+
+        usage_summary = None
+        if isinstance(usage_info, UsageSummary):
+            usage_summary = usage_info
+        elif isinstance(usage_info, dict):
+            usage_summary = UsageSummary.from_dict(usage_info)
+
+        return StreamingContent(
+            content=openai_chunk,
+            is_done=content.is_done,
+            is_cancellation=content.is_cancellation,
+            metadata=output_metadata,
+            usage=usage_summary,
+            raw_data=content.raw_data,
+        )
+
+    def _process_openai_chunk(
+        self,
+        content: StreamingContent,
+        openai_chunk: dict[str, Any],
+        stream_id: str,
+        state: StreamBufferState,
+    ) -> StreamingContent:
+        from src.core.domain.usage_summary import UsageSummary
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+        if isinstance(openai_chunk, StopChunkWithUsage):
+            return self._process_stop_chunk_with_usage(
+                content=content,
+                openai_chunk=openai_chunk,
+                stream_id=stream_id,
+                state=state,
+            )
+
+        choices = openai_chunk.get("choices", [])
+        usage_info = openai_chunk.get("usage") or content.usage
+
+        extracted_content = ""
+        if isinstance(choices, list) and choices:
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                delta = choice.get("delta", {})
+                if not isinstance(delta, dict):
+                    continue
+                delta_content = delta.get("content")
+                if isinstance(delta_content, str):
+                    extracted_content += delta_content
+
+        if extracted_content:
             logger.debug(
-                "ContentAccumulationProcessor: Clearing %d accumulated chunks "
-                "for steering replacement, stream_id=%s",
-                len(state.chunks),
+                "ContentAccumulationProcessor: Extracted text content, len=%d, stream_id=%s",
+                len(extracted_content),
                 stream_id,
+            )
+
+            encoded_content = extracted_content.encode("utf-8")
+            content_length = len(encoded_content)
+            state.chunks.append(extracted_content)
+            state.encoded_chunks.append(encoded_content)
+            state.chunk_lengths.append(content_length)
+            state.byte_length += content_length
+
+        if content.metadata:
+            merged_metadata = dict(state.metadata_snapshot)
+            merged_metadata.update(content.metadata)
+            state.metadata_snapshot = merged_metadata
+
+        output_metadata = dict(content.metadata or {})
+        if content.is_done or content.is_cancellation:
+            final_content = "".join(state.chunks)
+            output_metadata["accumulated_content"] = final_content
+            if state.reasoning_chunks:
+                output_metadata["accumulated_reasoning"] = "".join(
+                    state.reasoning_chunks
+                )
+            logger.debug(
+                "ContentAccumulationProcessor: Final accumulated content, "
+                "len=%d, stream_id=%s, has_reasoning=%s",
+                len(final_content),
+                stream_id,
+                bool(state.reasoning_chunks),
             )
             state.chunks.clear()
             state.encoded_chunks.clear()
             state.chunk_lengths.clear()
             state.byte_length = 0
             state.reasoning_chunks.clear()
-            state.metadata_snapshot.clear()
-            state.completed = False
-            state.has_sent_content = False
+            state.completed = True
+            self._registry.clear_content_state(stream_id)
 
-        # Handle OpenAI-format dict chunks specially - pass through for SSE output
-        # while accumulating the extracted text content for metadata
-        if isinstance(content.content, dict) and "choices" in content.content:
-            # CRITICAL: Check for StopChunkWithUsage FIRST - these must pass through
-            # completely unchanged without any content accumulation. StopChunkWithUsage
-            # contains usage data that must be preserved at the top level of the SSE
-            # output, not embedded in delta.content.
-            from src.core.ports.streaming_contracts import StopChunkWithUsage
+        state.has_sent_content = True
 
-            if isinstance(content.content, StopChunkWithUsage):
-                # Pass through StopChunkWithUsage unchanged - do NOT accumulate
-                # Preserve usage data in metadata for downstream processing
-                usage_info = content.content.get("usage") or content.usage
-                output_metadata = dict(content.metadata or {})
-                if usage_info:
-                    output_metadata["usage"] = usage_info
+        usage_summary = None
+        if isinstance(usage_info, UsageSummary):
+            usage_summary = usage_info
+        elif isinstance(usage_info, dict):
+            usage_summary = UsageSummary.from_dict(usage_info)
 
-                # FIX: If we have buffered content, merge it into the StopChunkWithUsage
-                # to ensure it's not lost. This happens when the stream ends with a
-                # StopChunkWithUsage but we have accumulated content (e.g. from SSE strings).
-                # NOTE: We must NOT merge if we have already sent the content (OpenAI pass-through mode).
-                if state.chunks and not state.has_sent_content:
-                    final_content = "".join(state.chunks)
-                    if final_content:
-                        logger.debug(
-                            "ContentAccumulationProcessor: Merging %d bytes of buffered content "
-                            "into StopChunkWithUsage, stream_id=%s",
-                            len(final_content),
-                            stream_id,
-                        )
-                        # Ensure structure exists
-                        if "choices" not in content.content:
-                            content.content["choices"] = [
-                                {"index": 0, "delta": {}, "finish_reason": "stop"}
-                            ]
+        return StreamingContent(
+            content=openai_chunk,
+            is_done=content.is_done,
+            is_cancellation=content.is_cancellation,
+            metadata=output_metadata,
+            usage=usage_summary,
+            raw_data=content.raw_data,
+        )
 
-                        choices = content.content["choices"]
-                        if choices and isinstance(choices, list):
-                            first_choice = choices[0]
-                            if isinstance(first_choice, dict):
-                                if "delta" not in first_choice:
-                                    first_choice["delta"] = {}
-                                delta = first_choice["delta"]
-                                if isinstance(delta, dict):
-                                    # Append to existing content or set it
-                                    existing_content = delta.get("content", "")
-                                    delta["content"] = existing_content + final_content
-
-                                    # Also merge reasoning if available
-                                    if state.reasoning_chunks:
-                                        final_reasoning = "".join(
-                                            state.reasoning_chunks
-                                        )
-                                        existing_reasoning = delta.get(
-                                            "reasoning_content", ""
-                                        )
-                                        delta["reasoning_content"] = (
-                                            existing_reasoning + final_reasoning
-                                        )
-
-                    # Clear state since we've consumed the buffer
-                    state.chunks.clear()
-                    state.encoded_chunks.clear()
-                    state.chunk_lengths.clear()
-                    state.byte_length = 0
-                    state.reasoning_chunks.clear()
-                    state.completed = True
-                    self._registry.clear_content_state(stream_id)
-
-                # Log StopChunkWithUsage pass-through at DEBUG level
-                logger.debug(
-                    "ContentAccumulationProcessor: Passing through StopChunkWithUsage "
-                    "unchanged, chunk_id=%s, has_usage=%s, stream_id=%s",
-                    content.content.get("id", "unknown"),
-                    usage_info is not None,
-                    stream_id,
-                )
-                from src.core.domain.usage_summary import UsageSummary
-
-                usage_summary = None
-                if isinstance(usage_info, UsageSummary):
-                    usage_summary = usage_info
-                elif isinstance(usage_info, dict):
-                    usage_summary = UsageSummary.from_dict(usage_info)
-                return StreamingContent(
-                    content=content.content,  # Keep original StopChunkWithUsage
-                    is_done=content.is_done,
-                    is_cancellation=content.is_cancellation,
-                    metadata=output_metadata,
-                    usage=usage_summary,
-                    raw_data=content.raw_data,
-                )
-
-            chunk_dict = content.content
-            choices = chunk_dict.get("choices", [])
-            usage_info = chunk_dict.get("usage") or content.usage
-
-            # Extract actual text content from choices[].delta.content for accumulation
-            extracted_content = ""
-            if choices and isinstance(choices, list):
-                for choice in choices:
-                    if isinstance(choice, dict):
-                        delta = choice.get("delta", {})
-                        if isinstance(delta, dict):
-                            delta_content = delta.get("content")
-                            if isinstance(delta_content, str):
-                                extracted_content += delta_content
-
-            # Log text content extraction at DEBUG level
-            if extracted_content:
-                logger.debug(
-                    "ContentAccumulationProcessor: Extracted text content, "
-                    "len=%d, stream_id=%s",
-                    len(extracted_content),
-                    stream_id,
-                )
-
-            # Accumulate extracted content (but don't modify the chunk for output)
-            if extracted_content:
-                encoded_content = extracted_content.encode("utf-8")
-                content_length = len(encoded_content)
-                state.chunks.append(extracted_content)
-                state.encoded_chunks.append(encoded_content)
-                state.chunk_lengths.append(content_length)
-                state.byte_length += content_length
-
-            # Merge metadata
-            if content.metadata:
-                merged_metadata = dict(state.metadata_snapshot)
-                merged_metadata.update(content.metadata)
-                state.metadata_snapshot = merged_metadata
-
-            # Build output metadata
-            output_metadata = dict(content.metadata or {})
-
-            # For final chunk, add accumulated content to metadata
-            if content.is_done or content.is_cancellation:
-                final_content = "".join(state.chunks)
-                output_metadata["accumulated_content"] = final_content
-                if state.reasoning_chunks:
-                    output_metadata["accumulated_reasoning"] = "".join(
-                        state.reasoning_chunks
-                    )
-                # Log final accumulated content at DEBUG level
-                logger.debug(
-                    "ContentAccumulationProcessor: Final accumulated content, "
-                    "len=%d, stream_id=%s, has_reasoning=%s",
-                    len(final_content),
-                    stream_id,
-                    bool(state.reasoning_chunks),
-                )
-                # Clear state
-                state.chunks.clear()
-                state.encoded_chunks.clear()
-                state.chunk_lengths.clear()
-                state.byte_length = 0
-                state.reasoning_chunks.clear()
-                state.completed = True
-                self._registry.clear_content_state(stream_id)
-
-            # Pass through the original OpenAI-format chunk unchanged for SSE output
-            # This ensures the client receives proper SSE chunks with choices/delta structure
-            state.has_sent_content = True
-            from src.core.domain.usage_summary import UsageSummary
-
-            usage_summary = None
-            if isinstance(usage_info, UsageSummary):
-                usage_summary = usage_info
-            elif isinstance(usage_info, dict):
-                usage_summary = UsageSummary.from_dict(usage_info)
-            return StreamingContent(
-                content=content.content,  # Keep original dict for SSE serialization
-                is_done=content.is_done,
-                is_cancellation=content.is_cancellation,
-                metadata=output_metadata,
-                usage=usage_summary,
-                raw_data=content.raw_data,
-            )
-
-        # Merge metadata so downstream processors have a holistic view
+    def _merge_metadata_snapshot(
+        self, state: StreamBufferState, content: StreamingContent, stream_id: str
+    ) -> None:
         if content.metadata:
             merged_metadata = dict(state.metadata_snapshot)
             merged_metadata.update(content.metadata)
@@ -273,12 +293,20 @@ class ContentAccumulationProcessor(IStreamProcessor):
         if stream_id and "stream_id" in state.metadata_snapshot:
             state.metadata_snapshot["stream_id"] = stream_id
 
-        def _build_metadata() -> dict[str, Any]:
-            if state.metadata_snapshot:
-                return dict(state.metadata_snapshot)
-            if content.metadata:
-                return dict(content.metadata)
-            return {}
+    @staticmethod
+    def _build_metadata_snapshot(
+        state: StreamBufferState, content: StreamingContent
+    ) -> dict[str, Any]:
+        if state.metadata_snapshot:
+            return dict(state.metadata_snapshot)
+        if content.metadata:
+            return dict(content.metadata)
+        return {}
+
+    def _process_non_openai_chunk(
+        self, content: StreamingContent, stream_id: str, state: StreamBufferState
+    ) -> StreamingContent:
+        self._merge_metadata_snapshot(state, content, stream_id)
 
         if state.completed:
             metadata_snapshot = dict(content.metadata or {})
@@ -294,21 +322,18 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 raw_data=content.raw_data,
             )
 
+        metadata_snapshot = self._build_metadata_snapshot(state, content)
         if content.is_empty and not content.is_done:
-            # Preserve metadata/usage even when the chunk has no text so downstream
-            # processors (e.g., usage accounting) still receive the updated values.
             return StreamingContent(
                 content="",
                 is_done=False,
                 is_cancellation=content.is_cancellation,
-                metadata=_build_metadata(),
+                metadata=metadata_snapshot,
                 usage=content.usage,
                 raw_data=content.raw_data,
             )
 
-        # Add content to buffer and update byte length incrementally
         raw_chunk = content.content
-        reasoning_value: str | None = None
         if content.metadata:
             reasoning_value = content.metadata.get(
                 "reasoning_content"
@@ -319,42 +344,35 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     state.reasoning_chunks.append(normalized_reasoning)
 
         if raw_chunk:
+            chunk_text = ""
             if isinstance(raw_chunk, bytes):
                 chunk_text = raw_chunk.decode("utf-8", errors="ignore")
             elif isinstance(raw_chunk, str):
                 chunk_text = raw_chunk
             else:
-                # Check for StopChunkWithUsage - don't accumulate usage chunks as content
                 from src.core.ports.streaming_contracts import StopChunkWithUsage
 
-                if isinstance(raw_chunk, StopChunkWithUsage):
-                    # Skip accumulating stop chunks with usage - they should be
-                    # passed through as-is for proper SSE serialization
-                    chunk_text = ""
-                else:
-                    # Use safe_json_dumps to handle StopChunkWithUsage correctly
-                    # (though we should never reach here for StopChunkWithUsage due to check above)
+                if not isinstance(raw_chunk, StopChunkWithUsage):
                     chunk_text = StopChunkWithUsage.safe_json_dumps(raw_chunk)
-            # OPTIMIZATION: Encode content ONCE and cache both string and bytes
-            encoded_content = chunk_text.encode("utf-8")
-            content_length = len(encoded_content)
 
-            state.chunks.append(chunk_text)
-            state.encoded_chunks.append(encoded_content)
-            state.chunk_lengths.append(content_length)
-            state.byte_length += content_length
+            if chunk_text:
+                encoded_content = chunk_text.encode("utf-8")
+                content_length = len(encoded_content)
+                state.chunks.append(chunk_text)
+                state.encoded_chunks.append(encoded_content)
+                state.chunk_lengths.append(content_length)
+                state.byte_length += content_length
 
-        # Enforce buffer size limit to prevent unbounded memory growth
         if state.byte_length > self._max_buffer_bytes:
             if not state.truncation_logged:
                 logger.warning(
-                    f"ContentAccumulationProcessor buffer exceeded {self._max_buffer_bytes} bytes "
-                    f"(current: {state.byte_length} bytes). Truncating to most recent content to prevent memory leak."
+                    "ContentAccumulationProcessor buffer exceeded %d bytes (current: %d bytes). "
+                    "Truncating to most recent content to prevent memory leak.",
+                    self._max_buffer_bytes,
+                    state.byte_length,
                 )
                 state.truncation_logged = True
 
-            # Remove chunks from the left until we're under the limit
-            # OPTIMIZATION: Use cached lengths instead of re-encoding
             while state.chunks and state.byte_length > self._max_buffer_bytes:
                 state.chunks.popleft()
                 state.encoded_chunks.popleft()
@@ -362,10 +380,8 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 state.byte_length -= removed_length
 
         if content.is_done or content.is_cancellation:
-            # OPTIMIZATION: Use cached string chunks for final assembly
-            # We could use cached bytes and decode, but string join is already optimal for this use case
             final_content = "".join(state.chunks)
-            metadata_out = _build_metadata()
+            metadata_out = metadata_snapshot
             tool_calls = metadata_out.get("tool_calls")
             if isinstance(tool_calls, list):
                 unique_calls: list[dict[str, Any]] = []
@@ -391,6 +407,7 @@ class ContentAccumulationProcessor(IStreamProcessor):
             if state.reasoning_chunks:
                 metadata_out["accumulated_reasoning"] = "".join(state.reasoning_chunks)
             metadata_out["accumulated_content"] = final_content
+
             state.chunks.clear()
             state.encoded_chunks.clear()
             state.chunk_lengths.clear()
@@ -399,8 +416,8 @@ class ContentAccumulationProcessor(IStreamProcessor):
             state.reasoning_chunks.clear()
             state.metadata_snapshot = dict(metadata_out)
             state.completed = True
-            if content.is_done or content.is_cancellation:
-                self._registry.clear_content_state(stream_id)
+            self._registry.clear_content_state(stream_id)
+
             return StreamingContent(
                 content=final_content,
                 is_done=True,
@@ -408,15 +425,15 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 usage=content.usage,
                 raw_data=content.raw_data,
             )
-        else:
-            interim_metadata = dict(content.metadata)
-            interim_metadata.pop("tool_calls", None)
-            return StreamingContent(
-                content="",
-                metadata=interim_metadata,
-                usage=content.usage,
-                raw_data=content.raw_data,
-            )
+
+        interim_metadata = dict(content.metadata)
+        interim_metadata.pop("tool_calls", None)
+        return StreamingContent(
+            content="",
+            metadata=interim_metadata,
+            usage=content.usage,
+            raw_data=content.raw_data,
+        )
 
     @staticmethod
     def _normalize_tool_call_arguments(arguments: Any) -> str:

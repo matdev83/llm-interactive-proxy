@@ -61,8 +61,9 @@ class DangerousCommandHandler(IToolCallHandler):
 
         # Use service to detect dangerous command from tool name and arguments
         try:
-            result = self._service.scan(tool_name, arguments)
-            return result is not None
+            if isinstance(self._service, DangerousCommandService):
+                return self._service.might_be_dangerous(tool_name, arguments)
+            return bool(self._service.scan(tool_name, arguments))
         except Exception:
             logger.warning(
                 "DangerousCommandHandler.can_handle failed to scan arguments",
@@ -91,10 +92,14 @@ class DangerousCommandHandler(IToolCallHandler):
             return ToolCallReactionResult(should_swallow=False)
 
         rule, command = scan_result
+        command_preview = command
+        if isinstance(command_preview, str) and len(command_preview) > 256:
+            command_preview = f"{command_preview[:256]}…"
         logger.warning(
-            "Intercepted a potentially dangerous command. Rule=%s, Command='%s'",
+            "Intercepted a potentially dangerous command. Rule=%s, Command='%s' (len=%d)",
             getattr(rule, "name", "unknown"),
-            command,
+            command_preview,
+            len(command) if isinstance(command, str) else 0,
         )
 
         return ToolCallReactionResult(

@@ -171,6 +171,54 @@ def get_tool_call_reactor_scope_files(base_path: Path | None = None) -> list[Pat
     return sorted(set(scope_files))
 
 
+def get_di_services_scope_files(base_path: Path | None = None) -> list[Path]:
+    """
+    Get all files in the DI services refactor scope.
+
+    Scope definition per design.md:
+    - src/core/di/services.py (facade)
+    - src/core/di/provider_lifecycle.py (lifecycle module)
+    - src/core/di/diagnostics.py (diagnostics module)
+    - src/core/di/registrations/**/*.py (all registrar modules, recursive)
+    - src/core/di/registration_helpers/**/*.py (all helper modules, recursive)
+
+    Args:
+        base_path: Base path for file discovery. Defaults to current directory.
+
+    Returns:
+        Sorted list of Path objects for files in scope.
+    """
+    if base_path is None:
+        base_path = Path(".")
+
+    # Define refactor scope modules per design.md specification
+    scope_patterns = [
+        "src/core/di/services.py",  # Facade
+        "src/core/di/provider_lifecycle.py",  # Lifecycle module
+        "src/core/di/diagnostics.py",  # Diagnostics module
+        "src/core/di/registrations/**/*.py",  # All registrar modules (recursive)
+        "src/core/di/registration_helpers/**/*.py",  # All helper modules (recursive)
+    ]
+
+    # Collect all files in scope
+    scope_files = []
+
+    for pattern in scope_patterns:
+        if "**" in pattern:
+            # Handle glob patterns (recursive)
+            for py_file in base_path.glob(pattern):
+                if "__pycache__" not in str(py_file) and py_file.suffix == ".py":
+                    scope_files.append(py_file)
+        else:
+            # Single file pattern
+            py_file = base_path / pattern
+            if py_file.exists() and py_file.suffix == ".py":
+                scope_files.append(py_file)
+
+    # Remove duplicates and sort
+    return sorted(set(scope_files))
+
+
 # Thresholds from requirements.md
 MAX_LOC = 600
 MAX_FUNCTION_CC = 50
@@ -395,6 +443,79 @@ def validate_tool_call_reactor_files(
     return violations, passed_count
 
 
+def validate_di_services_files(
+    scope_files: list[Path], base_path: Path
+) -> tuple[list[dict], int]:
+    """
+    Validate a list of files against DI services refactor thresholds.
+
+    Args:
+        scope_files: List of file paths to validate
+        base_path: Base path for relative path calculation
+
+    Returns:
+        Tuple of (violations list, passed count)
+    """
+    violations = []
+    passed_count = 0
+
+    for file_path in scope_files:
+        result = analyze_file(file_path)
+        if "error" in result:
+            violations.append(
+                {
+                    "file": str(file_path),
+                    "error": result["error"],
+                    "type": "analysis_error",
+                }
+            )
+            continue
+
+        file_violations = []
+        rel_path = str(file_path.relative_to(base_path))
+
+        # Check LOC threshold
+        if result["lines"] >= MAX_LOC:
+            file_violations.append(
+                f"LOC violation: {result['lines']} lines (threshold: < {MAX_LOC})"
+            )
+
+        # Check max function CC threshold
+        if result["max_complexity"] >= MAX_FUNCTION_CC:
+            file_violations.append(
+                f"Max function CC violation: {result['max_complexity']} "
+                f"(threshold: < {MAX_FUNCTION_CC})"
+            )
+            # Find the violating function
+            max_block = max(
+                result["complexity_blocks"],
+                key=lambda x: x["complexity"],
+                default=None,
+            )
+            if max_block:
+                file_violations.append(
+                    f"  Violating function: {max_block['type']} {max_block['name']} "
+                    f"(line {max_block['lineno']})"
+                )
+
+        if file_violations:
+            violations.append(
+                {
+                    "file": rel_path,
+                    "violations": file_violations,
+                    "metrics": {
+                        "lines": result["lines"],
+                        "max_complexity": result["max_complexity"],
+                        "total_complexity": result["total_complexity"],
+                    },
+                }
+            )
+        else:
+            passed_count += 1
+
+    return violations, passed_count
+
+
 def validate_tool_call_reactor_refactor_scope() -> int:
     """
     Validate complexity and LOC thresholds for tool-call-reactor refactor scope.
@@ -456,6 +577,67 @@ def validate_tool_call_reactor_refactor_scope() -> int:
         return 0
 
 
+def validate_di_services_refactor_scope() -> int:
+    """
+    Validate complexity and LOC thresholds for DI services refactor scope.
+
+    Checks all modules in the refactor scope against thresholds:
+    - LOC < 600 per file (Requirement 4.1)
+    - Max function CC < 50 (Requirement 4.2)
+
+    Returns:
+        0 if all thresholds pass, 1 if any violations found
+    """
+    base_path = Path(".")
+    scope_files = get_di_services_scope_files(base_path)
+
+    if not scope_files:
+        print("Warning: No files found in refactor scope")
+        return 1
+
+    print("=" * 100)
+    print("DI SERVICES REFACTOR SCOPE VALIDATION")
+    print("=" * 100)
+    print(f"\nChecking {len(scope_files)} files against thresholds:")
+    print(f"  - LOC per file: < {MAX_LOC}")
+    print(f"  - Max function CC: < {MAX_FUNCTION_CC}")
+    print()
+
+    violations, passed_count = validate_di_services_files(scope_files, base_path)
+
+    # Report results
+    if violations:
+        print("=" * 100)
+        print(f"VALIDATION FAILED: {len(violations)} file(s) with violations")
+        print("=" * 100)
+        print()
+
+        for violation in violations:
+            print(f"[FAIL] {violation['file']}")
+            if "error" in violation:
+                print(f"   Error: {violation['error']}")
+            else:
+                if "metrics" in violation:
+                    metrics = violation["metrics"]
+                    print(
+                        f"   Metrics: {metrics['lines']} lines, "
+                        f"max CC: {metrics['max_complexity']}, "
+                        f"total CC: {metrics['total_complexity']}"
+                    )
+                print("   Violations:")
+                for v in violation["violations"]:
+                    print(f"     - {v}")
+            print()
+
+        print(f"[PASS] Passed: {passed_count}/{len(scope_files)} files")
+        return 1
+    else:
+        print("=" * 100)
+        print(f"[PASS] VALIDATION PASSED: All {len(scope_files)} files meet thresholds")
+        print("=" * 100)
+        return 0
+
+
 def main():
     """Main function to analyze all Python files."""
     parser = argparse.ArgumentParser(
@@ -472,10 +654,19 @@ def main():
         action="store_true",
         help="Validate tool-call-reactor refactor scope against LOC/CC thresholds and exit",
     )
+    parser.add_argument(
+        "--validate-di-services-scope",
+        action="store_true",
+        help="Validate DI services refactor scope against LOC/CC thresholds and exit",
+    )
 
     args = parser.parse_args()
 
     # If validation mode requested, run validation and exit
+    if args.validate_di_services_scope:
+        exit_code = validate_di_services_refactor_scope()
+        sys.exit(exit_code)
+
     if args.validate_tool_call_reactor_scope:
         exit_code = validate_tool_call_reactor_refactor_scope()
         sys.exit(exit_code)

@@ -47,6 +47,19 @@ class TestQwenOAuthCredentialValidation:
         self, mock_client: httpx.AsyncClient, mock_config: AppConfig
     ) -> QwenOAuthConnector:
         """Create a QwenOAuthConnector instance for testing."""
+        # Register TranslationService before creating connector (required by connector DI)
+        from src.core.di.container import ServiceCollection
+        from src.core.di.registrations import backend
+
+        services = ServiceCollection()
+        backend.register(services, mock_config)
+        provider = services.build_service_provider()
+
+        # Set global provider so connector can resolve TranslationService
+        from src.core.di.services import set_service_provider
+
+        set_service_provider(provider)
+
         return QwenOAuthConnector(mock_client, mock_config)
 
     @pytest.fixture

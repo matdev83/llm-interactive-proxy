@@ -174,7 +174,15 @@ def get_backend_factory_service() -> BackendFactory:
     from src.core.di.services import get_service_collection
 
     services = get_service_collection()
-    translation = provider.get_service(TranslationService)
+    translation: TranslationService | None = None
+    provider_get_service = getattr(provider, "get_service", None)
+    if callable(provider_get_service):
+        translation = provider_get_service(TranslationService)
+    else:
+        try:
+            translation = provider.get_required_service(TranslationService)
+        except Exception:
+            translation = None
     if translation is not None:
         services.add_instance(TranslationService, translation)
 
@@ -206,44 +214,10 @@ def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
             logger.debug(
                 "BackendFactory not registered; attempting to resolve via global provider"
             )
-
-    # Try the existing global provider first
-    try:
-        from src.core.di.services import get_service_provider
-
-        global_provider = get_service_provider()
-    except Exception:
-        global_provider = None
-
-    if global_provider is not None and global_provider is not provider:
-        backend_factory = global_provider.get_service(BackendFactory)
-        if backend_factory is not None:
-            return backend_factory
-
-    # As a final fallback, rebuild the service provider via the global service collection
-    try:
-        from src.core.di.services import (
-            get_service_collection,
-            set_service_provider,
-        )
-    except ImportError as exc:  # pragma: no cover - defensive guard
-        raise InitializationError("DI services unavailable") from exc
-
-    services = get_service_collection()
-    fallback_provider = services.build_service_provider()
-    try:
-        set_service_provider(fallback_provider)
-    except Exception:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to promote fallback provider to global scope", exc_info=True
-            )
-
-    backend_factory = fallback_provider.get_service(BackendFactory)
-    if backend_factory is not None:
-        return backend_factory
-
-    raise InitializationError("BackendFactory unavailable after fallback resolution")
+    raise ServiceResolutionError(
+        "BackendFactory not registered in provider",
+        details={"service": "BackendFactory"},
+    )
 
 
 async def _list_models_impl(

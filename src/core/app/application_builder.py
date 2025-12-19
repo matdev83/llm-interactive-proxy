@@ -30,41 +30,53 @@ def _register_sandboxing_handler(
     """Register file sandboxing handler if enabled.
 
     Note: File sandboxing is now handled by the UnifiedToolSecurityHandler
-    which is automatically registered during reactor initialization.
-    This function now only logs the status for visibility.
+    which is registered via the security registrar (src/core/di/registrations/security.py).
+    Handler registration with ToolCallReactorService happens post-build via provider lifecycle hooks.
+
+    This function is kept for backward compatibility but no longer performs registration.
+    Security services are registered via the security registrar during DI setup.
 
     Args:
         config: Application configuration
         service_provider: Service provider for resolving dependencies
     """
-    # Skip if sandboxing is disabled
-    if not config.sandboxing.enabled:
+    sandboxing_cfg = getattr(config, "sandboxing", None)
+    if sandboxing_cfg is None or not getattr(sandboxing_cfg, "enabled", False):
         if logger.isEnabledFor(logging.INFO):
             logger.info("File access sandboxing: DISABLED")
         return
 
-    # Validate configuration
-    validation_errors = config.sandboxing.validate_configuration()
-    if validation_errors:
-        logger.error(
-            "File sandboxing configuration is invalid: %s", "; ".join(validation_errors)
-        )
-        logger.error("Sandboxing will be disabled due to invalid configuration")
+    try:
+        errors = sandboxing_cfg.validate_configuration()
+    except Exception as exc:
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "File access sandboxing configuration is invalid: %s",
+                exc,
+                exc_info=True,
+            )
+            logger.error("Sandboxing will be disabled")
         return
 
-    # Check if project directory resolution is enabled
-    if config.session.project_dir_resolution_mode == "disabled":
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "File sandboxing requires project directory resolution but "
-                "project directory resolution is DISABLED"
+    if errors:
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "File access sandboxing configuration is invalid: %s",
+                "; ".join(str(e) for e in errors),
             )
+            logger.error("Sandboxing will be disabled")
+        return
+
+    session_cfg = getattr(config, "session", None)
+    project_dir_resolution_mode = getattr(
+        session_cfg, "project_dir_resolution_mode", "auto"
+    )
+    if str(project_dir_resolution_mode).lower() == "disabled":
         if logger.isEnabledFor(logging.INFO):
+            logger.info("project directory resolution is DISABLED")
             logger.info("File access sandboxing status: DISABLED (dependency not met)")
         return
 
-    # File sandboxing is now handled by UnifiedToolSecurityHandler
-    # which is registered in the tool call reactor factory
     if logger.isEnabledFor(logging.INFO):
         logger.info("File access sandboxing: ENABLED (via UnifiedToolSecurityHandler)")
 
@@ -423,7 +435,10 @@ class ApplicationBuilder:
         # Register routes
         self._register_routes(app)
 
-        # Register file sandboxing handler
+        # Security services (including sandboxing) are now registered via
+        # the security registrar during DI setup. Handler registration with
+        # ToolCallReactorService happens post-build via provider lifecycle hooks.
+        # This call is kept for backward compatibility but does nothing.
         _register_sandboxing_handler(config, service_provider)
 
         # Register exception handlers

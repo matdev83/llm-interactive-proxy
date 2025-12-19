@@ -79,7 +79,12 @@ class ProcessedResponseParser(IParserStrategy):
             result.metadata = merged_metadata
             if usage is not None:
                 result.usage = usage
-            result.raw_data = raw_data
+            # Preserve the underlying raw payload captured by the inner parser.
+            # Overwriting raw_data with the ProcessedResponse wrapper breaks downstream
+            # processors that rely on provider payloads (e.g., OpenAI dicts) being
+            # available in raw_data for format detection.
+            if result.raw_data is None:
+                result.raw_data = raw_data
             # Preserve is_done if already True on result (e.g., from StopChunkWithUsage)
             # OR if outer metadata says is_done
             if result.is_done or bool(metadata.get("is_done")):
