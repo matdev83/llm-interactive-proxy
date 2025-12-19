@@ -11,7 +11,10 @@ import pytest
 
 # Layer definitions (top to bottom)
 LAYERS = {
-    "facade": ["src/connectors/hybrid.py"],
+    "facade": [
+        "src/connectors/hybrid.py",
+        "src/connectors/hybrid_backend/compatibility.py",
+    ],
     "orchestration": ["src/connectors/hybrid_backend/orchestration/"],
     "services": ["src/connectors/hybrid_backend/services/"],
     "infrastructure": ["src/connectors/hybrid_backend/infrastructure/"],
