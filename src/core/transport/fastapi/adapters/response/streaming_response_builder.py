@@ -42,11 +42,11 @@ class StreamingResponseBuilder:
         if envelope_content is None:
 
             async def empty_gen() -> AsyncIterator[bytes]:
-                # Empty async generator - yield never executes but makes it a generator type
-                # Using __debug__ to avoid vulture false positive on unsatisfiable condition
-                if not __debug__:
-                    yield b""  # Make it an async generator
+                # Empty async generator - the return statement with the iterator
+                # return type annotation makes this a valid async generator
                 return
+                # The yield is unreachable but required for type inference
+                yield b""  # pragma: no cover
 
             content: AsyncIterator[bytes] = empty_gen()
         else:

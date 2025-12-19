@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from typing import cast
 
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
 from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
@@ -71,15 +72,22 @@ async def integrate_streaming_pipeline(
     """
     processors: list[IStreamProcessor] = []
 
-    # Resolve processors explicitly via DI or create stateless instances directly.
-    # This avoids implicit fallback construction patterns (requirement 5.2).
-    from src.core.di.services import get_or_build_service_provider
+    # Lazy DI provider resolution - only fetch when needed.
+    # This avoids triggering DI build hooks on simple streaming calls that don't need DI.
+    _di_provider: IServiceProvider | None = None
 
-    di_provider = get_or_build_service_provider()
+    def _get_di_provider() -> IServiceProvider:
+        nonlocal _di_provider
+        if _di_provider is None:
+            from src.core.di.services import get_or_build_service_provider
+
+            _di_provider = get_or_build_service_provider()
+        return _di_provider
 
     # VTC Pre-processor: FIRST in pipeline (converts XML to internal format)
     # This processor requires DI dependencies (StreamingContextRegistry)
     if vtc_enabled:
+        di_provider = _get_di_provider()
         registry = di_provider.get_required_service(StreamingContextRegistry)
         processors.append(VTCPreProcessor(registry=registry))
         logger.debug("VTC pre-processor enabled for stream %s", stream_id)
@@ -90,6 +98,7 @@ async def integrate_streaming_pipeline(
 
     # Service-based tool call repair processor - requires DI dependencies
     if enable_tool_call_repair:
+        di_provider = _get_di_provider()
         repair_service = di_provider.get_service(ToolCallRepairService)
         if repair_service is not None:
             registry = di_provider.get_required_service(StreamingContextRegistry)
@@ -134,6 +143,7 @@ async def integrate_streaming_pipeline(
     # VTC Post-processor: LAST in pipeline (converts internal format back to XML)
     # This processor requires DI dependencies (StreamingContextRegistry)
     if vtc_enabled:
+        di_provider = _get_di_provider()
         registry = di_provider.get_required_service(StreamingContextRegistry)
         processors.append(VTCPostProcessor(registry=registry))
         logger.debug("VTC post-processor enabled for stream %s", stream_id)
