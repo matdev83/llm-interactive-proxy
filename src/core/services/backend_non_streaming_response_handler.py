@@ -276,10 +276,21 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             )
 
             # Delegate to coordinator
-            tool_call_retry_response: ResponseEnvelope | None = (
+            # Coordinator relies on ResponseEnvelope.metadata to detect swallowed tool calls.
+            # The signal may originate from middleware processing, so forward the merged metadata.
+            coordinator_response = ResponseEnvelope(
+                content=response.content,
+                metadata=metadata,
+                headers=response.headers,
+                status_code=response.status_code,
+                media_type=response.media_type,
+                usage=response.usage,
+            )
+
+            tool_call_retry_response = (
                 await self._tool_call_retry_coordinator.handle_non_streaming(
                     request=request,
-                    response=response,
+                    response=coordinator_response,
                     context=context,
                     retry_state=retry_state,
                 )
@@ -302,51 +313,40 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                 if retry_metadata.get(
                     "dangerous_command_limit_exceeded"
                 ) or retry_metadata.get("session_terminated"):
-                    # Terminal response - process once and return
-                    # Build middleware context for terminal response
-                    retry_middleware_context = build_middleware_context(
-                        processing_context=processing_context,
-                        request=request,
-                        response_envelope=tool_call_retry_response,
-                        request_context=context,
-                        is_streaming=False,
-                    )
-                    # Process terminal response
-                    terminal_processed = (
-                        await self._response_processor.process_response(
-                            tool_call_retry_response.content,
-                            processing_context.session_id,
-                            retry_middleware_context,
-                        )
-                    )
-                    # Merge metadata from ResponseEnvelope (coordinator sets terminal metadata there)
-                    # and ProcessedResponse (response processor may add metadata)
-                    merged_metadata = dict(tool_call_retry_response.metadata or {})
-                    merged_metadata.update(terminal_processed.metadata or {})
-                    # Filter metadata
-                    terminal_filtered_metadata = _filter_json_serializable_metadata(
-                        merged_metadata
-                    )
-                    # Ensure session_id is included in terminal metadata (requirement 9.2)
-                    if "session_id" not in terminal_filtered_metadata:
-                        terminal_filtered_metadata["session_id"] = (
-                            processing_context.session_id
-                        )
-                    return ResponseEnvelope(
-                        content=terminal_processed.content,
-                        metadata=terminal_filtered_metadata,
-                        usage=terminal_processed.usage,
-                        headers=tool_call_retry_response.headers,
-                        status_code=tool_call_retry_response.status_code,
-                        media_type=tool_call_retry_response.media_type,
-                    )
+                    # Terminal response - return as-is.
+                    # Terminal envelopes are already user-facing and contain the required metadata.
+                    return tool_call_retry_response
 
                 # Process retried response through full pipeline again
                 # Note: The coordinator should have marked the retry request with _tool_call_reactor_retry
                 # to prevent infinite recursion, but we check here as well for safety
+                # Continue recursion with an updated request that carries the incremented retry counters.
+                # This preserves monotonic retry counts across multiple swallowed responses.
+                updated_extra_body = dict(getattr(request, "extra_body", None) or {})
+                tool_call_retry_count_value = retry_metadata.get(
+                    "tool_call_reactor_retry_count", retry_state.retry_count
+                )
+                updated_extra_body["_tool_call_reactor_retry_count"] = (
+                    int(tool_call_retry_count_value)
+                    if isinstance(tool_call_retry_count_value, int | float | str)
+                    else retry_state.retry_count
+                )
+                dangerous_retry_count_value = retry_metadata.get(
+                    "dangerous_command_retry_count", retry_state.retry_count
+                )
+                updated_extra_body["_dangerous_command_retry_count"] = (
+                    int(dangerous_retry_count_value)
+                    if isinstance(dangerous_retry_count_value, int | float | str)
+                    else retry_state.retry_count
+                )
+                updated_extra_body["_tool_call_reactor_retry"] = True
+                next_request = request.model_copy(
+                    update={"extra_body": updated_extra_body}
+                )
+
                 return await self.handle(
                     response=tool_call_retry_response,
-                    request=request,
+                    request=next_request,
                     context=context,
                     processing_context=processing_context,
                 )

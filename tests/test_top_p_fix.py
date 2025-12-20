@@ -23,7 +23,10 @@ async def test_top_p_fix_with_actual_request() -> None:
     mock_backend_processor = MagicMock()
     mock_backend_processor.process_backend_request = AsyncMock()
     mock_response_processor = AsyncMock()
-    mock_response_processor.process_response = AsyncMock()
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
+    mock_response_processor.process_response = AsyncMock(
+        return_value=ProcessedResponse(content=None, metadata={})
+    )
     backend_request_manager = create_backend_request_manager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,

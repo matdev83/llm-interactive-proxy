@@ -28,4 +28,4 @@ def _configure_logging_for_tests() -> None:
 
     # Configure logging to a level that is visible but not too noisy
     # and ensure the environment tag is set to "test".
-    configure_logging_with_environment_tagging(level=logging.INFO)
+    configure_logging_with_environment_tagging(level=logging.DEBUG)

@@ -76,7 +76,7 @@ def create_backend_request_manager(
         mock_provider = MagicMock(spec=IServiceProvider)
         mock_provider.get_service = MagicMock(return_value=None)
         mock_provider.get_required_service = MagicMock(return_value=None)
-    
+
     # Ensure get_required_service is available even if mock_provider was passed but doesn't have it
     if not hasattr(mock_provider, "get_required_service"):
         mock_provider.get_required_service = MagicMock(return_value=None)
@@ -124,7 +124,7 @@ def create_backend_request_manager(
     # If config was passed in kwargs, use that instead
     if "config" in kwargs:
         manager_kwargs["config"] = kwargs["config"]
-    
+
     return BackendRequestManager(
         backend_processor=backend_processor,
         response_processor=response_processor,

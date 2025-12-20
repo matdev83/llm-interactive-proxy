@@ -284,6 +284,7 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
     from src.core.services.streaming.stream_context_registry import (
         StreamingContextRegistry,
     )
+
     # Alias for backward compatibility
     IProcessingStreamNormalizer = IStreamNormalizer
     from src.core.services.streaming.stream_normalizer import StreamNormalizer

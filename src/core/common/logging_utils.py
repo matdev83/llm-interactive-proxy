@@ -361,10 +361,40 @@ class ApiKeyRedactionFilter(logging.Filter):
         with contextlib.suppress(Exception):
             self.patterns.append(ZAI_KEY_PATTERN)
 
-    def _sanitize(self, obj: object) -> object:
-        """Recursively sanitize strings inside common containers."""
+    # Maximum recursion depth for sanitization to prevent stack overflow
+    _MAX_SANITIZE_DEPTH: int = 50
+
+    def _sanitize(
+        self, obj: object, *, _depth: int = 0, _seen: set[int] | None = None
+    ) -> object:
+        """Recursively sanitize strings inside common containers.
+
+        Args:
+            obj: Object to sanitize
+            _depth: Current recursion depth (internal use)
+            _seen: Set of object ids already visited (internal use)
+
+        Returns:
+            Sanitized object with API keys redacted
+        """
         if not self.patterns:
             return obj
+
+        # Prevent stack overflow from deeply nested structures
+        if _depth > self._MAX_SANITIZE_DEPTH:
+            return obj
+
+        # Track seen objects to prevent circular reference loops
+        if _seen is None:
+            _seen = set()
+
+        # Only track mutable containers that could have circular refs
+        obj_id = id(obj)
+        if isinstance(obj, dict | list):
+            if obj_id in _seen:
+                return obj  # Circular reference, return as-is
+            _seen.add(obj_id)
+
         if isinstance(obj, str):
             s = obj
             for pat in self.patterns:
@@ -378,9 +408,12 @@ class ApiKeyRedactionFilter(logging.Filter):
                     continue
             return s
         if isinstance(obj, dict):
-            return {k: self._sanitize(v) for k, v in obj.items()}
+            return {
+                k: self._sanitize(v, _depth=_depth + 1, _seen=_seen)
+                for k, v in obj.items()
+            }
         if isinstance(obj, list | tuple):
-            sanitized = [self._sanitize(v) for v in obj]
+            sanitized = [self._sanitize(v, _depth=_depth + 1, _seen=_seen) for v in obj]
             return type(obj)(sanitized)
         return obj
 

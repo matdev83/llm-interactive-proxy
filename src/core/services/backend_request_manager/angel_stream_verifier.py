@@ -69,7 +69,7 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 return value.decode("utf-8", errors="ignore")
         return str(value)
 
-    async def verify_or_passthrough(
+    async def verify_or_passthrough(  # type: ignore[override]
         self,
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
@@ -101,7 +101,10 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 angel_service_instance = self._angel_service_factory.create(
                     angel_model_spec
                 )
-                if angel_service_instance.is_enabled():
+                if (
+                    angel_service_instance is not None
+                    and angel_service_instance.is_enabled()
+                ):
                     should_buffer = True
             except Exception:
                 if logger.isEnabledFor(logging.WARNING):
@@ -144,9 +147,21 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
             if not angel_service_instance:
                 # Should not happen given the check above, but safe fallback
-                angel_service_instance = self._angel_service_factory.create(
+                created_instance = self._angel_service_factory.create(
                     angel_model_spec or ""
                 )
+                if created_instance is None:
+                    # Fail-open: return original chunks if service creation fails
+                    for buffered in buffered_chunks:
+                        yield buffered
+                    return
+                angel_service_instance = created_instance
+
+            # Type guard: ensure angel_service_instance is not None
+            if angel_service_instance is None:
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
 
             verification_request = angel_service_instance.build_verification_request(
                 request, combined_text

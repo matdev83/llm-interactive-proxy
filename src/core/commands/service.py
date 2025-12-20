@@ -152,7 +152,10 @@ class NewCommandService(ICommandService):
         command = parsed_command.command
         matched_text = parsed_command.matched_text
 
-        message = modified_messages[tail_segment.message_index]
+        # Create a copy of the message to avoid in-place modification of the original request
+        orig_message = modified_messages[tail_segment.message_index]
+        message = orig_message.model_copy()
+        modified_messages[tail_segment.message_index] = message
 
         handler_class = get_command_handler(command.name)
         if not handler_class:

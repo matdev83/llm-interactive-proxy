@@ -572,6 +572,12 @@ class TestDIContainerUsage:
                 and "core\\services\\backend_completion_flow\\service.py"
                 in v.get("file", "")
             )
+            and not (
+                # AngelServiceFactory creates AngelService instances as part of factory pattern
+                # This is intentional - factories are allowed to create instances
+                v.get("class_name") == "AngelService"
+                and "core\\services\\angel_service_factory.py" in v.get("file", "")
+            )
         ]
 
         # Expect no DI violations; if any appear, show a detailed report

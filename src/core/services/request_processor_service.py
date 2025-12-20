@@ -163,7 +163,16 @@ class RequestProcessor(IRequestProcessor):
             context, session_id, request_data, command_result
         )
         if backend_request is None:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Backend call skipped for session {session_id}; recording command interaction if applicable"
+                )
             # Backend should be skipped; command result is already the final result
+            # Record command execution in session history if one was executed
+            if command_result.command_executed:
+                await self._session_manager.record_command_in_session(
+                    request_data, session_id
+                )
             return await self._response_manager.process_command_result(
                 command_result, session
             )

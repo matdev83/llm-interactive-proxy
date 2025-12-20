@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
-from typing import cast
+from typing import Any, cast
 
 from pydantic.types import JsonValue
 
@@ -177,7 +177,222 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             },
         )
 
-    async def handle(
+    def _extract_retry_state(self, request: ChatRequest) -> tuple[int, bool]:
+        """Extract retry count and active flag from request.
+
+        Returns:
+            Tuple of (current_retry_count, reactor_retry_active)
+        """
+        extra_body = getattr(request, "extra_body", None)
+        current_retry_count = 0
+        if isinstance(extra_body, dict):
+            current_retry_count = extra_body.get("_tool_call_reactor_retry_count", 0)
+            legacy_count = extra_body.get("_dangerous_command_retry_count", 0)
+            if isinstance(legacy_count, int) and legacy_count > current_retry_count:
+                current_retry_count = legacy_count
+
+        reactor_retry_active = bool(
+            isinstance(extra_body, dict) and extra_body.get("_tool_call_reactor_retry")
+        )
+        return current_retry_count, reactor_retry_active
+
+    def _extract_angel_config(self, context: RequestContext) -> tuple[str | None, int]:
+        """Extract Angel configuration from context.
+
+        Returns:
+            Tuple of (angel_model_spec, angel_frequency)
+        """
+        angel_model_spec: str | None = None
+        angel_frequency: int = 1
+        try:
+            app_state = getattr(context, "app_state", None)
+            if app_state is not None:
+                cfg = app_state.get_setting("app_config")
+                session_cfg = getattr(cfg, "session", None)
+                if session_cfg:
+                    angel_model_spec = getattr(session_cfg, "angel_model", None)
+                    angel_frequency = getattr(session_cfg, "angel_frequency", 1)
+        except Exception:
+            pass
+        return angel_model_spec, angel_frequency
+
+    def _wrap_with_middleware(
+        self,
+        original_stream: AsyncIterator[ProcessedResponse],
+        processing_context: ResponseProcessingContext,
+        middleware_context: dict[str, Any],
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Wrap stream with response processor middleware with fail-open behavior."""
+        try:
+            return self._response_processor.process_streaming_response(
+                original_stream,
+                processing_context.session_id,
+                context=middleware_context,
+            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Streaming middleware failed for session %s: %s",
+                    processing_context.session_id,
+                    e,
+                    exc_info=True,
+                )
+            return original_stream
+
+    def _create_loop_detector(self, session_id: str) -> ILoopDetector | None:
+        """Create loop detector with fail-open behavior."""
+        try:
+            return self._loop_detector_factory.create()
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to create loop detector for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+            return None
+
+    async def _apply_angel_verification(
+        self,
+        request: ChatRequest,
+        processed_stream: AsyncIterator[ProcessedResponse],
+        processing_context: ResponseProcessingContext,
+        middleware_context: dict[str, Any],
+        angel_model_spec: str | None,
+        angel_frequency: int,
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Apply Angel verification with fail-open behavior."""
+        streaming_context: StreamingContext = {
+            "session_id": processing_context.session_id,
+            "stream_id": middleware_context.get(
+                "stream_id", processing_context.session_id
+            ),
+            "angel_model_spec": angel_model_spec,
+            "angel_frequency": angel_frequency,
+        }
+
+        try:
+            # verify_or_passthrough is an async generator, returns AsyncIterator directly
+            verified_stream = self._angel_stream_verifier.verify_or_passthrough(
+                request=request,
+                stream=processed_stream,
+                context=streaming_context,
+            )
+            return verified_stream
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Angel verification failed for session %s, using original stream",
+                    processing_context.session_id,
+                    exc_info=True,
+                )
+            return processed_stream
+
+    async def _handle_tool_call_swallowed_stream(
+        self,
+        chunk: ProcessedResponse,
+        request: ChatRequest,
+        context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> AsyncIterator[ProcessedResponse] | None:
+        """Handle tool-call swallowed detection and retry coordination.
+
+        Returns:
+            AsyncIterator of retried chunks if retry occurred, None otherwise
+        """
+        metadata = getattr(chunk, "metadata", {}) or {}
+        current_retry_count, reactor_retry_active = self._extract_retry_state(request)
+
+        # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
+        if reactor_retry_active and current_retry_count < 3:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Streaming: Skipping tool-call retry (marker present, count=%d) for session %s",
+                    current_retry_count,
+                    processing_context.session_id,
+                )
+            return None
+
+        # Check if limit exceeded
+        if reactor_retry_active and current_retry_count >= 3:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Streaming: Tool call retry limit exceeded for session %s",
+                    processing_context.session_id,
+                    exc_info=True,
+                )
+            terminal_metadata: dict[str, JsonValue] = {
+                "dangerous_command_limit_exceeded": True,
+                "dangerous_command_retry_count": current_retry_count + 1,
+                "tool_call_reactor_retry_count": current_retry_count + 1,
+                "session_terminated": True,
+                "is_done": True,
+                "finish_reason": "security_limit",
+                "_steering_replacement": True,
+                "session_id": processing_context.session_id,
+            }
+
+            async def terminal_chunk() -> AsyncIterator[ProcessedResponse]:
+                yield ProcessedResponse(
+                    content="[Proxy Steering - Session Terminated]\n\n"
+                    "This session has been terminated due to repeated attempts "
+                    "to perform blocked tool calls.",
+                    metadata=terminal_metadata,
+                )
+
+            return terminal_chunk()
+
+        # Delegate to coordinator
+        try:
+            from src.core.domain.backend_request_manager.context_models import (
+                ToolCallRetryState,
+            )
+            from src.core.domain.responses import ResponseEnvelope
+
+            response_envelope = ResponseEnvelope(
+                content=chunk.content,
+                metadata=metadata,
+            )
+
+            retry_state = ToolCallRetryState(
+                retry_count=current_retry_count,
+                max_retries=3,
+                steering_message=None,
+                is_streaming=True,
+            )
+
+            retry_result = await self._tool_call_retry_coordinator.handle_streaming(
+                request=request,
+                response=response_envelope,
+                context=context,
+                retry_state=retry_state,
+            )
+
+            if retry_result is not None and retry_result.content is not None:
+
+                async def retry_chunks() -> AsyncIterator[ProcessedResponse]:
+                    if retry_result.content is None:
+                        return
+                    async for retry_chunk in retry_result.content:
+                        retry_meta = dict(retry_chunk.metadata or {})
+                        retry_meta["_steering_replacement"] = True
+                        yield ProcessedResponse(
+                            content=retry_chunk.content,
+                            metadata=retry_meta,
+                            usage=retry_chunk.usage,
+                        )
+
+                return retry_chunks()
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Tool-call retry coordination failed for session %s",
+                    processing_context.session_id,
+                    exc_info=True,
+                )
+        return None
+
+    async def handle(  # noqa: C901
         self,
         stream: StreamingResponseEnvelope,
         request: ChatRequest,
@@ -217,79 +432,25 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         )
 
         # Extract Angel config from context if available
-        angel_model_spec: str | None = None
-        angel_frequency: int = 1
-        try:
-            app_state = getattr(context, "app_state", None)
-            if app_state is not None:
-                cfg = app_state.get_setting("app_config")
-                session_cfg = getattr(cfg, "session", None)
-                if session_cfg:
-                    angel_model_spec = getattr(session_cfg, "angel_model", None)
-                    angel_frequency = getattr(session_cfg, "angel_frequency", 1)
-        except Exception:
-            pass
+        angel_model_spec, angel_frequency = self._extract_angel_config(context)
 
         # Wrap stream with response processor middleware
-        try:
-            processed_stream = self._response_processor.process_streaming_response(
-                original_stream,
-                processing_context.session_id,
-                context=middleware_context,
-            )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Streaming middleware failed for session %s: %s",
-                    processing_context.session_id,
-                    e,
-                    exc_info=True,
-                )
-            # Fail-open: continue with original stream
-            processed_stream = original_stream
+        processed_stream = self._wrap_with_middleware(
+            original_stream, processing_context, middleware_context
+        )
 
         # Create loop detector
-        loop_detector: ILoopDetector | None = None
-        try:
-            loop_detector = self._loop_detector_factory.create()
-        except Exception:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to create loop detector for session %s",
-                    processing_context.session_id,
-                    exc_info=True,
-                )
+        loop_detector = self._create_loop_detector(processing_context.session_id)
 
         # Wrap with Angel verification if enabled
-        streaming_context: StreamingContext = {
-            "session_id": processing_context.session_id,
-            "stream_id": middleware_context.get(
-                "stream_id", processing_context.session_id
-            ),
-            "angel_model_spec": angel_model_spec,
-            "angel_frequency": angel_frequency,
-        }
-
-        try:
-            verified_result = self._angel_stream_verifier.verify_or_passthrough(
-                request=request,
-                stream=processed_stream,
-                context=streaming_context,
-            )
-            # verify_or_passthrough is an async generator, so it returns an async iterator directly
-            # But if it's a coroutine (from mock), await it
-            if asyncio.iscoroutine(verified_result):
-                verified_stream = await verified_result
-            else:
-                verified_stream = verified_result
-        except Exception:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Angel verification failed for session %s, using original stream",
-                    processing_context.session_id,
-                    exc_info=True,
-                )
-            verified_stream = processed_stream
+        verified_stream = await self._apply_angel_verification(
+            request,
+            processed_stream,
+            processing_context,
+            middleware_context,
+            angel_model_spec,
+            angel_frequency,
+        )
 
         # Process stream with loop detection, tool-call retry, and empty-stream recovery
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
@@ -324,6 +485,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         isinstance(extra_body, dict)
                         and extra_body.get("_tool_call_reactor_retry")
                     )
+
+                    # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
+                    if reactor_retry_active and current_retry_count < 3:
+                        # Retry marker present but below limit - skip retry to prevent loops
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Streaming: Skipping tool-call retry (marker present, count=%d) for session %s",
+                                current_retry_count,
+                                processing_context.session_id,
+                            )
+                        # Continue with original chunk (no retry)
+                        yield chunk
+                        continue
 
                     # Check if limit exceeded before delegating
                     if (
@@ -417,7 +591,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                                     cancel_callback = stream.cancel_callback
                                     if cancel_callback is not None:
                                         try:
-                                            if isinstance(cancel_callback, Callable):
+                                            if isinstance(cancel_callback, Callable):  # type: ignore[arg-type]
                                                 if asyncio.iscoroutinefunction(
                                                     cancel_callback
                                                 ):

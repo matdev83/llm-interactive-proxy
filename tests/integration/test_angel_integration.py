@@ -124,18 +124,17 @@ def _make_context(config: AppConfig) -> RequestContext:
     )
 
 
-def _patch_provider(
-    monkeypatch: pytest.MonkeyPatch, backend_service: _FakeBackendService
-) -> None:
+def _make_mock_provider(backend_service: _FakeBackendService) -> Any:
+    """Create a mock provider that returns the fake backend service."""
+
     class _Provider:
         def get_required_service(self, _type: Any) -> _FakeBackendService:
             return backend_service
 
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider",
-        lambda: _Provider(),
-        raising=False,
-    )
+        def get_service(self, _type: Any) -> _FakeBackendService | None:
+            return backend_service
+
+    return _Provider()
 
 
 @pytest.mark.asyncio
@@ -149,15 +148,25 @@ async def test_angel_integration_non_streaming_correction(
 
     response_processor = _make_response_processor(config)
     backend_service = _FakeBackendService(corrected_text="Corrected response")
-    _patch_provider(monkeypatch, backend_service)
+    mock_provider = _make_mock_provider(backend_service)
+
+    # Patch get_service_provider for ResponseProcessor._apply_angel_verification
+    # The function is imported from src.core.di.services at call time
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider",
+        lambda: mock_provider,
+    )
 
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
 
     manager = create_backend_request_manager(
-        backend_processor=cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
+        backend_processor=cast(
+            IBackendProcessor, _StubBackendProcessor(_response_factory)
+        ),
         response_processor=response_processor,
+        mock_provider=mock_provider,
     )
 
     original_request = ChatRequest(
@@ -182,9 +191,7 @@ async def test_angel_integration_non_streaming_correction(
 
 
 @pytest.mark.asyncio
-async def test_angel_integration_streaming_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_angel_integration_streaming_override() -> None:
     config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
 
     async def _stream() -> AsyncIterator[ProcessedResponse]:
@@ -200,15 +207,18 @@ async def test_angel_integration_streaming_override(
         steering_message="Check your math",
         override=True,
     )
-    _patch_provider(monkeypatch, backend_service)
+    mock_provider = _make_mock_provider(backend_service)
 
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
 
     manager = create_backend_request_manager(
-        backend_processor=cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
+        backend_processor=cast(
+            IBackendProcessor, _StubBackendProcessor(_response_factory)
+        ),
         response_processor=response_processor,
+        mock_provider=mock_provider,
     )
 
     original_request = ChatRequest(

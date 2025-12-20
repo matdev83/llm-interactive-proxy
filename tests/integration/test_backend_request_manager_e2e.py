@@ -654,7 +654,7 @@ class TestToolCallRetryLimits:
 
         response = await backend_request_manager.process_backend_request(
             backend_request=request,
-            session_id="test-session-retry-count",
+            session_id="test-session",
             context=context,
         )
 
@@ -671,7 +671,7 @@ class TestToolCallRetryLimits:
         assert response.content == "Retry successful"
 
         # Verify session_id is present (Req 9.2)
-        assert metadata.get("session_id") == "test-session-retry-count"
+        assert metadata.get("session_id") == "test-session"
 
     @pytest.mark.asyncio
     async def test_original_request_removed_from_non_streaming_metadata(

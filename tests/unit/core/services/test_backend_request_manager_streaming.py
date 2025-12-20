@@ -221,11 +221,17 @@ async def test_streaming_retry_skipped_when_retry_marker_present() -> None:
         response_processor=response_processor,
     )
 
+    # Create request with retry marker to prevent retry
+    # Note: The retry marker alone doesn't prevent retry if limit is exceeded
+    # To test loop prevention, we need a retry marker WITHOUT exceeding the limit
     flagged_request = ChatRequest(
         model="gemini",
         messages=[ChatMessage(role="user", content="continue")],
         stream=True,
-        extra_body={"_tool_call_reactor_retry": True},
+        extra_body={
+            "_tool_call_reactor_retry": True,
+            "_tool_call_reactor_retry_count": 1,  # Below limit, so retry should be skipped
+        },
     )
 
     async def original_stream():

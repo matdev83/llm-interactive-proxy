@@ -67,6 +67,10 @@ class SessionManager(ISessionManager):
         self, request_data: ChatRequest, session_id: str
     ) -> None:
         """Record a command-only request in the session history."""
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"SessionManager.record_command_in_session called for session {session_id}"
+            )
         session = await self._session_service.get_session(session_id)
 
         def _extract_role_and_content(
@@ -77,6 +81,10 @@ class SessionManager(ISessionManager):
             from typing import Any, cast
 
             msg_any = cast(Any, message)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Extracting role/content from {type(msg_any).__name__}: {msg_any}"
+                )
             # Pydantic models expose model_dump
             if hasattr(msg_any, "model_dump") and callable(msg_any.model_dump):
                 try:
@@ -109,7 +117,16 @@ class SessionManager(ISessionManager):
                 )
                 last_prompt = None
 
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Recording command in session {session_id}: raw_prompt='{raw_prompt}', last_prompt='{last_prompt}'"
+                )
+
             if last_prompt != raw_prompt:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Adding new interaction to session {session_id} (history size before: {len(session.history)})"
+                    )
                 session.add_interaction(
                     SessionInteraction(
                         prompt=raw_prompt,
@@ -127,6 +144,10 @@ class SessionManager(ISessionManager):
                     )
                 )
                 await self._session_service.update_session(session)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Interaction added to session {session_id} (history size after: {len(session.history)})"
+                    )
 
     async def update_session_history(
         self,

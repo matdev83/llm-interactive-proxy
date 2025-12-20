@@ -397,8 +397,10 @@ async def test_streaming_xml_content_passes_through_unchanged() -> None:
         yield ProcessedResponse(content="", metadata={"is_done": True})
 
     envelope = StreamingResponseEnvelope(content=source_stream())
-    result = await manager._process_streaming_response(
-        envelope, original_request, "sess-123", _make_request_context()
+    backend_processor.process_backend_request.return_value = envelope
+
+    result = await manager.process_backend_request(
+        original_request, "sess-123", _make_request_context()
     )
 
     assert isinstance(result, StreamingResponseEnvelope)

@@ -177,7 +177,12 @@ class IntelligentSessionResolver(ISessionResolver):
             return context_session_id
 
         # Check headers
+        header_keys = list(context.headers.keys())
         header_value = context.headers.get("x-session-id")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Checking for x-session-id in headers. Found: {bool(header_value)}, Keys: {header_keys}"
+            )
         if isinstance(header_value, str) and header_value:
             return header_value
 

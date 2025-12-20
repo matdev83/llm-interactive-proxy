@@ -410,6 +410,11 @@ class ChatController:
                 raw_body=raw_body_bytes if raw_body_bytes else None,
             )
 
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"RequestContext created - headers: {list(ctx.headers.keys())}"
+                )
+
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
                 ctx.session_id = domain_request.session_id

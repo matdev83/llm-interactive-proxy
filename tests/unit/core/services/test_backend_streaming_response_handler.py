@@ -334,13 +334,13 @@ class TestEmptyStreamRecovery:
         # Assert
         assert result is not None
         assert result.content is not None
-        
+
         # Must consume stream before asserting call to backend processor
         # because recovery logic is inside the async generator
         result_chunks = []
         async for chunk in result.content:
             result_chunks.append(chunk)
-            
+
         mock_backend_processor.process_backend_request.assert_called_once()
         assert len(result_chunks) == 1
         assert result_chunks[0].content == "Retry response"
@@ -398,7 +398,7 @@ class TestEmptyStreamRecovery:
             context=request_context,
             processing_context=processing_context,
         )
-        
+
         with pytest.raises(BackendError) as exc_info:
             async for _ in result.content:
                 pass
@@ -476,12 +476,12 @@ class TestToolCallRetryHandling:
 
         # Assert
         assert result is not None
-        
+
         # Must consume stream to trigger tool-call retry logic
         # which is embedded in the async generator
         async for _ in result.content:
             pass
-            
+
         mock_tool_call_retry_coordinator.handle_streaming.assert_called_once()
         call_args = mock_tool_call_retry_coordinator.handle_streaming.call_args
         if call_args.kwargs:

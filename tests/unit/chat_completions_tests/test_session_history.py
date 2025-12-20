@@ -13,10 +13,14 @@ from tests.conftest import get_backend_instance, get_session_service_from_app
 
 @pytest.mark.asyncio
 async def test_session_records_proxy_and_backend_interactions(client):
-    from src.core.services.backend_service import BackendService
+    from src.core.interfaces.backend_service_interface import IBackendService
+
+    from tests.utils.test_di_utils import get_required_service_from_app
+
+    backend_service = get_required_service_from_app(client.app, IBackendService)
 
     with patch.object(
-        BackendService, "call_completion", new_callable=AsyncMock
+        backend_service, "call_completion", new_callable=AsyncMock
     ) as mock_call_completion:
         mock_call_completion.side_effect = [
             ResponseEnvelope(
@@ -64,8 +68,10 @@ async def test_session_records_proxy_and_backend_interactions(client):
     # Original: Only the second request made a backend call
     # New: Both the command request and the regular request make backend calls
     assert len(session.history) == 2
-    # Both interactions should be recorded as backend calls
-    assert all(interaction.handler == "backend" for interaction in session.history)
+    # First interaction is recorded as "proxy" (command processing), second as "backend" (actual backend call)
+    # Both requests result in backend calls, but the command request also records a proxy interaction
+    assert session.history[0].handler == "proxy"
+    assert session.history[1].handler == "backend"
     # The second interaction should have the usage info
     if len(session.history) >= 2 and session.history[1].usage:
         assert session.history[1].usage.total_tokens == 3

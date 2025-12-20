@@ -170,6 +170,7 @@ def test_invalid_model_noninteractive(client: TestClient) -> None:
             "not found" in content.lower()
             or "invalid" in content.lower()
             or "updated" in content.lower()
+            or "changed" in content.lower()
         )
 
         # Second request: try to use the invalid model

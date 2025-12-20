@@ -14,6 +14,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.domain.backend_request_manager.context_models import ToolCallRetryState
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -120,17 +122,20 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
     ) -> bool:
         """Check if retry should be performed.
 
+        Prevents infinite retry loops by checking if the request is already marked
+        as a retry. The retry flow also relies on monotonically increasing retry
+        counters and a strict max retry limit.
+
         Args:
             request: The backend request
-            retry_state: Current retry state
+            retry_state: Current retry state (reserved for future use)
 
         Returns:
-            True if retry should be performed, False otherwise
+            True if a retry should be performed, False if already marked as retry.
         """
-        # Guard against retry loops: if request is already marked as retry, don't retry again
+        _ = retry_state
         extra_body = request.extra_body or {}
-        # Check if response indicates swallowed tool call (caller should check this)
-        # This method just checks if retry is allowed based on request state
+        # If request is already marked as retry, don't retry again to prevent loops
         return extra_body.get("_tool_call_reactor_retry") is not True
 
     def _extract_retry_count(self, request: ChatRequest) -> int:
@@ -247,7 +252,7 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
             Terminal response envelope
         """
         terminal_content = self._DANGEROUS_TERMINAL_ERROR.format(count=retry_count)
-        terminal_metadata = {
+        terminal_metadata: dict[str, JsonValue] = {
             "dangerous_command_limit_exceeded": True,
             "dangerous_command_retry_count": retry_count,
             "tool_call_reactor_retry_count": retry_count,
@@ -269,6 +274,25 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
             )
 
         return ResponseEnvelope(content=terminal_content, metadata=terminal_metadata)
+
+    def _attach_retry_metadata(
+        self,
+        *,
+        metadata: dict[str, Any],
+        retry_count: int,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Ensure retry-related metadata is preserved on the response.
+
+        The backend retry response often has empty metadata, but callers/tests
+        expect retry counters and flags to be present on the returned envelope.
+        """
+        merged = dict(metadata or {})
+        merged.setdefault("steering_retry_occurred", True)
+        merged.setdefault("dangerous_command_retry_count", retry_count)
+        merged.setdefault("tool_call_reactor_retry_count", retry_count)
+        merged.setdefault("session_id", session_id)
+        return merged
 
     async def handle_non_streaming(
         self,
@@ -297,26 +321,40 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
         # Extract current retry count from request
         current_retry_count = self._extract_retry_count(request)
-        new_retry_count = current_retry_count + 1
+        # For the first retry (when count is 0), set it to 1
+        # For subsequent retries, increment the existing count
+        if current_retry_count == 0:
+            new_retry_count = 1
+        else:
+            new_retry_count = current_retry_count + 1
 
-        # Check if we've exceeded the maximum retry limit BEFORE checking if retry is allowed
+        # Check if we've exceeded the maximum retry limit first
         # This ensures terminal responses are returned even for retry requests
-        if new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES:
+        limit_exceeded = new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES
+
+        # Guard against retry loops (unless limit exceeded - then return terminal)
+        if not limit_exceeded and not self._should_retry(request, retry_state):
+            return None
+
+        # If limit exceeded, return terminal response
+        if limit_exceeded:
             logger.warning(
                 "Tool call retry limit exceeded for session %s: "
                 "%d attempts blocked. Terminating with error.",
                 session_id,
                 new_retry_count,
             )
-            return self._create_terminal_response(
+            terminal_response = self._create_terminal_response(
                 retry_count=new_retry_count,
                 session_id=session_id,
                 is_streaming=False,
             )
+            # Type narrowing: _create_terminal_response returns ResponseEnvelope when is_streaming=False
+            assert isinstance(terminal_response, ResponseEnvelope)
+            return terminal_response
 
         # Guard against retry loops (only check after limit check)
-        should_retry = self._should_retry(request, retry_state)
-        if not should_retry:
+        if not self._should_retry(request, retry_state):
             return None
 
         # Extract steering message from metadata
@@ -361,21 +399,30 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
             # Return raw backend response (no middleware processing)
             if isinstance(retry_response, ResponseEnvelope):
+                retry_response.metadata = self._attach_retry_metadata(
+                    metadata=retry_response.metadata or {},
+                    retry_count=new_retry_count,
+                    session_id=session_id,
+                )
                 return retry_response
             # If streaming was returned for non-streaming request, convert to non-streaming
             # This shouldn't happen in practice, but handle gracefully
             if isinstance(retry_response, StreamingResponseEnvelope):
                 # Extract first chunk as fallback
                 async def _extract_content() -> str:
-                    async for chunk in retry_response.content:
-                        if hasattr(chunk, "content"):
-                            return str(chunk.content)
+                    if retry_response.content is not None:
+                        async for chunk in retry_response.content:
+                            if hasattr(chunk, "content"):
+                                return str(chunk.content)
                     return ""
 
                 content = await _extract_content()
-                return ResponseEnvelope(
-                    content=content, metadata=retry_response.metadata or {}
+                converted_md = self._attach_retry_metadata(
+                    metadata=retry_response.metadata or {},
+                    retry_count=new_retry_count,
+                    session_id=session_id,
                 )
+                return ResponseEnvelope(content=content, metadata=converted_md)
 
             return retry_response
 
@@ -431,26 +478,37 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
         # Extract current retry count from request
         current_retry_count = self._extract_retry_count(request)
-        new_retry_count = current_retry_count + 1
+        # For the first retry (when count is 0), set it to 1
+        # For subsequent retries, increment the existing count
+        if current_retry_count == 0:
+            new_retry_count = 1
+        else:
+            new_retry_count = current_retry_count + 1
 
-        # Check if we've exceeded the maximum retry limit BEFORE checking if retry is allowed
+        # Check if we've exceeded the maximum retry limit first
         # This ensures terminal responses are returned even for retry requests
-        if new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES:
+        limit_exceeded = new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES
+
+        # Guard against retry loops (unless limit exceeded - then return terminal)
+        if not limit_exceeded and not self._should_retry(request, retry_state):
+            return None
+
+        # If limit exceeded, return terminal response
+        if limit_exceeded:
             logger.warning(
                 "Tool call retry limit exceeded for session %s: "
                 "%d attempts blocked. Terminating with error.",
                 session_id,
                 new_retry_count,
             )
-            return self._create_terminal_response(
+            terminal_response = self._create_terminal_response(
                 retry_count=new_retry_count,
                 session_id=session_id,
                 is_streaming=True,
             )
-
-        # Guard against retry loops (only check after limit check)
-        if not self._should_retry(request, retry_state):
-            return None
+            # Type narrowing: _create_terminal_response returns StreamingResponseEnvelope when is_streaming=True
+            assert isinstance(terminal_response, StreamingResponseEnvelope)
+            return terminal_response
 
         # Extract steering message from metadata
         steering_message = metadata.get("steering_message")
@@ -494,7 +552,35 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
             # Return raw backend response (no middleware processing)
             if isinstance(retry_response, StreamingResponseEnvelope):
-                return retry_response
+                base_md = self._attach_retry_metadata(
+                    metadata=retry_response.metadata or {},
+                    retry_count=new_retry_count,
+                    session_id=session_id,
+                )
+
+                async def _wrap_with_retry_metadata() -> (
+                    AsyncIterator[ProcessedResponse]
+                ):
+                    if retry_response.content is None:
+                        return
+                    async for chunk in retry_response.content:
+                        chunk_md = dict(getattr(chunk, "metadata", {}) or {})
+                        for k, v in base_md.items():
+                            chunk_md.setdefault(k, v)
+                        yield ProcessedResponse(
+                            content=getattr(chunk, "content", None),
+                            metadata=chunk_md,
+                            usage=getattr(chunk, "usage", None),
+                        )
+
+                return StreamingResponseEnvelope(
+                    content=_wrap_with_retry_metadata(),
+                    metadata=base_md,
+                    headers=retry_response.headers,
+                    status_code=retry_response.status_code,
+                    media_type=retry_response.media_type,
+                    cancel_callback=retry_response.cancel_callback,
+                )
             # If non-streaming was returned for streaming request, wrap it
             if isinstance(retry_response, ResponseEnvelope):
 
@@ -504,8 +590,13 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
                         metadata=retry_response.metadata or {},
                     )
 
+                wrapped_md = self._attach_retry_metadata(
+                    metadata=retry_response.metadata or {},
+                    retry_count=new_retry_count,
+                    session_id=session_id,
+                )
                 return StreamingResponseEnvelope(
-                    content=_wrap_stream(), metadata=retry_response.metadata or {}
+                    content=_wrap_stream(), metadata=wrapped_md
                 )
 
             return retry_response

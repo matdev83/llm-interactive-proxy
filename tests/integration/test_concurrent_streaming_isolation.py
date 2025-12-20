@@ -66,6 +66,8 @@ class ConcurrentMockBackend(LLMBackend):
                     )
                 yield ProcessedResponse(content="data: [DONE]\n\n")
             finally:
+                # Ensure cleanup happens even if generator is cancelled
+                await asyncio.sleep(0)  # Yield control to allow cleanup
                 self.active_sessions.discard(marker)
 
         return StreamingResponseEnvelope(
@@ -112,7 +114,16 @@ def _inject_backend(app, backend: ConcurrentMockBackend) -> None:
 @pytest.mark.asyncio
 async def test_parallel_streaming_requests_isolate_sessions() -> None:
     backend = ConcurrentMockBackend()
-    app = build_test_app()
+    # Disable loop detection since mock backend produces similar patterns
+    from src.core.app.test_builder import create_test_config
+
+    base_config = create_test_config()
+    # Use model_copy since pydantic models are frozen
+    session_with_loop_disabled = base_config.session.model_copy(
+        update={"loop_detection_enabled": False}
+    )
+    config = base_config.model_copy(update={"session": session_with_loop_disabled})
+    app = build_test_app(config)
     app.state.disable_auth = True  # type: ignore[attr-defined]
     _inject_backend(app, backend)
 
@@ -139,6 +150,8 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
                 text = chunk.strip()
                 if text:
                     chunks.append(text)
+            # Ensure stream is fully consumed and generator is closed
+            await asyncio.sleep(0.05)
             return chunks
 
     try:
@@ -152,7 +165,12 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
         await client.aclose()
         await transport.aclose()
 
-    assert backend.active_sessions == set()
+    # Give streams time to fully complete and cleanup
+    # The finally blocks in async generators execute when the generator is closed
+    await asyncio.sleep(0.2)
+
+    # Sessions should be cleaned up after streams complete
+    assert backend.active_sessions == set(), f"Expected no active sessions, but found: {backend.active_sessions}"
     assert backend.stream_history["session-alpha"] == 3
     assert backend.stream_history["session-beta"] == 3
 

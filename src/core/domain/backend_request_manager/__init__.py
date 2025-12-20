@@ -15,7 +15,7 @@ from src.core.domain.backend_request_manager.context_models import (
 # Rebuild models to resolve forward references
 # This is needed when using TYPE_CHECKING with forward references
 try:
-    from src.core.domain.chat import ChatRequest
+    from src.core.domain.chat import ChatRequest  # noqa: F401
 
     ResponseProcessingContext.model_rebuild()
 except ImportError:

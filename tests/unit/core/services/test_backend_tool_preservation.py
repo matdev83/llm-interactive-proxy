@@ -18,11 +18,37 @@ from src.core.services.backend_request_manager_service import BackendRequestMana
 from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
+def _create_backend_request_manager(
+    backend_processor: Any, response_processor: Any, angel_factory: Any
+) -> BackendRequestManager:
+    """Create a BackendRequestManager with required dependencies."""
+    from src.core.services.backend_request_preparation_service import (
+        BackendRequestPreparationService,
+    )
+
+    request_preparation = BackendRequestPreparationService(angel_factory)
+
+    non_streaming_handler = MagicMock()
+    non_streaming_handler.handle = AsyncMock()
+
+    streaming_handler = MagicMock()
+    streaming_handler.handle = AsyncMock()
+
+    return BackendRequestManager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+        angel_service_factory=angel_factory,
+        request_preparation=request_preparation,
+        non_streaming_handler=non_streaming_handler,
+        streaming_handler=streaming_handler,
+    )
+
+
 @pytest.mark.asyncio
 async def test_prepare_backend_request_preserves_tools_when_commands_run() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(
+    manager = _create_backend_request_manager(
         backend_processor, response_processor, AngelFactoryStub()
     )
 
@@ -69,6 +95,7 @@ async def test_backend_processor_passes_tools_to_backend() -> None:
     )
     session = SimpleNamespace(state=session_state)
     session.add_interaction = MagicMock()
+    session.history = []
 
     session_service = AsyncMock()
     session_service.get_session.return_value = session
@@ -113,7 +140,7 @@ async def test_prepare_backend_request_appends_chatmessage_results() -> None:
     """Command results carrying ChatMessage instances should be appended."""
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(
+    manager = _create_backend_request_manager(
         backend_processor, response_processor, AngelFactoryStub()
     )
 
@@ -148,7 +175,7 @@ class _ToolWrapper:
 async def test_prepare_backend_request_supports_tool_message_wrappers() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(
+    manager = _create_backend_request_manager(
         backend_processor, response_processor, AngelFactoryStub()
     )
 
@@ -203,7 +230,7 @@ async def test_prepare_backend_request_appends_results_without_modified_messages
     """Verify command results are appended even if modified_messages is empty."""
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(
+    manager = _create_backend_request_manager(
         backend_processor, response_processor, AngelFactoryStub()
     )
 

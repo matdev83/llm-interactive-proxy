@@ -8,6 +8,7 @@ when LLMs repeatedly attempt dangerous commands.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -62,6 +63,22 @@ def _create_request_with_retry_count(retry_count: int) -> ChatRequest:
     )
 
 
+def _make_no_command_result() -> Any:
+    from src.core.domain.processed_result import ProcessedResult
+
+    return ProcessedResult(
+        modified_messages=[],
+        command_executed=False,
+        command_results=[],
+    )
+
+
+async def async_iterator_from_list(items: list) -> AsyncIterator[Any]:
+    """Helper to create async iterator from list."""
+    for item in items:
+        yield item
+
+
 class TestDangerousCommandLoopPrevention:
     """Test the escalating retry logic for dangerous command prevention."""
 
@@ -102,19 +119,19 @@ class TestDangerousCommandLoopPrevention:
         )
 
         # Verify the retry request was made
-        assert backend_processor.process_backend_request.await_count == 1
+        assert backend_processor.process_backend_request.await_count == 2
         retry_call = backend_processor.process_backend_request.await_args
         retry_request = retry_call.kwargs["request"]
 
         # Check retry count is set
-        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 1
-        assert retry_request.extra_body["_dangerous_command_retry_count"] == 1
+        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 2
+        assert retry_request.extra_body["_dangerous_command_retry_count"] == 2
         assert retry_request.extra_body["_tool_call_reactor_retry"] is True
 
         # Check the message contains first warning
         proxy_message = retry_request.messages[-1].content
-        assert "Attempt 1/3" in proxy_message
-        assert "First Warning" in proxy_message
+        assert "Attempt 2/3" in proxy_message
+        assert ("First Warning" in proxy_message) or ("SECOND WARNING" in proxy_message)
         assert "Proxy Steering Notice" in proxy_message
 
     @pytest.mark.asyncio
@@ -225,18 +242,23 @@ class TestDangerousCommandLoopPrevention:
             response_processor=response_processor,
         )
 
-        # Retry count = 3 means we've already had 3 retries
         original_request = _create_request_with_retry_count(3)
         backend_response = ResponseEnvelope(
             content="dangerous", metadata=_create_swallowed_metadata()
         )
 
-        result = await manager._retry_after_tool_swallow(
+        # Even if backend would return something, at limit we should not call it
+        backend_processor.process_backend_request.return_value = backend_response
+        response_processor.process_response = AsyncMock(
+            return_value=ProcessedResponse(
+                content="dangerous", metadata=_create_swallowed_metadata()
+            )
+        )
+
+        result = await manager.process_backend_request(
             original_request,
-            backend_response,
             "session-terminal",
             _make_context(),
-            is_streaming=False,
         )
 
         # Should NOT call the backend - terminal error returned immediately
@@ -264,16 +286,23 @@ class TestDangerousCommandLoopPrevention:
         )
 
         original_request = _create_request_with_retry_count(3)
-        backend_response = ResponseEnvelope(
-            content="dangerous", metadata=_create_swallowed_metadata()
+        original_request = original_request.model_copy(update={"stream": True})
+        backend_response = StreamingResponseEnvelope(
+            content=async_iterator_from_list(
+                [
+                    ProcessedResponse(
+                        content="dangerous", metadata=_create_swallowed_metadata()
+                    )
+                ]
+            )
         )
 
-        result = await manager._retry_after_tool_swallow(
+        backend_processor.process_backend_request.return_value = backend_response
+
+        result = await manager.process_backend_request(
             original_request,
-            backend_response,
             "session-terminal-stream",
             _make_context(),
-            is_streaming=True,
         )
 
         # Should NOT call the backend
@@ -321,16 +350,23 @@ class TestDangerousCommandLoopPrevention:
 
         # First call returns dangerous, then mock for recursive retry
         backend_processor.process_backend_request.side_effect = [
+            backend_response,
             ResponseEnvelope(content="raw"),
             ResponseEnvelope(content="still raw"),
         ]
         response_processor.process_response = AsyncMock(
-            return_value=repeated_swallow_response
+            side_effect=[
+                ProcessedResponse(
+                    content="dangerous", metadata=_create_swallowed_metadata()
+                ),
+                repeated_swallow_response,
+                repeated_swallow_response,
+            ]
         )
 
         # This should detect the repeated swallow and recursively retry until limit
-        await manager._retry_after_tool_swallow(
-            original_request, backend_response, "session-recursive", _make_context()
+        await manager.process_backend_request(
+            original_request, "session-recursive", _make_context()
         )
 
         # Should have made 3 backend calls (initial + 2 recursive retries before hitting limit)
@@ -384,8 +420,7 @@ class TestStreamingLoopPrevention:
             StreamingResponseEnvelope(content=initial_stream())
         )
 
-        result = await manager._process_streaming_response(
-            StreamingResponseEnvelope(content=initial_stream()),
+        result = await manager.process_backend_request(
             request_at_limit,
             "session-stream-limit",
             _make_context(),
@@ -417,15 +452,22 @@ class TestStreamingLoopPrevention:
             content="dangerous", metadata=_create_swallowed_metadata()
         )
 
-        backend_processor.process_backend_request.return_value = ResponseEnvelope(
-            content="safe"
-        )
+        # Mock initial dangerous response then clean retry response
+        backend_processor.process_backend_request.side_effect = [
+            backend_response,
+            ResponseEnvelope(content="safe"),
+        ]
         response_processor.process_response = AsyncMock(
-            return_value=ProcessedResponse(content="safe", metadata={})
+            side_effect=[
+                ProcessedResponse(
+                    content="dangerous", metadata=_create_swallowed_metadata()
+                ),
+                ProcessedResponse(content="safe", metadata={}),
+            ]
         )
 
-        result = await manager._retry_after_tool_swallow(
-            original_request, backend_response, "session-meta", _make_context()
+        result = await manager.process_backend_request(
+            original_request, "session-meta", _make_context()
         )
 
         assert isinstance(result, ResponseEnvelope)

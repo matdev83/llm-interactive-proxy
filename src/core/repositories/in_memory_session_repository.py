@@ -44,6 +44,10 @@ class InMemorySessionRepository(ISessionRepository):
 
     async def add(self, entity: Session) -> Session:
         """Add a new session."""
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"InMemorySessionRepository.add: session_id={entity.id}, history_size={len(entity.history)}"
+            )
         self._sessions[entity.id] = entity
         self._last_accessed[entity.id] = time.time()
 
@@ -57,6 +61,10 @@ class InMemorySessionRepository(ISessionRepository):
 
     async def update(self, entity: Session) -> Session:
         """Update an existing session."""
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"InMemorySessionRepository.update: session_id={entity.id}, history_size={len(entity.history)}"
+            )
         existing_session = self._sessions.get(entity.id)
         if existing_session is None:
             return await self.add(entity)

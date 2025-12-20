@@ -40,6 +40,8 @@ class BackendProcessor(IBackendProcessor):
         self._backend_service = backend_service
         self._session_service = session_service
         self._app_state: IApplicationState = application_state
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"BackendProcessor initialized (id={id(self)})")
 
     async def process_backend_request(
         self,
@@ -57,6 +59,10 @@ class BackendProcessor(IBackendProcessor):
         Returns:
             The response from the backend
         """
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"BackendProcessor.process_backend_request called for session {session_id}"
+            )
         # Get the session
         session = await self._session_service.get_session(session_id)
 
@@ -122,6 +128,10 @@ class BackendProcessor(IBackendProcessor):
             )
 
             # Add session interaction for the request
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"BackendProcessor adding interaction to session {session_id} (history size before: {len(session.history)})"
+                )
             session.add_interaction(
                 SessionInteraction(
                     prompt=raw_prompt,
@@ -136,6 +146,11 @@ class BackendProcessor(IBackendProcessor):
                     },
                 )
             )
+            await self._session_service.update_session(session)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"BackendProcessor interaction added to session {session_id} (history size after: {len(session.history)})"
+                )
 
             return backend_response
 
@@ -151,6 +166,7 @@ class BackendProcessor(IBackendProcessor):
                     response=str(e),
                 )
             )
+            await self._session_service.update_session(session)
             # Re-raise the exception
             raise  # Re-raise the original exception after logging
 

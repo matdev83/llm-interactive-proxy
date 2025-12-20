@@ -484,7 +484,7 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     def _angel_stream_verifier_factory(
         provider: IServiceProvider,
     ) -> AngelStreamVerifier:
-        angel_service_factory = provider.get_required_service(
+        angel_service_factory: IAngelServiceFactory = provider.get_required_service(
             cast(type, IAngelServiceFactory)
         )
         return AngelStreamVerifier(
@@ -518,17 +518,17 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     def _backend_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendStreamingResponseHandler:
-        response_processor = provider.get_required_service(
+        response_processor: IResponseProcessor = provider.get_required_service(
             cast(type[IResponseProcessor], IResponseProcessor)
         )
-        loop_detector_factory = provider.get_required_service(
+        loop_detector_factory: ILoopDetectorFactory = provider.get_required_service(
             cast(type, ILoopDetectorFactory)
         )
-        angel_stream_verifier = provider.get_required_service(
+        angel_stream_verifier: IAngelStreamVerifier = provider.get_required_service(
             cast(type, IAngelStreamVerifier)
         )
-        tool_call_retry_coordinator = provider.get_required_service(
-            cast(type, IToolCallRetryCoordinator)
+        tool_call_retry_coordinator: IToolCallRetryCoordinator = (
+            provider.get_required_service(cast(type, IToolCallRetryCoordinator))
         )
         backend_processor = provider.get_required_service(
             cast(type[IBackendProcessor], IBackendProcessor)

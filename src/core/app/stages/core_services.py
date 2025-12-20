@@ -22,6 +22,9 @@ from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 
 # from src.core.interfaces.secure_state_interface import ISecureStateService # Removed unresolved import
+from src.core.interfaces.streaming_response_processor_interface import (
+    IStreamNormalizer as IProcessingStreamNormalizer,
+)
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.intelligent_session_resolver import IntelligentSessionResolver
 from src.core.services.response_processor_service import ResponseProcessor

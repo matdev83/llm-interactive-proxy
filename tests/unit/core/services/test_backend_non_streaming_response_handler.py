@@ -640,7 +640,7 @@ class TestErrorHandling:
         )
 
         # Act & Assert
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - Testing error propagation
             await handler.handle(
                 response=response,
                 request=base_request,

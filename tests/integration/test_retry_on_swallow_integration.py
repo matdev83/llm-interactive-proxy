@@ -20,7 +20,6 @@ from src.core.interfaces.backend_processor_interface import (
     StreamingResponseEnvelope,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.backend_request_manager_service import BackendRequestManager
 
 
 class MockBackendProcessor(IBackendProcessor):
@@ -184,7 +183,6 @@ async def test_retry_on_swallow_metadata_contract(
     mock_response_processor: MockResponseProcessor,
 ):
     """Test that required metadata keys are present for retry-on-swallow."""
-    from tests.helpers.angel_factory_stub import AngelFactoryStub
 
     # Track metadata from first response
     captured_metadata = {}
@@ -247,7 +245,6 @@ async def test_retry_on_swallow_streaming(
     mock_response_processor: MockResponseProcessor,
 ):
     """Test that swallowed tool calls trigger retry path in streaming mode."""
-    from tests.helpers.angel_factory_stub import AngelFactoryStub
 
     call_count = 0
 
@@ -350,7 +347,6 @@ async def test_retry_on_swallow_preserves_context(
     mock_response_processor: MockResponseProcessor,
 ):
     """Test that retry request includes proper context from swallowed metadata."""
-    from tests.helpers.angel_factory_stub import AngelFactoryStub
 
     retry_requests: list[ChatRequest] = []
 

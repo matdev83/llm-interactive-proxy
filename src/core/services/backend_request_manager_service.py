@@ -82,6 +82,50 @@ class BackendRequestManager(IBackendRequestManager):
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
+    def _preflight_tool_call_retry_limit(
+        self, request: ChatRequest, session_id: str
+    ) -> ResponseEnvelope | StreamingResponseEnvelope | None:
+        """Return a terminal response without calling the backend when already at limit.
+
+        Some callers/tests expect that when the request already carries a retry counter at
+        the maximum allowed value, the proxy should terminate the session immediately.
+
+        This is a lightweight preflight guard; the full retry logic is implemented in
+        ToolCallRetryCoordinator and the response handlers.
+        """
+        try:
+            from src.core.services.tool_call_retry_coordinator import (
+                ToolCallRetryCoordinator,
+            )
+
+            extra_body = request.extra_body or {}
+            retry_count = extra_body.get(
+                ToolCallRetryCoordinator._DANGEROUS_RETRY_KEY, 0
+            )
+            legacy = extra_body.get(
+                ToolCallRetryCoordinator._LEGACY_DANGEROUS_RETRY_KEY, 0
+            )
+            if isinstance(legacy, int) and legacy > retry_count:
+                retry_count = legacy
+            if not isinstance(retry_count, int):
+                retry_count = 0
+
+            # If already at max, terminate immediately (no backend call)
+            if retry_count >= ToolCallRetryCoordinator._MAX_DANGEROUS_COMMAND_RETRIES:
+                coordinator = ToolCallRetryCoordinator(
+                    backend_processor=self._backend_processor
+                )
+                return coordinator._create_terminal_response(
+                    retry_count=retry_count + 1,
+                    session_id=session_id,
+                    is_streaming=bool(request.stream),
+                )
+        except Exception:
+            # fail-open: do not block request processing
+            return None
+
+        return None
+
     def _build_processing_context(
         self,
         request: ChatRequest,
@@ -150,10 +194,36 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         backend_request: ChatRequest,
         session_id: str,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any] | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process backend request with retry handling."""
+        # Backward-compat: some call sites/tests still pass a plain dict.
+        if context is None:
+            context = RequestContext(headers={}, cookies={}, state=None, app_state=None)
+        elif isinstance(context, dict):
+            # Fail-open coercion: best-effort mapping for legacy callers
+            context = RequestContext(
+                headers=context.get("headers", {}),
+                cookies=context.get("cookies", {}),
+                state=context.get("state"),
+                app_state=context.get("app_state"),
+                client_host=context.get("client_host"),
+                session_id=context.get("session_id"),
+                request_id=context.get("request_id"),
+                agent=context.get("agent"),
+                original_request=context.get("original_request"),
+                processing_context=context.get("processing_context"),
+                domain_request=context.get("domain_request"),
+                raw_body=context.get("raw_body"),
+                backend=context.get("backend"),
+                effective_model=context.get("effective_model"),
+                extensions=context.get("extensions", {}),
+            )
         content_hash: str | None = None
+        preflight = self._preflight_tool_call_retry_limit(backend_request, session_id)
+        if preflight is not None:
+            return preflight
+
         # Deduplication check FIRST (before any processing)
         if self._dedup_service:
             is_duplicate, content_hash = await self._dedup_service.check_and_register(
