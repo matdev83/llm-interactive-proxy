@@ -78,17 +78,22 @@ sequenceDiagram
     Client ->> ResponseProcessor: Response stream
     ResponseProcessor ->> EosStreamProcessor: StreamingContent
     EosStreamProcessor ->> EndOfSessionService: EndOfSessionSignal
-    EndOfSessionService ->> SessionMetricsRepo: Read/mark completed (idempotent)
-    EndOfSessionService ->> EventBus: EndOfSessionEvent
+    EndOfSessionService ->> SessionMetricsRepo: Atomic claim (eos_emitted_at NULL?)
+    alt claim won
+        EndOfSessionService ->> SessionMetricsRepo: Persist completion state
+        EndOfSessionService ->> EventBus: EndOfSessionEvent (bounded wait)
+    else already claimed
+        EndOfSessionService ->> EndOfSessionService: Skip emission
+    end
     EventBus ->> Subscriber: Handle event
 ```
 
 Flow notes:
 - The stream processor emits a normalized signal when a completion marker is observed.
 - Tool-call completion emits the same signal via a tool-call handler path.
-- The service dedupes per session and persists completion state in the DB before publishing.
+- The service uses an atomic DB claim to dedupe under concurrency and persists completion state before publishing.
 - Non-streaming responses traverse the same pipeline via a single-chunk stream wrapper.
-- Event dispatch uses a bounded timeout to avoid delaying response finalization.
+- Event dispatch waits up to `dispatch_timeout_seconds`; timeouts stop waiting without canceling handlers.
 
 ## Requirements Traceability
 
@@ -168,9 +173,11 @@ Summary table:
 **Responsibilities & Constraints**
 - Normalize and dedupe completion signals.
 - Persist completion state in the database and use it to prevent duplicate emissions.
+- Use an atomic persistence gate so only one caller can claim the first EoS emission per session.
 - Emit EoS events through EventBus with a bounded dispatch timeout to avoid blocking finalization.
+- Implement bounded wait by wrapping `EventBus.publish` in `asyncio.wait_for(asyncio.shield(...))`; if the timeout is zero/disabled, use `publish_nowait`.
 - Maintain in-memory cache for hot-path dedupe, backed by DB for restart safety.
-- On dispatch timeout, log and continue without blocking response finalization.
+- On dispatch timeout, stop waiting but do not cancel in-flight handlers; log and continue without blocking response finalization.
 
 **Dependencies (via DI)**
 - Inbound: `IEventBus`, `EndOfSessionConfig`, `SessionMetricsRepository`
@@ -212,7 +219,7 @@ class IEndOfSessionService(ABC):
         """Return True if EoS event has been emitted for session."""
 ```
 - Preconditions: `session_id` present; emission enabled in config.
-- Postconditions: At most one event emitted per session.
+- Postconditions: At most one event emitted per session (enforced by atomic DB claim).
 - Invariants: Once ended, additional signals do not emit new events.
 
 ##### DI Registration (CoreServicesStage)
@@ -288,7 +295,8 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 | DI Lifetime | Singleton |
 
 **Responsibilities & Constraints**
-- Upsert per-session completion state when EoS is recorded.
+- Provide an atomic "claim" operation (for example, conditional update where `eos_emitted_at IS NULL`) that returns whether the caller won the emission right.
+- Upsert per-session completion state when EoS is recorded by the winning claim.
 - Store the EoS emission timestamp and signal metadata for auditing.
 - Serve idempotency checks so EndOfSessionService can avoid duplicate events.
 
@@ -400,16 +408,19 @@ All errors extend `LLMProxyError`.
 - EoS signal processing fails open; errors are logged with `exc_info=True`.
 - Subscriber failures are isolated by EventBus behavior.
 - Persistence failures prevent EoS emission and are logged with correlation IDs to preserve idempotency guarantees.
-- Dispatch timeouts are logged; emission is considered complete once the EventBus publish is initiated within the timeout window.
+- If the atomic claim indicates EoS was already emitted, treat as a no-op without error.
+- Dispatch timeouts are logged; the service stops waiting after the timeout but does not cancel in-flight handlers.
+  Emission is considered complete once the EventBus publish is started within the timeout window.
 
 ## Testing Strategy
 
 ### Unit Tests (`tests/unit/`)
 - EoS service dedupe with DB persistence and restart safety
+- Atomic claim behavior under concurrent signals (single emission)
 - Stream processor detection of `[DONE]`, finish_reason, response.completed
 - Tool-call handler detection and gating
 - Subscriber behaviors with mocks
-- Dispatch timeout behavior for event emission
+- Dispatch timeout behavior (stop waiting without canceling handlers)
 
 ### Integration Tests (`tests/integration/`)
 - DI registration and event bus wiring
@@ -426,7 +437,7 @@ All errors extend `LLMProxyError`.
 
 ## Performance & Scalability
 - EoS processing adds constant-time checks per chunk.
-- Event emission is async with bounded dispatch time to avoid response delays.
+- Event emission is async with bounded dispatch time to avoid response delays while allowing handlers to finish in background.
 - In-memory dedupe cache is bounded; persistent state lives in DB with standard retention policies.
 
 ## Legacy EoS Detection Inventory & Migration
