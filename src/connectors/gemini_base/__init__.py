@@ -28,6 +28,7 @@ The main connector class is broken down into focused, composable modules:
 - backend_compatibility: Backend infrastructure compatibility rules
 """
 
+from .chat_completion_coordinator import GeminiChatCompletionCoordinator
 from .chat_request_preparer import (
     ChatRequestPreparer,
     PreparedChatRequest,
@@ -40,6 +41,7 @@ from .connector_context import (
     IRequestCounter,
     IThoughtSignatureService,
 )
+from .credential_coordinator import GeminiCredentialCoordinator
 from .credential_loader import CredentialLoader
 from .credential_providers import (
     AntigravitySQLiteCredentialProvider,
@@ -52,6 +54,7 @@ from .endpoints import (
     AntigravitySandboxEndpoint,
     StandardCodeAssistEndpoint,
 )
+from .error_mapper import GeminiErrorMapper
 from .file_watcher import FileWatcher, FileWatcherState
 
 # New extracted modules
@@ -72,16 +75,24 @@ from .graceful_degradation import (
     is_rate_limit_like_error,
     set_model_cooldown,
 )
+from .health_check_service import GeminiHealthCheckService
 from .interfaces import (
+    IChatCompletionCoordinator,
+    ICredentialCoordinator,
     ICredentialProvider,
     IEndpointConfig,
+    IErrorMapper,
+    IHealthCheckService,
     IHealthCheckStrategy,
     IModelDiscoveryStrategy,
+    IModelRegistry,
     IProjectDiscoveryStrategy,
     IRequestBodyBuilder,
     IResponsePostProcessor,
+    IVtcWrapperBuilder,
 )
 from .model_discovery import ApiModelDiscovery, FallbackModelDiscovery
+from .model_registry import GeminiModelRegistry
 from .model_validation import (
     GOOGLE_VENDOR_PREFIX,
     ModelListManager,
@@ -142,22 +153,36 @@ from .token_estimator import (
 from .token_manager import TokenManager
 from .tool_sanitizer import sanitize_code_assist_tools
 from .user_prompt_id_generator import generate_user_prompt_id
+from .vtc_wrapper_builder import GeminiVtcWrapperBuilder
 
 __all__ = [
     # Main connector
     "GeminiOAuthBaseConnector",
     # Strategy interfaces (protocols)
+    "IChatCompletionCoordinator",
+    "ICredentialCoordinator",
     "ICredentialProvider",
     "IEndpointConfig",
+    "IErrorMapper",
+    "IHealthCheckService",
     "IHealthCheckStrategy",
     "IModelDiscoveryStrategy",
+    "IModelRegistry",
     "IProjectDiscoveryStrategy",
     "IRequestBodyBuilder",
     "IResponsePostProcessor",
+    "IVtcWrapperBuilder",
     # Credential providers
     "AntigravitySQLiteCredentialProvider",
     "CredentialLoader",
     "FileCredentialProvider",
+    # Coordinator services
+    "GeminiChatCompletionCoordinator",
+    "GeminiCredentialCoordinator",
+    "GeminiErrorMapper",
+    "GeminiHealthCheckService",
+    "GeminiModelRegistry",
+    "GeminiVtcWrapperBuilder",
     # Endpoint configurations
     "ANTIGRAVITY_SANDBOX_ENDPOINT",
     "ANTIGRAVITY_USER_AGENT",

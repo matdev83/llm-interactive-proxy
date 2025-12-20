@@ -138,7 +138,11 @@ class ReasoningStreamProcessor:
                                     e,
                                     exc_info=True,
                                 )
-                            # Fall back to from_raw
+                            # Fall back to from_raw: If provider normalization fails,
+                            # delegate to shared parsing. Provider-specific formats will be
+                            # treated as opaque dict content per the provider-parsing boundary
+                            # enforcement (see design Flow 0). This fallback preserves
+                            # backward compatibility but may mask normalization failures.
                             with contextlib.suppress(Exception):
                                 streaming_chunk = StreamingContent.from_raw(
                                     processed_response

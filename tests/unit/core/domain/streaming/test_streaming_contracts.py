@@ -46,6 +46,19 @@ class TestTypedContractCreation:
         assert error.code == "TIMEOUT"
         assert error.retryable is True
 
+    def test_streaming_error_info_with_status_code(self):
+        """StreamingErrorInfo should accept status_code field."""
+        error = StreamingErrorInfo(
+            type="error",
+            message="Test error",
+            code="ERR001",
+            status_code=503,
+        )
+        assert error.type == "error"
+        assert error.message == "Test error"
+        assert error.code == "ERR001"
+        assert error.status_code == 503
+
     def test_streaming_error_info_rejects_extra_fields(self):
         """StreamingErrorInfo should reject extra fields."""
         with pytest.raises(ValidationError):
@@ -221,6 +234,26 @@ class TestStreamingContentToTypedChunk:
         assert chunk.metadata.error.message == "Test error"
         assert chunk.metadata.error.code == "ERR001"
 
+    def test_metadata_with_error_status_code_conversion(self):
+        """Metadata with error including status_code should convert correctly."""
+        error_dict = {
+            "type": "error",
+            "message": "Test error",
+            "code": "ERR001",
+            "status_code": 503,
+        }
+        sc = StreamingContent(
+            content="test",
+            metadata={"error": error_dict},
+            is_done=False,
+        )
+        chunk = sc.to_typed_chunk()
+        assert chunk.metadata.error is not None
+        assert chunk.metadata.error.type == "error"
+        assert chunk.metadata.error.message == "Test error"
+        assert chunk.metadata.error.code == "ERR001"
+        assert chunk.metadata.error.status_code == 503
+
     def test_usage_dict_conversion(self):
         """Usage dict should convert to StreamingUsage."""
         usage_dict = {
@@ -381,6 +414,29 @@ class TestStreamingContentFromTypedChunk:
         assert sc.metadata["error"]["code"] == "ERR001"
         assert sc.metadata["error"]["retryable"] is True
 
+    def test_error_info_with_status_code_conversion_back(self):
+        """StreamingErrorInfo with status_code should convert back correctly."""
+        error = StreamingErrorInfo(
+            type="error",
+            message="Test error",
+            code="ERR001",
+            retryable=True,
+            status_code=503,
+        )
+        chunk = StreamingChunk(
+            payload=StreamingPayload(kind="empty"),
+            metadata=StreamingMetadata(error=error),
+            is_done=True,
+            is_empty=False,
+        )
+        sc = StreamingContent.from_typed_chunk(chunk)
+        assert "error" in sc.metadata
+        assert sc.metadata["error"]["type"] == "error"
+        assert sc.metadata["error"]["message"] == "Test error"
+        assert sc.metadata["error"]["code"] == "ERR001"
+        assert sc.metadata["error"]["retryable"] is True
+        assert sc.metadata["error"]["status_code"] == 503
+
     def test_usage_conversion_back(self):
         """StreamingUsage should convert back to usage dict."""
         usage = StreamingUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
@@ -458,6 +514,27 @@ class TestRoundTripCompatibility:
         chunk = original.to_typed_chunk()
         restored = StreamingContent.from_typed_chunk(chunk)
         assert restored.metadata["error"] == error_dict
+
+    def test_error_info_with_status_code_round_trip(self):
+        """Error info with status_code should round-trip correctly."""
+        error_dict = {
+            "type": "error",
+            "message": "Test",
+            "code": "ERR001",
+            "status_code": 503,
+        }
+        original = StreamingContent(
+            content="test",
+            metadata={"error": error_dict},
+            is_done=True,
+        )
+        chunk = original.to_typed_chunk()
+        restored = StreamingContent.from_typed_chunk(chunk)
+        # status_code should be preserved in round-trip
+        assert restored.metadata["error"]["type"] == "error"
+        assert restored.metadata["error"]["message"] == "Test"
+        assert restored.metadata["error"]["code"] == "ERR001"
+        assert restored.metadata["error"]["status_code"] == 503
 
     def test_usage_round_trip(self):
         """Usage should round-trip correctly."""

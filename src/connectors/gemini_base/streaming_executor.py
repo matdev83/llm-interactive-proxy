@@ -60,10 +60,29 @@ class IRetryDelayExtractor(Protocol):
 
 @runtime_checkable
 class ITokenRefresher(Protocol):
-    """Interface for token refresh operations."""
+    """Interface for token refresh operations.
+
+    This protocol provides a minimal interface for token refresh during request execution.
+    It enables runtime token management without coupling execution to credential coordination.
+
+    **Data Flow**: This interface flows:
+    - Produced by connector context or credential coordinator
+    - Consumed by `ICodeAssistOrchestrator.run_streaming()` and `.run_non_streaming()`
+    - Used during request execution for automatic token refresh on auth failures
+
+    **Service Boundaries**: Provides a narrow interface for token refresh, isolating
+    execution concerns from credential lifecycle management. Supports DI and test seams.
+    """
 
     async def refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
-        """Refresh the OAuth token if needed."""
+        """Refresh the OAuth token if needed.
+
+        Args:
+            force_reload: If True, force reload credentials before refresh.
+
+        Returns:
+            True if refresh succeeded or was not needed, False otherwise.
+        """
         ...
 
 

@@ -519,7 +519,10 @@ class StreamingContent:
 
         Note:
             This method delegates to RawChunkParser to maintain separation of concerns.
-            The parser handles provider-specific format parsing and normalization.
+            The parser handles transport-neutral formats (OpenAI-style dicts, SSE, strings, bytes).
+            Provider-specific formats (Anthropic events, Gemini JSON) are treated as opaque
+            dict content and should be normalized by provider-specific normalizers before
+            reaching this entry point. See design Flow 0 for provider normalization boundary.
         """
         from src.core.domain.streaming.parsing.raw_chunk_parser import RawChunkParser
 

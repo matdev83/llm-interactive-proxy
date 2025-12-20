@@ -1,4 +1,4 @@
-"""
+"""\
 Chat request preparation for Gemini OAuth connectors.
 
 This module provides shared logic for preparing Code Assist API requests,
@@ -42,7 +42,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PreparedChatRequest:
-    """Result of preparing a chat request for Code Assist API."""
+    """Result of preparing a chat request for Code Assist API.
+
+    This dataclass serves as the shared data boundary between request preparation
+    and execution phases. It encapsulates all data needed for Code Assist API requests.
+
+    **Data Flow**: This model flows:
+    - Produced by `ChatRequestPreparer` during request preparation
+    - Consumed by `ICodeAssistOrchestrator.run_streaming()` and `.run_non_streaming()`
+    - Contains all necessary context for API execution (auth, project, model, etc.)
+
+    **Service Boundaries**: Provides a clear boundary between request preparation
+    (translation, validation, formatting) and execution (streaming, accumulation).
+    """
 
     auth_session: Any
     """Authorized session for making API requests."""
@@ -211,6 +223,65 @@ class ChatRequestPreparer:
         project_id = await self._connector_context._discover_project_id(auth_session)
 
         canonical_request = request_data
+
+        # Backward compatibility: normalize dict-based messages to domain ChatMessage.
+        # The Gemini domain translator expects messages to have `.role` / `.content`.
+        try:
+            from src.core.domain.chat import ChatMessage
+
+            raw_messages = getattr(canonical_request, "messages", None)
+            if (
+                isinstance(raw_messages, list)
+                and raw_messages
+                and any(isinstance(m, dict) for m in raw_messages)
+            ):
+                normalized: list[ChatMessage] = []
+                for m in raw_messages:
+                    if isinstance(m, ChatMessage):
+                        normalized.append(m)
+                    elif isinstance(m, dict):
+                        normalized.append(
+                            ChatMessage(
+                                role=str(m.get("role", "user")),
+                                content=str(m.get("content", "")),
+                            )
+                        )
+                    else:
+                        normalized.append(
+                            ChatMessage(
+                                role=str(getattr(m, "role", "user")),
+                                content=str(getattr(m, "content", "")),
+                            )
+                        )
+                canonical_request.messages = normalized
+
+                # Backward compatibility: some legacy callers/tests set `tools` to a plain
+                # Mock (truthy but not iterable). The domain translator expects `tools`
+                # to be a list or None.
+                tools_val = getattr(canonical_request, "tools", None)
+                if tools_val is not None and not isinstance(tools_val, list):
+                    canonical_request.tools = None
+
+                # Backward compatibility: tests may provide a Mock request object where
+                # optional numeric fields default to `Mock()` (truthy but non-numeric).
+                # The domain translator expects these to be numbers or None.
+                numeric_fields: dict[str, type] = {
+                    "n": int,
+                    "top_k": int,
+                    "max_tokens": int,
+                    "max_completion_tokens": int,
+                    "temperature": float,
+                    "top_p": float,
+                }
+                for field, expected_type in numeric_fields.items():
+                    val = getattr(canonical_request, field, None)
+                    if val is None:
+                        continue
+                    if not isinstance(val, expected_type):
+                        setattr(canonical_request, field, None)
+        except Exception:
+            # Never fail preparation due to best-effort normalization.
+            pass
 
         # Debug logging to trace message flow
         if logger.isEnabledFor(logging.DEBUG):

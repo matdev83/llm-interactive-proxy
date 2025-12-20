@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import json
 import time
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.connectors.gemini_oauth_base import (
@@ -42,12 +42,27 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
     """Mock connector that simulates real API behavior for recovery testing."""
 
     def __init__(self, fast_recovery=False):
+        from src.connectors.gemini_base.credential_coordinator import (
+            GeminiCredentialCoordinator,
+        )
         from src.connectors.gemini_base.file_watcher import FileWatcherState
         from src.connectors.gemini_base.token_manager import TokenManager
 
         # Initialize composed managers FIRST (before setting properties that delegate to them)
         self._token_manager = TokenManager()
         self._file_watcher_state = FileWatcherState()
+
+        # Initialize credential coordinator (required after refactoring)
+        self._credential_coordinator = GeminiCredentialCoordinator(
+            token_manager=self._token_manager,
+            file_watcher_state=self._file_watcher_state,
+        )
+        # Set credentials in coordinator for validation
+        from src.connectors.gemini_base.models import GeminiOAuthCredentials
+
+        self._credential_coordinator._credentials = GeminiOAuthCredentials(
+            access_token="test-token"
+        )
 
         # Initialize with minimal required components
         self.config = AppConfig()
@@ -65,6 +80,46 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self._quota_exceeded = False
         self._request_counter = None
         self._health_checked = True
+        self._health_check_service = (
+            None  # Initialize to None to use fallback path in _ensure_healthy()
+        )
+
+        # Initialize attributes required by refactored connector (can be None for lazy creation)
+        self._model_registry = None
+        self._error_mapper = None
+        self._chat_completion_coordinator = None
+        self._vtc_wrapper_builder = None
+        self._orchestrator_instance = None
+        self._public_to_internal_model_map = {}  # Empty dict for fallback path
+        # Mock preparer that returns PreparedChatRequest for coordinator
+        from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
+
+        self._chat_preparer = AsyncMock()
+        self._chat_preparer.prepare = AsyncMock(
+            return_value=PreparedChatRequest(
+                auth_session=MagicMock(),
+                project_id="recovery-test-project",
+                canonical_request=MagicMock(),
+                code_assist_request={},
+                prompt_tokens_estimate=None,
+                effective_model="gemini-2.5-pro",
+                session_id="test-session",
+                build_request_body=dict,
+            )
+        )
+        self._thought_signature_service = MagicMock()  # Required by preparer
+        self._google_auth_provider = MagicMock()  # Required by preparer
+        self.client = MagicMock()  # HTTP client required by various services
+        self._streaming_executor_instance = MagicMock()  # Required by orchestrator
+        self._endpoint_config = MagicMock()  # Required by various services
+        self.gemini_api_base_url = None  # API base URL
+        # Mock post-processor with process_streaming method
+        self._response_post_processor = MagicMock()
+        self._response_post_processor.process_streaming = AsyncMock(
+            side_effect=lambda envelope, model: envelope
+        )
+        self._retry_policy = MagicMock()  # Required by orchestrator
+        self._auth_refresh_policy = MagicMock()  # Required by orchestrator
 
         # Initialize graceful degradation metrics and configuration
         self._graceful_metrics = GracefulDegradationMetrics()
@@ -193,6 +248,59 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
     async def _discover_project_id(self, auth_session):
         """Mock project ID discovery."""
         return "recovery-test-project"
+
+    async def chat_completions(
+        self,
+        request_data,
+        processed_messages,
+        effective_model,
+        **kwargs,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Override chat_completions to call mock _chat_completions_code_assist directly.
+
+        This bypasses the coordinator/orchestrator path to ensure the mock's
+        _chat_completions_code_assist method is called, which increments _api_call_count.
+        Implements retry logic similar to the streaming version.
+        """
+        # Ensure credentials are valid (minimal validation)
+        if not await self._refresh_token_if_needed():
+            raise BackendError("Failed to refresh token", status_code=502)
+
+        # Determine if streaming based on request_data
+        is_streaming = getattr(request_data, "stream", False)
+        if is_streaming:
+            return await self._chat_completions_code_assist_streaming(
+                request_data, processed_messages, effective_model, **kwargs
+            )
+
+        # Non-streaming: implement retry logic
+        last_error = None
+        max_attempts = self._degradation_config.max_total_attempts
+
+        for attempt in range(max_attempts):
+            try:
+                return await self._chat_completions_code_assist(
+                    request_data, processed_messages, effective_model, **kwargs
+                )
+            except BackendError as e:
+                last_error = e
+                # Only retry on 429/quota errors
+                if e.status_code == 429:
+                    # Use a small default if delays not configured
+                    retry_delay = 1.0
+                    if self._degradation_config.retry_delays:
+                        retry_delay = self._degradation_config.retry_delays[
+                            min(attempt, len(self._degradation_config.retry_delays) - 1)
+                        ]
+                    await asyncio.sleep(retry_delay)
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+
+        # Should not be reached
+        raise BackendError("Max attempts reached without success", status_code=429)
 
 
 @pytest.fixture

@@ -63,3 +63,14 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     register_backend_lifecycle_manager(services)
     register_backend_model_resolver(services)
     register_backend_service(services)
+
+    # Register connector-specific coordinator services (optional - connectors have fallback)
+    try:
+        from src.core.di.registrations._backend.gemini import (
+            register_gemini_coordinator_services,
+        )
+
+        register_gemini_coordinator_services(services)
+    except ImportError:
+        # Gemini coordinator services not available - connectors will create locally
+        pass

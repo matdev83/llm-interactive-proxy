@@ -71,12 +71,27 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
     """Mock connector for testing graceful degradation behavior."""
 
     def __init__(self):
+        from src.connectors.gemini_base.credential_coordinator import (
+            GeminiCredentialCoordinator,
+        )
         from src.connectors.gemini_base.file_watcher import FileWatcherState
         from src.connectors.gemini_base.token_manager import TokenManager
 
         # Initialize composed managers FIRST (before setting properties that delegate to them)
         self._token_manager = TokenManager()
         self._file_watcher_state = FileWatcherState()
+
+        # Initialize credential coordinator (required after refactoring)
+        self._credential_coordinator = GeminiCredentialCoordinator(
+            token_manager=self._token_manager,
+            file_watcher_state=self._file_watcher_state,
+        )
+        # Set credentials in coordinator for validation
+        from src.connectors.gemini_base.models import GeminiOAuthCredentials
+
+        self._credential_coordinator._credentials = GeminiOAuthCredentials(
+            access_token="test-token"
+        )
 
         # Initialize with minimal required components
         self.config = AppConfig()
@@ -100,23 +115,6 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
 
         # Set required API base URL for graceful degradation tests
         self.gemini_api_base_url = "https://mock-cloudcode-pa.googleapis.com"
-
-        # Initialize with minimal required components
-        self.config = AppConfig()
-        self.name = "test-connector"
-        self.is_functional = True
-        self._oauth_credentials = {"access_token": "test-token"}
-        self._credentials_path = None
-        self._last_modified = 0
-        self._refresh_token = None
-        self.translation_service = MagicMock()
-        self._credential_validation_errors = []
-        self._initialization_failed = False
-        self._last_validation_time = 0.0
-        self._main_loop = None
-        self._quota_exceeded = False
-        self._request_counter = None
-        self._health_checked = True
 
         # Mock httpx client
         self.client = MagicMock(spec=httpx.AsyncClient)

@@ -323,6 +323,98 @@ class TestResourceIdentityExtractor:
         assert result2.secondary_keys == ()
         assert result1 == result2
 
+    def test_extract_view_file_with_start_end_line(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Handles view_file with StartLine/EndLine pagination parameters (Req 1.1.1)."""
+        args = {"AbsolutePath": "/path/to/file.py", "StartLine": 10, "EndLine": 50}
+        result = extractor.extract("view_file", args)
+
+        assert result is not None
+        assert result.primary_key == "/path/to/file.py"
+        # StartLine maps to offset, EndLine maps to limit
+        assert result.secondary_keys == ("offset:10", "limit:50")
+
+    def test_extract_view_file_with_start_line_only(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Handles view_file with only StartLine parameter."""
+        args = {"AbsolutePath": "/path/to/file.py", "StartLine": 100}
+        result = extractor.extract("view_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("offset:100",)
+
+    def test_extract_view_file_with_end_line_only(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Handles view_file with only EndLine parameter."""
+        args = {"AbsolutePath": "/path/to/file.py", "EndLine": 200}
+        result = extractor.extract("view_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("limit:200",)
+
+    def test_different_line_ranges_create_different_view_file_identities(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Different line ranges for view_file create different resource identities (Req 1.1.1).
+
+        This test ensures that reading lines 1-100 and lines 200-300 of the same file
+        are treated as DIFFERENT resources and will NOT be compacted against each other.
+        """
+        args1 = {"AbsolutePath": "/path/file.py", "StartLine": 1, "EndLine": 100}
+        args2 = {"AbsolutePath": "/path/file.py", "StartLine": 200, "EndLine": 300}
+        args3 = {"AbsolutePath": "/path/file.py", "StartLine": 1, "EndLine": 200}
+
+        result1 = extractor.extract("view_file", args1)
+        result2 = extractor.extract("view_file", args2)
+        result3 = extractor.extract("view_file", args3)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result3 is not None
+
+        # All three should be different identities
+        assert result1 != result2
+        assert result2 != result3
+        assert result1 != result3
+
+    def test_same_line_range_creates_same_view_file_identity(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """Same line ranges for view_file create the same resource identity."""
+        args1 = {"AbsolutePath": "/path/file.py", "StartLine": 50, "EndLine": 100}
+        args2 = {"AbsolutePath": "/path/file.py", "StartLine": 50, "EndLine": 100}
+
+        result1 = extractor.extract("view_file", args1)
+        result2 = extractor.extract("view_file", args2)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1 == result2
+        assert hash(result1) == hash(result2)
+
+    def test_view_file_without_pagination_has_empty_secondary_keys(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """view_file without StartLine/EndLine has no secondary keys."""
+        args = {"AbsolutePath": "/path/to/file.py"}
+        result = extractor.extract("view_file", args)
+
+        assert result is not None
+        assert result.secondary_keys == ()
+
+    def test_view_file_outline_with_pagination(
+        self, extractor: ResourceIdentityExtractor
+    ) -> None:
+        """view_file_outline also respects pagination parameters."""
+        args = {"AbsolutePath": "/path/to/file.py", "StartLine": 1, "EndLine": 50}
+        result = extractor.extract("view_file_outline", args)
+
+        assert result is not None
+        assert result.secondary_keys == ("offset:1", "limit:50")
+
 
 class TestCompactionStub:
     """Tests for CompactionStub creation."""

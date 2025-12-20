@@ -112,6 +112,15 @@ _NORMALIZED_TOOL_PATTERNS: dict[str, ToolCategory] = {
     for pattern in patterns
 }
 
+# Tool categories that use pagination parameters (offset/limit, StartLine/EndLine)
+# These need secondary keys to distinguish reads of different file portions (Req 1.1.1)
+_PAGINATION_AWARE_CATEGORIES: frozenset[ToolCategory] = frozenset(
+    {
+        ToolCategory.FILE_READ,
+        ToolCategory.VIEW_FILE,
+    }
+)
+
 
 @dataclass(frozen=True)
 class ResourceIdentity:
@@ -308,10 +317,12 @@ class ResourceIdentityExtractor:
         # Try path parameters first
         primary_key = self._extract_param(args_dict, self.PATH_PARAMS)
         if primary_key:
-            # For file read operations, include offset/limit as secondary keys
+            # For file read/view operations, include offset/limit as secondary keys
             # to distinguish reads of different file portions (Req 1.1.1)
+            # VIEW_FILE tools also use pagination (StartLine/EndLine) and must be
+            # treated as distinct resources when reading different file portions.
             secondary_keys: tuple[str, ...] = ()
-            if categorize_tool(tool_name) == ToolCategory.FILE_READ:
+            if categorize_tool(tool_name) in _PAGINATION_AWARE_CATEGORIES:
                 secondary_keys = self._extract_offset_limit_keys(args_dict)
 
             return ResourceIdentity(

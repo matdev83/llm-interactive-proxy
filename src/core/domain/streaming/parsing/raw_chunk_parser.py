@@ -67,17 +67,16 @@ class RawChunkParser:
 
         Strategies are ordered by specificity - most specific parsers come first.
 
-        Note: This parser chain intentionally does NOT include AnthropicDictParser
-        or GeminiDictParser, even though those parser classes exist in this module.
-        Provider-specific formats (Anthropic event dicts, Gemini JSON objects) should
-        be normalized by provider-specific normalizers (e.g., AnthropicStreamNormalizer,
+        Note: Provider-specific formats (Anthropic event dicts, Gemini JSON objects)
+        should be normalized by provider-specific normalizers (e.g., AnthropicStreamNormalizer,
         GeminiStreamNormalizer) before reaching this shared parsing entry point.
         This enforces the architectural boundary that provider-specific parsing logic
         belongs in provider adapters, not in shared contracts/domain code.
 
         The OpenAIDictParser explicitly skips Anthropic/Gemini formats (see its
         can_parse() method) to ensure provider-specific formats are handled by
-        their respective normalizers.
+        their respective normalizers. Unknown provider-specific formats will fall
+        through to FallbackParser and be treated as opaque dict content.
         """
         # Order matters: most specific parsers first
         self._strategies: list[IParserStrategy] = [

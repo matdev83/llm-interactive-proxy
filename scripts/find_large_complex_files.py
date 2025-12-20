@@ -101,10 +101,9 @@ def main():
     # Combined score: prioritize files that are both large AND complex
     # Score = (lines/1000) * (max_complexity/10) + total_complexity/100
     for result in results:
-        result["combined_score"] = (
-            (result["total_lines"] / 1000) * (result["max_complexity"] / 10)
-            + result["total_complexity"] / 100
-        )
+        result["combined_score"] = (result["total_lines"] / 1000) * (
+            result["max_complexity"] / 10
+        ) + result["total_complexity"] / 100
 
     results_by_combined = sorted(results, key=lambda x: -x["combined_score"])
 

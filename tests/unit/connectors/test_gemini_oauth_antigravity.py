@@ -417,14 +417,18 @@ class TestGeminiOAuthAntigravityConnector:
             "src.connectors.gemini_oauth_base.asyncio.sleep", AsyncMock()
         )
 
-        request = Mock()
-        request.stream = True
-        request.messages = []
-        request.extra_body = {}
-        request.tools = []  # Ensure tools is an empty list, not a Mock
+        # Create a properly configured request object
+        # Use spec to ensure attribute access works correctly
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request = CanonicalChatRequest(
+            model="gemini-2.5-flash",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
 
         envelope = await connector._chat_completions_code_assist_streaming(
-            request, [], "gemini-2.5-flash"
+            request, [ChatMessage(role="user", content="test")], "gemini-2.5-flash"
         )
 
         stream = envelope.content
@@ -563,6 +567,16 @@ class TestModelValidation:
         connector._available_models_set = set(connector.available_models)
         # Mark as loaded from API to enable validation
         connector._models_from_api = True
+
+        # Sync state to model registry if it exists (created during __init__)
+        if connector._model_registry:
+            connector._model_registry._available_models = connector.available_models
+            connector._model_registry._available_models_set = (
+                connector._available_models_set
+            )
+            connector._model_registry._models_from_api = True
+            connector._model_registry._loaded = True
+
         return connector
 
     def test_validate_model_accepts_valid_model(self, connector_with_models):
@@ -647,6 +661,15 @@ class TestModelValidation:
         connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
         connector._available_models_set = set(connector.available_models)
         connector._models_from_api = True  # Simulating API-loaded models
+
+        # Sync state to model registry if it exists (created during __init__)
+        if connector._model_registry:
+            connector._model_registry._available_models = connector.available_models
+            connector._model_registry._available_models_set = (
+                connector._available_models_set
+            )
+            connector._model_registry._models_from_api = True
+            connector._model_registry._loaded = True
 
         # Should raise because models were loaded from API
         with pytest.raises(BackendError) as exc_info:
@@ -748,26 +771,40 @@ class TestModelValidation:
         connector._validate_runtime_credentials = AsyncMock(return_value=True)  # type: ignore[attr-defined]
         connector._ensure_healthy = AsyncMock()  # type: ignore[attr-defined]
 
-        # Mock the streaming method since non-streaming now uses streaming internally
-        # then accumulates via _accumulate_streaming_response
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(return_value=mock_streaming_response)  # type: ignore
-        connector._accumulate_streaming_response = AsyncMock(return_value=Mock(status_code=200))  # type: ignore
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+
+        # Mock the coordinator instance property
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="invalid-model-xyz",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+        )
 
         # Should NOT raise for invalid model because validation is disabled
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="invalid-model-xyz",
         )
 
-        # Verify the invalid model was passed through to the streaming method
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        # Verify the invalid model was passed through to the coordinator
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "invalid-model-xyz"
 
 
@@ -959,29 +996,39 @@ class TestGemini3ProModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
-        )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = None  # Default to high
-        request_data.extra_body = None
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="google/gemini-3-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort=None,  # Default to high
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="google/gemini-3-pro",  # With vendor prefix
         )
 
         # Verify the model was mapped to gemini-3-pro-high
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "gemini-3-pro-high"
 
     @pytest.mark.asyncio
@@ -1008,29 +1055,39 @@ class TestGemini3ProModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
-        )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = "low"
-        request_data.extra_body = None
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="gemini-3-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort="low",
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="gemini-3-pro",
         )
 
         # Verify the model was mapped to gemini-3-pro-low
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "gemini-3-pro-low"
 
 
@@ -1318,30 +1375,39 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
-        )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = None  # Should still map to thinking
-        request_data.reasoning = None
-        request_data.extra_body = None
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="anthropic/claude-opus-4.5",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort=None,  # Should still map to thinking
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="anthropic/claude-opus-4.5",  # With vendor prefix
         )
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always)
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "claude-opus-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1371,30 +1437,39 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
-        )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = "low"  # Should still map to thinking (ignored)
-        request_data.reasoning = None
-        request_data.extra_body = None
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="anthropic/claude-opus-4.5",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort="low",  # Should still map to thinking (ignored)
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="anthropic/claude-opus-4.5",
         )
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always, ignoring reasoning_effort)
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "claude-opus-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1424,30 +1499,39 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
+
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
         )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
 
         # Test with high effort - should get thinking variant
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = "high"
-        request_data.reasoning = None
-        request_data.extra_body = None
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="anthropic/claude-sonnet-4.5",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort="high",
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="anthropic/claude-sonnet-4.5",
         )
 
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "claude-sonnet-4-5-thinking"
 
     @pytest.mark.asyncio
@@ -1474,28 +1558,37 @@ class TestGptOssModelMapping:
         # Mock to prevent actual API calls
         connector._validate_runtime_credentials = AsyncMock(return_value=True)
         connector._ensure_healthy = AsyncMock()
-        mock_streaming_response = Mock(status_code=200)
-        connector._chat_completions_code_assist_streaming = AsyncMock(
-            return_value=mock_streaming_response
-        )
-        connector._accumulate_streaming_response = AsyncMock(
-            return_value=Mock(status_code=200)
-        )
 
-        request_data = Mock()
-        request_data.stream = False
-        request_data.messages = [{"role": "user", "content": "Hello"}]
-        request_data.reasoning_effort = "high"  # Should be ignored
-        request_data.reasoning = None
-        request_data.extra_body = None
+        # Mock the coordinator since chat_completions now delegates to it
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content={
+                "choices": [{"message": {"content": "test", "role": "assistant"}}]
+            },
+            media_type="application/json",
+            headers={},
+        )
+        mock_coordinator = AsyncMock()
+        mock_coordinator.execute = AsyncMock(return_value=mock_response)
+        connector._chat_completion_coordinator = mock_coordinator
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_data = CanonicalChatRequest(
+            model="openai/gpt-oss-120b",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+            reasoning_effort="high",  # Should be ignored
+        )
 
         await connector.chat_completions(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "Hello"}],
+            processed_messages=[ChatMessage(role="user", content="Hello")],
             effective_model="openai/gpt-oss-120b",
         )
 
         # Verify the model was mapped to gpt-oss-120b-medium (always)
-        assert connector._chat_completions_code_assist_streaming.called
-        call_args = connector._chat_completions_code_assist_streaming.call_args
+        assert mock_coordinator.execute.called
+        call_args = mock_coordinator.execute.call_args
         assert call_args.kwargs.get("effective_model") == "gpt-oss-120b-medium"

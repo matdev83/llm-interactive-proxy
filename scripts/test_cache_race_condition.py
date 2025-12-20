@@ -19,38 +19,38 @@ async def test_cache_race_condition():
     config = Mock(spec=AppConfig)
     config.logging = Mock()
     config.logging.capture_file = None
-    
+
     service = BufferedWireCapture(config)
     service._cache_max_size = 100  # Lower limit for testing
-    
+
     # Fill cache to limit
     for i in range(100):
         payload = {"test": f"data_{i}"}
         service._get_content_length_cached(payload)
-    
+
     print(f"Cache size after filling: {len(service._content_length_cache)}")
     assert len(service._content_length_cache) == 100
-    
+
     # Now create many concurrent operations that will all try to add entries
     async def add_entry(index):
         payload = {"concurrent": f"data_{index}"}
         service._get_content_length_cached(payload)
-    
+
     # Create 50 concurrent operations
     tasks = [add_entry(i) for i in range(50)]
     await asyncio.gather(*tasks)
-    
+
     final_size = len(service._content_length_cache)
     print(f"Cache size after concurrent operations: {final_size}")
-    
+
     if final_size > service._cache_max_size:
-        print(f"❌ RACE CONDITION CONFIRMED: Cache exceeded limit!")
+        print("❌ RACE CONDITION CONFIRMED: Cache exceeded limit!")
         print(f"   Limit: {service._cache_max_size}, Actual: {final_size}")
         return True
     else:
         print("✅ Cache stayed within limit")
         return False
-    
+
     await service.shutdown()
 
 

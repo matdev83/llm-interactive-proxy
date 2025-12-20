@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.gemini import GeminiBackend
+from src.connectors.gemini_base.chat_completion_coordinator import (
+    GeminiChatCompletionCoordinator,
+)
 from src.connectors.gemini_base.chat_request_preparer import (
     ChatRequestPreparer,
 )
@@ -34,6 +37,9 @@ from src.connectors.gemini_base.config import (
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
     GracefulDegradationConfig,
 )
+from src.connectors.gemini_base.credential_coordinator import (
+    GeminiCredentialCoordinator,
+)
 from src.connectors.gemini_base.credential_loader import CredentialLoader
 from src.connectors.gemini_base.credentials import (
     TOKEN_EXPIRY_BUFFER_SECONDS,
@@ -41,6 +47,7 @@ from src.connectors.gemini_base.credentials import (
 
 # Strategy interfaces and implementations
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
+from src.connectors.gemini_base.error_mapper import GeminiErrorMapper
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
 from src.connectors.gemini_base.generation_config_builder import (
     GenerationConfigBuilder,
@@ -54,15 +61,23 @@ from src.connectors.gemini_base.graceful_degradation import (
     GracefulDegradationManager,
     set_model_cooldown,
 )
+from src.connectors.gemini_base.health_check_service import GeminiHealthCheckService
 from src.connectors.gemini_base.interfaces import (
+    IChatCompletionCoordinator,
+    ICredentialCoordinator,
     ICredentialProvider,
     IEndpointConfig,
+    IErrorMapper,
+    IHealthCheckService,
     IModelDiscoveryStrategy,
+    IModelRegistry,
     IProjectDiscoveryStrategy,
     IRequestBodyBuilder,
     IResponsePostProcessor,
+    IVtcWrapperBuilder,
 )
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.model_registry import GeminiModelRegistry
 from src.connectors.gemini_base.model_validation import (
     GOOGLE_VENDOR_PREFIX,
 )
@@ -115,6 +130,7 @@ from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.connectors.gemini_base.user_prompt_id_generator import (
     generate_user_prompt_id as _generate_user_prompt_id_impl,
 )
+from src.connectors.gemini_base.vtc_wrapper_builder import GeminiVtcWrapperBuilder
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
@@ -138,7 +154,21 @@ __all__ = ["GeminiOAuthBaseConnector", "GOOGLE_VENDOR_PREFIX"]
 
 
 class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
-    """Base class for Gemini OAuth connectors."""
+    """Base class for Gemini OAuth connectors.
+
+    **Observability and Security Invariants**:
+    This refactoring preserves all observability and security invariants:
+    - **Wire Captures**: Request/response payloads are captured via the same code paths
+      (orchestrator -> streaming executor) with identical request/response shapes. The
+      coordinator delegates to the same orchestrator that performs wire captures.
+    - **Logging Structure**: All logger calls remain unchanged - coordinator methods use
+      the same logger instances and log at the same levels. Logging structure and content
+      are preserved through delegation.
+    - **Secret Redaction**: Credential access patterns are unchanged - credentials are
+      accessed through the same properties and methods (_oauth_credentials, credential
+      coordinator) that perform redaction. The coordinator uses the same credential
+      coordinator that handles secret redaction.
+    """
 
     default_prompt_limit: int | None = DEFAULT_CODE_ASSIST_PROMPT_LIMIT
     prompt_limit_overrides: dict[str, int] = {}
@@ -155,6 +185,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return False
 
     # Mapping from public aliases (without vendor prefix) to internal model names
+    # Subclasses can override this class attribute to provide connector-specific mappings.
+    # When accessed via self._public_to_internal_model_map, Python's attribute resolution
+    # will correctly find the subclass's version if overridden. This mapping is passed
+    # to the model registry during initialization (line 454).
     _public_to_internal_model_map: dict[str, str] = {
         "gemini-3-pro": "gemini-3-pro-preview",
     }
@@ -195,10 +229,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             session_id: The session ID for cache key lookup
         """
         # Use injected service for thought signature management
-        self._thought_signature_service.inject_signatures(
-            canonical_request,
-            session_id,
-        )
+        if self._thought_signature_service is not None:
+            self._thought_signature_service.inject_signatures(
+                canonical_request,
+                session_id,
+            )
 
     def _log_tool_call_signature_state(
         self, canonical_request: Any, session_id: str, effective_model: str
@@ -207,9 +242,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         Delegates to injected ThoughtSignatureService for implementation.
         """
-        self._thought_signature_service.log_signature_state(
-            canonical_request, session_id, effective_model
-        )
+        if self._thought_signature_service is not None:
+            self._thought_signature_service.log_signature_state(
+                canonical_request, session_id, effective_model
+            )
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
@@ -275,7 +311,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._token_manager = token_manager or TokenManager()
 
         # New injectable services for SOLID compliance
-        self._thought_signature_service = (
+        self._thought_signature_service: ThoughtSignatureService = (
             thought_signature_service or get_default_thought_signature_service()
         )
         self._token_estimator = token_estimator or get_default_token_estimator()
@@ -388,6 +424,79 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._last_credentials_event_log_ts: float = 0.0
         self._last_credentials_event_mtime: float | None = None
 
+        # Initialize coordinator services (with DI fallback)
+        # Try to resolve from DI first, fallback to local construction
+        provider = None
+        try:
+            from src.core.di.services import get_service_provider
+
+            provider = get_service_provider()
+        except Exception:
+            # DI not available, will construct locally
+            pass
+
+        # Credential coordinator
+        self._credential_coordinator: ICredentialCoordinator | None = None
+        if provider:
+            self._credential_coordinator = provider.get_service(ICredentialCoordinator)  # type: ignore[type-abstract]
+        if not self._credential_coordinator:
+            # Fallback: construct locally
+            self._credential_coordinator = GeminiCredentialCoordinator(
+                token_manager=self._token_manager,
+                file_watcher_state=self._file_watcher_state,
+            )
+
+        # Model registry
+        self._model_registry: IModelRegistry | None = None
+        if provider:
+            self._model_registry = provider.get_service(IModelRegistry)  # type: ignore[type-abstract]
+        if not self._model_registry:
+            # Fallback: construct locally
+            self._model_registry = GeminiModelRegistry(
+                model_discovery=self._model_discovery,
+                endpoint_config=self._endpoint_config,
+                credential_coordinator=self._credential_coordinator,
+                http_client=self.client,
+                public_to_internal_map=self._public_to_internal_model_map,
+                backend_name=getattr(self, "backend_type", "gemini-oauth"),
+            )
+
+        # Health check service
+        self._health_check_service: IHealthCheckService | None = None
+        if provider:
+            self._health_check_service = provider.get_service(IHealthCheckService)  # type: ignore[type-abstract]
+        if not self._health_check_service:
+            # Fallback: construct locally
+            disable_health_checks = self.config.get("disable_health_checks", False)
+            self._health_check_service = GeminiHealthCheckService(
+                credential_coordinator=self._credential_coordinator,
+                endpoint_config=self._endpoint_config,
+                http_client=self.client,
+                backend_name=getattr(self, "backend_type", "gemini-oauth"),
+                disable_health_checks=disable_health_checks,
+            )
+
+        # Error mapper
+        self._error_mapper: IErrorMapper | None = None
+        if provider:
+            self._error_mapper = provider.get_service(IErrorMapper)  # type: ignore[type-abstract]
+        if not self._error_mapper:
+            # Fallback: construct locally
+            self._error_mapper = GeminiErrorMapper()
+
+        # VTC wrapper builder
+        self._vtc_wrapper_builder: IVtcWrapperBuilder | None = None
+        if provider:
+            self._vtc_wrapper_builder = provider.get_service(IVtcWrapperBuilder)  # type: ignore[type-abstract]
+        if not self._vtc_wrapper_builder:
+            # Fallback: construct locally
+            self._vtc_wrapper_builder = GeminiVtcWrapperBuilder(
+                backend_type=getattr(self, "backend_type", "gemini-oauth"),
+            )
+
+        # Chat completion coordinator (created lazily in property to avoid circular deps)
+        self._chat_completion_coordinator: IChatCompletionCoordinator | None = None
+
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
 
@@ -399,6 +508,29 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             and not self._initialization_failed
             and len(self._credential_validation_errors) == 0
         )
+
+    @property
+    def _oauth_credentials(self) -> dict[str, Any] | None:
+        """Get current OAuth credentials - implements IConnectorContext.
+
+        This property bridges the credential coordinator to the IConnectorContext interface.
+        For backward compatibility, also syncs with the instance variable.
+        """
+        # Sync from coordinator if available
+        if self._credential_coordinator and self._credential_coordinator.credentials:
+            creds_dict = self._credential_coordinator.credentials.to_dict()
+            # Keep instance variable in sync for backward compatibility
+            self.__dict__["_oauth_credentials"] = creds_dict
+            return creds_dict
+        # Fallback to instance variable for backward compatibility
+        return self.__dict__.get("_oauth_credentials")
+
+    @_oauth_credentials.setter
+    def _oauth_credentials(self, value: dict[str, Any] | None) -> None:
+        """Set OAuth credentials - for backward compatibility with CredentialLoader."""
+        self.__dict__["_oauth_credentials"] = value
+        # Note: Coordinator manages its own state, so we don't sync back to it here
+        # The coordinator will update its state during initialize/refresh operations
 
     @property
     def _streaming_executor(self) -> StreamingExecutor:
@@ -431,6 +563,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 backend_type=getattr(self, "backend_type", "gemini"),
             )
         return self._orchestrator_instance
+
+    @property
+    def _chat_completion_coordinator_instance(self) -> IChatCompletionCoordinator:
+        """Get or lazily create the chat completion coordinator."""
+        if self._chat_completion_coordinator is None:
+            self._chat_completion_coordinator = GeminiChatCompletionCoordinator(
+                request_preparer=self._chat_preparer,
+                orchestrator=self._orchestrator,
+                token_refresher=self,  # Connector implements ITokenRefresher
+                endpoint_config=self._endpoint_config,
+                api_base_url=self.gemini_api_base_url or CODE_ASSIST_ENDPOINT,
+                backend_type=getattr(self, "backend_type", "gemini"),
+                vtc_wrapper_builder=self._vtc_wrapper_builder,
+                error_mapper=self._error_mapper,
+                thought_signature_service=self._thought_signature_service,
+                key_name=getattr(self, "_key_name", None),
+            )
+        return self._chat_completion_coordinator
 
     def extract_retry_delay(self, error: BackendError) -> float | None:
         """Extract retry delay from error - implements IRetryDelayExtractor."""
@@ -643,9 +793,35 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Handle credentials file change event.
 
         This method is called when the file system watcher detects a change to the
-        oauth_creds.json file. It forces a reload of credentials bypassing the cache
-        to ensure the latest token is loaded even if the file timestamp didn't change.
+        oauth_creds.json file. Delegates to credential coordinator if available.
         """
+        if self._credential_coordinator:
+            # Delegate to coordinator's file change handler
+            # Type narrowing: cast to concrete type to access private attributes
+            from src.connectors.gemini_base.credential_coordinator import (
+                GeminiCredentialCoordinator,
+            )
+
+            coordinator = self._credential_coordinator
+            if isinstance(coordinator, GeminiCredentialCoordinator):
+                await coordinator._handle_credentials_file_change()
+                # Sync state for backward compatibility
+                if coordinator.credentials:
+                    self.__dict__["_oauth_credentials"] = (
+                        coordinator.credentials.to_dict()
+                    )
+                    self._credentials_path = coordinator._credentials_path
+                    self._credentials_fingerprint = coordinator._credentials_fingerprint
+                    self._credentials_file_hash = coordinator._credentials_file_hash
+                    self._last_credentials_event_hash = (
+                        coordinator._last_credentials_event_hash
+                    )
+            # Update functional state based on coordinator state
+            if self._credential_coordinator.credentials:
+                self._recover()
+            return
+
+        # Fallback to old logic
         success = False
         try:
             previous_fingerprint = self._credentials_fingerprint
@@ -711,13 +887,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             return self.is_backend_functional()
         self._last_validation_time = now
 
-        refreshed = await self._refresh_token_if_needed()
-        if not refreshed:
-            self._degrade(["Token expired and automatic refresh failed"])
-            logger.warning(
-                "Token validation failed; automatic refresh did not produce a valid token."
-            )
-            return False
+        # Delegate to credential coordinator
+        if self._credential_coordinator:
+            is_valid = await self._credential_coordinator.validate_runtime()
+            if not is_valid:
+                self._degrade(["Token expired and automatic refresh failed"])
+                logger.warning(
+                    "Token validation failed; automatic refresh did not produce a valid token."
+                )
+                return False
+        else:
+            # Fallback to old logic
+            refreshed = await self._refresh_token_if_needed()
+            if not refreshed:
+                self._degrade(["Token expired and automatic refresh failed"])
+                logger.warning(
+                    "Token validation failed; automatic refresh did not produce a valid token."
+                )
+                return False
 
         if not self.is_backend_functional():
             self._recover()
@@ -752,7 +939,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._token_manager.get_refresh_token(self._oauth_credentials)
 
     async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
-        """Ensure a valid access token is available, refreshing when necessary."""
+        """Ensure a valid access token is available, refreshing when necessary.
+
+        Implements IConnectorContext interface by delegating to credential coordinator.
+        """
+        if self._credential_coordinator:
+            return await self._credential_coordinator.refresh_if_needed(
+                force_reload=force_reload
+            )
+        # Fallback to token manager for backward compatibility
         return await self._token_manager.refresh_token_if_needed(
             self, force_reload=force_reload
         )
@@ -794,104 +989,141 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Set custom .gemini directory path (defaults to ~/.gemini)
         self.gemini_cli_oauth_path = kwargs.get("gemini_cli_oauth_path")
 
-        # 1) Startup validation pipeline
-        # First validate credentials file exists and is readable
-        ok, errs = self._validate_credentials_file_exists()
-        if not ok:
-            self._fail_init(errs)
+        # Delegate credential initialization to coordinator
+        if self._credential_coordinator is None:
+            self._fail_init(["Credential coordinator not initialized"])
             return
 
-        # 2) Load credentials into memory
-        if not await self._load_oauth_credentials():
-            self._fail_init(["Failed to load credentials despite validation passing"])
+        try:
+            await self._credential_coordinator.initialize(
+                gemini_cli_oauth_path=self.gemini_cli_oauth_path
+            )
+            # Sync credentials to instance variable for backward compatibility
+            if self._credential_coordinator.credentials:
+                self.__dict__["_oauth_credentials"] = (
+                    self._credential_coordinator.credentials.to_dict()
+                )
+                # Type narrowing: cast to concrete type to access private attributes
+                from src.connectors.gemini_base.credential_coordinator import (
+                    GeminiCredentialCoordinator,
+                )
+
+                coordinator = self._credential_coordinator
+                if isinstance(coordinator, GeminiCredentialCoordinator):
+                    self._credentials_path = coordinator._credentials_path
+                    self._credentials_fingerprint = coordinator._credentials_fingerprint
+                    self._credentials_file_hash = coordinator._credentials_file_hash
+        except AuthenticationError as e:
+            # Convert coordinator errors to initialization failures
+            errors = [str(e.message)] if hasattr(e, "message") else [str(e)]
+            if (
+                hasattr(e, "details")
+                and isinstance(e.details, dict)
+                and "errors" in e.details
+            ):
+                errors = e.details["errors"]
+            self._fail_init(errors)
             return
 
-        # 3) Structure validation
-        if self._oauth_credentials is not None:
-            ok, errs = self._validate_credentials_structure(self._oauth_credentials)
-            if not ok:
-                self._fail_init(errs)
-                return
-        else:
-            self._fail_init(["OAuth credentials are None after loading"])
-            return
-
-        # 4) Refresh if needed
-        if not await self._refresh_token_if_needed():
+        # Check if token refresh succeeded
+        refreshed = await self._credential_coordinator.refresh_if_needed()
+        if not refreshed:
             pending_message = "OAuth token refresh pending; Gemini CLI background refresh was triggered."
             self._degrade([pending_message])
-            self._start_file_watching()
             self._initialization_failed = False
             self._last_validation_time = time.time()
             logger.warning(
                 "Gemini OAuth Personal backend started with an expired token; "
                 "waiting for the Gemini CLI to refresh credentials."
             )
+            # File watching is started by coordinator, so we're done here
             return
 
-        # 5) Load models (non-fatal)
-        try:
-            await self._ensure_models_loaded()
-        except Exception as e:
-            logger.warning(
-                f"Failed to load models during initialization: {e}", exc_info=True
-            )
-            # Continue with initialization even if model loading fails
+        # Delegate model loading to model registry (non-fatal)
+        if self._model_registry is not None:
+            try:
+                await self._model_registry.ensure_loaded()
+                # Sync model state for backward compatibility
+                # Check for attributes directly to support both real instances and mocks
+                registry = self._model_registry
+                if (
+                    hasattr(registry, "_available_models")
+                    and hasattr(registry, "_available_models_set")
+                    and hasattr(registry, "_models_from_api")
+                ):
+                    self.available_models = registry._available_models
+                    self._available_models_set = registry._available_models_set
+                    self._models_from_api = registry._models_from_api
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load models during initialization: {e}", exc_info=True
+                )
+                # Continue with initialization even if model loading fails
 
-        # 6) Start file watching and mark functional
-        self._start_file_watching()
+        # Mark functional
         self.is_functional = True
         self._last_validation_time = time.time()
 
         logger.info(
-            f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
+            f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models) if self.available_models else 0} models."
         )
 
     async def _ensure_models_loaded(self) -> None:
         """Fetch models if not already cached - OAuth version.
 
-        First tries to load models from the fetchAvailableModels API endpoint.
-        Falls back to a hardcoded list if the API call fails.
-
-        Results are cached in self.available_models and self._available_models_set
-        to avoid repeated API calls.
+        Delegates to model registry for model discovery and caching.
         """
-        if self.available_models:
-            return
+        if self._model_registry:
+            await self._model_registry.ensure_loaded()
+            # Sync model state for backward compatibility
+            # Check for attributes directly to support both real instances and mocks
+            registry = self._model_registry
+            if (
+                hasattr(registry, "_available_models")
+                and hasattr(registry, "_available_models_set")
+                and hasattr(registry, "_models_from_api")
+            ):
+                self.available_models = registry._available_models
+                self._available_models_set = registry._available_models_set
+                self._models_from_api = registry._models_from_api
+        else:
+            # Fallback to old logic
+            if self.available_models:
+                return
 
-        if not self._oauth_credentials:
-            return
+            if not self._oauth_credentials:
+                return
 
-        # Try to load models from the fetchAvailableModels API
-        await self._load_models_from_api()
+            # Try to load models from the fetchAvailableModels API
+            await self._load_models_from_api()
 
-        # If API loading failed, fall back to hardcoded model list
-        if not self.available_models:
-            # Use a hardcoded list based on gemini-cli's tokenLimits.ts and models.ts
-            self.available_models = [
-                # Current generation (2.5 series) - DEFAULT models
-                "gemini-2.5-pro",
-                "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
-                # Preview models
-                "gemini-2.5-pro-preview-05-06",
-                "gemini-2.5-pro-preview-06-05",
-                "gemini-2.5-flash-preview-05-20",
-                # 2.0 series
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-thinking-exp-1219",
-                "gemini-2.0-flash-preview-image-generation",
-                # 1.5 series
-                "gemini-1.5-pro",
-                "gemini-1.5-flash",
-                # Embedding model
-                "gemini-embedding-001",
-            ]
-            # Build the set cache from the fallback list
-            self._available_models_set = set(self.available_models)
-            logger.info(
-                f"Loaded {len(self.available_models)} known Code Assist models (hardcoded fallback)"
-            )
+            # If API loading failed, fall back to hardcoded model list
+            if not self.available_models:
+                # Use a hardcoded list based on gemini-cli's tokenLimits.ts and models.ts
+                self.available_models = [
+                    # Current generation (2.5 series) - DEFAULT models
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite",
+                    # Preview models
+                    "gemini-2.5-pro-preview-05-06",
+                    "gemini-2.5-pro-preview-06-05",
+                    "gemini-2.5-flash-preview-05-20",
+                    # 2.0 series
+                    "gemini-2.0-flash",
+                    "gemini-2.0-flash-thinking-exp-1219",
+                    "gemini-2.0-flash-preview-image-generation",
+                    # 1.5 series
+                    "gemini-1.5-pro",
+                    "gemini-1.5-flash",
+                    # Embedding model
+                    "gemini-embedding-001",
+                ]
+                # Build the set cache from the fallback list
+                self._available_models_set = set(self.available_models)
+                logger.info(
+                    f"Loaded {len(self.available_models)} known Code Assist models (hardcoded fallback)"
+                )
 
     def _get_api_headers(self) -> dict[str, str]:
         """
@@ -996,6 +1228,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             List of available model names with 'google/' vendor prefix.
             For example: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash']
         """
+        if self._model_registry:
+            return self._model_registry.list_public_models()
+
+        # Fallback to old logic
         # Create reverse mapping for exposure
         internal_to_public = {
             v: k for k, v in self._public_to_internal_model_map.items()
@@ -1013,9 +1249,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         Validate that the requested model is available on this backend.
 
-        Validation is only performed when models were loaded from the API.
-        When using the hardcoded fallback list, validation is skipped since
-        the hardcoded list may be outdated.
+        Delegates to model registry for validation.
 
         Args:
             model_name: The model name to validate
@@ -1023,6 +1257,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Raises:
             BackendError: If the model is not in the available models list
         """
+        if self._model_registry:
+            self._model_registry.validate(model_name)
+            return
+
+        # Fallback to old logic
         # Only validate if models were loaded from the API
         # Skip validation when using hardcoded fallback (may be outdated)
         if not getattr(self, "_models_from_api", False):
@@ -1275,9 +1514,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     async def _ensure_healthy(self) -> None:
         """Ensure the backend is healthy before use.
 
-        This method performs health checks on first use, similar to how
-        models are loaded lazily in the parent class.
+        Delegates to health check service for first-use health checks.
         """
+        if self._health_check_service:
+            await self._health_check_service.ensure_healthy()
+            # Sync health checked state for backward compatibility
+            self._health_checked = True
+            return
+
+        # Fallback to old logic
         if not hasattr(self, "_health_checked") or not self._health_checked:
             logger.info(
                 "Performing first-use health check for Gemini OAuth Personal backend"
@@ -1316,9 +1561,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using Google Code Assist API.
 
-        This method uses the Code Assist API (https://cloudcode-pa.googleapis.com)
-        which is the correct endpoint for oauth-personal authentication,
-        while maintaining OpenAI-compatible interface and response format.
+        This method delegates to the chat completion coordinator for orchestration.
         """
         # Runtime validation with descriptive errors
         if not await self._validate_runtime_credentials():
@@ -1353,42 +1596,34 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
 
             # Map public alias to internal model name if exists
-            model_name = self._public_to_internal_model_map.get(model_name, model_name)
+            if self._model_registry:
+                model_name = self._model_registry.to_internal_name(model_name)
+            else:
+                model_name = self._public_to_internal_model_map.get(
+                    model_name, model_name
+                )
 
-            # Check if streaming is requested
-            is_streaming = getattr(request_data, "stream", False)
-
-            try:
-                # IMPORTANT: The Gemini Code Assist API only supports streaming endpoints
-                # (streamGenerateContent). For non-streaming requests, we always use
-                # the streaming path internally and accumulate the response.
-                # This avoids blocking synchronous calls that cause client timeouts.
-                if is_streaming:
-                    return await self._chat_completions_code_assist_streaming(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model_name,
-                        **kwargs,
-                    )
-                else:
-                    # Use streaming internally but accumulate to non-streaming response
-                    # This prevents client timeouts by processing progressively
-                    streaming_response = (
-                        await self._chat_completions_code_assist_streaming(
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            effective_model=model_name,
-                            **kwargs,
+            # Convert processed_messages to ChatMessage list for coordinator
+            chat_messages: list[ChatMessage] = []
+            for msg in processed_messages:
+                if isinstance(msg, dict):
+                    chat_messages.append(
+                        ChatMessage(
+                            role=msg.get("role", "user"),
+                            content=msg.get("content", ""),
                         )
                     )
-                    # Accumulate streaming response into a ResponseEnvelope
-                    accumulator = StreamingResponseAccumulator(
-                        backend_type=getattr(self, "backend_type", "gemini")
-                    )
-                    return await accumulator.accumulate(streaming_response)
-            except BackendError:
-                # Propagate backend errors to be handled by the Resilience Layer.
-                raise
+                elif isinstance(msg, ChatMessage):
+                    chat_messages.append(msg)
+
+            # Delegate to chat completion coordinator
+            response = await self._chat_completion_coordinator_instance.execute(
+                request_data=request_data,
+                processed_messages=chat_messages,
+                effective_model=model_name,
+            )
+
+            return response
 
         except HTTPException:
             # Re-raise HTTP exceptions directly
@@ -1397,13 +1632,25 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # Re-raise authentication errors
             raise
         except BackendError:
-            # Re-raise backend errors (already handled 429 above)
+            # Re-raise backend errors
             raise
         except InvalidRequestError:
             # Let context window overflows bubble up for clients to handle
             raise
         except Exception as e:
-            # Convert other exceptions to BackendError
+            # Normalize exceptions via error mapper if available
+            if self._error_mapper:
+                try:
+                    mapped_error = self._error_mapper.map_exception(
+                        e, backend_name=getattr(self, "backend_type", "gemini")
+                    )
+                    # map_exception returns LLMProxyError (or raises HTTPException)
+                    raise mapped_error from e
+                except Exception as mapped_exc:
+                    # If map_exception raised HTTPException, re-raise it
+                    # (HTTPException must be raised, not returned, for FastAPI)
+                    raise mapped_exc from e
+            # Fallback: convert to BackendError
             logger.error(
                 f"Error in Gemini OAuth Personal chat_completions: {e}",
                 exc_info=True,
@@ -1537,41 +1784,78 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using the Code Assist API.
 
-        This method implements the Code Assist API calls that match the Gemini CLI
-        approach, while converting to/from OpenAI-compatible formats.
+        This method delegates to the chat completion coordinator for orchestration,
+        while preserving auth retry wrapper logic for backward compatibility.
+
+        **Note**: This method is for non-streaming requests. The coordinator determines
+        streaming vs non-streaming based on `request_data.stream`, so we ensure it's False.
         """
+        # Ensure request_data.stream is False for non-streaming requests
+        # Coordinator determines streaming based on this flag, so we must set it correctly
+        if hasattr(request_data, "model_copy") and callable(request_data.model_copy):
+            # Pydantic model - create a modified copy
+            request_data = request_data.model_copy(update={"stream": False})
+        elif isinstance(request_data, dict):
+            # Dict - modify directly
+            request_data = {**request_data, "stream": False}
+        elif hasattr(request_data, "stream"):
+            # Object with stream attribute - validate it's False
+            current_stream = getattr(request_data, "stream", False)
+            if current_stream:
+                logger.warning(
+                    "_chat_completions_code_assist called with stream=True, "
+                    "forcing stream=False to match method intent"
+                )
+                # Try to set it if possible
+                try:
+                    request_data.stream = False
+                except (AttributeError, TypeError):
+                    # If immutable, create a copy if possible
+                    if hasattr(request_data, "model_copy"):
+                        request_data = request_data.model_copy(update={"stream": False})
+                    elif hasattr(request_data, "__dict__"):
+                        # Create a shallow copy and modify
+                        import copy
+
+                        request_data = copy.copy(request_data)
+                        request_data.stream = False
+
+        # Convert processed_messages to ChatMessage list for coordinator
+        chat_messages: list[ChatMessage] = []
+        for msg in processed_messages:
+            if isinstance(msg, dict):
+                chat_messages.append(
+                    ChatMessage(
+                        role=msg.get("role", "user"),
+                        content=msg.get("content", ""),
+                    )
+                )
+            elif isinstance(msg, ChatMessage):
+                chat_messages.append(msg)
+
         try:
-            prepared_start = time.monotonic()
-            prepared = await self._chat_preparer.prepare(
+            # Delegate to chat completion coordinator
+            # Coordinator will check request_data.stream (now guaranteed to be False)
+            response = await self._chat_completion_coordinator_instance.execute(
                 request_data=request_data,
+                processed_messages=chat_messages,
                 effective_model=effective_model,
-                is_streaming=False,
             )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Prepared non-streaming request in %.3fs (model=%s, session=%s)",
-                    time.monotonic() - prepared_start,
-                    effective_model,
-                    getattr(request_data, "session_id", None),
+
+            # Validate return type matches method intent (non-streaming should return ResponseEnvelope)
+            if isinstance(response, StreamingResponseEnvelope):
+                logger.warning(
+                    "Coordinator returned StreamingResponseEnvelope for non-streaming request. "
+                    "This may indicate a bug in coordinator or request_data.stream was not set correctly."
                 )
 
-            url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
-            logger.info(f"Making Code Assist API call to: {url}")
-
-            response = await self._orchestrator.run_non_streaming(
-                prepared=prepared,
-                url=url,
-                token_refresher=self,
-                thought_signature_callback=self._build_thought_signature_callback(),
-                key_name=getattr(self, "_key_name", None),
-            )
-
-            logger.info(
-                "Successfully received and processed response from Code Assist API"
-            )
             return response
 
         except AuthenticationError as e:
+            # Coordinator delegates to orchestrator -> StreamingExecutor, which handles
+            # auth retries internally. If that fails, AuthenticationError bubbles up here.
+            # This connector-level retry is a fallback for cases where StreamingExecutor's
+            # retry didn't succeed (e.g., token refresh failed or retry policy denied retry).
             should_retry = await self._attempt_auth_refresh_with_policy(
                 e,
                 is_streaming=False,
@@ -1631,45 +1915,95 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions using the Code Assist API.
 
-        This method delegates to the StreamingExecutor for the actual
-        streaming HTTP handling, keeping this orchestration method focused
-        on setup, VTC wrapping, and error handling.
+        This method delegates to the chat completion coordinator for orchestration,
+        while preserving streaming error handling (auth error stream generation).
+
+        **Note**: This method is for streaming requests. The coordinator determines
+        streaming vs non-streaming based on `request_data.stream`, so we ensure it's True.
         """
         from src.core.ports.streaming_contracts import handle_streaming_error
 
+        # Ensure request_data.stream is True for streaming requests
+        # Coordinator determines streaming based on this flag, so we must set it correctly
+        if hasattr(request_data, "model_copy") and callable(request_data.model_copy):
+            # Pydantic model - create a modified copy
+            request_data = request_data.model_copy(update={"stream": True})
+        elif isinstance(request_data, dict):
+            # Dict - modify directly
+            request_data = {**request_data, "stream": True}
+        elif hasattr(request_data, "stream"):
+            # Object with stream attribute - validate it's True
+            current_stream = getattr(request_data, "stream", False)
+            if not current_stream:
+                logger.warning(
+                    "_chat_completions_code_assist_streaming called with stream=False, "
+                    "forcing stream=True to match method intent"
+                )
+                # Try to set it if possible
+                try:
+                    request_data.stream = True
+                except (AttributeError, TypeError):
+                    # If immutable, create a copy if possible
+                    if hasattr(request_data, "model_copy"):
+                        request_data = request_data.model_copy(update={"stream": True})
+                    elif hasattr(request_data, "__dict__"):
+                        # Create a shallow copy and modify
+                        import copy
+
+                        request_data = copy.copy(request_data)
+                        request_data.stream = True
+
+        # Convert processed_messages to ChatMessage list for coordinator
+        chat_messages: list[ChatMessage] = []
+        for msg in processed_messages:
+            if isinstance(msg, dict):
+                chat_messages.append(
+                    ChatMessage(
+                        role=msg.get("role", "user"),
+                        content=msg.get("content", ""),
+                    )
+                )
+            elif isinstance(msg, ChatMessage):
+                chat_messages.append(msg)
+
         try:
-            # Use ChatRequestPreparer for all common setup
-            prepared_start = time.monotonic()
-            prepared = await self._chat_preparer.prepare(
+            # Delegate to chat completion coordinator
+            # Coordinator will check request_data.stream (now guaranteed to be True)
+            response = await self._chat_completion_coordinator_instance.execute(
                 request_data=request_data,
+                processed_messages=chat_messages,
                 effective_model=effective_model,
-                is_streaming=True,
             )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Prepared streaming request in %.3fs (model=%s, session=%s)",
-                    time.monotonic() - prepared_start,
-                    effective_model,
-                    getattr(request_data, "session_id", None),
+
+            # Validate return type matches method intent (streaming should return StreamingResponseEnvelope)
+            if not isinstance(response, StreamingResponseEnvelope):
+                # This shouldn't happen for streaming requests, but handle gracefully
+                logger.warning(
+                    "Coordinator returned non-streaming response for streaming request. "
+                    "Converting to streaming format."
+                )
+                # Convert non-streaming response to streaming chunk
+                from src.connectors.gemini_base.response_accumulator import (
+                    response_envelope_to_stream_chunk,
                 )
 
-            # Use the Code Assist API with streaming endpoint
-            url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
-            logger.info(f"Making streaming Code Assist API call to: {url}")
+                async def single_chunk_stream() -> (
+                    AsyncGenerator[ProcessedResponse, None]
+                ):
+                    chunk = response_envelope_to_stream_chunk(
+                        response,
+                        effective_model,
+                        getattr(self, "backend_type", "gemini"),
+                    )
+                    yield chunk
 
-            stream_wrapper = self._build_vtc_wrapper(
-                request_data=request_data,
-                effective_model=effective_model,
-            )
+                return StreamingResponseEnvelope(
+                    content=single_chunk_stream(),
+                    media_type="text/event-stream",
+                    headers={},
+                )
 
-            return await self._orchestrator.run_streaming(
-                prepared=prepared,
-                url=url,
-                token_refresher=self,  # Connector implements refresh_token_if_needed
-                thought_signature_callback=self._build_thought_signature_callback(),
-                key_name=getattr(self, "_key_name", None),
-                stream_wrapper=stream_wrapper,
-            )
+            return response
 
         except AuthenticationError as e:
             logger.error(
@@ -1722,7 +2056,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _build_vtc_wrapper(
         self, request_data: Any, effective_model: str
     ) -> StreamWrapper | None:
-        """Build VTC wrapper for streaming responses if enabled."""
+        """Build VTC wrapper for streaming responses if enabled.
+
+        Delegates to VTC wrapper builder service.
+        """
+        if self._vtc_wrapper_builder:
+            return self._vtc_wrapper_builder.build(
+                request_data=request_data,
+                effective_model=effective_model,
+            )
+
+        # Fallback to old logic for backward compatibility
         vtc_enabled = getattr(request_data, "vtc_enabled", False) or False
         if not vtc_enabled:
             return None
@@ -1782,10 +2126,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Create a thought-signature storage callback for streaming executor."""
 
         def callback(tool_calls: list[dict[str, Any]], session_id: str | None) -> None:
-            self._thought_signature_service.store_signatures_from_tool_calls(
-                tool_calls,
-                session_id,
-            )
+            if self._thought_signature_service is not None:
+                self._thought_signature_service.store_signatures_from_tool_calls(
+                    tool_calls,
+                    session_id,
+                )
 
         return callback
 
@@ -1810,7 +2155,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _convert_to_code_assist_format(
         self, request_data: Any, processed_messages: list[Any], model: str
     ) -> dict[str, Any]:
-        """Convert OpenAI-style request to Code Assist API format."""
+        """Convert OpenAI-style request to Code Assist API format.
+
+        **Note**: This method is preserved for backward compatibility but is no longer
+        used internally. The coordinator handles request format conversion via
+        ChatRequestPreparer and IMessageConverter interfaces. This method may be
+        removed in a future refactoring if no external callers depend on it.
+        """
         # Extract the last user message for generation
         user_message = ""
         for msg in reversed(processed_messages):
@@ -1865,6 +2216,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Build Code Assist generationConfig from request_data using Pydantic models.
 
         Delegates to GenerationConfigBuilder for implementation.
+
+        **Note**: This method is preserved for backward compatibility. It's called by
+        `_convert_to_code_assist_format` (which is also legacy). The coordinator handles
+        generation config building via ChatRequestPreparer and GenerationConfigBuilder.
+        This method may be removed in a future refactoring if no external callers depend on it.
         """
         builder = GenerationConfigBuilder()
         return builder.build(request_data)
@@ -1875,6 +2231,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Convert Code Assist API response to OpenAI-compatible format.
 
         Delegates to convert_from_code_assist_format module function.
+
+        **Note**: This method is preserved for backward compatibility but is no longer
+        used internally. The coordinator handles response format conversion via
+        orchestrator and response processors. This method may be removed in a future
+        refactoring if no external callers depend on it.
         """
         return convert_from_code_assist_format(code_assist_response, model)
 

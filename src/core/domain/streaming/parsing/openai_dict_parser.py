@@ -40,7 +40,19 @@ class OpenAIDictParser(IParserStrategy):
             return False
 
         # Skip Anthropic format (has 'type' field with specific values)
-        if raw_data.get("type") in ("content_block_delta", "message_delta"):
+        # Anthropic SSE events include: message_start, content_block_start,
+        # content_block_delta, content_block_stop, message_delta, message_stop, ping
+        # All Anthropic event dicts have a 'type' field matching one of these event types
+        anthropic_event_types = (
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+            "ping",
+        )
+        if raw_data.get("type") in anthropic_event_types:
             return False
 
         # Skip Gemini format (has 'candidates' field without 'choices')

@@ -2,17 +2,14 @@
 Raw chunk parsing strategies.
 
 This module contains parser strategies for converting raw backend chunks
-into StreamingContent. The parser handles provider-specific formats including
-OpenAI, Anthropic, Gemini, SSE, and ProcessedResponse.
+into StreamingContent. The parser handles transport-neutral formats (OpenAI-style
+dicts, SSE, strings, bytes) and ProcessedResponse. Provider-specific formats
+(Anthropic events, Gemini JSON) are handled by provider normalizers, not here.
 """
 
 from __future__ import annotations
 
-from src.core.domain.streaming.parsing.anthropic_dict_parser import (
-    AnthropicDictParser,
-)
 from src.core.domain.streaming.parsing.fallback_parser import FallbackParser
-from src.core.domain.streaming.parsing.gemini_dict_parser import GeminiDictParser
 from src.core.domain.streaming.parsing.json_string_parser import (
     JSONStringParser,
 )
@@ -38,9 +35,7 @@ __all__ = [
     "PassthroughParser",
     "ProcessedResponseParser",
     "StopChunkParser",
-    "AnthropicDictParser",
     "OpenAIDictParser",
-    "GeminiDictParser",
     "SSEBytesParser",
     "SSEStringParser",
     "JSONStringParser",

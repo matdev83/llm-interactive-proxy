@@ -78,11 +78,17 @@ class TestGeminiOAuthFreeConnector:
         self, connector, monkeypatch
     ):
         """Ensure refresh waits for credentials file update instead of failing fast."""
-        connector._oauth_credentials = {
-            "access_token": "initial-token",
-            "refresh_token": "refresh-token",
-            "expiry_date": int((time.time() - 120) * 1000),
-        }
+        from src.connectors.gemini_base.models import GeminiOAuthCredentials
+
+        # Set initial credentials in coordinator (which is the source of truth after refactoring)
+        initial_creds = GeminiOAuthCredentials(
+            access_token="initial-token",
+            refresh_token="refresh-token",
+            expiry_date=int((time.time() - 120) * 1000),
+        )
+        connector._credential_coordinator._credentials = initial_creds
+        # Also set in connector for backward compatibility
+        connector._oauth_credentials = initial_creds.to_dict()
 
         monkeypatch.setattr(
             connector,
@@ -93,18 +99,24 @@ class TestGeminiOAuthFreeConnector:
 
         load_calls = 0
 
-        async def fake_load(force_reload: bool = False) -> bool:
+        async def fake_load_internal(
+            force_reload: bool = False, silent: bool = False
+        ) -> bool:
             nonlocal load_calls
             load_calls += 1
             if load_calls >= 7:
-                connector._oauth_credentials["expiry_date"] = int(
-                    (time.time() + 3600) * 1000
+                # Update coordinator's credentials (which syncs to connector via property)
+                updated_creds = GeminiOAuthCredentials(
+                    access_token=f"new-token-{load_calls}",
+                    refresh_token="refresh-token",
+                    expiry_date=int((time.time() + 3600) * 1000),
                 )
-                connector._oauth_credentials["access_token"] = f"new-token-{load_calls}"
+                connector._credential_coordinator._credentials = updated_creds
             return True
 
-        connector._load_oauth_credentials = AsyncMock(  # type: ignore[assignment]
-            side_effect=fake_load
+        # Mock the coordinator's internal method (actual code path after refactoring)
+        connector._credential_coordinator._load_credentials_internal = AsyncMock(  # type: ignore[assignment]
+            side_effect=fake_load_internal
         )
 
         sleep_calls = 0

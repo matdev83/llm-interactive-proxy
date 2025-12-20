@@ -31,6 +31,22 @@ logger = logging.getLogger(__name__)
 StreamWrapper = Callable[
     [AsyncIterator[ProcessedResponse]], AsyncIterator[ProcessedResponse]
 ]
+"""Type alias for optional stream transformation functions.
+
+This type represents a pure function that transforms a stream of ProcessedResponse
+chunks. It is used for optional VTC (tool call) features that intercept and process
+tool calls in streaming responses.
+
+**Data Flow**: This type flows:
+- Produced by `IVtcWrapperBuilder.build()` when VTC is enabled
+- Consumed by `ICodeAssistOrchestrator.run_streaming()` as optional `stream_wrapper` parameter
+- Applied to transform `AsyncIterator[ProcessedResponse]` streams
+
+**Service Boundaries**: Enables optional feature injection without coupling execution
+to VTC implementation details. Returns None when VTC is disabled, allowing graceful degradation.
+
+**Invariants**: Wrapper functions must be pure (no side effects) and preserve chunk ordering.
+"""
 
 
 class CodeAssistOrchestrator:

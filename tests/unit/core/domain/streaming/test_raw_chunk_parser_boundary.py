@@ -54,6 +54,110 @@ class TestProviderParsingBoundary:
         assert isinstance(result.content, dict)
         assert result.content == anthropic_chunk
 
+    def test_anthropic_message_start_treated_as_opaque(self) -> None:
+        """Anthropic message_start events should be treated as opaque."""
+        anthropic_chunk = {
+            "type": "message_start",
+            "message": {
+                "id": "msg_123",
+                "role": "assistant",
+                "model": "claude-3",
+            },
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (not parsed)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+
+    def test_anthropic_content_block_start_treated_as_opaque(self) -> None:
+        """Anthropic content_block_start events should be treated as opaque."""
+        anthropic_chunk = {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (not parsed)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+
+    def test_anthropic_content_block_stop_treated_as_opaque(self) -> None:
+        """Anthropic content_block_stop events should be treated as opaque."""
+        anthropic_chunk = {
+            "type": "content_block_stop",
+            "index": 0,
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (not parsed)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+
+    def test_anthropic_message_stop_treated_as_opaque(self) -> None:
+        """Anthropic message_stop events should be treated as opaque."""
+        anthropic_chunk = {
+            "type": "message_stop",
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (not parsed)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+
+    def test_anthropic_ping_treated_as_opaque(self) -> None:
+        """Anthropic ping events should be treated as opaque."""
+        anthropic_chunk = {
+            "type": "ping",
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (not parsed)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+
+    def test_anthropic_dict_with_choices_field_treated_as_opaque(self) -> None:
+        """Edge case: Anthropic event dict with 'choices' field should still be opaque.
+
+        Even if an Anthropic event dict somehow has a 'choices' field, it should
+        be treated as opaque because it has an Anthropic event type.
+        """
+        # This is an edge case - unlikely but possible
+        anthropic_chunk = {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "Hello"},
+            "choices": [
+                {"delta": {"content": "should not parse"}}
+            ],  # Should be ignored
+        }
+
+        result = StreamingContent.from_raw(anthropic_chunk)
+
+        # Should be treated as opaque dict (Anthropic type takes precedence)
+        assert isinstance(result.content, dict)
+        assert result.content == anthropic_chunk
+        assert result.metadata == {}
+        assert result.is_done is False
+        # Content should NOT be extracted from choices
+        assert result.content != "should not parse"
+
     def test_gemini_dict_treated_as_opaque(self) -> None:
         """Gemini JSON objects should be treated as opaque dict content."""
         gemini_chunk = {

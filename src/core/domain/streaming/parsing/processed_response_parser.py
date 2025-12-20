@@ -139,7 +139,12 @@ class ProcessedResponseParser(IParserStrategy):
 
         # Handle dict, str, bytes, bytearray, list - delegate to parser chain
         if isinstance(content_val, dict | str | bytes | bytearray | list):
-            # Recursively parse using StreamingContent.from_raw which delegates to RawChunkParser
+            # Recursively parse using StreamingContent.from_raw which delegates to RawChunkParser.
+            # Note: If content_val contains provider-specific formats (e.g., Anthropic event dicts,
+            # Gemini JSON), from_raw will correctly treat them as opaque dict content per the
+            # provider-parsing boundary enforcement. Provider-specific formats should ideally be
+            # normalized by provider normalizers before being wrapped in ProcessedResponse, but
+            # if they reach here, they will be preserved as opaque content (correct behavior).
             parsed = StreamingContent.from_raw(content_val)
             return _finalize(parsed)
 

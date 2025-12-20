@@ -17,15 +17,15 @@ DIRECTION_NAMES = {
 }
 
 
-def main():
-    entries = []
+def main() -> None:
+    entries: list[dict] = []
     with open("var/wire_captures_cbor/proxy-20251208_1803.cbor", "rb") as f:
-        header = cbor2.load(f)  # Read header first
+        header: dict = cbor2.load(f)  # Read header first
         print(f"Header: session_id={header.get('session_id')}")
 
         while True:
             try:
-                entry = cbor2.load(f)
+                entry: dict = cbor2.load(f)
                 # Handle decompression
                 if entry.get("enc") == "zlib":
                     entry["data"] = zlib.decompress(entry["data"])
@@ -43,25 +43,25 @@ def main():
             continue
 
         entry = entries[idx]
-        direction = entry.get("dir", -1)
-        data_bytes = entry.get("data", b"")
-        ts = entry.get("ts", 0)
+        direction: int = entry.get("dir", -1)
+        data_bytes: bytes = entry.get("data", b"")
+        ts: float = entry.get("ts", 0)
 
         print(f"\n[{idx}] {DIRECTION_NAMES.get(direction, 'UNK')} ts={ts:.6f}")
 
         if data_bytes:
             try:
-                text = data_bytes.decode("utf-8").strip()
+                text: str = data_bytes.decode("utf-8").strip()
                 print(f"  raw (first 150): {text[:150]}")
 
                 if text.startswith("data:"):
-                    json_str = text[5:].strip()
+                    json_str: str = text[5:].strip()
                     if json_str != "[DONE]":
-                        parsed = json.loads(json_str)
-                        choices = parsed.get("choices", [])
+                        parsed: dict = json.loads(json_str)
+                        choices: list[dict] = parsed.get("choices", [])
                         if choices:
-                            delta = choices[0].get("delta", {})
-                            content = delta.get("content")
+                            delta: dict = choices[0].get("delta", {})
+                            content: str | None = delta.get("content")
                             print(f"  content: {content!r}")
             except Exception as e:
                 print(f"  error: {e}")

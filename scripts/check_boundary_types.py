@@ -20,7 +20,6 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any as AnyType
 
 
 @dataclass
@@ -113,7 +112,7 @@ class BoundaryTypeChecker(ast.NodeVisitor):
             return
 
         # Check if this class is allowlisted
-        for pattern_class, pattern_attr in self.ALLOWLIST_PATTERNS:
+        for pattern_class, _pattern_attr in self.ALLOWLIST_PATTERNS:
             if pattern_class in node.name:
                 # Skip checking this class if it matches allowlist
                 return
@@ -159,9 +158,7 @@ class BoundaryTypeChecker(ast.NodeVisitor):
                     )
                 )
 
-    def _check_type_annotation(
-        self, annotation: ast.expr, context: str
-    ) -> str | None:
+    def _check_type_annotation(self, annotation: ast.expr, context: str) -> str | None:
         """Check a type annotation for violations.
 
         Returns:
@@ -172,25 +169,30 @@ class BoundaryTypeChecker(ast.NodeVisitor):
             return f"{context} uses 'Any' in signature"
 
         # Check for dict[str, Any]
-        if isinstance(annotation, ast.Subscript):
-            if isinstance(annotation.value, ast.Name) and annotation.value.id == "dict":
-                # Extract slice elements (handle Python 3.9+ and older)
-                slice_elts: list[ast.expr] = []
-                if isinstance(annotation.slice, ast.Tuple):
-                    slice_elts = annotation.slice.elts
-                elif hasattr(ast, "Index") and isinstance(annotation.slice, ast.Index):  # Python < 3.9
-                    if isinstance(annotation.slice.value, ast.Tuple):
-                        slice_elts = annotation.slice.value.elts
-                    else:
-                        slice_elts = [annotation.slice.value]
+        if (
+            isinstance(annotation, ast.Subscript)
+            and isinstance(annotation.value, ast.Name)
+            and annotation.value.id == "dict"
+        ):
+            # Extract slice elements (handle Python 3.9+ and older)
+            slice_elts: list[ast.expr] = []
+            if isinstance(annotation.slice, ast.Tuple):
+                slice_elts = annotation.slice.elts
+            elif hasattr(ast, "Index") and isinstance(
+                annotation.slice, ast.Index
+            ):  # Python < 3.9
+                if isinstance(annotation.slice.value, ast.Tuple):
+                    slice_elts = annotation.slice.value.elts
                 else:
-                    # Python 3.9+ uses slice directly
-                    slice_elts = [annotation.slice]
+                    slice_elts = [annotation.slice.value]
+            else:
+                # Python 3.9+ uses slice directly
+                slice_elts = [annotation.slice]
 
-                if len(slice_elts) >= 2:
-                    value_type = slice_elts[1]
-                    if isinstance(value_type, ast.Name) and value_type.id == "Any":
-                        return f"{context} uses 'dict[str, Any]' in signature"
+            if len(slice_elts) >= 2:
+                value_type = slice_elts[1]
+                if isinstance(value_type, ast.Name) and value_type.id == "Any":
+                    return f"{context} uses 'dict[str, Any]' in signature"
 
         # Check for Union/Optional containing Any
         if isinstance(annotation, ast.BinOp) and isinstance(
@@ -204,31 +206,32 @@ class BoundaryTypeChecker(ast.NodeVisitor):
                 return right_violation
 
         # Check for Union/Optional (old syntax)
-        if isinstance(annotation, ast.Subscript):
-            if isinstance(annotation.value, ast.Name):
-                if annotation.value.id in ("Union", "Optional"):
-                    if isinstance(annotation.slice, ast.Tuple):
-                        for elt in annotation.slice.elts:
-                            violation = self._check_type_annotation(elt, context)
-                            if violation:
-                                return violation
-                    elif isinstance(annotation.slice, ast.Index):  # Python < 3.9
-                        if isinstance(annotation.slice.value, ast.Tuple):
-                            for elt in annotation.slice.value.elts:
-                                violation = self._check_type_annotation(elt, context)
-                                if violation:
-                                    return violation
+        if (
+            isinstance(annotation, ast.Subscript)
+            and isinstance(annotation.value, ast.Name)
+            and annotation.value.id in ("Union", "Optional")
+        ):
+            if isinstance(annotation.slice, ast.Tuple):
+                for elt in annotation.slice.elts:
+                    violation = self._check_type_annotation(elt, context)
+                    if violation:
+                        return violation
+            elif isinstance(annotation.slice, ast.Index) and isinstance(  # Python < 3.9
+                annotation.slice.value, ast.Tuple
+            ):
+                for elt in annotation.slice.value.elts:
+                    violation = self._check_type_annotation(elt, context)
+                    if violation:
+                        return violation
 
         return None
 
-    def _check_type_ignore(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
+    def _check_type_ignore(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Check for type: ignore comments."""
         # Note: AST doesn't preserve comments, so we need to check the source
         # For now, we'll check if there's a type: ignore in the function's line range
         # This is a simplified check - a full implementation would parse comments
-        pass  # TODO: Implement comment parsing if needed
+        # TODO: Implement comment parsing if needed
 
 
 def is_boundary_module(file_path: Path) -> bool:
@@ -307,4 +310,3 @@ if __name__ == "__main__":
     paths = sys.argv[1:] if len(sys.argv) > 1 else None
     exit_code = check_boundary_types(paths)
     sys.exit(exit_code)
-

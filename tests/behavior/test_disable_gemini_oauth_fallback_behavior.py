@@ -42,6 +42,9 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
 
     def __init__(self, config: AppConfig | None = None):
         """Initialize with optional config override."""
+        from src.connectors.gemini_base.credential_coordinator import (
+            GeminiCredentialCoordinator,
+        )
         from src.connectors.gemini_base.file_watcher import FileWatcherState
         from src.connectors.gemini_base.token_manager import TokenManager
 
@@ -51,6 +54,18 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         # Initialize composed managers FIRST (before setting properties that delegate to them)
         self._token_manager = TokenManager()
         self._file_watcher_state = FileWatcherState()
+
+        # Initialize credential coordinator (required after refactoring)
+        self._credential_coordinator = GeminiCredentialCoordinator(
+            token_manager=self._token_manager,
+            file_watcher_state=self._file_watcher_state,
+        )
+        # Set credentials in coordinator for validation
+        from src.connectors.gemini_base.models import GeminiOAuthCredentials
+
+        self._credential_coordinator._credentials = GeminiOAuthCredentials(
+            access_token="test-token"
+        )
 
         # Initialize with minimal required components
         self.config = config
