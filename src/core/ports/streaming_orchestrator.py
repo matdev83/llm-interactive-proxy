@@ -22,6 +22,7 @@ from src.core.ports.streaming_contracts import (
     IStreamProcessor,
     StreamingContent,
 )
+from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
 from src.core.ports.streaming_metrics import get_metrics_instance
 
 logger = logging.getLogger(__name__)
@@ -236,43 +237,29 @@ class StreamingPipeline:
 def create_pipeline_for_provider(
     provider: str,
     processors: list[IStreamProcessor] | None = None,
+    normalizer: IProviderStreamNormalizer | None = None,
 ) -> StreamingPipeline:
     """Factory function to create a pipeline for a specific provider.
 
-    This function selects the appropriate normalizer based on the provider
-    and creates a complete pipeline with the specified processors.
+    This function creates a complete pipeline with the specified processors.
+    The normalizer must be provided explicitly (requirement 5.2 - no implicit construction).
 
     Args:
-        provider: Provider name ("openai", "anthropic", "gemini", etc.)
+        provider: Provider name ("openai", "anthropic", "gemini", etc.) - used for validation/logging
         processors: Optional list of middleware processors
+        normalizer: Provider normalizer instance (required)
 
     Returns:
         Configured StreamingPipeline instance
 
     Raises:
-        ValueError: If provider is not supported
+        ValueError: If normalizer is not provided or provider is not supported
     """
-    # Import normalizers here to avoid circular imports
-    from src.core.ports.anthropic_normalizer import AnthropicStreamNormalizer
-    from src.core.ports.gemini_normalizer import GeminiStreamNormalizer
-    from src.core.ports.openai_normalizer import OpenAIStreamNormalizer
-
-    # Select normalizer based on provider
-    normalizer_map = {
-        "openai": OpenAIStreamNormalizer,
-        "anthropic": AnthropicStreamNormalizer,
-        "gemini": GeminiStreamNormalizer,
-    }
-
-    normalizer_class = normalizer_map.get(provider.lower())
-    if not normalizer_class:
+    if normalizer is None:
         raise ValueError(
-            f"Unsupported provider: {provider}. "
-            f"Supported providers: {list(normalizer_map.keys())}"
+            f"Normalizer is required for provider '{provider}'. "
+            "Provider normalizers must be constructed explicitly at the call site."
         )
-
-    # Create normalizer instance
-    normalizer = normalizer_class()
 
     # Create and return pipeline
     return StreamingPipeline(

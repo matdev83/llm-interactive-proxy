@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-from typing import Any
 from uuid import uuid4
 
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
-from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.interfaces.streaming_response_processor_interface import (
+    CancelCallback,
+    IStreamNormalizer as IProcessingStreamNormalizer,
+    StreamItem,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class StreamNormalizer(IStreamNormalizer):
+class StreamNormalizer(IProcessingStreamNormalizer):
     """A service that normalizes streaming responses by applying a series of stream processors."""
 
     def __init__(self, processors: Sequence[IStreamProcessor] | None = None) -> None:
@@ -43,9 +46,9 @@ class StreamNormalizer(IStreamNormalizer):
 
     async def process_stream(
         self,
-        stream: AsyncIterator[Any],
+        stream: AsyncIterator[StreamItem],
         output_format: str = "bytes",
-        cancel_callback: Any | None = None,
+        cancel_callback: CancelCallback | None = None,
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         """Process a stream and convert to the desired output format.
 

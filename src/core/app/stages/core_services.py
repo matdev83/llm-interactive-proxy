@@ -20,7 +20,6 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.session_resolver_interface import ISessionResolver
-from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 
 # from src.core.interfaces.secure_state_interface import ISecureStateService # Removed unresolved import
 from src.core.services.application_state_service import ApplicationStateService
@@ -126,8 +125,10 @@ class CoreServicesStage(InitializationStage):
             app_state: IApplicationState = provider.get_required_service(
                 IApplicationState  # type: ignore[type-abstract]
             )
-            stream_normalizer: IStreamNormalizer = provider.get_required_service(
-                IStreamNormalizer  # type: ignore[type-abstract]
+            stream_normalizer: (
+                IProcessingStreamNormalizer
+            ) = provider.get_required_service(
+                IProcessingStreamNormalizer  # type: ignore[type-abstract]
             )
             # ResponseProcessor now uses unified pipeline - no separate middleware manager
             return ResponseProcessor(

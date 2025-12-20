@@ -27,7 +27,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     - StreamingContextRegistry
     - MiddlewareApplicationManager
     - MiddlewareApplicationProcessor
-    - StreamNormalizer and IStreamNormalizer
+    - StreamNormalizer and IProcessingStreamNormalizer
     - StreamFormattingService and IStreamFormattingService
 
     Args:
@@ -264,14 +264,11 @@ def _register_middleware_application_processor(services: ServiceCollection) -> N
 
 
 def _register_stream_normalizer(services: ServiceCollection) -> None:
-    """Register StreamNormalizer with IStreamNormalizer interface binding."""
+    """Register StreamNormalizer with IProcessingStreamNormalizer interface binding."""
     from src.core.domain.streaming_response_processor import (
         LoopDetectionProcessor,
     )
     from src.core.interfaces.loop_detector_interface import ILoopDetector
-    from src.core.interfaces.streaming_response_processor_interface import (
-        IStreamNormalizer,
-    )
     from src.core.interfaces.tool_call_repair_service_interface import (
         IToolCallRepairService,
     )
@@ -348,12 +345,14 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
 
         register_singleton_if_absent(
             services,
-            cast(type, IStreamNormalizer),  # type: ignore[type-abstract]
+            cast(type, IProcessingStreamNormalizer),  # type: ignore[type-abstract]
             implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IStreamNormalizer interface: {e}")
+            logger.warning(
+                f"Failed to register IProcessingStreamNormalizer interface: {e}"
+            )
 
 
 def _register_stream_formatting_service(services: ServiceCollection) -> None:

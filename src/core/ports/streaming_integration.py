@@ -148,9 +148,46 @@ async def integrate_streaming_pipeline(
         processors.append(VTCPostProcessor(registry=registry))
         logger.debug("VTC post-processor enabled for stream %s", stream_id)
 
+    # Create pipeline for the provider - normalizer must be constructed explicitly
+    from src.core.ports.anthropic_normalizer import AnthropicStreamNormalizer
+    from src.core.ports.gemini_normalizer import GeminiStreamNormalizer
+    from src.core.ports.openai_normalizer import OpenAIStreamNormalizer
+
+    # Select and construct normalizer based on provider (stateless adapter - no DI required)
+    normalizer_map = {
+        "openai": OpenAIStreamNormalizer,
+        "anthropic": AnthropicStreamNormalizer,
+        "gemini": GeminiStreamNormalizer,
+    }
+
+    normalizer_class = normalizer_map.get(provider.lower())
+    if not normalizer_class:
+        logger.error(
+            "Failed to create streaming pipeline for provider %s: Unsupported provider. "
+            "No legacy fallback available.",
+            provider,
+        )
+        error_chunk = await handle_streaming_error(
+            ValueError(f"Unsupported provider: {provider}"), stream_id, provider
+        )
+
+        async def error_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=error_chunk.to_bytes())
+
+        return StreamingResponseEnvelope(
+            content=error_stream(),
+            media_type="text/event-stream",
+            headers={},
+        )
+
+    # Construct normalizer explicitly at call site (requirement 5.2)
+    normalizer = normalizer_class()
+
     # Create pipeline for the provider
     try:
-        pipeline = create_pipeline_for_provider(provider, processors=processors)
+        pipeline = create_pipeline_for_provider(
+            provider, processors=processors, normalizer=normalizer
+        )
     except ValueError as e:
         logger.error(
             "Failed to create streaming pipeline for provider %s: %s. No legacy fallback available.",

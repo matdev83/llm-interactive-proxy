@@ -19,10 +19,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Protocol, TypeAlias
 
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.streaming.streaming_content import StreamingContent
+
+# Type alias for raw streaming chunks from backends
+# Raw chunks are provider-specific and opaque until normalized
+# They can be bytes, dicts, strings, or other provider-specific formats
+RawChunk: TypeAlias = object
 
 
 class StreamProducer(Protocol):
@@ -34,7 +39,7 @@ class StreamProducer(Protocol):
 
     async def stream_completion(
         self, request: CanonicalChatRequest
-    ) -> AsyncIterator[object]:
+    ) -> AsyncIterator[RawChunk]:
         """Yield raw streaming chunks from the backend.
 
         Args:
@@ -68,7 +73,7 @@ class IProviderStreamNormalizer(ABC):
 
     @abstractmethod
     def normalize_stream(
-        self, stream: AsyncIterator[object], provider: str
+        self, stream: AsyncIterator[RawChunk], provider: str
     ) -> AsyncIterator[StreamingContent]:
         """Convert provider-specific stream to StreamingContent.
 
@@ -149,14 +154,13 @@ class IStreamAssembler(ABC):
         ...
 
 
-# Re-export IProviderStreamNormalizer as IStreamNormalizer for backward compatibility
-# External code should import IStreamNormalizer from streaming_contracts.py
-IStreamNormalizer = IProviderStreamNormalizer
+# Note: IStreamNormalizer alias is re-exported from streaming_contracts.py for backward compatibility
+# External code should import IStreamNormalizer from streaming_contracts.py, not from this module
 
 __all__ = [
+    "RawChunk",
     "StreamProducer",
     "IProviderStreamNormalizer",
-    "IStreamNormalizer",  # Backward compatibility alias
     "IStreamProcessor",
     "IStreamAssembler",
 ]

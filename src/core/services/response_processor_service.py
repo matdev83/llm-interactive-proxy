@@ -23,16 +23,9 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
-from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 from src.core.services.response_pipeline import UnifiedResponsePipeline
-from src.core.services.streaming.content_accumulation_processor import (
-    ContentAccumulationProcessor,
-)
-from src.core.services.streaming.stream_context_registry import (
-    get_global_streaming_context_registry,
-)
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 logger = logging.getLogger(__name__)
@@ -59,7 +52,7 @@ class ResponseProcessor(IResponseProcessor):
         response_parser: IResponseParser,
         app_state: Any | None = None,
         loop_detector_factory: Any | None = None,
-        stream_normalizer: IStreamNormalizer | None = None,
+        stream_normalizer: IProcessingStreamNormalizer | None = None,
         tool_call_repair_processor: IStreamProcessor | None = None,
         loop_detection_processor: IStreamProcessor | None = None,
         content_accumulation_processor: IStreamProcessor | None = None,
@@ -78,31 +71,8 @@ class ResponseProcessor(IResponseProcessor):
         self._angel_service: Any | None = None
         self._angel_frequency: int = 1
 
+        # Require stream_normalizer via DI - no fallback construction (requirement 5.2)
         self._stream_normalizer = stream_normalizer
-
-        if stream_normalizer is None:
-            processors: list[IStreamProcessor] = []
-
-            # Use new decomposed processors if provided
-            if tool_call_repair_processor is not None:
-                processors.append(tool_call_repair_processor)
-            if loop_detection_processor is not None:
-                processors.append(loop_detection_processor)
-            if content_accumulation_processor is not None:
-                processors.append(content_accumulation_processor)
-            if middleware_application_processor is not None:
-                processors.append(middleware_application_processor)
-
-            if processors:
-                if content_accumulation_processor is None:
-                    registry = get_global_streaming_context_registry()
-                    processors.append(
-                        ContentAccumulationProcessor(
-                            max_buffer_bytes=10 * 1024 * 1024, registry=registry
-                        )
-                    )
-
-                self._stream_normalizer = StreamNormalizer(processors)
 
         # Inject memory response capture middleware into stream normalizer if enabled
         # We need to add it to the END of the chain to capture final processed content
@@ -127,7 +97,7 @@ class ResponseProcessor(IResponseProcessor):
 
         if self._stream_normalizer is None:
             raise RuntimeError(
-                "ResponseProcessor requires an IStreamNormalizer; "
+                "ResponseProcessor requires an IProcessingStreamNormalizer; "
                 "ensure the streaming pipeline is registered."
             )
 
@@ -382,28 +352,20 @@ class ResponseProcessor(IResponseProcessor):
         """
         # Reset loop detector state at the beginning of each streaming session
         # to prevent contamination across different requests
-        # Instantiate a fresh loop detector for this stream to ensure session isolation
+        # Loop detector is optional - processors handle it via DI if needed
         loop_detector: ILoopDetector | None = None
         if self._loop_detector_factory:
             try:
                 loop_detector = self._loop_detector_factory()
+                # Reset loop detector state at the beginning of each streaming session
+                if loop_detector is not None:
+                    loop_detector.reset()
             except Exception:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failed to create loop detector from factory", exc_info=True
                     )
-
-        if loop_detector is None:
-            # Fallback to default implementation if no factory provided
-            from src.loop_detection.token_window_loop_detector import (
-                TokenWindowLoopDetector,
-            )
-
-            loop_detector = TokenWindowLoopDetector()
-
-        # Reset loop detector state at the beginning of each streaming session
-        if loop_detector is not None:
-            loop_detector.reset()
+        # No fallback construction - loop detector is optional and handled via DI (requirement 5.2)
 
         # Inject context into iterator if provided
         # This ensures downstream processors (like middleware) have access to

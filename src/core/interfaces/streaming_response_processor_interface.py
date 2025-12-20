@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Any, Protocol
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from typing import Any, Protocol, TypeAlias
 
 from src.core.domain.streaming_response_processor import (
     StreamingContent,
 )
+
+# Type alias for raw stream items - can be StreamingContent, bytes, dicts, or other formats
+# This is intentionally broad to accommodate various input formats before normalization
+StreamItem: TypeAlias = object
+
+# Type alias for cancel callback - a callable that takes no arguments and returns None
+CancelCallback: TypeAlias = Callable[[], None]
 
 
 class IStreamNormalizer(ABC):
@@ -15,14 +22,14 @@ class IStreamNormalizer(ABC):
     @abstractmethod
     def process_stream(
         self,
-        stream: AsyncIterator[Any],
+        stream: AsyncIterator[StreamItem],
         output_format: str = "bytes",
-        cancel_callback: Any | None = None,
+        cancel_callback: CancelCallback | None = None,
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         """Process a stream and convert to the desired output format.
 
         Args:
-            stream: The input stream to process
+            stream: The input stream to process (can contain StreamingContent, bytes, dicts, etc.)
             output_format: The desired output format ("bytes" or "objects")
             cancel_callback: Optional callback to cancel upstream streaming
 

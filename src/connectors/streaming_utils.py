@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from src.core.domain.streaming_response_processor import StreamingContent
     from src.core.interfaces.streaming_response_processor_interface import (
-        IStreamNormalizer,
+        IStreamNormalizer as IProcessingStreamNormalizer,
     )
 else:
     from src.core.interfaces.streaming_response_processor_interface import (
-        IStreamNormalizer,
+        IStreamNormalizer as IProcessingStreamNormalizer,
     )
 
 
-class _PassthroughStreamNormalizer(IStreamNormalizer):
+class _PassthroughStreamNormalizer(IProcessingStreamNormalizer):
     async def process_stream(
         self,
         iterator: AsyncIterator[Any],
@@ -68,67 +68,33 @@ class _PassthroughStreamNormalizer(IStreamNormalizer):
         return None
 
 
-def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
+def _resolve_stream_normalizer_via_di() -> IProcessingStreamNormalizer | None:
     """Resolve configured stream normalizer from the DI container when available."""
 
     try:
         from src.core.di.services import get_or_build_service_provider
         from src.core.interfaces.streaming_response_processor_interface import (
-            IStreamNormalizer,
+            IStreamNormalizer as IProcessingStreamNormalizer,
         )
     except ImportError:
         return None
 
     try:
         provider = get_or_build_service_provider()
-        normalizer = provider.get_service(cast(type, IStreamNormalizer))
+        normalizer = provider.get_service(cast(type, IProcessingStreamNormalizer))
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.debug(
-            "Failed to resolve IStreamNormalizer from DI: %s", exc, exc_info=True
+            "Failed to resolve IProcessingStreamNormalizer from DI: %s",
+            exc,
+            exc_info=True,
         )
         return None
 
-    return cast("IStreamNormalizer | None", normalizer)
+    return cast("IProcessingStreamNormalizer | None", normalizer)
 
 
-def _build_fallback_stream_normalizer() -> IStreamNormalizer:
-    """Construct a conservative stream normalizer when DI resolution fails."""
-
-    try:
-        from src.core.di.services import (
-            get_service_collection,
-            set_service_provider,
-        )
-        from src.core.interfaces.streaming_response_processor_interface import (
-            IStreamNormalizer,
-        )
-    except ImportError as exc:  # pragma: no cover - defensive guard
-        raise RuntimeError("Streaming DI services unavailable") from exc
-
-    services = get_service_collection()
-    fallback_provider = services.build_service_provider()
-
-    try:
-        set_service_provider(fallback_provider)
-    except Exception:
-        logger.debug(
-            "Failed to update global provider while creating fallback normalizer",
-            exc_info=True,
-        )
-
-    try:
-        normalizer = fallback_provider.get_service(cast(type, IStreamNormalizer))
-    except Exception:
-        normalizer = None
-
-    if normalizer is not None:
-        return normalizer
-
-    logger.warning(
-        "Falling back to passthrough stream normalizer; loop detection may be unavailable"
-    )
-
-    return _PassthroughStreamNormalizer()
+# Removed _build_fallback_stream_normalizer() - fallback construction violates requirement 5.2
+# All normalizers must be provided via explicit DI wiring
 
 
 async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
@@ -228,7 +194,10 @@ def normalize_streaming_response(
         if normalize:
             normalizer = _resolve_stream_normalizer_via_di()
             if normalizer is None:
-                normalizer = _build_fallback_stream_normalizer()
+                raise RuntimeError(
+                    "Stream normalizer is required but not available via DI. "
+                    "Ensure streaming services are registered in the DI container."
+                )
 
             reset_method = getattr(normalizer, "reset", None)
             if callable(reset_method):
