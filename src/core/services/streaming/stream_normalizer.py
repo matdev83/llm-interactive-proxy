@@ -10,8 +10,10 @@ from src.core.domain.streaming_response_processor import (
 )
 from src.core.interfaces.streaming_response_processor_interface import (
     CancelCallback,
-    IStreamNormalizer as IProcessingStreamNormalizer,
     StreamItem,
+)
+from src.core.interfaces.streaming_response_processor_interface import (
+    IStreamNormalizer as IProcessingStreamNormalizer,
 )
 
 logger = logging.getLogger(__name__)

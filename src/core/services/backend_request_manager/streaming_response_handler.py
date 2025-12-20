@@ -1,0 +1,610 @@
+"""
+Streaming response handler service.
+
+This service processes streaming backend responses including:
+- Response processor middleware wrapping
+- Empty-stream recovery with retry prompts
+- Loop detection and cancellation
+- Tool-call retry coordination
+- Angel verification
+- Metadata attachment
+
+Requirements: 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3, 7.1, 7.2, 8.1, 8.2, 9.1, 9.2, 10.1
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections.abc import AsyncIterator, Callable
+from typing import cast
+
+from pydantic.types import JsonValue
+
+from src.core.common.exceptions import BackendError
+from src.core.domain.backend_request_manager.context_models import (
+    ResponseProcessingContext,
+    StreamingContext,
+)
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.backend_request_manager_components import (
+    IAngelStreamVerifier,
+    ILoopDetectorFactory,
+    IStreamingBackendResponseHandler,
+    IToolCallRetryCoordinator,
+)
+from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
+from src.core.services.backend_request_manager.context_translation import (
+    build_middleware_context,
+)
+from src.core.services.empty_response_middleware import EmptyResponseRetryError
+
+logger = logging.getLogger(__name__)
+
+# Constants matching BackendRequestManager
+_STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
+_MAX_EMPTY_STREAM_RETRIES = 1
+
+
+class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
+    """Service for handling streaming backend responses."""
+
+    def __init__(
+        self,
+        response_processor: IResponseProcessor,
+        loop_detector_factory: ILoopDetectorFactory,
+        angel_stream_verifier: IAngelStreamVerifier,
+        tool_call_retry_coordinator: IToolCallRetryCoordinator,
+        backend_processor: IBackendProcessor,
+    ) -> None:
+        """Initialize the streaming response handler.
+
+        Args:
+            response_processor: Response processor for middleware wrapping
+            loop_detector_factory: Factory for creating loop detectors
+            angel_stream_verifier: Service for Angel verification
+            tool_call_retry_coordinator: Coordinator for tool-call retries
+            backend_processor: Backend processor for empty-stream retries
+        """
+        self._response_processor = response_processor
+        self._loop_detector_factory = loop_detector_factory
+        self._angel_stream_verifier = angel_stream_verifier
+        self._tool_call_retry_coordinator = tool_call_retry_coordinator
+        self._backend_processor = backend_processor
+
+    def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
+        """Extract textual content from a streaming chunk."""
+        content = chunk.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, bytes):
+            try:
+                return content.decode("utf-8")
+            except Exception:
+                return content.decode("utf-8", errors="ignore")
+        if isinstance(content, dict):
+            # Use dict() to safely handle StopChunkWithUsage which is a dict subclass
+            return json.dumps(dict(content))
+        return str(content) if content is not None else ""
+
+    def _chunk_has_meaningful_output(self, chunk: ProcessedResponse) -> bool:
+        """Check whether a streamed chunk carries user-visible output."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        content = getattr(chunk, "content", None)
+
+        # Check for error in metadata
+        if metadata.get("error"):
+            return True
+
+        # Check for finish_reason: "error"
+        if metadata.get("finish_reason") == "error":
+            return True
+
+        # Check for error in content dict
+        if isinstance(content, dict) and content.get("error"):
+            return True
+
+        # Check for error in content string
+        if isinstance(content, str) and '"error"' in content:
+            return True
+
+        if metadata.get("tool_call_swallowed") or metadata.get(
+            "tool_call_reactor_retry_failed"
+        ):
+            return True
+
+        if isinstance(content, str):
+            if content.strip():
+                return True
+        elif isinstance(content, bytes | bytearray):
+            try:
+                decoded = content.decode("utf-8")
+            except Exception:
+                decoded = content.decode("utf-8", errors="ignore")
+            if decoded.strip():
+                return True
+
+        # A dict without "choices" is meaningful unless it's just usage/metadata
+        if isinstance(content, dict) and content and "choices" not in content:
+            # Usage-only chunks are not meaningful
+            return not set(content.keys()) <= {
+                "usage",
+                "model",
+                "id",
+                "object",
+                "created",
+            }
+
+        # Check for tool calls
+        if isinstance(content, dict):
+            choices = content.get("choices", [])
+            if choices and isinstance(choices, list):
+                for choice in choices:
+                    if isinstance(choice, dict):
+                        delta = choice.get("delta", {})
+                        if delta.get("tool_calls"):
+                            return True
+
+        text = self._extract_text_from_chunk(chunk)
+        return bool(text and text.strip())
+
+    async def _create_retry_request(
+        self, original_request: ChatRequest, recovery_prompt: str
+    ) -> ChatRequest:
+        """Create a retry request with the recovery prompt appended."""
+        retry_messages = list(original_request.messages)
+        recovery_message = ChatMessage(role="user", content=recovery_prompt)
+        retry_messages.append(recovery_message)
+        return original_request.model_copy(update={"messages": retry_messages})
+
+    def _raise_empty_stream_error(self, session_id: str, reason: str) -> None:
+        """Raise a backend error when no content is produced after retries."""
+        raise BackendError(
+            message="Upstream model returned no content after retries",
+            backend_name=None,
+            details={
+                "session_id": session_id,
+                "reason": reason,
+                "error_type": "empty_stream_after_retries",
+            },
+        )
+
+    async def handle(
+        self,
+        stream: StreamingResponseEnvelope,
+        request: ChatRequest,
+        context: RequestContext,
+        processing_context: ResponseProcessingContext,
+        retry_depth: int = 0,
+    ) -> StreamingResponseEnvelope:
+        """Return a processed streaming response envelope.
+
+        Args:
+            stream: The streaming response envelope
+            request: The original backend request
+            context: Request context
+            processing_context: Typed processing context
+            retry_depth: Internal retry depth counter to prevent infinite recursion (default: 0)
+
+        Returns:
+            A processed streaming response envelope with middleware applied
+        """
+        original_stream = stream.content
+        if original_stream is None:
+            # Empty stream - trigger retry
+            if processing_context.session_id:
+                self._raise_empty_stream_error(
+                    session_id=processing_context.session_id,
+                    reason="streaming_response_had_no_content_iterator",
+                )
+            return stream
+
+        # Build middleware context
+        middleware_context = build_middleware_context(
+            processing_context=processing_context,
+            request=request,
+            response_envelope=stream,
+            request_context=context,
+            is_streaming=True,
+        )
+
+        # Extract Angel config from context if available
+        angel_model_spec: str | None = None
+        angel_frequency: int = 1
+        try:
+            app_state = getattr(context, "app_state", None)
+            if app_state is not None:
+                cfg = app_state.get_setting("app_config")
+                session_cfg = getattr(cfg, "session", None)
+                if session_cfg:
+                    angel_model_spec = getattr(session_cfg, "angel_model", None)
+                    angel_frequency = getattr(session_cfg, "angel_frequency", 1)
+        except Exception:
+            pass
+
+        # Wrap stream with response processor middleware
+        try:
+            processed_stream = self._response_processor.process_streaming_response(
+                original_stream,
+                processing_context.session_id,
+                context=middleware_context,
+            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Streaming middleware failed for session %s: %s",
+                    processing_context.session_id,
+                    e,
+                    exc_info=True,
+                )
+            # Fail-open: continue with original stream
+            processed_stream = original_stream
+
+        # Create loop detector
+        loop_detector: ILoopDetector | None = None
+        try:
+            loop_detector = self._loop_detector_factory.create()
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to create loop detector for session %s",
+                    processing_context.session_id,
+                    exc_info=True,
+                )
+
+        # Wrap with Angel verification if enabled
+        streaming_context: StreamingContext = {
+            "session_id": processing_context.session_id,
+            "stream_id": middleware_context.get(
+                "stream_id", processing_context.session_id
+            ),
+            "angel_model_spec": angel_model_spec,
+            "angel_frequency": angel_frequency,
+        }
+
+        try:
+            verified_result = self._angel_stream_verifier.verify_or_passthrough(
+                request=request,
+                stream=processed_stream,
+                context=streaming_context,
+            )
+            # verify_or_passthrough is an async generator, so it returns an async iterator directly
+            # But if it's a coroutine (from mock), await it
+            if asyncio.iscoroutine(verified_result):
+                verified_stream = await verified_result
+            else:
+                verified_stream = verified_result
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Angel verification failed for session %s, using original stream",
+                    processing_context.session_id,
+                    exc_info=True,
+                )
+            verified_stream = processed_stream
+
+        # Process stream with loop detection, tool-call retry, and empty-stream recovery
+        async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
+            swallowed_detected = False
+
+            async for chunk in verified_stream:
+                # Check for tool-call swallowed
+                metadata = getattr(chunk, "metadata", {}) or {}
+                if (
+                    metadata.get("tool_call_swallowed")
+                    and not metadata.get("tool_call_reactor_retry_failed")
+                    and not swallowed_detected
+                ):
+                    swallowed_detected = True
+                    # Get retry state from request
+                    extra_body = getattr(request, "extra_body", None)
+                    current_retry_count = 0
+                    if isinstance(extra_body, dict):
+                        current_retry_count = extra_body.get(
+                            "_tool_call_reactor_retry_count", 0
+                        )
+                        legacy_count = extra_body.get(
+                            "_dangerous_command_retry_count", 0
+                        )
+                        if (
+                            isinstance(legacy_count, int)
+                            and legacy_count > current_retry_count
+                        ):
+                            current_retry_count = legacy_count
+
+                    reactor_retry_active = bool(
+                        isinstance(extra_body, dict)
+                        and extra_body.get("_tool_call_reactor_retry")
+                    )
+
+                    # Check if limit exceeded before delegating
+                    if (
+                        reactor_retry_active and current_retry_count >= 3
+                    ):  # MAX_DANGEROUS_COMMAND_RETRIES
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Streaming: Tool call retry limit exceeded for session %s",
+                                processing_context.session_id,
+                                exc_info=True,
+                            )
+                        # Yield terminal error chunk
+                        terminal_metadata: dict[str, JsonValue] = {
+                            "dangerous_command_limit_exceeded": True,
+                            "dangerous_command_retry_count": current_retry_count + 1,
+                            "tool_call_reactor_retry_count": current_retry_count + 1,
+                            "session_terminated": True,
+                            "is_done": True,
+                            "finish_reason": "security_limit",
+                            "_steering_replacement": True,
+                            "session_id": processing_context.session_id,
+                        }
+                        yield ProcessedResponse(
+                            content="[Proxy Steering - Session Terminated]\n\n"
+                            "This session has been terminated due to repeated attempts "
+                            "to perform blocked tool calls.",
+                            metadata=terminal_metadata,
+                        )
+                        return
+
+                    # Delegate to coordinator (always delegate when tool_call_swallowed detected)
+                    try:
+                        from src.core.domain.backend_request_manager.context_models import (
+                            ToolCallRetryState,
+                        )
+                        from src.core.domain.responses import ResponseEnvelope
+
+                        # Create a response envelope for coordinator
+                        response_envelope = ResponseEnvelope(
+                            content=chunk.content,
+                            metadata=metadata,
+                        )
+
+                        retry_state = ToolCallRetryState(
+                            retry_count=current_retry_count,
+                            max_retries=3,
+                            steering_message=None,
+                            is_streaming=True,
+                        )
+
+                        retry_result = (
+                            await self._tool_call_retry_coordinator.handle_streaming(
+                                request=request,
+                                response=response_envelope,
+                                context=context,
+                                retry_state=retry_state,
+                            )
+                        )
+
+                        if retry_result is not None:
+                            # Yield retried stream chunks
+                            if retry_result.content is not None:
+                                async for retry_chunk in retry_result.content:
+                                    # Attach steering replacement marker if present
+                                    retry_meta = dict(retry_chunk.metadata or {})
+                                    retry_meta["_steering_replacement"] = True
+                                    yield ProcessedResponse(
+                                        content=retry_chunk.content,
+                                        metadata=retry_meta,
+                                        usage=retry_chunk.usage,
+                                    )
+                            return
+                    except Exception:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Tool-call retry coordination failed for session %s",
+                                processing_context.session_id,
+                                exc_info=True,
+                            )
+
+                # Run loop detection
+                if loop_detector is not None:
+                    try:
+                        text_fragment = self._extract_text_from_chunk(chunk)
+                        if text_fragment:
+                            clean_fragment = text_fragment.strip()
+                            if not clean_fragment.startswith(("data:", "event:")):
+                                event = loop_detector.process_chunk(text_fragment)
+                                if event is not None:
+                                    # Cancel stream
+                                    cancel_callback = stream.cancel_callback
+                                    if cancel_callback is not None:
+                                        try:
+                                            if isinstance(cancel_callback, Callable):
+                                                if asyncio.iscoroutinefunction(
+                                                    cancel_callback
+                                                ):
+                                                    await cancel_callback()
+                                                else:
+                                                    cancel_callback()
+                                        except Exception as exc:
+                                            if logger.isEnabledFor(logging.ERROR):
+                                                logger.error(
+                                                    "Failed to invoke cancel callback: %s",
+                                                    exc,
+                                                    exc_info=True,
+                                                )
+
+                                    # Emit cancellation chunk
+                                    cancellation_payload = {
+                                        "id": f"loop-detector-{int(event.timestamp)}",
+                                        "object": "chat.completion.chunk",
+                                        "created": int(event.timestamp),
+                                        "model": "loop-detector",
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "delta": {"content": ""},
+                                                "finish_reason": "cancelled",
+                                            }
+                                        ],
+                                    }
+                                    yield ProcessedResponse(
+                                        content=cancellation_payload,
+                                        metadata={
+                                            "is_cancellation": True,
+                                            "is_done": True,
+                                            "loop_pattern": event.pattern,
+                                            "loop_repetitions": event.repetition_count,
+                                            "loop_detected": True,
+                                            "session_id": processing_context.session_id,
+                                        },
+                                    )
+                                    return
+                    except Exception:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Loop detection failed for chunk in session %s",
+                                processing_context.session_id,
+                                exc_info=True,
+                            )
+
+                yield chunk
+
+        # Attach metadata to chunks
+        async def attach_metadata_stream() -> AsyncIterator[ProcessedResponse]:
+            original_request_payload: JsonValue | None = None
+            try:
+                if hasattr(request, "model_dump"):
+                    original_request_payload = cast(
+                        JsonValue, request.model_dump(mode="json")
+                    )
+            except Exception:
+                original_request_payload = None
+
+            async for chunk in monitored_stream():
+                if isinstance(chunk, ProcessedResponse):
+                    processed_metadata: dict[str, JsonValue] = dict(
+                        chunk.metadata or {}
+                    )
+                    if original_request_payload is not None:
+                        processed_metadata.setdefault(
+                            "original_request", original_request_payload
+                        )
+                    processed_metadata.setdefault(
+                        "session_id", processing_context.session_id
+                    )
+                    if processing_context.client_os:
+                        processed_metadata.setdefault(
+                            "client_os", cast(JsonValue, processing_context.client_os)
+                        )
+                    chunk.metadata = processed_metadata
+                    yield chunk
+                else:
+                    metadata: dict[str, JsonValue] = {}
+                    if hasattr(chunk, "metadata"):
+                        raw_metadata = chunk.metadata
+                        if isinstance(raw_metadata, dict):
+                            metadata = cast(dict[str, JsonValue], dict(raw_metadata))
+                    if original_request_payload is not None:
+                        metadata.setdefault(
+                            "original_request", original_request_payload
+                        )
+                    metadata.setdefault("session_id", processing_context.session_id)
+                    if processing_context.client_os:
+                        metadata.setdefault(
+                            "client_os", cast(JsonValue, processing_context.client_os)
+                        )
+                    content_value = getattr(chunk, "content", chunk)
+                    yield ProcessedResponse(content=content_value, metadata=metadata)
+
+        # Gate empty stream
+        async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:
+            buffered: list[ProcessedResponse] = []
+            seen_meaningful = False
+
+            async for chunk in attach_metadata_stream():
+                meaningful = self._chunk_has_meaningful_output(chunk)
+                if not seen_meaningful:
+                    if meaningful:
+                        seen_meaningful = True
+                        if buffered:
+                            for buffered_chunk in buffered:
+                                yield buffered_chunk
+                        yield chunk
+                    else:
+                        buffered.append(chunk)
+                        continue
+                else:
+                    yield chunk
+
+            if not seen_meaningful:
+                # Use retry_depth + 1 to match middleware's retry_count tracking
+                # (retry_count starts at 1 for first retry)
+                raise EmptyResponseRetryError(
+                    recovery_prompt=_STREAM_RECOVERY_PROMPT,
+                    session_id=processing_context.session_id,
+                    retry_count=retry_depth + 1,
+                    original_request=request,
+                )
+
+        # Handle empty stream recovery
+        async def stream_with_empty_recovery() -> AsyncIterator[ProcessedResponse]:
+            try:
+                async for chunk in gate_empty_stream():
+                    yield chunk
+            except EmptyResponseRetryError as exc:
+                # Check retry_count from exception (starts at 1, so > means exceeded)
+                if exc.retry_count > _MAX_EMPTY_STREAM_RETRIES:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Maximum empty stream recovery attempts reached for session %s",
+                            processing_context.session_id,
+                            exc_info=True,
+                        )
+                    self._raise_empty_stream_error(
+                        session_id=processing_context.session_id,
+                        reason="empty_stream_after_retries",
+                    )
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Empty streaming response detected, retrying with recovery prompt for session %s",
+                        processing_context.session_id,
+                        exc_info=True,
+                    )
+
+                retry_request = await self._create_retry_request(
+                    request, exc.recovery_prompt
+                )
+
+                retry_response = await self._backend_processor.process_backend_request(
+                    request=retry_request,
+                    session_id=processing_context.session_id,
+                    context=context,
+                )
+
+                if isinstance(retry_response, StreamingResponseEnvelope):
+                    # Recursively process retried stream with incremented retry_depth
+                    retried = await self.handle(
+                        stream=retry_response,
+                        request=retry_request,
+                        context=context,
+                        processing_context=processing_context,
+                        retry_depth=retry_depth + 1,
+                    )
+                    if retried.content is not None:
+                        async for retry_chunk in retried.content:
+                            yield retry_chunk
+                    return
+
+                # Non-streaming retry response (shouldn't happen, but handle gracefully)
+                yield ProcessedResponse(
+                    content=getattr(retry_response, "content", ""),
+                    metadata=getattr(retry_response, "metadata", {}),
+                )
+
+        return StreamingResponseEnvelope(
+            content=stream_with_empty_recovery(),
+            media_type=stream.media_type,
+            headers=stream.headers,
+            cancel_callback=stream.cancel_callback,
+            metadata=stream.metadata,
+        )

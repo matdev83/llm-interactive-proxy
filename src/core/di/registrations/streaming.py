@@ -269,6 +269,9 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
         LoopDetectionProcessor,
     )
     from src.core.interfaces.loop_detector_interface import ILoopDetector
+    from src.core.interfaces.streaming_response_processor_interface import (
+        IStreamNormalizer,
+    )
     from src.core.interfaces.tool_call_repair_service_interface import (
         IToolCallRepairService,
     )
@@ -281,6 +284,8 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
     from src.core.services.streaming.stream_context_registry import (
         StreamingContextRegistry,
     )
+    # Alias for backward compatibility
+    IProcessingStreamNormalizer = IStreamNormalizer
     from src.core.services.streaming.stream_normalizer import StreamNormalizer
     from src.core.services.streaming.tool_call_repair_processor import (
         ToolCallRepairProcessor,
@@ -343,6 +348,13 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
         ) -> StreamNormalizer:
             return provider.get_required_service(StreamNormalizer)
 
+        # Register IStreamNormalizer interface (primary interface)
+        register_singleton_if_absent(
+            services,
+            cast(type, IStreamNormalizer),  # type: ignore[type-abstract]
+            implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
+        )
+        # Also register IProcessingStreamNormalizer alias for backward compatibility
         register_singleton_if_absent(
             services,
             cast(type, IProcessingStreamNormalizer),  # type: ignore[type-abstract]
@@ -351,7 +363,7 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IProcessingStreamNormalizer interface: {e}"
+                f"Failed to register IStreamNormalizer/IProcessingStreamNormalizer interface: {e}"
             )
 
 

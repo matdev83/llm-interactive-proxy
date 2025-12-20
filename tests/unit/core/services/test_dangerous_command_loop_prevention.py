@@ -15,9 +15,10 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.backend_request_manager_service import BackendRequestManager
 
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.backend_request_manager_fixtures import (
+    create_backend_request_manager,
+)
 
 
 def _make_context() -> RequestContext:
@@ -72,8 +73,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         original_request = _create_request_with_retry_count(0)
@@ -81,16 +83,22 @@ class TestDangerousCommandLoopPrevention:
             content="dangerous", metadata=_create_swallowed_metadata()
         )
 
-        # Mock a clean retry response
-        backend_processor.process_backend_request.return_value = ResponseEnvelope(
-            content="safe response"
-        )
+        # Mock initial dangerous response then clean retry response
+        backend_processor.process_backend_request.side_effect = [
+            backend_response,
+            ResponseEnvelope(content="safe response"),
+        ]
         response_processor.process_response = AsyncMock(
-            return_value=ProcessedResponse(content="safe response", metadata={})
+            side_effect=[
+                ProcessedResponse(
+                    content="dangerous", metadata=_create_swallowed_metadata()
+                ),
+                ProcessedResponse(content="safe response", metadata={}),
+            ]
         )
 
-        await manager._retry_after_tool_swallow(
-            original_request, backend_response, "session-1", _make_context()
+        await manager.process_backend_request(
+            original_request, "session-1", _make_context()
         )
 
         # Verify the retry request was made
@@ -117,8 +125,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         # Start with retry count = 1 (meaning this is the second attempt)
@@ -127,15 +136,22 @@ class TestDangerousCommandLoopPrevention:
             content="dangerous", metadata=_create_swallowed_metadata()
         )
 
-        backend_processor.process_backend_request.return_value = ResponseEnvelope(
-            content="safe response"
-        )
+        # Mock initial dangerous response then clean retry response
+        backend_processor.process_backend_request.side_effect = [
+            backend_response,
+            ResponseEnvelope(content="safe response"),
+        ]
         response_processor.process_response = AsyncMock(
-            return_value=ProcessedResponse(content="safe response", metadata={})
+            side_effect=[
+                ProcessedResponse(
+                    content="dangerous", metadata=_create_swallowed_metadata()
+                ),
+                ProcessedResponse(content="safe response", metadata={}),
+            ]
         )
 
-        await manager._retry_after_tool_swallow(
-            original_request, backend_response, "session-2", _make_context()
+        await manager.process_backend_request(
+            original_request, "session-2", _make_context()
         )
 
         retry_call = backend_processor.process_backend_request.await_args
@@ -158,8 +174,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         original_request = _create_request_with_retry_count(2)
@@ -167,15 +184,22 @@ class TestDangerousCommandLoopPrevention:
             content="dangerous", metadata=_create_swallowed_metadata()
         )
 
-        backend_processor.process_backend_request.return_value = ResponseEnvelope(
-            content="safe response"
-        )
+        # Mock initial dangerous response then clean retry response
+        backend_processor.process_backend_request.side_effect = [
+            backend_response,
+            ResponseEnvelope(content="safe response"),
+        ]
         response_processor.process_response = AsyncMock(
-            return_value=ProcessedResponse(content="safe response", metadata={})
+            side_effect=[
+                ProcessedResponse(
+                    content="dangerous", metadata=_create_swallowed_metadata()
+                ),
+                ProcessedResponse(content="safe response", metadata={}),
+            ]
         )
 
-        await manager._retry_after_tool_swallow(
-            original_request, backend_response, "session-3", _make_context()
+        await manager.process_backend_request(
+            original_request, "session-3", _make_context()
         )
 
         retry_call = backend_processor.process_backend_request.await_args
@@ -196,8 +220,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         # Retry count = 3 means we've already had 3 retries
@@ -233,8 +258,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         original_request = _create_request_with_retry_count(3)
@@ -271,8 +297,9 @@ class TestDangerousCommandLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         original_request = _create_request_with_retry_count(0)
@@ -327,8 +354,9 @@ class TestStreamingLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         # Request already at max retries
@@ -379,8 +407,9 @@ class TestStreamingLoopPrevention:
         response_processor.process_streaming_response = (
             lambda stream, _sid, **kwargs: stream
         )
-        manager = BackendRequestManager(
-            backend_processor, response_processor, AngelFactoryStub()
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
         )
 
         original_request = _create_request_with_retry_count(1)

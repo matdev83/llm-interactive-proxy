@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
-from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.backend_request_manager_fixtures import (
+    create_backend_request_manager,
+)
 
 
 @pytest.mark.asyncio
@@ -23,10 +24,9 @@ async def test_top_p_fix_with_actual_request() -> None:
     mock_backend_processor.process_backend_request = AsyncMock()
     mock_response_processor = AsyncMock()
     mock_response_processor.process_response = AsyncMock()
-    backend_request_manager = BackendRequestManager(
+    backend_request_manager = create_backend_request_manager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
     mock_response_manager = AsyncMock()
 

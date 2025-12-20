@@ -16,13 +16,13 @@ from contextlib import AsyncExitStack
 from typing import Any
 
 from src.core.ports.sse_assembler import SSEAssembler
+from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
 from src.core.ports.streaming_contracts import (
     IStreamAssembler,
     IStreamNormalizer,
     IStreamProcessor,
     StreamingContent,
 )
-from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
 from src.core.ports.streaming_metrics import get_metrics_instance
 
 logger = logging.getLogger(__name__)

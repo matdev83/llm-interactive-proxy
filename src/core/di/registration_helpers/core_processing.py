@@ -145,6 +145,21 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(f"Failed to register IResponseManager interface: {e}")
 
+    # Register AngelServiceFactory (optional feature; used by AngelStreamVerifier)
+    from src.core.interfaces.angel_service_interface import IAngelServiceFactory
+    from src.core.services.angel_service_factory import DefaultAngelServiceFactory
+
+    register_singleton_if_absent(services, DefaultAngelServiceFactory)
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IAngelServiceFactory),
+            implementation_type=DefaultAngelServiceFactory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IAngelServiceFactory interface: {e}")
+
     # Register ResponseProcessor
     from src.core.interfaces.response_parser_interface import IResponseParser
     from src.core.interfaces.streaming_response_processor_interface import (
@@ -190,6 +205,11 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         provider: IServiceProvider,
     ) -> BackendRequestManager:
         from src.core.interfaces.angel_service_interface import IAngelServiceFactory
+        from src.core.interfaces.backend_request_manager_components import (
+            IBackendRequestPreparation,
+            INonStreamingBackendResponseHandler,
+            IStreamingBackendResponseHandler,
+        )
         from src.core.interfaces.wire_capture_interface import IWireCapture
         from src.core.services.history_compaction_service import (
             HistoryCompactionService,
@@ -214,6 +234,20 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
 
         wire_capture = provider.get_service(cast(type, IWireCapture))  # type: ignore[type-abstract]
 
+        # Resolve component dependencies
+        request_preparation: IBackendRequestPreparation = provider.get_required_service(
+            cast(type, IBackendRequestPreparation)
+        )
+        non_streaming_handler: INonStreamingBackendResponseHandler = (
+            provider.get_required_service(
+                cast(type, INonStreamingBackendResponseHandler)
+            )
+        )
+        streaming_handler: IStreamingBackendResponseHandler = (
+            provider.get_required_service(cast(type, IStreamingBackendResponseHandler))
+        )
+
+        # Optional collaborators (kept for backward compatibility)
         history_compaction_service = provider.get_service(HistoryCompactionService)
         config = provider.get_required_service(AppConfig)
 
@@ -239,6 +273,9 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
             backend_processor,
             response_processor,
             angel_service_factory,
+            request_preparation,
+            non_streaming_handler,
+            streaming_handler,
             wire_capture,
             history_compaction_service=history_compaction_service,
             config=config,
@@ -259,6 +296,267 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
+
+    # Register StructuredOutputEnforcer
+    from src.core.interfaces.backend_request_manager_components import (
+        IStructuredOutputEnforcer,
+    )
+    from src.core.services.structured_output_enforcer import StructuredOutputEnforcer
+
+    def _structured_output_enforcer_factory(
+        provider: IServiceProvider,
+    ) -> StructuredOutputEnforcer:
+        return StructuredOutputEnforcer(provider=provider)
+
+    register_singleton_if_absent(
+        services,
+        StructuredOutputEnforcer,
+        implementation_factory=_structured_output_enforcer_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IStructuredOutputEnforcer),
+            implementation_factory=_structured_output_enforcer_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IStructuredOutputEnforcer interface: {e}"
+            )
+
+    # Register ToolCallRetryCoordinator
+    from src.core.interfaces.backend_request_manager_components import (
+        IToolCallRetryCoordinator,
+    )
+    from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
+
+    def _tool_call_retry_coordinator_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallRetryCoordinator:
+        backend_processor = provider.get_required_service(
+            cast(type[IBackendProcessor], IBackendProcessor)
+        )
+        return ToolCallRetryCoordinator(backend_processor=backend_processor)
+
+    register_singleton_if_absent(
+        services,
+        ToolCallRetryCoordinator,
+        implementation_factory=_tool_call_retry_coordinator_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IToolCallRetryCoordinator),
+            implementation_factory=_tool_call_retry_coordinator_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IToolCallRetryCoordinator interface: {e}"
+            )
+
+    # Register BackendNonStreamingResponseHandler
+    from src.core.interfaces.backend_request_manager_components import (
+        INonStreamingBackendResponseHandler,
+        IToolCallRetryCoordinator,
+    )
+    from src.core.services.backend_non_streaming_response_handler import (
+        BackendNonStreamingResponseHandler,
+    )
+
+    def _backend_non_streaming_response_handler_factory(
+        provider: IServiceProvider,
+    ) -> BackendNonStreamingResponseHandler:
+        response_processor = provider.get_required_service(
+            cast(type[IResponseProcessor], IResponseProcessor)
+        )
+        structured_output_enforcer = provider.get_required_service(
+            cast(type[IStructuredOutputEnforcer], IStructuredOutputEnforcer)
+        )
+        tool_call_retry_coordinator = provider.get_required_service(
+            cast(type[IToolCallRetryCoordinator], IToolCallRetryCoordinator)
+        )
+        backend_processor = provider.get_required_service(
+            cast(type[IBackendProcessor], IBackendProcessor)
+        )
+        return BackendNonStreamingResponseHandler(
+            response_processor=response_processor,
+            structured_output_enforcer=structured_output_enforcer,
+            tool_call_retry_coordinator=tool_call_retry_coordinator,
+            backend_processor=backend_processor,
+        )
+
+    register_singleton_if_absent(
+        services,
+        BackendNonStreamingResponseHandler,
+        implementation_factory=_backend_non_streaming_response_handler_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, INonStreamingBackendResponseHandler),
+            implementation_factory=_backend_non_streaming_response_handler_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register INonStreamingBackendResponseHandler interface: {e}"
+            )
+
+    # Register BackendRequestPreparationService
+    from src.core.interfaces.backend_request_manager_components import (
+        IBackendRequestPreparation,
+    )
+    from src.core.interfaces.history_compaction_interface import (
+        IHistoryCompactionService,
+    )
+    from src.core.services.backend_request_preparation_service import (
+        BackendRequestPreparationService,
+    )
+
+    def _backend_request_preparation_factory(
+        provider: IServiceProvider,
+    ) -> BackendRequestPreparationService:
+        history_compaction_service = provider.get_service(
+            cast(type, IHistoryCompactionService)
+        )
+        config = provider.get_service(AppConfig)
+        return BackendRequestPreparationService(
+            history_compaction_service=history_compaction_service,
+            config=config,
+        )
+
+    register_singleton_if_absent(
+        services,
+        BackendRequestPreparationService,
+        implementation_factory=_backend_request_preparation_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IBackendRequestPreparation),
+            implementation_factory=_backend_request_preparation_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IBackendRequestPreparation interface: {e}"
+            )
+
+    # Register LoopDetectorFactory
+    from src.core.interfaces.backend_request_manager_components import (
+        ILoopDetectorFactory,
+    )
+    from src.core.services.backend_request_manager.loop_detector_factory import (
+        LoopDetectorFactory,
+    )
+
+    def _loop_detector_factory_factory(
+        provider: IServiceProvider,
+    ) -> LoopDetectorFactory:
+        return LoopDetectorFactory(provider=provider)
+
+    register_singleton_if_absent(
+        services,
+        LoopDetectorFactory,
+        implementation_factory=_loop_detector_factory_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, ILoopDetectorFactory),
+            implementation_factory=_loop_detector_factory_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ILoopDetectorFactory interface: {e}")
+
+    # Register AngelStreamVerifier
+    from src.core.interfaces.angel_service_interface import IAngelServiceFactory
+    from src.core.interfaces.backend_request_manager_components import (
+        IAngelStreamVerifier,
+    )
+    from src.core.services.backend_request_manager.angel_stream_verifier import (
+        AngelStreamVerifier,
+    )
+
+    def _angel_stream_verifier_factory(
+        provider: IServiceProvider,
+    ) -> AngelStreamVerifier:
+        angel_service_factory = provider.get_required_service(
+            cast(type, IAngelServiceFactory)
+        )
+        return AngelStreamVerifier(
+            angel_service_factory=angel_service_factory,
+            provider=provider,
+        )
+
+    register_singleton_if_absent(
+        services,
+        AngelStreamVerifier,
+        implementation_factory=_angel_stream_verifier_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IAngelStreamVerifier),
+            implementation_factory=_angel_stream_verifier_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IAngelStreamVerifier interface: {e}")
+
+    # Register BackendStreamingResponseHandler
+    from src.core.interfaces.backend_request_manager_components import (
+        IStreamingBackendResponseHandler,
+    )
+    from src.core.services.backend_request_manager.streaming_response_handler import (
+        BackendStreamingResponseHandler,
+    )
+
+    def _backend_streaming_response_handler_factory(
+        provider: IServiceProvider,
+    ) -> BackendStreamingResponseHandler:
+        response_processor = provider.get_required_service(
+            cast(type[IResponseProcessor], IResponseProcessor)
+        )
+        loop_detector_factory = provider.get_required_service(
+            cast(type, ILoopDetectorFactory)
+        )
+        angel_stream_verifier = provider.get_required_service(
+            cast(type, IAngelStreamVerifier)
+        )
+        tool_call_retry_coordinator = provider.get_required_service(
+            cast(type, IToolCallRetryCoordinator)
+        )
+        backend_processor = provider.get_required_service(
+            cast(type[IBackendProcessor], IBackendProcessor)
+        )
+        return BackendStreamingResponseHandler(
+            response_processor=response_processor,
+            loop_detector_factory=loop_detector_factory,
+            angel_stream_verifier=angel_stream_verifier,
+            tool_call_retry_coordinator=tool_call_retry_coordinator,
+            backend_processor=backend_processor,
+        )
+
+    register_singleton_if_absent(
+        services,
+        BackendStreamingResponseHandler,
+        implementation_factory=_backend_streaming_response_handler_factory,
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IStreamingBackendResponseHandler),
+            implementation_factory=_backend_streaming_response_handler_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IStreamingBackendResponseHandler interface: {e}"
+            )
 
     # Register LoopDetector
     from src.core.interfaces.loop_detector_interface import ILoopDetector

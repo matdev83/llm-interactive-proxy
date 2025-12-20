@@ -226,11 +226,6 @@ class TestNormalizeStreamingResponse:
             "_resolve_stream_normalizer_via_di",
             lambda: dummy_normalizer,
         )
-        monkeypatch.setattr(
-            streaming_utils,
-            "_build_fallback_stream_normalizer",
-            lambda: dummy_normalizer,
-        )
 
         async def mock_stream() -> AsyncIterator[str]:
             yield "repeat"  # Trigger loop detection
@@ -257,11 +252,6 @@ class TestNormalizeStreamingResponse:
         monkeypatch.setattr(
             streaming_utils,
             "_resolve_stream_normalizer_via_di",
-            lambda: fallback_normalizer,
-        )
-        monkeypatch.setattr(
-            streaming_utils,
-            "_build_fallback_stream_normalizer",
             lambda: fallback_normalizer,
         )
 

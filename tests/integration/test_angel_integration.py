@@ -13,14 +13,11 @@ from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.angel_service import get_prompt_loader
-from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
-
-from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
 class _DummyParser:
@@ -154,10 +151,13 @@ async def test_angel_integration_non_streaming_correction(
     backend_service = _FakeBackendService(corrected_text="Corrected response")
     _patch_provider(monkeypatch, backend_service)
 
-    manager = BackendRequestManager(
-        cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
-        response_processor,
-        AngelFactoryStub(),
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
+        backend_processor=cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
+        response_processor=response_processor,
     )
 
     original_request = ChatRequest(
@@ -202,10 +202,13 @@ async def test_angel_integration_streaming_override(
     )
     _patch_provider(monkeypatch, backend_service)
 
-    manager = BackendRequestManager(
-        cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
-        response_processor,
-        AngelFactoryStub(),
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
+        backend_processor=cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
+        response_processor=response_processor,
     )
 
     original_request = ChatRequest(

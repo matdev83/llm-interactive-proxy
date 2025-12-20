@@ -133,13 +133,15 @@ async def test_retry_on_swallow_non_streaming(
     mock_response_processor: MockResponseProcessor,
 ):
     """Test that swallowed tool calls trigger retry path in non-streaming mode."""
-    from tests.helpers.angel_factory_stub import AngelFactoryStub
 
     # Create backend request manager
-    manager = BackendRequestManager(
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
 
     # Create a request
@@ -204,10 +206,13 @@ async def test_retry_on_swallow_metadata_contract(
     processor = MetadataCapturingProcessor(swallow_first=True)
 
     # Create backend request manager
-    manager = BackendRequestManager(
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
         backend_processor=processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
 
     # Create a request
@@ -295,10 +300,13 @@ async def test_retry_on_swallow_streaming(
     processor = StreamingMockBackendProcessor()
 
     # Create backend request manager
-    manager = BackendRequestManager(
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
         backend_processor=processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
 
     # Create a request
@@ -361,10 +369,13 @@ async def test_retry_on_swallow_preserves_context(
     processor = ContextCapturingProcessor(swallow_first=True)
 
     # Create backend request manager
-    manager = BackendRequestManager(
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    manager = create_backend_request_manager(
         backend_processor=processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
 
     # Create a request

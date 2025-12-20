@@ -86,12 +86,12 @@ def get_streaming_contracts_scope_files(base_path: Path | None = None) -> list[P
     """
     Get all files in the streaming-contracts refactor scope.
 
-    Scope definition per design.md:
+    Scope definition per design.md (single-level patterns only):
     - src/core/ports/streaming_contracts.py
-    - src/core/ports/streaming/*.py (single level)
-    - src/core/domain/streaming/*.py (single level)
-    - src/core/domain/streaming/parsing/*.py (single level)
-    - src/core/transport/streaming/*.py (single level)
+    - src/core/ports/streaming/*.py (single level, no subdirectories)
+    - src/core/domain/streaming/*.py (single level, no subdirectories)
+    - src/core/domain/streaming/parsing/*.py (single level, explicit subdirectory)
+    - src/core/transport/streaming/*.py (single level, no subdirectories)
     - src/core/services/streaming/error_mapping.py
 
     Args:
@@ -103,12 +103,13 @@ def get_streaming_contracts_scope_files(base_path: Path | None = None) -> list[P
     if base_path is None:
         base_path = Path(".")
 
-    # Define refactor scope modules per design.md specification
+    # Define refactor scope modules per design.md specification (single-level patterns)
     scope_patterns = [
         "src/core/ports/streaming_contracts.py",  # Facade
-        "src/core/domain/streaming/**/*.py",  # All domain modules (recursive)
-        "src/core/ports/streaming/**/*.py",  # All ports modules (recursive)
-        "src/core/transport/streaming/**/*.py",  # All transport modules (recursive)
+        "src/core/ports/streaming/*.py",  # Single level
+        "src/core/domain/streaming/*.py",  # Single level
+        "src/core/domain/streaming/parsing/*.py",  # Single level (explicit subdirectory)
+        "src/core/transport/streaming/*.py",  # Single level
         "src/core/services/streaming/error_mapping.py",  # Error mapping only
     ]
 
@@ -116,15 +117,9 @@ def get_streaming_contracts_scope_files(base_path: Path | None = None) -> list[P
     scope_files = []
 
     for pattern in scope_patterns:
-        if "**" in pattern:
-            # Handle glob patterns (recursive)
-            for py_file in base_path.glob(pattern):
-                if "__pycache__" not in str(py_file) and py_file.suffix == ".py":
-                    scope_files.append(py_file)
-        else:
-            # Single file pattern
-            py_file = base_path / pattern
-            if py_file.exists() and py_file.suffix == ".py":
+        # Handle glob patterns (single-level only per spec)
+        for py_file in base_path.glob(pattern):
+            if "__pycache__" not in str(py_file) and py_file.suffix == ".py":
                 scope_files.append(py_file)
 
     # Remove duplicates and sort

@@ -16,11 +16,13 @@ import pytest
 from src.core.ports.streaming.interfaces import (
     IProviderStreamNormalizer,
     IStreamAssembler,
-    IStreamNormalizer,
     IStreamProcessor,
     StreamProducer,
 )
 from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
+
+# IStreamNormalizer is re-exported from streaming_contracts.py for backward compatibility
+from src.core.ports.streaming_contracts import IStreamNormalizer
 
 
 class TestInterfacesExtraction:
@@ -209,10 +211,10 @@ class TestFacadeStillWorks:
         """Facade should re-export all interfaces."""
         # Verify they're the same objects
         from src.core.ports.streaming.interfaces import (
-            IStreamAssembler as DirectIStreamAssembler,
+            IProviderStreamNormalizer,
         )
         from src.core.ports.streaming.interfaces import (
-            IStreamNormalizer as DirectIStreamNormalizer,
+            IStreamAssembler as DirectIStreamAssembler,
         )
         from src.core.ports.streaming.interfaces import (
             IStreamProcessor as DirectIStreamProcessor,
@@ -231,7 +233,8 @@ class TestFacadeStillWorks:
             StreamProducer,
         )
 
-        assert IStreamNormalizer is DirectIStreamNormalizer
+        # IStreamNormalizer is re-exported as alias of IProviderStreamNormalizer
+        assert IStreamNormalizer is IProviderStreamNormalizer
         assert IStreamProcessor is DirectIStreamProcessor
         assert IStreamAssembler is DirectIStreamAssembler
         assert StreamProducer is DirectStreamProducer

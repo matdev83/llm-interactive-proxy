@@ -17,6 +17,10 @@ from src.core.interfaces.request_deduplication_interface import (
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 
+from tests.helpers.backend_request_manager_fixtures import (
+    create_backend_request_manager,
+)
+
 
 class TestBackendRequestManagerDeduplication:
     @pytest.fixture
@@ -48,13 +52,14 @@ class TestBackendRequestManagerDeduplication:
         mock_dedup_service: AsyncMock,
         mock_config: MagicMock,
     ) -> BackendRequestManager:
-        return BackendRequestManager(
+        # Use helper to create manager with all required components
+        manager = create_backend_request_manager(
             backend_processor=mock_backend_processor,
             response_processor=mock_response_processor,
-            angel_service_factory=mock_angel_service_factory,
-            config=mock_config,
-            dedup_service=mock_dedup_service,
         )
+        # Set the dedup service
+        manager._dedup_service = mock_dedup_service
+        return manager
 
     @pytest.mark.asyncio
     async def test_process_backend_request_calls_dedup_service(

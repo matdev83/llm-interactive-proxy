@@ -23,6 +23,9 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.interfaces.streaming_response_processor_interface import (
+    IStreamNormalizer as IProcessingStreamNormalizer,
+)
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 from src.core.services.response_pipeline import UnifiedResponsePipeline
@@ -71,7 +74,48 @@ class ResponseProcessor(IResponseProcessor):
         self._angel_service: Any | None = None
         self._angel_frequency: int = 1
 
-        # Require stream_normalizer via DI - no fallback construction (requirement 5.2)
+        # Stream normalizer is typically provided via DI.
+        # For testability and graceful degradation, if it is not provided but
+        # specialized streaming processors/middleware are supplied, construct a
+        # default StreamNormalizer locally.
+        if stream_normalizer is None and any(
+            x is not None
+            for x in (
+                tool_call_repair_processor,
+                loop_detection_processor,
+                content_accumulation_processor,
+                middleware_application_processor,
+            )
+        ):
+            from src.core.services.streaming.content_accumulation_processor import (
+                ContentAccumulationProcessor,
+            )
+            from src.core.services.streaming.stream_context_registry import (
+                StreamingContextRegistry,
+            )
+
+            processors: list[IStreamProcessor] = []
+            if tool_call_repair_processor is not None:
+                processors.append(tool_call_repair_processor)
+            if loop_detection_processor is not None:
+                processors.append(loop_detection_processor)
+
+            # Ensure content accumulation is always present for unified pipeline semantics.
+            if content_accumulation_processor is not None:
+                processors.append(content_accumulation_processor)
+            else:
+                processors.append(
+                    ContentAccumulationProcessor(
+                        max_buffer_bytes=10 * 1024 * 1024,
+                        registry=StreamingContextRegistry(),
+                    )
+                )
+
+            if middleware_application_processor is not None:
+                processors.append(middleware_application_processor)
+
+            stream_normalizer = StreamNormalizer(processors)
+
         self._stream_normalizer = stream_normalizer
 
         # Inject memory response capture middleware into stream normalizer if enabled

@@ -20,7 +20,6 @@ from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
 from src.core.ports.streaming_contracts import StreamingContent
-from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
@@ -30,8 +29,6 @@ from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
-
-from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
 async def _create_streaming_response(content: list[str]) -> StreamingResponseEnvelope:
@@ -124,10 +121,13 @@ async def test_streaming_tool_call_in_first_chunk():
         stream_normalizer=stream_normalizer,
     )
 
-    backend_request_manager = BackendRequestManager(
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
+    backend_request_manager = create_backend_request_manager(
         backend_processor=mock_backend_processor,
         response_processor=real_response_processor,
-        angel_service_factory=AngelFactoryStub(),
     )
 
     from src.core.services import tool_text_renderer
@@ -367,10 +367,15 @@ async def test_streaming_xml_content_passes_through_unchanged() -> None:
     pass through to the client for client-side parsing.
     """
 
+    from tests.helpers.backend_request_manager_fixtures import (
+        create_backend_request_manager,
+    )
+
     response_processor = _RecordingStreamingProcessor()
     backend_processor = AsyncMock()
-    manager = BackendRequestManager(
-        backend_processor, response_processor, AngelFactoryStub()
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
     )
 
     original_request = ChatRequest(

@@ -27,10 +27,11 @@ from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.history_compaction_interface import CompactionResult
-from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.history_compaction_service import HistoryCompactionService
 
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.backend_request_manager_fixtures import (
+    create_backend_request_manager,
+)
 
 
 def _make_context() -> RequestContext:
@@ -118,10 +119,9 @@ class TestHistoryCompactionPipelineIntegration:
         app_config = MagicMock(spec=AppConfig)
         app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
             config=app_config,
         )
@@ -210,10 +210,9 @@ class TestHistoryCompactionPipelineIntegration:
         app_config = MagicMock(spec=AppConfig)
         app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
             config=app_config,
         )
@@ -262,10 +261,9 @@ class TestHistoryCompactionPipelineIntegration:
             side_effect=RuntimeError("Compaction internal error")
         )
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
         )
 
@@ -311,10 +309,9 @@ class TestHistoryCompactionObservability:
         app_config = MagicMock(spec=AppConfig)
         app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
             config=app_config,
         )
@@ -359,10 +356,9 @@ class TestHistoryCompactionObservability:
         app_config = MagicMock(spec=AppConfig)
         app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
             config=app_config,
         )
@@ -520,10 +516,9 @@ class TestHistoryCompactionDIIntegration:
         backend_processor = AsyncMock()
         response_processor = MagicMock()
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=None,
         )
 
@@ -536,10 +531,9 @@ class TestHistoryCompactionDIIntegration:
         backend_processor = AsyncMock()
         response_processor = MagicMock()
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=None,
         )
 
@@ -656,10 +650,9 @@ class TestHistoryCompactionRealService:
         # Low threshold to ensure compaction runs on this request
         app_config.compaction = CompactionConfig(enabled=True, token_threshold=100)
 
-        manager = BackendRequestManager(
-            backend_processor,
-            response_processor,
-            AngelFactoryStub(),
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
             history_compaction_service=compaction_service,
             config=app_config,
         )
