@@ -213,7 +213,8 @@ class CodexRequestTranslator:
             raw_content = message.get("content")
         if raw_content is None:
             return ""
-        return self._connector._message_to_text(message)
+        text = self._connector._message_to_text(message)
+        return text if isinstance(text, str) else str(text)
 
     def _append_codex_xml_message_items(
         self,

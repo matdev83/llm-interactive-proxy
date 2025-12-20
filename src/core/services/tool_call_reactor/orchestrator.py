@@ -125,6 +125,13 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                     "(already processed by VTCResponseStreamWrapper) in session %s",
                     session_id,
                 )
+            # Use stream key from context for state reset
+            stream_key = context.stream_key
+            if not stream_key:
+                stream_key = self._stream_context_resolver.resolve_stream_key(
+                    session_id, None, response
+                )
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         # Use stream key from context (already resolved by feature/middleware)
@@ -140,18 +147,39 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         if not is_streaming:
             self._lifecycle_registry.clear_stream(stream_key)
 
-        # Extract tool calls from response
-        raw_tool_calls = self._extractor.extract(response)
+        # Extract tool calls from response (fail-open per requirement 6.2)
+        try:
+            raw_tool_calls = self._extractor.extract(response)
+        except Exception as e:
+            logger.error(
+                "Error extracting tool calls from response in session %s: %s",
+                session_id,
+                e,
+                exc_info=True,
+            )
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
+
         if not raw_tool_calls:
             self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
-        # Normalize tool calls to dictionaries
+        # Normalize tool calls to dictionaries (fail-open per requirement 6.2)
         normalized_tool_calls: list[dict[str, Any]] = []
-        for raw_call in raw_tool_calls:
-            normalized = self._normalizer.normalize(raw_call)
-            if normalized:
-                normalized_tool_calls.append(normalized)
+        try:
+            for raw_call in raw_tool_calls:
+                normalized = self._normalizer.normalize(raw_call)
+                if normalized:
+                    normalized_tool_calls.append(normalized)
+        except Exception as e:
+            logger.error(
+                "Error normalizing tool calls in session %s: %s",
+                session_id,
+                e,
+                exc_info=True,
+            )
+            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            return response
 
         if not normalized_tool_calls:
             self._reset_stream_state_if_needed(stream_key, response, is_streaming)
@@ -340,11 +368,16 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                         original_tool_call=tool_call,
                         reaction_metadata=reaction_metadata,
                     )
+                    # Reset stream state before returning replacement response
+                    self._reset_stream_state_if_needed(
+                        stream_key, response, is_streaming
+                    )
                     return replacement_response
 
             except Exception as e:
                 logger.error(
-                    "Error processing tool call through reactor: %s",
+                    "Error processing tool call through reactor in session %s: %s",
+                    session_id,
                     e,
                     exc_info=True,
                 )
@@ -354,26 +387,6 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         # No swallows occurred, return original response
         self._reset_stream_state_if_needed(stream_key, response, is_streaming)
         return response
-
-    def _is_response_complete(self, response: ProcessedResponse) -> bool:
-        """Check if the response is complete (valid for tool call processing)."""
-        metadata = getattr(response, "metadata", None)
-        if isinstance(metadata, dict):
-            if metadata.get("is_done"):
-                return True
-            finish_reason = metadata.get("finish_reason")
-            if finish_reason:
-                return True
-
-        choices = getattr(response, "choices", [])
-        if isinstance(choices, list):
-            for choice in choices:
-                if getattr(choice, "finish_reason", None):
-                    return True
-                if isinstance(choice, dict) and choice.get("finish_reason"):
-                    return True
-
-        return False
 
     def _should_reset_stream_state(
         self, response: ProcessedResponse, is_streaming: bool

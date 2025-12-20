@@ -615,4 +615,5 @@ __all__ = [
     "_normalize_content",  # Exported for tests
     "_format_chunk_as_sse",  # Exported for tests
     "_build_streaming_payload",  # Exported for tests
+    "_apply_usage_headers",  # Exported for tests (property tests)
 ]

@@ -153,25 +153,17 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
     @property
     def _reasoning_backoff_remaining(self) -> int:
         """Backward-compatibility property for reasoning backoff state."""
-        # Cast to concrete type to access private attribute
-        from src.connectors.hybrid_backend.orchestration.injection_policy import (
-            InjectionPolicy,
-        )
-
-        if isinstance(self._orchestrator.injection_policy, InjectionPolicy):
-            return self._orchestrator.injection_policy._reasoning_backoff_remaining
+        policy = getattr(self._orchestrator, "injection_policy", None)
+        if policy is not None and hasattr(policy, "_reasoning_backoff_remaining"):
+            return int(policy._reasoning_backoff_remaining or 0)
         return 0
 
     @_reasoning_backoff_remaining.setter
     def _reasoning_backoff_remaining(self, value: int) -> None:
         """Backward-compatibility setter for reasoning backoff state."""
-        # Cast to concrete type to access private attribute
-        from src.connectors.hybrid_backend.orchestration.injection_policy import (
-            InjectionPolicy,
-        )
-
-        if isinstance(self._orchestrator.injection_policy, InjectionPolicy):
-            self._orchestrator.injection_policy._reasoning_backoff_remaining = value
+        policy = getattr(self._orchestrator, "injection_policy", None)
+        if policy is not None and hasattr(policy, "_reasoning_backoff_remaining"):
+            policy._reasoning_backoff_remaining = int(value)
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the hybrid backend.

@@ -471,3 +471,57 @@ class TestProcessingFlow:
 
         # Both should call reactor (same behavior)
         assert mock_reactor.process_tool_call.call_count == call_count_before + 1
+
+
+class TestFailOpenOnExtractionNormalization:
+    """Tests for fail-open behavior during extraction and normalization (requirement 6.2)."""
+
+    @pytest.mark.asyncio
+    async def test_extraction_error_returns_unchanged_response(
+        self,
+        orchestrator: ToolCallReactorOrchestrator,
+        mock_extractor: Mock,
+    ) -> None:
+        """Test that extraction errors don't crash the request (requirement 6.2)."""
+        # Setup: extractor raises exception
+        mock_extractor.extract.side_effect = Exception("Extraction failed")
+
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+        )
+        context = ToolCallReactorContext(stream_key="test-stream")
+
+        result = await orchestrator.handle(
+            response, "test-session", context, is_streaming=False
+        )
+
+        # Should return original response unchanged (fail-open)
+        assert result is response
+
+    @pytest.mark.asyncio
+    async def test_normalization_error_returns_unchanged_response(
+        self,
+        orchestrator: ToolCallReactorOrchestrator,
+        mock_extractor: Mock,
+        mock_normalizer: Mock,
+    ) -> None:
+        """Test that normalization errors don't crash the request (requirement 6.2)."""
+        # Setup: extractor succeeds but normalizer raises exception
+        raw_tool_call = {
+            "id": "call_1",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        mock_extractor.extract.return_value = [raw_tool_call]
+        mock_normalizer.normalize.side_effect = Exception("Normalization failed")
+
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+        )
+        context = ToolCallReactorContext(stream_key="test-stream")
+
+        result = await orchestrator.handle(
+            response, "test-session", context, is_streaming=False
+        )
+
+        # Should return original response unchanged (fail-open)
+        assert result is response

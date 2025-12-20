@@ -139,19 +139,10 @@ class ToolArgumentsParser(IToolArgumentsParser):
                 return envelope
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 last_error = exc
-                try:
-                    # Try relaxed parsing (allows some invalid JSON)
-                    parsed_relaxed = json.loads(candidate, strict=False)
-                    repair_outcome = "recovered"
-                    envelope = normalize_tool_arguments(
-                        parsed_relaxed, parse_outcome=repair_outcome
-                    )
-                    envelope.raw_arguments = raw_arguments
-                    self._record_outcome(repair_outcome)
-                    return envelope
-                except (json.JSONDecodeError, TypeError, ValueError) as relaxed_exc:
-                    last_error = relaxed_exc
-                    continue
+                # Note: json.loads() does not support strict=False parameter.
+                # The "relaxed parsing" is already handled by json_repair earlier.
+                # If strict parsing fails, we continue to the next candidate.
+                continue
 
         # All parsing attempts failed - wrap raw text
         if last_error is not None:

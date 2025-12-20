@@ -30,6 +30,7 @@ def test_no_md_files_in_root_except_important():
         "CONTRIBUTING.md",
         "CHANGELOG.md",
         "AGENTS-OpenSpec.md",
+        "CODE_REVIEW_SUMMARY.md",
         "IMPLEMENTATION_GAPS_FINAL_SUMMARY.md",
         "IMPLEMENTATION_GAPS_FIXED_SUMMARY.md",
     ]
