@@ -69,7 +69,7 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 return value.decode("utf-8", errors="ignore")
         return str(value)
 
-    async def verify_or_passthrough(  # type: ignore[override]
+    async def verify_or_passthrough(  # type: ignore[override, misc]
         self,
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],

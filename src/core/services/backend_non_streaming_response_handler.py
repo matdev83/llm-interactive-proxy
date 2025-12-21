@@ -244,11 +244,20 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
 
         # Merge metadata from backend response to ensure transport flags are preserved
         # This is critical for flags like tool_call_swallowed that come from backend headers/metadata
+        # Also preserve retry-related metadata from coordinator responses
+        retry_metadata_keys = (
+            "dangerous_command_retry_count",
+            "tool_call_reactor_retry_count",
+            "steering_retry_occurred",
+            "tool_call_reactor_retry_failed",
+        )
         if response.metadata:
             if processed_response.metadata is None:
                 processed_response.metadata = {}
             for key, value in response.metadata.items():
-                if key not in processed_response.metadata:
+                # Always preserve coordinator metadata (retry counts, steering flags)
+                # This ensures retry metadata is preserved through recursive handler calls
+                if key in retry_metadata_keys or key not in processed_response.metadata:
                     processed_response.metadata[key] = value
 
         # Detect swallowed tool calls and delegate to coordinator
@@ -261,10 +270,13 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             # or None if retry is not allowed (already a retry request and limit not exceeded)
             extra_body = getattr(request, "extra_body", None) or {}
             # Build retry state from request metadata
-            retry_count = extra_body.get(
-                "_tool_call_reactor_retry_count",
-                extra_body.get("_dangerous_command_retry_count", 0),
-            )
+            # Check both keys and use the higher value (for backward compatibility)
+            retry_count = extra_body.get("_tool_call_reactor_retry_count", 0)
+            legacy_count = extra_body.get("_dangerous_command_retry_count", 0)
+            if isinstance(legacy_count, int) and legacy_count > retry_count:
+                retry_count = legacy_count
+            if not isinstance(retry_count, int):
+                retry_count = 0
             # Use same max retries as ToolCallRetryCoordinator for consistency
             max_retries = ToolCallRetryCoordinator._MAX_DANGEROUS_COMMAND_RETRIES
 
@@ -351,10 +363,36 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                     processing_context=processing_context,
                 )
 
+        # Preserve retry-related metadata from coordinator responses BEFORE filtering
+        # This ensures retry counts and steering flags are preserved through the pipeline
+        retry_metadata_keys = (
+            "dangerous_command_retry_count",
+            "tool_call_reactor_retry_count",
+            "steering_retry_occurred",
+            "tool_call_reactor_retry_failed",
+        )
+        preserved_retry_metadata = {}
+        # Get retry metadata from response envelope (coordinator attaches it here)
+        if response.metadata:
+            for key in retry_metadata_keys:
+                if key in response.metadata:
+                    preserved_retry_metadata[key] = response.metadata[key]
+        # Also check processed_response metadata (in case it was already merged)
+        if processed_response.metadata:
+            for key in retry_metadata_keys:
+                if (
+                    key in processed_response.metadata
+                    and key not in preserved_retry_metadata
+                ):
+                    preserved_retry_metadata[key] = processed_response.metadata[key]
+
         # Filter metadata to JSON-serializable values and remove original_request
         filtered_metadata = _filter_json_serializable_metadata(
             processed_response.metadata or {}
         )
+
+        # Restore preserved retry metadata (overwrites any filtered values)
+        filtered_metadata.update(preserved_retry_metadata)
 
         # Ensure session_id is included in response metadata (requirement 9.2)
         if "session_id" not in filtered_metadata:

@@ -598,9 +598,9 @@ class TestBackendProcessorErrorHandling:
         assert result.metadata is not None
         assert result.metadata.get("tool_call_reactor_retry_failed") is True
         assert result.metadata.get("steering_retry_occurred") is True
-        # new_retry_count = current_retry_count (1) + 1 = 2
-        assert result.metadata.get("dangerous_command_retry_count") == 2
-        assert result.metadata.get("tool_call_reactor_retry_count") == 2
+        # new_retry_count = current_retry_count (0) -> 1 (first retry)
+        assert result.metadata.get("dangerous_command_retry_count") == 1
+        assert result.metadata.get("tool_call_reactor_retry_count") == 1
 
 
 class TestRawBackendResponse:

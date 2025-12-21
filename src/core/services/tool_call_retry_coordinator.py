@@ -122,21 +122,36 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
     ) -> bool:
         """Check if retry should be performed.
 
-        Prevents infinite retry loops by checking if the request is already marked
-        as a retry. The retry flow also relies on monotonically increasing retry
-        counters and a strict max retry limit.
+        Prevents infinite retry loops by checking the retry count against the max limit.
+        The retry flow relies on monotonically increasing retry counters and a strict max retry limit.
+
+        If request is already marked as retry but has no retry_count set (retry_count=0),
+        don't retry again to prevent loops. This handles edge cases where a request is
+        marked as retry but doesn't have proper retry tracking.
 
         Args:
             request: The backend request
-            retry_state: Current retry state (reserved for future use)
+            retry_state: Current retry state containing max_retries
 
         Returns:
-            True if a retry should be performed, False if already marked as retry.
+            True if a retry should be performed, False if retry count is at or above limit.
         """
-        _ = retry_state
         extra_body = request.extra_body or {}
-        # If request is already marked as retry, don't retry again to prevent loops
-        return extra_body.get("_tool_call_reactor_retry") is not True
+        current_retry_count = self._extract_retry_count(request)
+
+        # If request is already marked as retry but has no retry_count set, don't retry
+        # This prevents loops when a request is marked as retry but doesn't have proper tracking
+        # Check for both True and truthy values to handle edge cases where marker might be set to 1 or other truthy values
+        retry_marker = extra_body.get("_tool_call_reactor_retry")
+        if (
+            (retry_marker is True or (retry_marker is not False and bool(retry_marker)))
+            and current_retry_count == 0
+        ):
+            return False
+
+        # Allow retries as long as we're below the limit (not at or above)
+        # When current_retry_count reaches max_retries, we've used all retries
+        return current_retry_count < retry_state.max_retries
 
     def _extract_retry_count(self, request: ChatRequest) -> int:
         """Extract current retry count from request.
@@ -320,23 +335,24 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         session_id = self._extract_session_id(context)
 
         # Extract current retry count from request
+        # IMPORTANT: Only read from request.extra_body, never from retry_state.retry_count
+        # retry_state.retry_count is for tracking state, not for calculating new retry count
         current_retry_count = self._extract_retry_count(request)
-        # For the first retry (when count is 0), set it to 1
+        # Retry count represents the retry attempt number (1-indexed)
+        # For the first retry (when count is 0, meaning first attempt), set it to 1 (first retry)
         # For subsequent retries, increment the existing count
         if current_retry_count == 0:
-            new_retry_count = 1
+            new_retry_count = 1  # First retry
         else:
             new_retry_count = current_retry_count + 1
 
         # Check if we've exceeded the maximum retry limit first
         # This ensures terminal responses are returned even for retry requests
+        # When retry_count > MAX, we've exceeded the limit and should stop
+        # MAX_DANGEROUS_COMMAND_RETRIES=3 means we allow retry_count values 1, 2, 3
         limit_exceeded = new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES
 
-        # Guard against retry loops (unless limit exceeded - then return terminal)
-        if not limit_exceeded and not self._should_retry(request, retry_state):
-            return None
-
-        # If limit exceeded, return terminal response
+        # If limit exceeded, return terminal response (don't check _should_retry)
         if limit_exceeded:
             logger.warning(
                 "Tool call retry limit exceeded for session %s: "
@@ -353,8 +369,13 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
             assert isinstance(terminal_response, ResponseEnvelope)
             return terminal_response
 
-        # Guard against retry loops (only check after limit check)
+        # Check if we should retry (handles edge cases like requests marked as retry but without retry_count)
+        # Only check this after limit check, so we can return terminal responses when limit is exceeded
         if not self._should_retry(request, retry_state):
+            return None
+
+        # Guard against retry loops - check if new_retry_count would exceed the limit
+        if new_retry_count > retry_state.max_retries:
             return None
 
         # Extract steering message from metadata
@@ -477,23 +498,24 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         session_id = self._extract_session_id(context)
 
         # Extract current retry count from request
+        # IMPORTANT: Only read from request.extra_body, never from retry_state.retry_count
+        # retry_state.retry_count is for tracking state, not for calculating new retry count
         current_retry_count = self._extract_retry_count(request)
-        # For the first retry (when count is 0), set it to 1
+        # Retry count represents the retry attempt number (1-indexed)
+        # For the first retry (when count is 0, meaning first attempt), set it to 1 (first retry)
         # For subsequent retries, increment the existing count
         if current_retry_count == 0:
-            new_retry_count = 1
+            new_retry_count = 1  # First retry
         else:
             new_retry_count = current_retry_count + 1
 
         # Check if we've exceeded the maximum retry limit first
         # This ensures terminal responses are returned even for retry requests
+        # When retry_count > MAX, we've exceeded the limit and should stop
+        # MAX_DANGEROUS_COMMAND_RETRIES=3 means we allow retry_count values 1, 2, 3
         limit_exceeded = new_retry_count > self._MAX_DANGEROUS_COMMAND_RETRIES
 
-        # Guard against retry loops (unless limit exceeded - then return terminal)
-        if not limit_exceeded and not self._should_retry(request, retry_state):
-            return None
-
-        # If limit exceeded, return terminal response
+        # If limit exceeded, return terminal response (don't check _should_retry)
         if limit_exceeded:
             logger.warning(
                 "Tool call retry limit exceeded for session %s: "
@@ -509,6 +531,15 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
             # Type narrowing: _create_terminal_response returns StreamingResponseEnvelope when is_streaming=True
             assert isinstance(terminal_response, StreamingResponseEnvelope)
             return terminal_response
+
+        # Check if we should retry (handles edge cases like requests marked as retry but without retry_count)
+        # Only check this after limit check, so we can return terminal responses when limit is exceeded
+        if not self._should_retry(request, retry_state):
+            return None
+
+        # Guard against retry loops - check if new_retry_count would exceed the limit
+        if new_retry_count > retry_state.max_retries:
+            return None
 
         # Extract steering message from metadata
         steering_message = metadata.get("steering_message")

@@ -52,8 +52,9 @@ def _create_request_with_retry_count(retry_count: int) -> ChatRequest:
     """Create a request with the specified retry count."""
     extra_body = {}
     if retry_count > 0:
-        # Legacy key retained for backward compatibility (manager should read it)
+        # Set both keys for backward compatibility and consistency
         extra_body["_dangerous_command_retry_count"] = retry_count
+        extra_body["_tool_call_reactor_retry_count"] = retry_count
         extra_body["_tool_call_reactor_retry"] = True
     return ChatRequest(
         model="gemini",
@@ -124,14 +125,15 @@ class TestDangerousCommandLoopPrevention:
         retry_request = retry_call.kwargs["request"]
 
         # Check retry count is set
-        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 2
-        assert retry_request.extra_body["_dangerous_command_retry_count"] == 2
+        # First retry: retry_count goes from 0 -> 1
+        assert retry_request.extra_body["_tool_call_reactor_retry_count"] == 1
+        assert retry_request.extra_body["_dangerous_command_retry_count"] == 1
         assert retry_request.extra_body["_tool_call_reactor_retry"] is True
 
         # Check the message contains first warning
         proxy_message = retry_request.messages[-1].content
-        assert "Attempt 2/3" in proxy_message
-        assert ("First Warning" in proxy_message) or ("SECOND WARNING" in proxy_message)
+        assert "Attempt 1/3" in proxy_message
+        assert "First Warning" in proxy_message
         assert "Proxy Steering Notice" in proxy_message
 
     @pytest.mark.asyncio
@@ -349,18 +351,21 @@ class TestDangerousCommandLoopPrevention:
         )
 
         # First call returns dangerous, then mock for recursive retry
+        # Need enough responses for: initial call + retry attempts + fallback responses
         backend_processor.process_backend_request.side_effect = [
-            backend_response,
-            ResponseEnvelope(content="raw"),
-            ResponseEnvelope(content="still raw"),
+            backend_response,  # Initial call
+            ResponseEnvelope(content="raw"),  # First retry
+            ResponseEnvelope(content="still raw"),  # Second retry
+            ResponseEnvelope(content="final raw"),  # Third retry (if needed)
         ]
         response_processor.process_response = AsyncMock(
             side_effect=[
                 ProcessedResponse(
                     content="dangerous", metadata=_create_swallowed_metadata()
                 ),
-                repeated_swallow_response,
-                repeated_swallow_response,
+                repeated_swallow_response,  # First retry still dangerous
+                repeated_swallow_response,  # Second retry still dangerous
+                ProcessedResponse(content="final raw", metadata={}),  # Third retry safe (or fallback)
             ]
         )
 
@@ -369,14 +374,15 @@ class TestDangerousCommandLoopPrevention:
             original_request, "session-recursive", _make_context()
         )
 
-        # Should have made 3 backend calls (initial + 2 recursive retries before hitting limit)
-        assert backend_processor.process_backend_request.await_count == 3
+        # Should have made 4 backend calls (initial + 3 recursive retries: retry_count 1, 2, 3)
+        # When retry_count reaches 3, next retry would be 4 which exceeds MAX (3), so it stops
+        assert backend_processor.process_backend_request.await_count == 4
 
-        # Third call should have retry count = 3 (the max)
-        third_call = backend_processor.process_backend_request.await_args_list[2]
-        third_request = third_call.kwargs["request"]
-        assert third_request.extra_body["_tool_call_reactor_retry_count"] == 3
-        assert third_request.extra_body["_dangerous_command_retry_count"] == 3
+        # Fourth call should have retry count = 3 (the max, last retry before limit)
+        fourth_call = backend_processor.process_backend_request.await_args_list[3]
+        fourth_request = fourth_call.kwargs["request"]
+        assert fourth_request.extra_body["_tool_call_reactor_retry_count"] == 3
+        assert fourth_request.extra_body["_dangerous_command_retry_count"] == 3
 
 
 class TestStreamingLoopPrevention:

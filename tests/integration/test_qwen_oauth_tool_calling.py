@@ -811,8 +811,20 @@ class TestQwenOAuthAgentToolCalling:
             "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
         }
 
-        with respx.mock(base_url="https://portal.qwen.ai/v1") as respx_mock:
-            respx_mock.post("/chat/completions").mock(
+        with respx.mock(assert_all_called=False) as respx_mock:
+            # Mock the token refresh endpoint to prevent live calls during tests
+            respx_mock.post("https://chat.qwen.ai/api/v1/oauth2/token").mock(
+                return_value=Response(
+                    200,
+                    json={
+                        "access_token": "mock_access_token",
+                        "refresh_token": "mock_refresh_token",
+                        "expires_in": 3600,
+                    },
+                )
+            )
+            # Mock the chat completions endpoint
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(200, json=mock_response)
             )
 

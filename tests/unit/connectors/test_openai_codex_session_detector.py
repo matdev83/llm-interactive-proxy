@@ -8,7 +8,20 @@ import pytest
 from src.connectors._openai_codex_session_detector import (
     SessionDetector,
 )
+from src.connectors._openai_codex_telemetry import get_telemetry, reset_telemetry
 
+
+@pytest.fixture(autouse=True)
+def reset_telemetry_state():
+    """Reset telemetry singleton before and after each test for isolation.
+    
+    Also disables telemetry to prevent DEBUG logging spam during tests.
+    """
+    reset_telemetry()
+    telemetry = get_telemetry()
+    telemetry.disable()
+    yield
+    reset_telemetry()
 
 class TestSessionDetectorMetadataDetection:
     """Test metadata-based detection."""

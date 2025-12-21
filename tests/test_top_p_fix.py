@@ -24,6 +24,7 @@ async def test_top_p_fix_with_actual_request() -> None:
     mock_backend_processor.process_backend_request = AsyncMock()
     mock_response_processor = AsyncMock()
     from src.core.interfaces.response_processor_interface import ProcessedResponse
+
     mock_response_processor.process_response = AsyncMock(
         return_value=ProcessedResponse(content=None, metadata={})
     )

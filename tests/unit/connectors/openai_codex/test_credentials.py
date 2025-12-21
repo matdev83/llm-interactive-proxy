@@ -64,9 +64,12 @@ class TestCredentialManager:
         return httpx.AsyncClient()
 
     @pytest.fixture
-    def manager(self, http_client):
-        """Create a CredentialManager instance for testing."""
-        return CredentialManager(http_client=http_client)
+    async def manager(self, http_client):
+        """Create a CredentialManager instance for testing with proper cleanup."""
+        mgr = CredentialManager(http_client=http_client)
+        yield mgr
+        # Ensure file watcher is stopped to prevent cross-test interference
+        await mgr.shutdown()
 
     @pytest.mark.asyncio
     async def test_manager_implements_interface(self, manager):

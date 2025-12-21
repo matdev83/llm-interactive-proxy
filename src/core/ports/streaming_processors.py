@@ -517,14 +517,17 @@ class ThinkTagsProcessor(IStreamProcessor):
         """
         self._ensure_session_state(session_id)
 
-        # Trim the existing buffer when we're not inside a think tag to avoid
-        # quadratic growth when processing long streams.
         current_state = self._stream_states[session_id]
         current_buffer = self._streaming_buffers.get(session_id, "")
+
+        # Aggressively trim buffer when not in think tag to minimize memory usage
         if current_state == "waiting" and current_buffer:
+            # Keep only lookback window for cross-chunk detection
             current_buffer = current_buffer[-self._think_tag_lookback :]
 
         new_buffer = current_buffer + chunk_content
+
+        # Check for buffer overflow before processing
         if len(new_buffer) > self._streaming_buffer_size:
             self._logger.warning(
                 "Streaming buffer overflow for session %s, processing as-is", session_id
@@ -533,11 +536,11 @@ class ThinkTagsProcessor(IStreamProcessor):
             self._cleanup_session_state(session_id)
             return result
 
-        self._streaming_buffers[session_id] = new_buffer
-
         if current_state == "waiting":
+            # Check for think tags in the combined buffer
             if _THINK_OPENING_PATTERN.search(new_buffer):
                 self._stream_states[session_id] = "in_think"
+                self._streaming_buffers[session_id] = new_buffer
                 self._logger.debug(
                     "Started think tag detection for session %s", session_id
                 )
@@ -550,13 +553,15 @@ class ThinkTagsProcessor(IStreamProcessor):
                 # Keep the buffered reasoning content until we see a closing tag
                 return "", None
 
-            # No think tags detected, only keep a short tail for cross-chunk detection
-            self._streaming_buffers[session_id] = new_buffer[
-                -self._think_tag_lookback :
-            ]
+            # No think tags detected - trim buffer immediately to minimize memory
+            # Only keep lookback window for potential cross-chunk detection
+            trimmed_buffer = new_buffer[-self._think_tag_lookback :]
+            self._streaming_buffers[session_id] = trimmed_buffer
             return chunk_content, None
 
         if current_state == "in_think":
+            # Store buffer while inside think tag
+            self._streaming_buffers[session_id] = new_buffer
             if _THINK_CLOSING_PATTERN.search(new_buffer):
                 result_content, reasoning_content = self._fix_think_tags(new_buffer)
                 self._stream_states[session_id] = "post_think"

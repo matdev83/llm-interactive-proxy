@@ -186,6 +186,7 @@ class ModelReplacementService:
         random_value = self._random_generator()
         should_activate = random_value < self._cached_probability
 
+        # Log probability check for debugging and monitoring (Requirement 6.4)
         logger.debug(
             f"Replacement probability check for session {session_id}: "
             f"random={random_value:.4f}, threshold={self._cached_probability:.4f}, "

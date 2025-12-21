@@ -226,7 +226,7 @@ class IAngelStreamVerifier(ABC):
     """Interface for buffering and verifying streaming output when Angel is enabled."""
 
     @abstractmethod
-    async def verify_or_passthrough(
+    def verify_or_passthrough(
         self,
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
