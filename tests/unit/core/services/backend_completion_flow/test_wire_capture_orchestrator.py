@@ -156,6 +156,42 @@ class TestWireCaptureOrchestrator:
         assert call_args["response_content"] == response_content
 
     @pytest.mark.asyncio
+    async def test_capture_inbound_response_with_canonical_usage(
+        self, orchestrator, wire_capture
+    ):
+        """Test that canonical_usage is passed through to wire capture."""
+        # Arrange
+        wire_capture.enabled.return_value = True
+
+        context = Mock(spec=RequestContext)
+        response_content = {"foo": "bar"}
+        canonical_usage = {
+            "provider_id": "openai",
+            "model_id": "gpt-4",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        }
+
+        # Act
+        await orchestrator.capture_inbound_response(
+            context=context,
+            session_id="sess_123",
+            backend_type="openai",
+            effective_model="gpt-4",
+            key_name="OPENAI_API_KEY",
+            response_content=response_content,
+            canonical_usage=canonical_usage,
+        )
+
+        # Assert
+        wire_capture.capture_inbound_response.assert_called_once()
+        call_args = wire_capture.capture_inbound_response.call_args[1]
+        assert call_args["backend"] == "openai"
+        assert call_args["model"] == "gpt-4"
+        assert call_args["canonical_usage"] == canonical_usage
+
+    @pytest.mark.asyncio
     async def test_wrap_inbound_stream_calls_wire_capture(
         self, orchestrator, wire_capture
     ):

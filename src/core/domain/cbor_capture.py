@@ -42,6 +42,7 @@ class CaptureMetadata:
     is_stream_end: bool = False
     total_chunks: int | None = None  # Set on stream_end
     total_bytes: int | None = None  # Set on stream_end
+    canonical_usage: dict[str, Any] | None = None  # Canonical usage record
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values for compact CBOR."""
@@ -70,6 +71,8 @@ class CaptureMetadata:
             result["tc"] = self.total_chunks
         if self.total_bytes is not None:
             result["tb"] = self.total_bytes
+        if self.canonical_usage is not None:
+            result["cu"] = self.canonical_usage
         return result
 
     @classmethod
@@ -88,6 +91,7 @@ class CaptureMetadata:
             is_stream_end=data.get("se", False),
             total_chunks=data.get("tc"),
             total_bytes=data.get("tb"),
+            canonical_usage=data.get("cu"),
         )
 
 

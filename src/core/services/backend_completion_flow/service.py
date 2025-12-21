@@ -50,6 +50,20 @@ class BackendCompletionFlow(IBackendCompletionFlow):
     The orchestrator owns flow ordering and shared context only. All substantial logic
     is delegated to collaborators to maintain clear boundaries and improve testability.
 
+    Exception Handling Flow:
+        Errors are handled in two layers:
+        1. Inner exception handler: Catches exceptions from backend calls. When allow_failover=False,
+           calls record_failure() and marks the exception to prevent double-processing.
+        2. Outer exception handler: Catches exceptions that escape the inner handler (e.g., from
+           apply_failure_recovery failures, auth failures that raise immediately). Calls record_failure()
+           unless the exception is already marked as handled.
+
+        The marker pattern (__handled_by_inner_handler__) prevents double-calling record_failure()
+        when an exception propagates from inner to outer handler. This is necessary because:
+        - When allow_failover=False, we call record_failure() in the inner handler before raising
+        - The raised exception is caught by the outer handler
+        - Without the marker, record_failure() would be called twice for the same error
+
     Raises:
         BackendError: If backend call fails and recovery is not possible
         RateLimitExceededError: If backend is rate limited
@@ -89,6 +103,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         candidate = self._exception_normalizer.normalize(exc, backend_type)
 
         if isinstance(candidate, Exception) and isinstance(candidate, LLMProxyError):
+            # Preserve status_code from original exception if candidate doesn't have one
+            if (
+                not hasattr(candidate, "status_code")
+                or getattr(candidate, "status_code", None) is None
+            ):
+                original_status_code = getattr(exc, "status_code", None)
+                if isinstance(original_status_code, int):
+                    candidate.status_code = original_status_code
             return candidate
 
         if (
@@ -112,9 +134,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         if isinstance(candidate, Exception):
             return candidate
 
+        # Preserve status_code from original exception when creating new BackendError
+        original_status_code = getattr(exc, "status_code", None)
         normalized = BackendError(
             message=f"Backend call failed: {exc!s}",
             backend_name=backend_type,
+            status_code=(
+                original_status_code if isinstance(original_status_code, int) else None
+            ),
         )
         normalized.__cause__ = exc
         return normalized
@@ -193,6 +220,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             )
 
             # Step 9: Execute backend call (with wire capture + usage tracking)
+            result: ResponseEnvelope | StreamingResponseEnvelope | None = None
             try:
                 # Wire-capture: capture outbound payload pre-call (best-effort)
                 await self._wire_capture_orchestrator.capture_wire_outbound(
@@ -225,23 +253,25 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
                 # Execute the backend call
-                result: ResponseEnvelope | StreamingResponseEnvelope = (
-                    await backend.chat_completions(
-                        request_data=domain_request,
-                        processed_messages=canonical_request.messages,
-                        effective_model=effective_model,
-                        identity=identity,
-                        **backend_call_kwargs,
-                    )
+                result = await backend.chat_completions(
+                    request_data=domain_request,
+                    processed_messages=canonical_request.messages,
+                    effective_model=effective_model,
+                    identity=identity,
+                    **backend_call_kwargs,
                 )
 
                 # Wrap result for usage tracking
+                assert result is not None, "Backend call must return a response"
                 result = await self._usage_accounting.wrap_response_for_usage(
                     result=result,
                     outbound_tokens=outbound_tokens,
                     ctp_record_id=ctp_record_id,
                     ptb_record_id=ptb_record_id,
                     start_time=start_time,
+                    context=context,
+                    backend_type=backend_type,
+                    effective_model=effective_model,
                 )
 
                 # Step 10: Handle streaming response (wire capture + session ID injection)
@@ -281,14 +311,36 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                         result.content = _to_processed_with_capture()
 
-                    return await self._usage_accounting.handle_streaming_response(
-                        result=result,
-                        backend_type=backend_type,
-                        effective_model=effective_model,
-                        context=context,
-                        request=domain_request,
-                        session_id_for_backend=session_id_for_backend,
+                    streaming_result = (
+                        await self._usage_accounting.handle_streaming_response(
+                            result=result,
+                            backend_type=backend_type,
+                            effective_model=effective_model,
+                            context=context,
+                            request=domain_request,
+                            session_id_for_backend=session_id_for_backend,
+                        )
                     )
+
+                    # Capture canonical usage for streaming response after completion
+                    canonical_usage = None
+                    if (
+                        hasattr(streaming_result, "canonical_usage")
+                        and streaming_result.canonical_usage is not None
+                    ):
+                        canonical_usage = streaming_result.canonical_usage
+
+                    if canonical_usage is not None:
+                        await self._wire_capture_orchestrator.capture_stream_completion(
+                            context=context,
+                            session_id=getattr(context, "session_id", None),
+                            backend_type=backend_type,
+                            effective_model=effective_model,
+                            key_name=key_name,
+                            canonical_usage=canonical_usage,
+                        )
+
+                    return streaming_result
 
                 # Step 11: Handle non-streaming response
                 # Wire-capture: capture inbound response
@@ -300,6 +352,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 elif hasattr(result, "__dict__"):
                     response_content = result.__dict__
 
+                # Extract canonical usage from envelope if present
+                canonical_usage_for_capture: dict[str, Any] | None = None
+                if (
+                    hasattr(result, "canonical_usage")
+                    and result.canonical_usage is not None
+                ):
+                    canonical_usage_for_capture = result.canonical_usage.model_dump()
+
                 await self._wire_capture_orchestrator.capture_inbound_response(
                     context=context,
                     session_id=getattr(context, "session_id", None),
@@ -307,6 +367,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     effective_model=effective_model,
                     key_name=key_name,
                     response_content=response_content,
+                    canonical_usage=canonical_usage_for_capture,
                 )
 
                 return await self._usage_accounting.handle_non_streaming_response(
@@ -374,6 +435,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         }
                     }
 
+                # Extract canonical usage from envelope if present (may be None for errors)
+                canonical_usage_for_error: dict[str, Any] | None = None
+                if (
+                    result is not None
+                    and isinstance(result, ResponseEnvelope)
+                    and result.canonical_usage is not None
+                ):
+                    canonical_usage_for_error = result.canonical_usage.model_dump()
+                # Note: For error cases, canonical_usage may not be available
+
                 await self._wire_capture_orchestrator.capture_inbound_response(
                     context=context,
                     session_id=getattr(context, "session_id", None),
@@ -381,6 +452,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     effective_model=effective_model,
                     key_name=key_name,
                     response_content=error_payload,
+                    canonical_usage=canonical_usage_for_error,
                 )
 
                 # 2. Update resilience/usage via accounting collaborator
@@ -409,7 +481,22 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         call_completion_callback=self.call_completion,
                     )
 
-                # No failover allowed, raise the normalized error
+                # No failover allowed - record failure and raise the normalized error
+                # According to Requirement 4.4: record_failure must be called when backend
+                # call fails, before re-raising the exception.
+                # We mark the exception to prevent double-calling when it propagates to
+                # the outer exception handler (which also calls record_failure for exceptions
+                # that escape the inner handler, e.g., from apply_failure_recovery failures).
+                if self._resilience:
+                    self._resilience.record_failure(
+                        current_backend, effective_model, normalized_exc
+                    )
+                    # Mark as handled to prevent outer handler from calling record_failure again.
+                    # This marker is necessary because when allow_failover=False, we call
+                    # record_failure here and then raise, which will be caught by the outer
+                    # handler. Without this marker, record_failure would be called twice for
+                    # the same error.
+                    normalized_exc.__handled_by_inner_handler__ = True  # type: ignore[attr-defined]
                 raise normalized_exc
 
         except asyncio.CancelledError:
@@ -420,8 +507,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             LLMProxyError,
             AuthenticationError,
         ) as exc:
-            # Record failure in resilience coordinator (handles cooldown/backoff)
-            if self._resilience:
+            # Record failure in resilience coordinator (handles cooldown/backoff).
+            # This outer handler catches exceptions that escape the inner handler:
+            # 1. Exceptions from apply_failure_recovery when allow_failover=True
+            # 2. Exceptions from auth failure handling (which raises immediately)
+            # 3. Unexpected exceptions that bypass the inner handler
+            # We skip if already handled in inner handler (when allow_failover=False)
+            # to avoid double-calling record_failure for the same error.
+            if self._resilience and not getattr(
+                exc, "__handled_by_inner_handler__", False
+            ):
                 self._resilience.record_failure(backend_type, effective_model, exc)
             # Propagate expected exceptions as-is
             raise

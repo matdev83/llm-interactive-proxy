@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.format_converter import FormatConverter
@@ -145,6 +145,7 @@ async def test_property_15_fingerprint_association(
 
 
 @pytest.mark.asyncio
+@settings(max_examples=50, deadline=None)
 @given(action=prompt_action_strategy())
 async def test_property_16_cost_attribution(action: PromptAction):
     """

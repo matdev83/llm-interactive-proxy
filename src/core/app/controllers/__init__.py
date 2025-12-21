@@ -452,7 +452,7 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> dict[str, Any]:
     return health_info
 
 
-def register_versioned_endpoints(app: FastAPI) -> None:
+def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
     """Register new versioned API endpoints.
 
     Args:
@@ -568,6 +568,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             with contextlib.suppress(Exception):
                 wire_capture = service_provider.get_service(cast(type, IWireCapture))
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
+            # Set protocol identifier for normalization (Requirement 1.12)
+            if ctx.extensions is None:
+                ctx.extensions = {}
+            ctx.extensions["protocol"] = "gemini"
 
             # Add model to request data if not present
             if "model" not in request_data:
@@ -798,6 +803,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             with contextlib.suppress(Exception):
                 wire_capture = service_provider.get_service(cast(type, IWireCapture))
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
+            # Set protocol identifier for normalization (Requirement 1.12)
+            if ctx.extensions is None:
+                ctx.extensions = {}
+            ctx.extensions["protocol"] = "gemini"
 
             # Add model to request data if not present
             if "model" not in request_data:

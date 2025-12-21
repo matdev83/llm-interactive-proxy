@@ -15,6 +15,7 @@ from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.common.structlog_config import get_logger
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.wire_capture import create_wire_capture_entry
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
@@ -156,6 +157,7 @@ class StructuredWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         response_content: Any,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -171,6 +173,12 @@ class StructuredWireCapture(IWireCapture):
             key_name=key_name,
             payload=response_content,
         )
+
+        # Add canonical usage to metadata if present
+        if canonical_usage is not None and isinstance(entry, dict):
+            if "metadata" not in entry:
+                entry["metadata"] = {}
+            entry["metadata"]["canonical_usage"] = canonical_usage
 
         # Serialize and write to file
         await self._append_json(entry)
@@ -279,6 +287,43 @@ class StructuredWireCapture(IWireCapture):
             await self._append_json(end_entry)
 
         return _gen()
+
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response."""
+        if not self.enabled() or canonical_usage is None:
+            return
+
+        # Convert CanonicalUsageRecord to dict for metadata
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
+
+        # Create completion entry with canonical_usage
+        entry = self._create_json_entry(
+            flow="backend_to_frontend",
+            direction="response_stream_completion",
+            context=context,
+            session_id=session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            payload={},
+        )
+
+        # Add canonical usage to metadata
+        if isinstance(entry, dict):
+            if "metadata" not in entry:
+                entry["metadata"] = {}
+            entry["metadata"]["canonical_usage"] = canonical_usage_dict
+
+        await self._append_json(entry)
 
     def wrap_outbound_stream(
         self,

@@ -31,6 +31,9 @@ from src.core.interfaces.resilience_interface import IResilienceCoordinator
 from src.core.interfaces.stream_session_id_resolver_interface import (
     IStreamSessionIdResolver,
 )
+from src.core.interfaces.usage_normalization_service_interface import (
+    IUsageNormalizationService,
+)
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
@@ -75,6 +78,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         resilience_coordinator: IResilienceCoordinator | None,
         backend_factory: IBackendFactory | None = None,
         backend_lifecycle_manager: IBackendLifecycleManager | None = None,
+        usage_normalization_service: IUsageNormalizationService | None = None,
     ):
         """Initialize the usage accounting orchestrator."""
         self._usage_tracking_service = usage_tracking_service
@@ -84,6 +88,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         self._resilience = resilience_coordinator
         self._backend_factory = backend_factory
         self._backend_lifecycle_manager = backend_lifecycle_manager
+        self._usage_normalization_service = usage_normalization_service
 
     async def calculate_and_record_usage(
         self,
@@ -168,6 +173,9 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         ctp_record_id: str | None,
         ptb_record_id: str | None,
         start_time: float,
+        context: RequestContext | None = None,
+        backend_type: str | None = None,
+        effective_model: str | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Wrap response with usage tracking."""
         # Store outbound tokens in result metadata for tracking
@@ -237,6 +245,64 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             except Exception as e:
                 logger.error(f"Failed to record response usage: {e}", exc_info=True)
 
+        # Build canonical usage for non-streaming responses
+        if (
+            isinstance(result, ResponseEnvelope)
+            and self._usage_normalization_service
+            and context is not None
+        ):
+            try:
+                from src.core.domain.usage_canonical_record import (
+                    UsageCompletionOutcome,
+                )
+                from src.core.domain.usage_normalization_context import (
+                    UsageNormalizationContext,
+                )
+                from src.core.domain.usage_payload import UsagePayload
+
+                # Extract usage from envelope
+                usage_summary = getattr(result, "usage", None)
+                raw_usage = None
+                if usage_summary is None and hasattr(result, "metadata"):
+                    metadata = result.metadata
+                    if isinstance(metadata, dict):
+                        usage_data = metadata.get("usage")
+                        if usage_data:
+                            if isinstance(usage_data, dict):
+                                raw_usage = UsagePayload(payload=usage_data)
+                            else:
+                                usage_summary = _to_usage_summary(usage_data)
+
+                # Build normalization context
+                norm_context = UsageNormalizationContext.from_request_context(
+                    context,
+                    is_streaming=False,
+                    completion_outcome=UsageCompletionOutcome.complete,
+                )
+
+                # Override backend_type and model if provided
+                if backend_type:
+                    norm_context.backend_type = backend_type
+                if effective_model:
+                    norm_context.model = effective_model
+
+                # Build canonical usage record
+                canonical_usage = (
+                    await self._usage_normalization_service.build_canonical_record(
+                        context=norm_context,
+                        usage=usage_summary,
+                        raw_usage=raw_usage,
+                    )
+                )
+
+                # Attach canonical usage to envelope
+                result.canonical_usage = canonical_usage
+            except Exception as e:
+                logger.warning(
+                    f"Failed to build canonical usage for non-streaming response: {e}",
+                    exc_info=True,
+                )
+
         return result
 
     async def handle_streaming_response(
@@ -258,40 +324,156 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             with contextlib.suppress(Exception):
                 context.session_id = session_id
 
-        # Wrap with session_id injection
+        # Wrap with session_id injection and canonical usage tracking
         original_content = result.content
 
-        async def _inject_session_id() -> Any:
+        async def _inject_session_id_and_track_usage() -> Any:
+            from src.core.domain.usage_canonical_record import (
+                UsageCompletionOutcome,
+            )
+            from src.core.domain.usage_normalization_context import (
+                UsageNormalizationContext,
+            )
+            from src.core.domain.usage_payload import UsagePayload
             from src.core.interfaces.response_processor_interface import (
                 ProcessedResponse,
             )
 
-            if original_content:
-                async for chunk in original_content:  # type: ignore
-                    if isinstance(chunk, ProcessedResponse):
-                        # Merge session_id into existing metadata
-                        metadata = dict(chunk.metadata or {})
-                        if session_id and "session_id" not in metadata:
-                            metadata["session_id"] = session_id
-                        if session_id and "stream_id" not in metadata:
-                            metadata["stream_id"] = session_id
-                        yield ProcessedResponse(
-                            content=chunk.content,
-                            metadata=metadata,
-                            usage=_to_usage_summary(chunk.usage),
-                        )
+            accumulated_usage = None
+            completion_outcome: UsageCompletionOutcome | None = None
+            error_classification: str | None = None
+
+            try:
+                if original_content:
+                    async for chunk in original_content:  # type: ignore
+                        if isinstance(chunk, ProcessedResponse):
+                            # Merge session_id into existing metadata
+                            metadata = dict(chunk.metadata or {})
+                            if session_id and "session_id" not in metadata:
+                                metadata["session_id"] = session_id
+                            if session_id and "stream_id" not in metadata:
+                                metadata["stream_id"] = session_id
+
+                            # Track usage from chunks
+                            if chunk.usage:
+                                accumulated_usage = _to_usage_summary(chunk.usage)
+
+                            # Check for error metadata (take precedence over exception-based classification)
+                            if isinstance(metadata, dict):
+                                error_info = metadata.get("error")
+                                if error_info and isinstance(error_info, dict):
+                                    error_type = error_info.get("type", "")
+                                    if isinstance(error_type, str):
+                                        error_type_lower = error_type.lower()
+                                        if "timeout" in error_type_lower:
+                                            error_classification = "timeout"
+                                        elif (
+                                            "backenderror" in error_type_lower
+                                            or "backend_error" in error_type_lower
+                                        ):
+                                            error_classification = "backend_error"
+                                        elif (
+                                            "connectionerror" in error_type_lower
+                                            or "connection_error" in error_type_lower
+                                        ):
+                                            error_classification = "connection_error"
+
+                            yield ProcessedResponse(
+                                content=chunk.content,
+                                metadata=metadata,
+                                usage=_to_usage_summary(chunk.usage),
+                            )
+                        else:
+                            # Wrap raw chunk with session_id
+                            yield ProcessedResponse(
+                                content=chunk,
+                                metadata=(
+                                    {
+                                        "session_id": session_id,
+                                        "stream_id": session_id,
+                                    }
+                                    if session_id
+                                    else {}
+                                ),
+                            )
+
+                # Stream completed successfully
+                completion_outcome = UsageCompletionOutcome.complete
+            except GeneratorExit:
+                # Client disconnected - this is expected
+                completion_outcome = UsageCompletionOutcome.incomplete
+                if context and context.processing_context:
+                    if context.processing_context.values is None:
+                        from src.core.domain.request_context import ProcessingContext
+
+                        context.processing_context = ProcessingContext(values={})
+                    context.processing_context.values["cancel_reason"] = (
+                        "client_disconnect"
+                    )
+                raise
+            except Exception as e:
+                # Stream error occurred
+                completion_outcome = UsageCompletionOutcome.incomplete
+                # Classify error (only if not already classified from metadata)
+                if error_classification is None:
+                    from src.core.common.exceptions import (
+                        APIConnectionError,
+                        APITimeoutError,
+                        BackendError,
+                    )
+
+                    if isinstance(e, APITimeoutError):
+                        error_classification = "timeout"
+                    elif isinstance(e, BackendError):
+                        error_classification = "backend_error"
+                    elif isinstance(e, APIConnectionError):
+                        error_classification = "connection_error"
                     else:
-                        # Wrap raw chunk with session_id
-                        yield ProcessedResponse(
-                            content=chunk,
-                            metadata=(
-                                {
-                                    "session_id": session_id,
-                                    "stream_id": session_id,
-                                }
-                                if session_id
-                                else {}
-                            ),
+                        error_classification = "unknown"
+                raise
+            finally:
+                # Build canonical usage when stream completes
+                if (
+                    self._usage_normalization_service
+                    and context is not None
+                    and completion_outcome is not None
+                ):
+                    try:
+                        # Build normalization context (cancel_reason will be extracted from context)
+                        norm_context = UsageNormalizationContext.from_request_context(
+                            context,
+                            is_streaming=True,
+                            completion_outcome=completion_outcome,
+                            error_classification=error_classification,
+                        )
+
+                        # Override backend_type and model
+                        norm_context.backend_type = backend_type
+                        norm_context.model = effective_model
+
+                        # Extract raw usage if available
+                        raw_usage = None
+                        if accumulated_usage is None and hasattr(result, "metadata"):
+                            result_metadata = result.metadata
+                            if isinstance(result_metadata, dict):
+                                usage_data = result_metadata.get("usage")
+                                if usage_data and isinstance(usage_data, dict):
+                                    raw_usage = UsagePayload(payload=usage_data)
+
+                        # Build canonical usage record
+                        canonical_usage = await self._usage_normalization_service.build_canonical_record(
+                            context=norm_context,
+                            usage=accumulated_usage,
+                            raw_usage=raw_usage,
+                        )
+
+                        # Attach canonical usage to envelope
+                        # Set canonical_usage directly on envelope (primary location)
+                        result.canonical_usage = canonical_usage
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to build canonical usage for streaming response: {e}",
+                            exc_info=True,
                         )
 
             if session_id and self._planning_phase_manager:
@@ -303,12 +485,11 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         if self._resilience:
             self._resilience.record_success(backend_type, effective_model)
 
-        return StreamingResponseEnvelope(
-            content=_inject_session_id(),
-            media_type=result.media_type,
-            headers=result.headers,
-            metadata=result.metadata,
-        )
+        # Modify the original result envelope's content and return it
+        # This ensures canonical_usage set in the finally block is on the returned envelope
+        # Note: canonical_usage will be None initially but set asynchronously when stream completes
+        result.content = _inject_session_id_and_track_usage()
+        return result
 
     async def handle_non_streaming_response(
         self,

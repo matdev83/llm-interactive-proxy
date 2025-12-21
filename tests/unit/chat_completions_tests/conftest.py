@@ -1,16 +1,20 @@
 from collections.abc import Generator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+
+# Import config classes and ResponseEnvelope at runtime since they're used in fixtures
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,
     BackendConfig,
     BackendSettings,
-    SessionConfig,  # Import SessionConfig
+    SessionConfig,
 )
 from src.core.domain.responses import ResponseEnvelope
 
@@ -52,6 +56,7 @@ def mock_openai_backend() -> MagicMock:
 @pytest.fixture
 def mock_openrouter_backend() -> MagicMock:
     """Mock OpenRouter backend."""
+
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
@@ -65,6 +70,7 @@ def mock_openrouter_backend() -> MagicMock:
 @pytest.fixture
 def mock_gemini_backend() -> MagicMock:
     """Mock Gemini backend."""
+
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
@@ -80,6 +86,7 @@ def mock_gemini_backend() -> MagicMock:
 @pytest.fixture
 def mock_anthropic_backend() -> MagicMock:
     """Mock Anthropic backend."""
+
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
@@ -93,6 +100,7 @@ def mock_anthropic_backend() -> MagicMock:
 @pytest.fixture
 def mock_qwen_oauth_backend() -> MagicMock:
     """Mock Qwen OAuth backend."""
+
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
@@ -106,6 +114,7 @@ def mock_qwen_oauth_backend() -> MagicMock:
 @pytest.fixture
 def mock_zai_backend() -> MagicMock:
     """Mock ZAI backend."""
+
     backend = MagicMock()
     backend.chat_completions = AsyncMock(
         return_value=ResponseEnvelope(
@@ -140,8 +149,11 @@ def client(
     mock_qwen_oauth_backend: MagicMock,
     mock_zai_backend: MagicMock,
     mock_model_discovery: dict[str, list[str]],
-) -> Generator[TestClient, Any, None]:
+) -> Generator["TestClient", Any, None]:
     """Create a test client with mocked backends."""
+    # Lazy imports to avoid heavy initialization during collection
+    from fastapi.testclient import TestClient
+
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(
@@ -200,8 +212,14 @@ def interactive_client(
     mock_qwen_oauth_backend: MagicMock,
     mock_zai_backend: MagicMock,
     mock_model_discovery: dict[str, list[str]],
-) -> Generator[TestClient, Any, None]:
+) -> Generator["TestClient", Any, None]:
     """Create a test client with interactive mode enabled."""
+    # Lazy imports to avoid heavy initialization during collection
+    from fastapi.testclient import TestClient
+    from src.core.config.app_config import (
+        BackendSettings,
+    )
+
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(
@@ -273,8 +291,14 @@ def commands_disabled_client(
     mock_qwen_oauth_backend: MagicMock,
     mock_zai_backend: MagicMock,
     mock_model_discovery: dict[str, list[str]],
-) -> Generator[TestClient, Any, None]:
+) -> Generator["TestClient", Any, None]:
     """Create a test client with commands disabled."""
+    # Lazy imports to avoid heavy initialization during collection
+    from fastapi.testclient import TestClient
+    from src.core.config.app_config import (
+        BackendSettings,
+    )
+
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(

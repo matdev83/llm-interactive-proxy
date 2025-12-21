@@ -123,13 +123,17 @@ class IUsageHeaderInjector(Protocol):
     """Apply usage data as HTTP headers."""
 
     def inject_headers(
-        self, headers: dict[str, str], usage: dict[str, Any]
+        self,
+        headers: dict[str, str],
+        usage: dict[str, Any],
+        canonical_usage: Any | None = None,
     ) -> dict[str, str]:
         """Add usage headers to response headers.
 
         Args:
             headers: Existing headers dictionary
-            usage: Usage dictionary
+            usage: Usage dictionary (fallback when canonical_usage is not available)
+            canonical_usage: Optional canonical usage record (takes priority)
 
         Returns:
             Headers dictionary with usage headers added

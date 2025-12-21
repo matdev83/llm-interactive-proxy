@@ -79,6 +79,18 @@ class MockWireCapture(IWireCapture):
         )
         return stream
 
+    async def capture_stream_completion(
+        self,
+        *,
+        context=None,
+        session_id=None,
+        backend=None,
+        model=None,
+        key_name=None,
+        canonical_usage=None,
+    ) -> None:
+        """Capture stream completion."""
+
     async def shutdown(self) -> None:
         """Shutdown mock capture."""
 

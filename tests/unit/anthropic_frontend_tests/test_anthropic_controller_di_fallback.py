@@ -191,6 +191,18 @@ class _StubWireCapture(IWireCapture):
     ) -> AsyncIterator[bytes]:
         return stream
 
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: Any | None = None,
+    ) -> None:
+        return None
+
     async def shutdown(self) -> None:
         return None
 

@@ -8,9 +8,9 @@ Hypothesis, and DEBUG logging can create excessive output that stalls the test s
 import logging
 
 import pytest
-from src.core.common.logging_utils import (
-    configure_logging_with_environment_tagging,
-)
+
+# Lazy import to avoid heavy initialization during collection
+# configure_logging_with_environment_tagging is imported inside the fixture
 
 
 @pytest.fixture(autouse=True)
@@ -23,4 +23,9 @@ def _configure_logging_for_property_tests() -> None:
     excessive log output while still allowing tests that specifically test
     logging behavior (via mock loggers) to function correctly.
     """
+    # Lazy import to avoid heavy initialization during collection
+    from src.core.common.logging_utils import (
+        configure_logging_with_environment_tagging,
+    )
+
     configure_logging_with_environment_tagging(level=logging.INFO)

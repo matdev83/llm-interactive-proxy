@@ -408,3 +408,128 @@ async def test_buffered_wire_capture_shutdown_cleanup(test_app, cleanup_wire_cap
             break
 
     assert found_test_entry, "Shutdown did not flush buffered data"
+
+
+@pytest.mark.asyncio
+async def test_canonical_usage_captured_in_response(test_app, cleanup_wire_capture):
+    """Test that canonical_usage is captured in wire capture metadata."""
+    app, capture_file = test_app
+
+    # Get the wire capture service
+    wire_capture = app.state.service_provider.get_service(IWireCapture)
+
+    # Create a canonical usage record
+    from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+
+    canonical_usage = CanonicalUsageRecord(
+        provider_id="openai",
+        model_id="gpt-4",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        extensions={"custom_field": "value"},
+    )
+
+    # Simulate capturing an inbound response with canonical_usage
+    response_payload = {
+        "choices": [{"message": {"role": "assistant", "content": "Test"}}],
+    }
+
+    await wire_capture.capture_inbound_response(
+        context=None,
+        session_id="test-session",
+        backend="openai",
+        model="gpt-4",
+        key_name=None,
+        response_content=response_payload,
+        canonical_usage=canonical_usage.model_dump(),  # capture_inbound_response expects dict
+    )
+
+    # Flush to ensure data is written
+    await wire_capture.shutdown()
+
+    # Read and verify capture file
+    assert os.path.exists(capture_file)
+    with open(capture_file) as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+
+    # Find the inbound_response entry
+    inbound_entry = None
+    for line in lines:
+        entry = json.loads(line)
+        if entry.get("direction") == "inbound_response":
+            inbound_entry = entry
+            break
+
+    assert inbound_entry is not None, "inbound_response entry not found"
+    assert "metadata" in inbound_entry
+    assert "canonical_usage" in inbound_entry["metadata"]
+
+    # canonical_usage should be stored as dict (preserved by _sanitize_metadata_value)
+    cu = inbound_entry["metadata"]["canonical_usage"]
+    assert isinstance(cu, dict), f"Expected dict, got {type(cu)}: {cu}"
+    assert cu["provider_id"] == "openai"
+    assert cu["model_id"] == "gpt-4"
+    assert cu["prompt_tokens"] == 10
+    assert cu["extensions"]["custom_field"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_canonical_usage_captured_in_stream_completion(
+    test_app, cleanup_wire_capture
+):
+    """Test that canonical_usage is captured for streaming responses."""
+    app, capture_file = test_app
+
+    # Get the wire capture service
+    wire_capture = app.state.service_provider.get_service(IWireCapture)
+
+    # Create a canonical usage record
+    from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+
+    canonical_usage = CanonicalUsageRecord(
+        provider_id="anthropic",
+        model_id="claude-3",
+        prompt_tokens=5,
+        completion_tokens=15,
+        total_tokens=20,
+    )
+
+    # Simulate capturing stream completion with canonical_usage
+    await wire_capture.capture_stream_completion(
+        context=None,
+        session_id="test-session-stream",
+        backend="anthropic",
+        model="claude-3",
+        key_name=None,
+        canonical_usage=canonical_usage,
+    )
+
+    # Flush to ensure data is written
+    await wire_capture.shutdown()
+
+    # Read and verify capture file
+    assert os.path.exists(capture_file)
+    with open(capture_file) as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+
+    # Find the stream_completion entry
+    completion_entry = None
+    for line in lines:
+        entry = json.loads(line)
+        if entry.get("direction") == "stream_completion":
+            completion_entry = entry
+            break
+
+    assert completion_entry is not None, "stream_completion entry not found"
+    assert "metadata" in completion_entry
+    assert "canonical_usage" in completion_entry["metadata"]
+
+    # canonical_usage may be stored as JSON string or dict depending on sanitization
+    cu = completion_entry["metadata"]["canonical_usage"]
+    if isinstance(cu, str):
+        cu = json.loads(cu)
+
+    assert cu["provider_id"] == "anthropic"
+    assert cu["model_id"] == "claude-3"
+    assert cu["total_tokens"] == 20

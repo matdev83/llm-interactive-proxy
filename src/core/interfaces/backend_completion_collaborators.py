@@ -13,6 +13,7 @@ from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.domain_entities_interface import ISession
 
 
@@ -214,6 +215,7 @@ class IWireCaptureOrchestrator(ABC):
         effective_model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -224,6 +226,7 @@ class IWireCaptureOrchestrator(ABC):
             effective_model: Model name
             key_name: Key name for redaction
             response_content: The response content (JSON-serializable dict, bytes, or None)
+            canonical_usage: Optional canonical usage record dict
         """
         ...
 
@@ -249,6 +252,28 @@ class IWireCaptureOrchestrator(ABC):
 
         Returns:
             Wrapped byte stream
+        """
+        ...
+
+    @abstractmethod
+    async def capture_stream_completion(
+        self,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend_type: str,
+        effective_model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response.
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend_type: Backend type
+            effective_model: Model name
+            key_name: Key name for redaction
+            canonical_usage: Optional canonical usage record
         """
         ...
 
@@ -281,8 +306,21 @@ class IUsageAccountingOrchestrator(ABC):
         ctp_record_id: str | None,
         ptb_record_id: str | None,
         start_time: float,
+        context: RequestContext | None = None,
+        backend_type: str | None = None,
+        effective_model: str | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Wrap response with usage tracking.
+
+        Args:
+            result: Response envelope to wrap
+            outbound_tokens: Number of outbound tokens
+            ctp_record_id: Client-to-proxy record ID
+            ptb_record_id: Proxy-to-backend record ID
+            start_time: Request start time
+            context: Optional request context for canonical usage normalization
+            backend_type: Optional backend type override
+            effective_model: Optional effective model override
 
         Returns:
             Response with usage tracking applied

@@ -9,8 +9,12 @@ from starlette.responses import StreamingResponse
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.transport.fastapi.adapters.protocols import (
     ISSEFormatter,
+    IUsageHeaderInjector,
 )
 from src.core.transport.fastapi.adapters.sse.formatter import SSEFormatter
+from src.core.transport.fastapi.adapters.usage.header_injector import (
+    UsageHeaderInjector,
+)
 
 
 class StreamingResponseBuilder:
@@ -20,13 +24,19 @@ class StreamingResponseBuilder:
     Note: Actual stream conversion is handled in Phase 4 (StreamingContentConverter).
     """
 
-    def __init__(self, sse_formatter: ISSEFormatter | None = None) -> None:
+    def __init__(
+        self,
+        sse_formatter: ISSEFormatter | None = None,
+        usage_header_injector: IUsageHeaderInjector | None = None,
+    ) -> None:
         """Initialize streaming response builder.
 
         Args:
             sse_formatter: Optional SSE formatter. Creates default if not provided.
+            usage_header_injector: Optional usage header injector. Creates default if not provided.
         """
         self._sse_formatter = sse_formatter or SSEFormatter()
+        self._usage_header_injector = usage_header_injector or UsageHeaderInjector()
 
     def build(self, envelope: StreamingResponseEnvelope) -> StreamingResponse:
         """Build StreamingResponse from envelope.
@@ -67,10 +77,17 @@ class StreamingResponseBuilder:
 
                 content = convert_gen()
 
+        # Inject canonical usage headers if available (Requirement 5.5)
+        # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
+        headers = envelope.headers or {}
+        headers = self._usage_header_injector.inject_headers(
+            headers, {}, canonical_usage=envelope.canonical_usage
+        )
+
         # Create streaming response with text/event-stream media type
         return StreamingResponse(
             content=content,
             status_code=envelope.status_code or 200,
             media_type="text/event-stream",
-            headers=envelope.headers or {},
+            headers=headers,
         )

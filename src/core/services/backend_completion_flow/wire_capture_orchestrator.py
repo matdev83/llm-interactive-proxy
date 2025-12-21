@@ -12,6 +12,7 @@ from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.backend_completion_collaborators import (
     IWireCaptureOrchestrator,
 )
@@ -169,6 +170,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -179,6 +181,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             effective_model: Model name
             key_name: Key name for redaction
             response_content: The response content (JSON-serializable dict, bytes, or None)
+            canonical_usage: Optional canonical usage record dict
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():
@@ -189,6 +192,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     model=effective_model,
                     key_name=key_name,
                     response_content=response_content,
+                    canonical_usage=canonical_usage,
                 )
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
@@ -240,3 +244,41 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     exc_info=True,
                 )
         return stream
+
+    async def capture_stream_completion(
+        self,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend_type: str,
+        effective_model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response (best-effort).
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend_type: Backend type
+            effective_model: Model name
+            key_name: Key name for redaction
+            canonical_usage: Optional canonical usage record
+        """
+        try:
+            if self._wire_capture and self._wire_capture.enabled():
+                await self._wire_capture.capture_stream_completion(
+                    context=context,
+                    session_id=session_id,
+                    backend=backend_type,
+                    model=effective_model,
+                    key_name=key_name,
+                    canonical_usage=canonical_usage,
+                )
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (stream completion) failed for backend %s with model %s",
+                    backend_type,
+                    effective_model,
+                    exc_info=True,
+                )

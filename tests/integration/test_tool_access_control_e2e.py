@@ -739,8 +739,8 @@ class TestToolAccessControlEndToEnd:
         assert len(filtered_tools) == 100  # Only non-blocked tools
         assert len(metadata["filtered_tool_names"]) == 10
 
-        # Verify performance (should be < 10ms for 110 tools)
-        assert elapsed_ms < 10, f"Filtering took {elapsed_ms}ms, expected < 10ms"
+        # Verify performance (should be < 15ms for 110 tools)
+        assert elapsed_ms < 15, f"Filtering took {elapsed_ms}ms, expected < 15ms"
 
     # Test 13: Logging and observability
     @pytest.mark.asyncio

@@ -386,11 +386,19 @@ def to_fastapi_streaming_response(
             # The yield is unreachable but required for type inference
             yield b""  # pragma: no cover
 
+        # Inject canonical usage headers if available (Requirement 5.5)
+        # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
+        empty_headers = domain_response.headers or {}
+        header_injector = _get_usage_header_injector()
+        empty_headers = header_injector.inject_headers(
+            empty_headers, {}, canonical_usage=domain_response.canonical_usage
+        )
+
         return StreamingResponse(
             content=_empty_streamer(),
             media_type=getattr(domain_response, "media_type", "text/event-stream"),
             status_code=domain_response.status_code or 200,
-            headers=domain_response.headers or {},
+            headers=empty_headers,
         )
 
     # Convert raw stream to StreamingContent using StreamingContentConverter
@@ -456,12 +464,20 @@ def to_fastapi_streaming_response(
                     await sse_bytes_iter.aclose()
             raise
 
+    # Inject canonical usage headers if available (Requirement 5.5)
+    # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
+    headers = domain_response.headers or {}
+    header_injector = _get_usage_header_injector()
+    headers = header_injector.inject_headers(
+        headers, {}, canonical_usage=domain_response.canonical_usage
+    )
+
     # Build streaming response
     return StreamingResponse(
         content=_convert_and_assemble(),
         media_type=getattr(domain_response, "media_type", "text/event-stream"),
         status_code=domain_response.status_code or 200,
-        headers=domain_response.headers or {},
+        headers=headers,
     )
 
 

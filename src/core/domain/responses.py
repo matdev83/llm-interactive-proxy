@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.model_bases import InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -24,6 +25,7 @@ class ResponseEnvelope(InternalDTO):
     media_type: str = "application/json"
     usage: UsageSummary | None = None
     metadata: dict[str, JsonValue] | None = None
+    canonical_usage: CanonicalUsageRecord | None = None
 
 
 @dataclass
@@ -42,6 +44,7 @@ class StreamingResponseEnvelope(InternalDTO):
     status_code: int = 200
     cancel_callback: Callable[[], Awaitable[None]] | None = None
     metadata: dict[str, JsonValue] | None = None
+    canonical_usage: CanonicalUsageRecord | None = None
 
     @property
     def body_iterator(self) -> AsyncIterator[bytes]:

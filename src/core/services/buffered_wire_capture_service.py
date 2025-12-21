@@ -27,6 +27,7 @@ from typing import Any, NamedTuple, cast
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.stream_session_id_resolver_interface import (
     IStreamSessionIdResolver,
 )
@@ -105,6 +106,9 @@ def _coerce_path(value: Any) -> str | None:
 def _sanitize_metadata_value(value: Any) -> Any:
     """Convert metadata values to JSON-serializable representations."""
     if value is None or isinstance(value, str | int | float | bool):
+        return value
+    # Preserve dicts and lists for canonical_usage and other structured data
+    if isinstance(value, dict | list):
         return value
     try:
         return str(value)
@@ -458,12 +462,17 @@ class BufferedWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         response_content: Any,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
             return
         # Ensure background task runs in async contexts
         self._maybe_start_flush_task()
+
+        metadata = {}
+        if canonical_usage is not None:
+            metadata["canonical_usage"] = canonical_usage
 
         entry = self._create_entry(
             direction="inbound_response",
@@ -475,6 +484,7 @@ class BufferedWireCapture(IWireCapture):
             model=model,
             key_name=key_name,
             payload=response_content,
+            metadata=metadata if metadata else None,
         )
 
         await self._buffer_entry(entry)
@@ -580,6 +590,44 @@ class BufferedWireCapture(IWireCapture):
             await self._buffer_entry(end_entry)
 
         return _capture_stream()
+
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response."""
+        if not self.enabled() or canonical_usage is None:
+            return
+
+        self._maybe_start_flush_task()
+
+        # Resolve session ID
+        stream_session_id = self._resolve_stream_session_id(session_id, context)
+
+        # Convert CanonicalUsageRecord to dict for metadata
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
+
+        # Create completion entry with canonical_usage
+        metadata = {"canonical_usage": canonical_usage_dict}
+        completion_entry = self._create_entry(
+            direction="stream_completion",
+            source=backend,
+            destination=self._get_client_info(context),
+            context=context,
+            session_id=stream_session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            payload={},
+            metadata=metadata,
+        )
+        await self._buffer_entry(completion_entry)
 
     def wrap_outbound_stream(
         self,

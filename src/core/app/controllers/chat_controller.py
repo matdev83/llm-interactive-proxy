@@ -410,6 +410,11 @@ class ChatController:
                 raw_body=raw_body_bytes if raw_body_bytes else None,
             )
 
+            # Set protocol identifier for normalization (Requirement 1.9)
+            if ctx.extensions is None:
+                ctx.extensions = {}
+            ctx.extensions["protocol"] = "openai"
+
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"RequestContext created - headers: {list(ctx.headers.keys())}"

@@ -13,6 +13,7 @@ from typing import Any
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         response_content: Any,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -178,6 +180,35 @@ class WireCapture(IWireCapture):
             key_name=key_name,
         )
         body = _safe_json_dump(response_content)
+        await self._append(f"{header}\n{body}\n")
+
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response."""
+        if not self.enabled() or canonical_usage is None:
+            return
+
+        # Convert CanonicalUsageRecord to dict for JSON serialization
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
+
+        # For legacy wire capture, append canonical_usage as a separate entry
+        header = self._format_header(
+            direction="STREAM_COMPLETION",
+            context=context,
+            session_id=session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+        )
+        body = _safe_json_dump({"canonical_usage": canonical_usage_dict})
         await self._append(f"{header}\n{body}\n")
 
     def wrap_inbound_stream(

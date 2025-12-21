@@ -200,6 +200,11 @@ class AnthropicController:
                 raw_body=raw_body_bytes if raw_body_bytes else None,
             )
 
+            # Set protocol identifier for normalization (Requirement 1.11)
+            if ctx.extensions is None:
+                ctx.extensions = {}
+            ctx.extensions["protocol"] = "anthropic"
+
             # Ensure session_id is available in context if provided in request
             if hasattr(chat_request, "session_id") and chat_request.session_id:
                 ctx.session_id = chat_request.session_id

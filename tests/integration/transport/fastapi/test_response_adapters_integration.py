@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.response_adapters import (
     domain_response_to_fastapi,
@@ -85,6 +86,19 @@ class MockWireCapture(IWireCapture):
         )
         # Pass through the stream
         return stream
+
+    async def capture_stream_completion(
+        self,
+        *,
+        context=None,
+        session_id=None,
+        backend=None,
+        model=None,
+        key_name=None,
+        canonical_usage=None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response."""
+        # Mock implementation - no-op for testing
 
     async def shutdown(self) -> None:
         """Gracefully stop background work."""
@@ -316,3 +330,110 @@ async def test_empty_streaming_response():
 
     # Should handle empty stream gracefully
     assert isinstance(chunks, list)
+
+
+@pytest.mark.asyncio
+async def test_canonical_usage_projected_to_response_payload():
+    """Test that canonical usage is projected to response payload (Requirement 5.2)."""
+    from src.core.app.stages.core_services import CoreServicesStage
+    from src.core.app.stages.infrastructure import InfrastructureStage
+    from src.core.config.app_config import AppConfig
+    from src.core.di.container import ServiceCollection
+    from src.core.di.services import set_service_provider
+
+    # Setup DI container with normalization service
+    services = ServiceCollection()
+    config = AppConfig()
+
+    infrastructure = InfrastructureStage()
+    await infrastructure.execute(services, config)
+
+    core_services = CoreServicesStage()
+    await core_services.execute(services, config)
+
+    provider = services.build_service_provider()
+    # Set the provider globally so JSONResponseBuilder can resolve it
+    set_service_provider(provider)
+
+    canonical_usage = CanonicalUsageRecord(
+        prompt_tokens=100,
+        completion_tokens=200,
+        total_tokens=300,
+        cost=0.05,
+    )
+
+    envelope = ResponseEnvelope(
+        content={"message": "Hello"},
+        headers={},
+        status_code=200,
+        canonical_usage=canonical_usage,
+    )
+
+    response = to_fastapi_response(envelope)
+
+    assert response.status_code == 200
+    import json
+
+    body_dict = json.loads(response.body.decode())
+    # Usage should be projected from canonical usage
+    assert "usage" in body_dict
+    assert body_dict["usage"]["prompt_tokens"] == 100
+    assert body_dict["usage"]["completion_tokens"] == 200
+    assert body_dict["usage"]["total_tokens"] == 300
+
+
+@pytest.mark.asyncio
+async def test_canonical_usage_projected_to_headers():
+    """Test that canonical usage is projected to response headers (Requirement 5.5)."""
+    canonical_usage = CanonicalUsageRecord(
+        prompt_tokens=100,
+        completion_tokens=200,
+        total_tokens=300,
+        cost=0.05,
+    )
+
+    envelope = ResponseEnvelope(
+        content={"message": "Hello"},
+        headers={},
+        status_code=200,
+        canonical_usage=canonical_usage,
+    )
+
+    response = to_fastapi_response(envelope)
+
+    assert response.status_code == 200
+    # Headers should be derived from canonical usage
+    assert response.headers["x-usage-prompt-tokens"] == "100"
+    assert response.headers["x-usage-completion-tokens"] == "200"
+    assert response.headers["x-usage-total-tokens"] == "300"
+    assert response.headers["x-usage-cost"] == "0.05"
+
+
+@pytest.mark.asyncio
+async def test_canonical_usage_with_extensions_in_headers():
+    """Test that extended fields from canonical usage extensions are in headers."""
+    canonical_usage = CanonicalUsageRecord(
+        prompt_tokens=100,
+        completion_tokens=200,
+        total_tokens=300,
+        extensions={
+            "completion_tokens_details": {"reasoning_tokens": 50},
+            "prompt_tokens_details": {"cached_tokens": 25},
+        },
+    )
+
+    envelope = ResponseEnvelope(
+        content={"message": "Hello"},
+        headers={},
+        status_code=200,
+        canonical_usage=canonical_usage,
+    )
+
+    response = to_fastapi_response(envelope)
+
+    assert response.status_code == 200
+    assert response.headers["x-usage-prompt-tokens"] == "100"
+    assert response.headers["x-usage-completion-tokens"] == "200"
+    assert response.headers["x-usage-total-tokens"] == "300"
+    assert response.headers["x-usage-reasoning-tokens"] == "50"
+    assert response.headers["x-usage-cached-tokens"] == "25"

@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 from src.core.config.app_config import AppConfig
+from src.core.di.container import ServiceCollection
+from src.core.di.services import register_core_services
 from src.core.domain.chat import ChatRequest
 
 
@@ -15,6 +17,15 @@ class TestZaiMCPIntegration:
     @pytest.fixture
     async def backend(self):
         """Create a ZAI backend instance for testing."""
+        # Set up DI container with ToolCallRepairService
+        # register_core_services should register ToolCallRepairService via register_application_state_services
+        from src.core.di.services import set_service_provider
+
+        collection = ServiceCollection()
+        register_core_services(collection, None)
+        provider = collection.build_service_provider()
+        set_service_provider(provider)
+
         mock_client = AsyncMock()
         mock_config = MagicMock(spec=AppConfig)
         mock_config.backends = MagicMock()

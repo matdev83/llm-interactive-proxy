@@ -13,6 +13,7 @@ from src.core.app.controllers.anthropic_controller import (
     get_anthropic_controller,
 )
 from src.core.common.exceptions import ServiceResolutionError
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider, IServiceScope
 
@@ -25,7 +26,12 @@ async def test_controller_preserves_tool_calls(monkeypatch: pytest.MonkeyPatch) 
     processor.process_request.return_value = object()
     controller = AnthropicController(processor)
 
-    fake_context = object()
+    fake_context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state={},
+    )
     monkeypatch.setattr(
         "src.core.app.controllers.anthropic_controller.fastapi_to_domain_request_context",
         lambda *_args, **_kwargs: fake_context,

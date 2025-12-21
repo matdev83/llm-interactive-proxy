@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_payload import UsagePayload
 from src.core.transport.fastapi.adapters.metadata.reasoning_injector import (
     ReasoningInjector,
 )
@@ -30,7 +31,9 @@ from src.core.transport.fastapi.adapters.usage.header_injector import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from src.core.interfaces.usage_normalization_service_interface import (
+        IUsageNormalizationService,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ class JSONResponseBuilder:
         header_sanitizer: IHeaderSanitizer | None = None,
         usage_header_injector: IUsageHeaderInjector | None = None,
         reasoning_injector: IReasoningInjector | None = None,
+        usage_normalization_service: IUsageNormalizationService | None = None,
     ) -> None:
         """Initialize JSON response builder.
 
@@ -56,11 +60,42 @@ class JSONResponseBuilder:
             header_sanitizer: Optional header sanitizer. Creates default if not provided.
             usage_header_injector: Optional usage header injector. Creates default if not provided.
             reasoning_injector: Optional reasoning injector. Creates default if not provided.
+            usage_normalization_service: Optional usage normalization service. Resolved from DI if not provided.
         """
         self._json_sanitizer = json_sanitizer or JSONSanitizer()
         self._header_sanitizer = header_sanitizer or HeaderSanitizer()
         self._usage_header_injector = usage_header_injector or UsageHeaderInjector()
         self._reasoning_injector = reasoning_injector or ReasoningInjector()
+        self._usage_normalization_service = usage_normalization_service
+
+    def _get_usage_normalization_service(self) -> IUsageNormalizationService | None:
+        """Get usage normalization service from DI or instance.
+
+        Returns:
+            Usage normalization service or None if not available
+        """
+        if self._usage_normalization_service is not None:
+            return self._usage_normalization_service
+
+        # Try to resolve from DI
+        try:
+            from typing import cast
+
+            from src.core.di.services import get_service_provider
+            from src.core.interfaces.usage_normalization_service_interface import (
+                IUsageNormalizationService,
+            )
+
+            provider = get_service_provider()
+            if provider:
+                return provider.get_service(cast(type, IUsageNormalizationService))
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Could not resolve usage normalization service from DI",
+                    exc_info=True,
+                )
+        return None
 
     def build(
         self,
@@ -109,9 +144,11 @@ class JSONResponseBuilder:
             envelope, prepared_content, context
         )
 
-        # Get headers and inject usage headers
+        # Get headers and inject usage headers (Requirement 5.5)
         headers = envelope.headers or {}
-        headers = self._usage_header_injector.inject_headers(headers, usage_data or {})
+        headers = self._usage_header_injector.inject_headers(
+            headers, usage_data or {}, canonical_usage=envelope.canonical_usage
+        )
 
         # Surface middleware metadata such as reasoning streams when available
         if envelope.metadata and isinstance(prepared_content, dict):
@@ -163,10 +200,11 @@ class JSONResponseBuilder:
     ) -> tuple[Any, dict[str, Any] | None]:
         """Ensure usage information is present and aligned with transformed content.
 
-        This function integrates with the UsageCalculationService to:
-        1. Use backend-provided usage when available
-        2. Recalculate when proxy modifications occurred
-        3. Preserve extended usage fields (reasoning_tokens, cached_tokens, cost)
+        This function integrates with canonical usage normalization and UsageCalculationService:
+        1. Use canonical usage when available (projected to protocol format)
+        2. Use backend-provided usage when available
+        3. Recalculate when proxy modifications occurred
+        4. Preserve extended usage fields (reasoning_tokens, cached_tokens, cost)
 
         Args:
             envelope: The response envelope
@@ -180,6 +218,32 @@ class JSONResponseBuilder:
             get_usage_calculation_service,
         )
 
+        # Priority 1: Use canonical usage if available (Requirement 5.2)
+        normalization_service = self._get_usage_normalization_service()
+        if envelope.canonical_usage is not None and normalization_service is not None:
+            # Extract existing usage from payload as UsagePayload for merging
+            existing_payload: UsagePayload | None = None
+            if isinstance(payload, dict):
+                existing_usage_dict = payload.get("usage")
+                if isinstance(existing_usage_dict, dict):
+                    existing_payload = UsagePayload(payload=existing_usage_dict)
+
+            # Project canonical usage to protocol format
+            projected_payload = normalization_service.project_protocol_usage(
+                canonical=envelope.canonical_usage, existing=existing_payload
+            )
+
+            if projected_payload is not None:
+                usage_dict = projected_payload.payload
+                # Apply usage to envelope and payload
+                if isinstance(payload, dict):
+                    payload["usage"] = usage_dict
+                from src.core.domain.usage_summary import UsageSummary
+
+                envelope.usage = UsageSummary.from_dict(usage_dict)
+                return payload, usage_dict
+
+        # Fallback to existing logic when canonical usage is not available
         # Get existing usage from envelope or payload
         existing_usage = self._normalize_usage_dict(envelope.usage)
         if existing_usage is None and isinstance(payload, dict):

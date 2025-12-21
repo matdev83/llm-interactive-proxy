@@ -156,6 +156,7 @@ class ResponsesController:
                     domain_request=domain_request,
                     response=response,
                     request_id=request_id,
+                    context=ctx,
                 )
 
                 return StreamingResponse(
@@ -489,6 +490,11 @@ class ResponsesController:
             domain_request=cast(CanonicalChatRequest, domain_request),
         )
 
+        # Set protocol identifier for normalization (Requirement 1.10)
+        if ctx.extensions is None:
+            ctx.extensions = {}
+        ctx.extensions["protocol"] = "openai-responses"
+
         self._attach_schema_context(
             ctx=ctx,
             responses_request=responses_request,
@@ -588,6 +594,7 @@ class ResponsesController:
         domain_request: Any,
         response: StreamingResponseEnvelope,
         request_id: str,
+        context: Any | None = None,
     ) -> AsyncIterator[str]:
         async def _generator() -> AsyncIterator[str]:
             import contextlib
@@ -603,6 +610,20 @@ class ResponsesController:
             cancel_state = {"called": False}
 
             async def trigger_cancel(reason: str) -> None:
+                # Set cancel_reason in RequestContext for normalization (Requirement 3.5, 3.6)
+                if context is not None:
+                    from src.core.domain.request_context import ProcessingContext
+
+                    if context.processing_context is None:
+                        context.processing_context = ProcessingContext(values={})
+                    elif context.processing_context.values is None:
+                        context.processing_context.values = {}
+                    context.processing_context.values["cancel_reason"] = (
+                        "client_disconnect"
+                        if reason == "client_disconnect"
+                        else "stream_cancelled"
+                    )
+
                 cancel_cb = response.cancel_callback
                 if cancel_cb is None:
                     return

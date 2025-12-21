@@ -319,6 +319,9 @@ class CoreServicesStage(InitializationStage):
         # Register usage tracking services
         self._register_usage_tracking_services(services, config)
 
+        # Register usage normalization service
+        self._register_usage_normalization_service(services)
+
     def _register_activity_tracker(
         self, services: ServiceCollection, config: AppConfig
     ) -> None:
@@ -515,6 +518,69 @@ class CoreServicesStage(InitializationStage):
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register usage tracking services: {e}")
+
+    def _register_usage_normalization_service(
+        self, services: ServiceCollection
+    ) -> None:
+        """Register usage normalization service.
+
+        Registers:
+        - UsageCalculationService: Service for token calculation and derivation
+        - UsageNormalizationService: Service for normalizing usage into canonical records
+        """
+        try:
+            from typing import cast
+
+            from src.core.interfaces.usage_normalization_service_interface import (
+                IUsageNormalizationService,
+            )
+            from src.core.services.usage_calculation_service import (
+                UsageCalculationService,
+            )
+            from src.core.services.usage_normalization_service import (
+                UsageNormalizationService,
+            )
+
+            # Register UsageCalculationService as singleton
+            def usage_calculation_factory(
+                provider: IServiceProvider,
+            ) -> UsageCalculationService:
+                return UsageCalculationService()
+
+            services.add_singleton(
+                UsageCalculationService,
+                implementation_factory=usage_calculation_factory,
+            )
+
+            # Register UsageNormalizationService as singleton
+            def usage_normalization_factory(
+                provider: IServiceProvider,
+            ) -> UsageNormalizationService:
+                calc_service: UsageCalculationService = provider.get_required_service(
+                    UsageCalculationService
+                )
+                return UsageNormalizationService(calc_service)
+
+            services.add_singleton(
+                UsageNormalizationService,
+                implementation_factory=usage_normalization_factory,
+            )
+            # Register interface binding that resolves to the concrete type
+            services.add_singleton(
+                cast(type, IUsageNormalizationService),
+                implementation_factory=lambda p: p.get_required_service(
+                    UsageNormalizationService
+                ),
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered usage normalization service")
+        except ImportError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Could not register usage normalization service: {e}",
+                    exc_info=True,
+                )
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""

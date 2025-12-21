@@ -93,6 +93,94 @@ class TestCaptureMetadata:
         assert recreated.model == original.model
         assert recreated.chunk_index == original.chunk_index
 
+    def test_canonical_usage_serialization(self):
+        """Test canonical usage is serialized as 'cu' key."""
+        canonical_usage = {
+            "provider_id": "openai",
+            "model_id": "gpt-4",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        }
+        meta = CaptureMetadata(
+            session_id="sess-1",
+            backend="openai",
+            canonical_usage=canonical_usage,
+        )
+        result = meta.to_dict()
+        assert result["cu"] == canonical_usage
+        assert result["sid"] == "sess-1"
+        assert result["be"] == "openai"
+
+    def test_canonical_usage_deserialization(self):
+        """Test canonical usage is deserialized from 'cu' key."""
+        canonical_usage = {
+            "provider_id": "anthropic",
+            "model_id": "claude-3",
+            "cost": 0.05,
+        }
+        data = {
+            "sid": "sess-2",
+            "be": "anthropic",
+            "cu": canonical_usage,
+        }
+        meta = CaptureMetadata.from_dict(data)
+        assert meta.canonical_usage == canonical_usage
+        assert meta.session_id == "sess-2"
+        assert meta.backend == "anthropic"
+
+    def test_canonical_usage_roundtrip(self):
+        """Test canonical usage roundtrip serialization."""
+        canonical_usage = {
+            "provider_id": "gemini",
+            "model_id": "gemini-pro",
+            "prompt_tokens": 5,
+            "completion_tokens": 15,
+            "total_tokens": 20,
+            "extensions": {"custom_field": "value"},
+        }
+        original = CaptureMetadata(
+            session_id="sess-3",
+            backend="gemini",
+            model="gemini-pro",
+            canonical_usage=canonical_usage,
+        )
+        dict_form = original.to_dict()
+        recreated = CaptureMetadata.from_dict(dict_form)
+        assert recreated.canonical_usage == original.canonical_usage
+        assert recreated.session_id == original.session_id
+        assert recreated.backend == original.backend
+
+    def test_canonical_usage_none_excluded(self):
+        """Test canonical usage None is excluded from serialization."""
+        meta = CaptureMetadata(
+            session_id="sess-4",
+            backend="openai",
+            canonical_usage=None,
+        )
+        result = meta.to_dict()
+        assert "cu" not in result
+        assert result["sid"] == "sess-4"
+
+    def test_canonical_usage_includes_extensions(self):
+        """Test that canonical usage includes provider extensions."""
+        canonical_usage = {
+            "provider_id": "openai",
+            "model_id": "gpt-4",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "extensions": {"custom_field": "value", "another_field": 123},
+        }
+        meta = CaptureMetadata(
+            session_id="sess-5",
+            backend="openai",
+            canonical_usage=canonical_usage,
+        )
+        result = meta.to_dict()
+        assert result["cu"]["extensions"] == canonical_usage["extensions"]
+        assert result["cu"]["extensions"]["custom_field"] == "value"
+        assert result["cu"]["extensions"]["another_field"] == 123
+
 
 class TestCaptureEntry:
     """Tests for CaptureEntry dataclass."""
@@ -206,6 +294,36 @@ class TestCaptureSession:
 
 class TestCborWireCaptureService:
     """Tests for CborWireCaptureService."""
+
+    @pytest.mark.asyncio
+    async def test_capture_stream_completion_with_canonical_usage(
+        self, capture_service
+    ):
+        """Test that capture_stream_completion captures canonical_usage."""
+        from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+
+        canonical_usage = CanonicalUsageRecord(
+            provider_id="openai",
+            model_id="gpt-4",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+        )
+
+        await capture_service.capture_stream_completion(
+            context=None,
+            session_id="test-session",
+            backend="openai",
+            model="gpt-4",
+            key_name=None,
+            canonical_usage=canonical_usage,
+        )
+
+        await capture_service.shutdown()
+
+        # Verify entry was written
+        assert capture_service._file_path is not None
+        assert capture_service._file_path.exists()
 
     def test_initialization_creates_directory(self, mock_config, temp_capture_dir):
         """Test service creates capture directory."""

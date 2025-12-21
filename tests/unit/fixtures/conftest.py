@@ -86,6 +86,7 @@ def session_with_hello(test_session: Session) -> Session:
 @pytest.fixture
 async def test_mock_app() -> "FastAPI":
     """Return a mock FastAPI app."""
+    # Lazy import to avoid heavy initialization during collection
     from src.core.app.test_builder import build_test_app_async
 
     return await build_test_app_async()

@@ -31,6 +31,7 @@ from src.core.domain.cbor_capture import (
     CaptureMetadata,
 )
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,7 @@ class CborWireCaptureService(IWireCapture):
         backend: str | None = None,
         model: str | None = None,
         key_name: str | None = None,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> CaptureMetadata:
         """Extract metadata from context and parameters."""
         client_host: str | None = None
@@ -282,6 +284,7 @@ class CborWireCaptureService(IWireCapture):
             client_host=client_host,
             user_agent=user_agent,
             request_id=request_id,
+            canonical_usage=canonical_usage,
         )
 
     async def capture_inbound_request(
@@ -362,6 +365,7 @@ class CborWireCaptureService(IWireCapture):
         model: str,
         key_name: str | None,
         response_content: Any,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
@@ -371,7 +375,12 @@ class CborWireCaptureService(IWireCapture):
 
         data = _extract_bytes(response_content)
         metadata = self._extract_context_metadata(
-            context, session_id, backend=backend, model=model, key_name=key_name
+            context,
+            session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            canonical_usage=canonical_usage,
         )
 
         entry = CaptureEntry(
@@ -499,6 +508,54 @@ class CborWireCaptureService(IWireCapture):
             await self._buffer_entry(end_entry)
 
         return _capture_stream()
+
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for completed streaming response."""
+        if not self.enabled() or canonical_usage is None:
+            return
+
+        self._maybe_start_flush_task()
+
+        # Resolve session ID
+        resolved_session = session_id
+        if not resolved_session or not str(resolved_session).strip():
+            if context:
+                rid = getattr(context, "request_id", None)
+                if rid and not _is_mock(rid):
+                    resolved_session = str(rid)
+            if not resolved_session:
+                resolved_session = self._session_id
+
+        # Convert CanonicalUsageRecord to dict for metadata
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
+
+        # Create completion entry with canonical_usage
+        # This entry follows the stream_end entry and includes canonical_usage
+        completion_metadata = self._extract_context_metadata(
+            context,
+            resolved_session,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            canonical_usage=canonical_usage_dict,
+        )
+        completion_entry = CaptureEntry(
+            timestamp=_get_timestamp(),
+            direction=CaptureDirection.BACKEND_TO_PROXY,
+            sequence=await self._get_next_sequence(),
+            data=b"",
+            metadata=completion_metadata,
+        )
+        await self._buffer_entry(completion_entry)
 
     def wrap_outbound_stream(
         self,

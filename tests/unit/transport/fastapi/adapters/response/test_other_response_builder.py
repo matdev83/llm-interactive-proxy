@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from fastapi.responses import Response
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.transport.fastapi.adapters.response.other_response_builder import (
     OtherResponseBuilder,
 )
@@ -105,3 +106,57 @@ class TestOtherResponseBuilder:
         response = builder.build(envelope)
 
         assert response.status_code == 404
+
+    def test_build_canonical_usage_headers_injected(self) -> None:
+        """Test that canonical usage headers are injected (Requirement 5.5)."""
+        builder = OtherResponseBuilder()
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+            cost=0.05,
+        )
+
+        envelope = ResponseEnvelope(
+            content=b"Binary content",
+            headers={},
+            status_code=200,
+            media_type="application/octet-stream",
+            canonical_usage=canonical_usage,
+        )
+
+        response = builder.build(envelope)
+
+        assert isinstance(response, Response)
+        # Headers should be derived from canonical usage
+        assert response.headers["x-usage-prompt-tokens"] == "100"
+        assert response.headers["x-usage-completion-tokens"] == "200"
+        assert response.headers["x-usage-total-tokens"] == "300"
+        assert response.headers["x-usage-cost"] == "0.05"
+
+    def test_build_canonical_usage_headers_preserve_existing(self) -> None:
+        """Test that existing headers are preserved when injecting canonical usage headers."""
+        builder = OtherResponseBuilder()
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+        )
+
+        envelope = ResponseEnvelope(
+            content="Text content",
+            headers={"x-custom-header": "value"},
+            status_code=200,
+            media_type="text/plain",
+            canonical_usage=canonical_usage,
+        )
+
+        response = builder.build(envelope)
+
+        assert isinstance(response, Response)
+        # Existing headers should be preserved
+        assert response.headers["x-custom-header"] == "value"
+        # Canonical usage headers should be added
+        assert response.headers["x-usage-prompt-tokens"] == "100"

@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 from fastapi.responses import JSONResponse
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+from src.core.domain.usage_payload import UsagePayload
 from src.core.transport.fastapi.adapters.metadata.reasoning_injector import (
     ReasoningInjector,
 )
@@ -103,7 +105,9 @@ class TestJSONResponseBuilder:
         mock_header_sanitizer.sanitize.side_effect = lambda x: x or {}
 
         mock_usage_injector = MagicMock(spec=UsageHeaderInjector)
-        mock_usage_injector.inject_headers.side_effect = lambda h, u: h or {}
+        mock_usage_injector.inject_headers.side_effect = (
+            lambda h, u, canonical_usage=None: h or {}
+        )
 
         mock_reasoning_injector = MagicMock(spec=ReasoningInjector)
         mock_reasoning_injector.inject_reasoning.side_effect = lambda c, m, **kw: c
@@ -204,3 +208,134 @@ class TestJSONResponseBuilder:
         response = builder.build(envelope)
 
         assert response.media_type == "application/json"
+
+    def test_ensure_usage_uses_canonical_usage_when_available(self) -> None:
+        """Test that _ensure_usage uses canonical usage when available (Requirement 5.2)."""
+        from src.core.interfaces.usage_normalization_service_interface import (
+            IUsageNormalizationService,
+        )
+
+        mock_normalization_service = MagicMock(spec=IUsageNormalizationService)
+        mock_normalization_service.project_protocol_usage.return_value = UsagePayload(
+            payload={
+                "prompt_tokens": 100,
+                "completion_tokens": 200,
+                "total_tokens": 300,
+            }
+        )
+
+        builder = JSONResponseBuilder(
+            usage_normalization_service=mock_normalization_service
+        )
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+        )
+
+        envelope = ResponseEnvelope(
+            content={"message": "Hello"},
+            canonical_usage=canonical_usage,
+        )
+
+        payload = {"message": "Hello"}
+        result_payload, usage_data = builder._ensure_usage(envelope, payload)
+
+        # Verify normalization service was called
+        mock_normalization_service.project_protocol_usage.assert_called_once()
+        call_args = mock_normalization_service.project_protocol_usage.call_args
+        assert call_args.kwargs["canonical"] == canonical_usage
+
+        # Verify usage was applied to payload
+        assert result_payload["usage"]["prompt_tokens"] == 100
+        assert result_payload["usage"]["completion_tokens"] == 200
+        assert result_payload["usage"]["total_tokens"] == 300
+
+        # Verify usage data returned
+        assert usage_data is not None
+        assert usage_data["prompt_tokens"] == 100
+
+    def test_ensure_usage_preserves_existing_usage_when_merging(self) -> None:
+        """Test that _ensure_usage preserves existing usage when merging (Requirement 5.4)."""
+        from src.core.interfaces.usage_normalization_service_interface import (
+            IUsageNormalizationService,
+        )
+
+        mock_normalization_service = MagicMock(spec=IUsageNormalizationService)
+        # Return usage that merges with existing
+        mock_normalization_service.project_protocol_usage.return_value = UsagePayload(
+            payload={
+                "prompt_tokens": 100,
+                "completion_tokens": 200,
+                "total_tokens": 300,
+                "cost": 0.05,  # New field from canonical
+            }
+        )
+
+        builder = JSONResponseBuilder(
+            usage_normalization_service=mock_normalization_service
+        )
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+            cost=0.05,
+        )
+
+        envelope = ResponseEnvelope(
+            content={"message": "Hello"},
+            canonical_usage=canonical_usage,
+        )
+
+        # Payload already has some usage
+        payload = {"message": "Hello", "usage": {"prompt_tokens": 50}}
+        result_payload, usage_data = builder._ensure_usage(envelope, payload)
+
+        # Verify existing usage was passed for merging
+        call_args = mock_normalization_service.project_protocol_usage.call_args
+        assert call_args.kwargs["existing"] is not None
+        assert call_args.kwargs["existing"].payload["prompt_tokens"] == 50
+
+    def test_ensure_usage_falls_back_when_canonical_usage_not_available(self) -> None:
+        """Test that _ensure_usage falls back to existing logic when canonical usage is missing."""
+        builder = JSONResponseBuilder()
+
+        envelope = ResponseEnvelope(
+            content={"message": "Hello"},
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        payload = {"message": "Hello"}
+        result_payload, usage_data = builder._ensure_usage(envelope, payload)
+
+        # Should use existing usage logic
+        assert usage_data is not None
+        assert usage_data["prompt_tokens"] == 10
+        assert usage_data["completion_tokens"] == 20
+
+    def test_build_passes_canonical_usage_to_header_injector(self) -> None:
+        """Test that build() passes canonical_usage to header injector (Requirement 5.5)."""
+        mock_header_injector = MagicMock(spec=UsageHeaderInjector)
+        mock_header_injector.inject_headers.return_value = {}
+
+        builder = JSONResponseBuilder(usage_header_injector=mock_header_injector)
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+        )
+
+        envelope = ResponseEnvelope(
+            content={"message": "Hello"},
+            canonical_usage=canonical_usage,
+        )
+
+        builder.build(envelope)
+
+        # Verify canonical_usage was passed to header injector
+        mock_header_injector.inject_headers.assert_called_once()
+        call_args = mock_header_injector.inject_headers.call_args
+        assert call_args.kwargs["canonical_usage"] == canonical_usage

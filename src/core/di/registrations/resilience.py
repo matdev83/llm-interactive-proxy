@@ -502,6 +502,13 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             backend_lifecycle_manager: IBackendLifecycleManager | None = (
                 provider.get_service(cast(type, IBackendLifecycleManager))
             )
+            from src.core.interfaces.usage_normalization_service_interface import (
+                IUsageNormalizationService,
+            )
+
+            usage_normalization_service: IUsageNormalizationService | None = (
+                provider.get_service(cast(type, IUsageNormalizationService))
+            )
             return UsageAccountingOrchestrator(
                 usage_tracking_service=usage_tracking_service,
                 usage_tracking_wrapper=usage_tracking_wrapper,
@@ -510,6 +517,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 resilience_coordinator=resilience_coordinator,
                 backend_factory=backend_factory,
                 backend_lifecycle_manager=backend_lifecycle_manager,
+                usage_normalization_service=usage_normalization_service,
             )
 
         register_singleton_if_absent(

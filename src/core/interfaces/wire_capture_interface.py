@@ -7,6 +7,7 @@ from typing import Any
 from pydantic.types import JsonValue
 
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 
 
 class IWireCapture(ABC):
@@ -58,6 +59,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: dict[str, Any] | None = None,
     ) -> None:
         """Capture a full non-streaming inbound response.
 
@@ -68,6 +70,7 @@ class IWireCapture(ABC):
             model: Model name
             key_name: Key name for redaction
             response_content: Response content (JSON-serializable dict, bytes, or None)
+            canonical_usage: Optional canonical usage record dict
         """
 
     @abstractmethod
@@ -117,6 +120,33 @@ class IWireCapture(ABC):
         stream: AsyncIterator[bytes],
     ) -> AsyncIterator[bytes]:
         """Wrap a streaming iterator to capture bytes sent to the client."""
+
+    @abstractmethod
+    async def capture_stream_completion(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str,
+        model: str,
+        key_name: str | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
+    ) -> None:
+        """Capture canonical usage for a completed streaming response.
+
+        This method is called after a streaming response completes and canonical
+        usage has been built. It attaches canonical_usage to the stream_end entry
+        that was created when the stream ended.
+
+        Args:
+            context: Request context
+            session_id: Session ID
+            backend: Backend name
+            model: Model name
+            key_name: Key name for redaction
+            canonical_usage: Optional canonical usage record
+        """
+        ...
 
     @abstractmethod
     async def shutdown(self) -> None:

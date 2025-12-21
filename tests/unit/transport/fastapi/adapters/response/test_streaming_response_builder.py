@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from unittest.mock import MagicMock
 
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.transport.fastapi.adapters.response.streaming_response_builder import (
     StreamingResponseBuilder,
 )
@@ -140,3 +141,92 @@ class TestStreamingResponseBuilder:
         async for chunk in response.body_iterator:
             chunks.append(chunk)
         assert len(chunks) == 2
+
+    async def test_build_canonical_usage_headers_injected(self) -> None:
+        """Test that canonical usage headers are injected (Requirement 5.5)."""
+        builder = StreamingResponseBuilder()
+
+        async def content_gen() -> AsyncIterator[bytes]:
+            yield b"data: test\n\n"
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+            cost=0.05,
+        )
+
+        envelope = StreamingResponseEnvelope(
+            content=content_gen(),
+            headers={},
+            media_type="text/event-stream",
+            canonical_usage=canonical_usage,
+        )
+
+        response = builder.build(envelope)
+
+        assert isinstance(response, StreamingResponse)
+        # Headers should be derived from canonical usage
+        assert response.headers["x-usage-prompt-tokens"] == "100"
+        assert response.headers["x-usage-completion-tokens"] == "200"
+        assert response.headers["x-usage-total-tokens"] == "300"
+        assert response.headers["x-usage-cost"] == "0.05"
+
+    async def test_build_canonical_usage_headers_with_extensions(self) -> None:
+        """Test that extended fields from canonical usage are in headers."""
+        builder = StreamingResponseBuilder()
+
+        async def content_gen() -> AsyncIterator[bytes]:
+            yield b"data: test\n\n"
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+            extensions={
+                "completion_tokens_details": {"reasoning_tokens": 50},
+                "prompt_tokens_details": {"cached_tokens": 25},
+            },
+        )
+
+        envelope = StreamingResponseEnvelope(
+            content=content_gen(),
+            headers={},
+            media_type="text/event-stream",
+            canonical_usage=canonical_usage,
+        )
+
+        response = builder.build(envelope)
+
+        assert isinstance(response, StreamingResponse)
+        # Extended fields should be in headers
+        assert response.headers["x-usage-reasoning-tokens"] == "50"
+        assert response.headers["x-usage-cached-tokens"] == "25"
+
+    async def test_build_canonical_usage_headers_preserve_existing(self) -> None:
+        """Test that existing headers are preserved when injecting canonical usage headers."""
+        builder = StreamingResponseBuilder()
+
+        async def content_gen() -> AsyncIterator[bytes]:
+            yield b"data: test\n\n"
+
+        canonical_usage = CanonicalUsageRecord(
+            prompt_tokens=100,
+            completion_tokens=200,
+            total_tokens=300,
+        )
+
+        envelope = StreamingResponseEnvelope(
+            content=content_gen(),
+            headers={"x-custom-header": "value"},
+            media_type="text/event-stream",
+            canonical_usage=canonical_usage,
+        )
+
+        response = builder.build(envelope)
+
+        assert isinstance(response, StreamingResponse)
+        # Existing headers should be preserved
+        assert response.headers["x-custom-header"] == "value"
+        # Canonical usage headers should be added
+        assert response.headers["x-usage-prompt-tokens"] == "100"
