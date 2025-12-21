@@ -1,11 +1,12 @@
 # Implementation Plan
 
 - [ ] 1. Core EoS domain and configuration
-- [ ] 1.1 (P) Define End-of-Session event and signal models with required metadata
-  - Include session identifier, timestamp, signal type, and optional reason/protocol details.
-  - Set a stable event type identifier for all emissions.
+- [ ] 1.1 (P) Define backend-scoped EoS event and signal models with required metadata
+  - Include session identifier, timestamp, signal type, termination category, and optional reason/protocol details.
+  - Include standardized error classification values (transport_error, http_error, backend_error, unknown_error) and backend status context for error terminations.
+  - Set a stable backend-scoped event type identifier for all emissions.
   - Ensure payload fields exclude secrets or authorization data.
-  - _Requirements: 2.2, 2.5_
+  - _Requirements: 2.2, 2.5, 2.9, 2.10, 2.11, 6.7_
 
 - [ ] 1.2 (P) Add End-of-Session configuration options and validation
   - Provide toggles for detection, event emission, stream signal detection, tool completion detection, and dispatch timeout.
@@ -30,7 +31,8 @@
   - Normalize incoming signals, enforce config gating, and skip when context is incomplete.
   - Use the atomic claim to guarantee at-most-once emission and mark terminal state.
   - Emit the event with a bounded wait that does not cancel in-flight handlers.
-  - _Requirements: 1.1, 1.3, 1.4, 2.1, 2.3, 2.6, 2.7, 2.8, 5.1, 5.2, 5.4, 6.5_
+  - Set termination category and error classification in emitted events based on the normalized signal.
+  - _Requirements: 1.1, 1.3, 1.4, 1.8, 2.1, 2.3, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 5.1, 5.2, 5.4, 6.5_
 
 - [ ] 3.2 Implement stream-based EoS detection across protocols and modes
   - Detect completion markers such as `[DONE]`, finish reasons, message stop, and response completion signals.
@@ -42,6 +44,11 @@
   - Detect completion tool calls and translate them into EoS signals.
   - Preserve tool-call execution flow and fail open if detection fails.
   - _Requirements: 6.4_
+
+- [ ] 3.4 Integrate backend and transport error termination signals
+  - Translate backend/transport failures into EoS signals with standardized error classification values and status context.
+  - Ensure error-driven EoS signals mark sessions ended even without completion markers.
+  - _Requirements: 1.7, 1.8, 2.11, 6.6, 6.7_
 
 - [ ] 4. Wiring and subscription lifecycle
 - [ ] 4.1 Wire EoS services into startup and processing pipelines
@@ -81,7 +88,8 @@
 - [ ] 6.1 Unit tests for EndOfSessionService idempotency and timeout behavior
   - Cover atomic-claim dedupe, config gating, and terminal state persistence.
   - Validate bounded dispatch timeout behavior without canceling handlers.
-  - _Requirements: 1.1, 1.3, 1.4, 2.1, 2.3, 2.6, 2.7, 2.8, 5.1, 5.2, 5.4, 6.5_
+  - Validate termination category and standardized error classification in emitted events.
+  - _Requirements: 1.1, 1.3, 1.4, 1.8, 2.1, 2.3, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 5.1, 5.2, 5.4, 6.5, 6.7_
 
 - [ ] 6.2 Unit tests for stream and tool-call signal normalization
   - Cover `[DONE]`, finish reasons, response completion signals, and tool-call completion.
@@ -96,7 +104,8 @@
 - [ ] 6.4 Integration tests for wiring and end-to-end emission
   - Verify DI wiring, startup registration, and dispatch to multiple listeners.
   - Cover both streaming and non-streaming EoS emission with persistence.
-  - _Requirements: 1.6, 2.3, 2.6, 2.7, 3.1, 3.2, 3.5_
+  - Validate error-driven EoS emission for backend/transport failures.
+  - _Requirements: 1.6, 1.7, 1.8, 2.3, 2.6, 2.7, 2.9, 2.10, 2.11, 3.1, 3.2, 3.5, 6.6, 6.7_
 
 - [ ] 6.5 Property tests for dedupe invariants
   - Validate that multiple signals per session never produce duplicate EoS events.

@@ -1,17 +1,18 @@
 # End-of-Session Events Design
 
 ## Overview
-This feature introduces a unified End-of-Session (EoS) event that normalizes completion signals across protocols and subsystems, enabling consistent session finalization. It creates a single publisher and subscriber model so internal services can react to session completion without duplicating detection logic.
+This feature introduces a unified RemoteBackendConnectionEndOfSessionEvent (EoS event) that normalizes completion signals across protocols and subsystems, enabling consistent session finalization. It creates a single publisher and subscriber model so internal services can react to session completion without duplicating detection logic.
 
 Developers and operators use this to ensure ProxyMem, usage tracking, wire capture, and steering reminders receive a single, reliable signal for session completion. The design aligns with existing async, DI-driven patterns and uses the internal EventBus for decoupled dispatch.
 
 ### Goals
-- Centralize completion detection and emit a single EoS event per session.
+- Centralize completion detection and emit a single backend-scoped EoS event per session.
 - Provide a subscription mechanism for subsystem behaviors to run on EoS.
 - Normalize completion signals across streaming, non-streaming, and tool-call paths.
 - Replace subsystem-specific EoS detection with event subscribers.
 - Respect configuration controls and observability requirements.
 - Persist EoS completion state in the database for restart-safe idempotency.
+- Distinguish normal completion from error termination for downstream handling.
 
 ### Non-Goals
 - Changing provider protocol semantics or response formats.
@@ -28,6 +29,7 @@ Developers and operators use this to ensure ProxyMem, usage tracking, wire captu
 - Tool-call completion signals are currently detected only in test execution reminder logic.
 - Non-streaming responses are wrapped as single-chunk streams, enabling stream processors to observe completion for both modes.
 - Session metrics are stored in `SessionMetricsTable` with an `is_completed` flag, which can be reused to persist EoS completion state.
+- Backend completion flow already captures transport and HTTP errors that can be converted into error-classified EoS signals.
 
 ### Architecture Pattern & Boundary Map
 **Architecture Integration**:
@@ -44,6 +46,8 @@ graph TB
     StreamNormalizer --> EosStreamProcessor
     EosStreamProcessor --> EndOfSessionService
     ToolCallReactor --> EndOfSessionService
+    BackendCompletionFlow --> BackendCompletionFlowEosAdapter
+    BackendCompletionFlowEosAdapter --> EndOfSessionService
     EndOfSessionService --> SessionMetricsDB
     EndOfSessionService --> EventBus
     EventBus --> ProxyMemSubscriber
@@ -81,7 +85,7 @@ sequenceDiagram
     EndOfSessionService ->> SessionMetricsRepo: Atomic claim (eos_emitted_at NULL?)
     alt claim won
         EndOfSessionService ->> SessionMetricsRepo: Persist completion state
-        EndOfSessionService ->> EventBus: EndOfSessionEvent (bounded wait)
+        EndOfSessionService ->> EventBus: RemoteBackendConnectionEndOfSessionEvent (bounded wait)
     else already claimed
         EndOfSessionService ->> EndOfSessionService: Skip emission
     end
@@ -91,6 +95,7 @@ sequenceDiagram
 Flow notes:
 - The stream processor emits a normalized signal when a completion marker is observed.
 - Tool-call completion emits the same signal via a tool-call handler path.
+- Backend or transport failures emit an error-classified signal from the backend completion flow.
 - The service uses an atomic DB claim to dedupe under concurrency and persists completion state before publishing.
 - Non-streaming responses traverse the same pipeline via a single-chunk stream wrapper.
 - Event dispatch waits up to `dispatch_timeout_seconds`; timeouts stop waiting without canceling handlers.
@@ -105,14 +110,19 @@ Flow notes:
 | 1.4 | Terminal session state after end | SessionMetricsRepository | SessionMetricsRepository | EoS Stream Flow |
 | 1.5 | Detect for all frontend protocols | EndOfSessionStreamProcessor | IStreamProcessor | EoS Stream Flow |
 | 1.6 | Detect for streaming and non-streaming | EndOfSessionStreamProcessor, UnifiedResponsePipeline | IStreamProcessor | EoS Stream Flow |
+| 1.7 | Detect backend/transport error termination | BackendCompletionFlowEosAdapter | BackendCompletionFlow | EoS Error Flow |
+| 1.8 | Record error termination category | EndOfSessionService | IEndOfSessionService | EoS Error Flow |
 | 2.1 | Emit EoS event on end | EndOfSessionService | IEndOfSessionService | EoS Stream Flow |
-| 2.2 | Include session id and timestamp | EndOfSessionEvent | DomainEvent | EoS Stream Flow |
+| 2.2 | Include session id and timestamp | RemoteBackendConnectionEndOfSessionEvent | DomainEvent | EoS Stream Flow |
 | 2.3 | No duplicate events | SessionMetricsRepository | SessionMetricsRepository | EoS Stream Flow |
 | 2.4 | Emit before finalization | EndOfSessionStreamProcessor | IStreamProcessor | EoS Stream Flow |
-| 2.5 | Consistent event type id | EndOfSessionEvent | DomainEvent | EoS Stream Flow |
+| 2.5 | Consistent event type id | RemoteBackendConnectionEndOfSessionEvent | DomainEvent | EoS Stream Flow |
 | 2.6 | Emit for streaming and non-streaming | EndOfSessionService | IEndOfSessionService | EoS Stream Flow |
 | 2.7 | Persist completion state in DB | EndOfSessionService, SessionMetricsRepository | SessionMetricsRepository | EoS Stream Flow |
 | 2.8 | Bound emission delay | EndOfSessionService, EventBus | IEventBus | EoS Stream Flow |
+| 2.9 | Include termination category | RemoteBackendConnectionEndOfSessionEvent | DomainEvent | EoS Stream Flow |
+| 2.10 | Include error classification context | RemoteBackendConnectionEndOfSessionEvent | DomainEvent | EoS Error Flow |
+| 2.11 | Standardize error classification values | EndOfSessionService, BackendCompletionFlowEosAdapter | IEndOfSessionService | EoS Error Flow |
 | 3.1 | Register listener | EndOfSessionSubscriberRegistry | EventBus | EoS Dispatch Flow |
 | 3.2 | Dispatch to listeners | EventBus | IEventBus | EoS Dispatch Flow |
 | 3.3 | Unsubscribe | EndOfSessionSubscriberRegistry | EventBus | EoS Dispatch Flow |
@@ -133,6 +143,8 @@ Flow notes:
 | 6.3 | Normalize response.completed | EndOfSessionStreamProcessor | IStreamProcessor | EoS Stream Flow |
 | 6.4 | Normalize completion tool call | EndOfSessionToolCallHandler | IToolCallHandler | EoS Tool Call Flow |
 | 6.5 | Dedupe to single event | EndOfSessionService | IEndOfSessionService | EoS Stream Flow |
+| 6.6 | Normalize backend/transport errors | BackendCompletionFlowEosAdapter | BackendCompletionFlow | EoS Error Flow |
+| 6.7 | Standardize error classification values | BackendCompletionFlowEosAdapter | BackendCompletionFlow | EoS Error Flow |
 | 7.1 | ProxyMem completion | ProxyMemEosSubscriber | Event handler | EoS Dispatch Flow |
 | 7.2 | Usage finalization | UsageTrackingEosSubscriber | Event handler | EoS Dispatch Flow |
 | 7.3 | Wire capture metadata | WireCaptureEosSubscriber | Event handler | EoS Dispatch Flow |
@@ -150,9 +162,10 @@ Flow notes:
 Summary table:
 | Component | Layer | Intent | Req Coverage | DI Lifetime | Contracts |
 |-----------|-------|--------|--------------|-------------|-----------|
-| EndOfSessionService | `src/core/services/` | Normalize signals and emit EoS events | 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 6.5 | Singleton | Service, Event |
+| EndOfSessionService | `src/core/services/` | Normalize signals and emit EoS events | 1.1, 1.2, 1.3, 1.4, 1.5, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 6.5 | Singleton | Service, Event |
 | EndOfSessionStreamProcessor | `src/core/services/` | Detect completion markers in StreamingContent | 1.2, 1.5, 1.6, 6.1, 6.2, 6.3 | Singleton | Service |
 | EndOfSessionToolCallHandler | `src/core/services/` | Detect completion tool calls | 6.4 | Singleton | Service |
+| BackendCompletionFlowEosAdapter | `src/core/services/backend_completion_flow/` | Translate backend/transport errors into EoS signals | 1.7, 1.8, 6.6, 6.7 | Singleton | Service |
 | ProxyMemEosSubscriber | `src/core/memory/` | Mark session complete + queue analysis | 7.1 | Singleton | Event |
 | UsageTrackingEosSubscriber | `src/core/services/` | Finalize usage + session metrics | 7.2 | Singleton | Event |
 | WireCaptureEosSubscriber | `src/core/services/` | Record EoS metadata in CBOR capture | 7.3 | Singleton | Event |
@@ -166,7 +179,7 @@ Summary table:
 | Field | Detail |
 |-------|--------|
 | Intent | Normalize completion signals and emit a single End-of-Session event per session |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 5.1, 5.2, 5.3, 5.4, 5.5, 6.5 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 5.1, 5.2, 5.3, 5.4, 5.5, 6.5 |
 | Interface | `IEndOfSessionService` in `src/core/interfaces/` |
 | DI Lifetime | Singleton |
 
@@ -176,6 +189,8 @@ Summary table:
 - Use an atomic persistence gate so only one caller can claim the first EoS emission per session.
 - Emit EoS events through EventBus with a bounded dispatch timeout to avoid blocking finalization.
 - Implement bounded wait by wrapping `EventBus.publish` in `asyncio.wait_for(asyncio.shield(...))`; if the timeout is zero/disabled, use `publish_nowait`.
+- Set termination category based on the signal and include normalized error classification when the termination is an error.
+- Default missing error classifications to `unknown_error` for error terminations.
 - Maintain in-memory cache for hot-path dedupe, backed by DB for restart safety.
 - On dispatch timeout, stop waiting but do not cancel in-flight handlers; log and continue without blocking response finalization.
 
@@ -198,13 +213,27 @@ class EndOfSessionSignalType(str, Enum):
     FINISH_REASON = "finish_reason"
     RESPONSE_COMPLETED = "response_completed"
     TOOL_COMPLETION = "tool_completion"
+    ERROR_TERMINATION = "error_termination"
+
+class EndOfSessionTerminationCategory(str, Enum):
+    NORMAL = "normal"
+    ERROR = "error"
+
+class EndOfSessionErrorClassification(str, Enum):
+    TRANSPORT_ERROR = "transport_error"
+    HTTP_ERROR = "http_error"
+    BACKEND_ERROR = "backend_error"
+    UNKNOWN_ERROR = "unknown_error"
 
 @dataclass(frozen=True)
 class EndOfSessionSignal:
     session_id: str
     signal_type: EndOfSessionSignalType
+    termination_category: EndOfSessionTerminationCategory
     observed_at: datetime
     reason: str | None
+    error_classification: EndOfSessionErrorClassification | None
+    error_status_code: int | None
     protocol: str | None
     request_id: str | None
     backend: str | None
@@ -283,6 +312,29 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 
 **Contracts**: Service [x] / Event [ ] / Middleware [ ]
 
+#### BackendCompletionFlowEosAdapter
+
+| Field | Detail |
+|-------|--------|
+| Intent | Translate backend and transport failures into error-classified EoS signals |
+| Requirements | 1.7, 1.8, 6.6, 6.7 |
+| Interface | Backend completion flow collaborator |
+| DI Lifetime | Singleton |
+
+**Responsibilities & Constraints**
+- Observe backend completion flow failures (transport errors, retries exhausted, non-200 responses).
+- Map failures into `EndOfSessionSignal` with termination category error and normalized error classification (for example, transport_error, http_error, backend_error).
+- Map failures into `EndOfSessionSignal` with termination category error and standardized error classification (transport_error, http_error, backend_error, unknown_error).
+- Include any available backend status context in the signal.
+- Remain fail-open; do not block backend error handling paths.
+
+**Dependencies (via DI)**
+- Inbound: `IEndOfSessionService`
+- Outbound: none
+- External: none
+
+**Contracts**: Service [x] / Event [ ] / Middleware [ ]
+
 ### Persistence Layer (`src/core/database/`)
 
 #### SessionMetricsRepository (EoS completion persistence)
@@ -313,7 +365,7 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 |-------|--------|
 | Intent | Mark ProxyMem sessions complete and queue analysis |
 | Requirements | 7.1 |
-| Interface | Event handler for `EndOfSessionEvent` |
+| Interface | Event handler for `RemoteBackendConnectionEndOfSessionEvent` |
 | DI Lifetime | Singleton |
 
 **Responsibilities & Constraints**
@@ -326,7 +378,7 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 |-------|--------|
 | Intent | Finalize usage tracking and mark session metrics complete |
 | Requirements | 7.2 |
-| Interface | Event handler for `EndOfSessionEvent` |
+| Interface | Event handler for `RemoteBackendConnectionEndOfSessionEvent` |
 | DI Lifetime | Singleton |
 
 **Responsibilities & Constraints**
@@ -339,7 +391,7 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 |-------|--------|
 | Intent | Record EoS occurrence in CBOR capture metadata |
 | Requirements | 7.3 |
-| Interface | Event handler for `EndOfSessionEvent` |
+| Interface | Event handler for `RemoteBackendConnectionEndOfSessionEvent` |
 | DI Lifetime | Singleton |
 
 **Responsibilities & Constraints**
@@ -352,7 +404,7 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 |-------|--------|
 | Intent | Emit steering reminder when EoS is reached and session is dirty |
 | Requirements | 7.4, 7.5, 7.6 |
-| Interface | Event handler for `EndOfSessionEvent` |
+| Interface | Event handler for `RemoteBackendConnectionEndOfSessionEvent` |
 | DI Lifetime | Singleton |
 
 **Responsibilities & Constraints**
@@ -362,13 +414,17 @@ services.add_singleton(IEndOfSessionService, implementation_factory=_factory)
 ## Data Models
 
 ### Domain Model (`src/core/domain/`)
-- **EndOfSessionEvent** (dataclass, extends `DomainEvent`)
-  - `event_type = "end_of_session"`
-  - Fields: `session_id`, `signal_type`, `reason`, `protocol`, `request_id`, `backend`
+- **RemoteBackendConnectionEndOfSessionEvent** (dataclass, extends `DomainEvent`)
+  - `event_type = "remote_backend_connection_end_of_session"`
+  - Fields: `session_id`, `signal_type`, `termination_category`, `reason`, `error_classification`, `error_status_code`, `protocol`, `request_id`, `backend`
 - **EndOfSessionSignal** (dataclass)
   - Normalized signal input for the EoS service.
 - **EndOfSessionSignalType** (Enum)
   - Canonical signal types for dedupe and auditing.
+- **EndOfSessionTerminationCategory** (Enum)
+  - Canonical termination categories: normal or error.
+- **EndOfSessionErrorClassification** (Enum)
+  - Canonical error classifications: transport_error, http_error, backend_error, unknown_error.
 
 ### Configuration Model (`src/core/config/`)
 - New `EndOfSessionConfig` with:
@@ -459,6 +515,7 @@ Audit any additional completion checks in usage/billing or steering extensions a
 ## Stage Registration
 - Register EventBus in CoreServicesStage to ensure availability for EoS.
 - Register EndOfSessionService and EndOfSessionStreamProcessor in streaming registrations.
+- Register BackendCompletionFlowEosAdapter with backend completion flow collaborators for error signals.
 - Register subscribers during CoreServicesStage or SteeringStage with explicit start/stop hooks.
 - Ensure SessionMetricsRepository is available in DI for EndOfSessionService persistence.
 
@@ -466,4 +523,5 @@ Audit any additional completion checks in usage/billing or steering extensions a
 - `src/core/services/response_processor_service.py`
 - `src/core/services/streaming/stream_normalizer.py`
 - `src/core/services/event_bus.py`
+- `src/core/services/backend_completion_flow/service.py`
 - `src/services/test_execution_reminder/`

@@ -24,6 +24,8 @@ This specification defines end-of-session detection and End-of-Session (EoS) eve
 4. When a session is marked as ended, the LLM Proxy shall treat the session state as terminal for that session.
 5. The LLM Proxy shall detect end-of-session conditions for all supported frontend protocols.
 6. The LLM Proxy shall detect end-of-session conditions for both streaming and non-streaming sessions.
+7. When a remote backend or transport error terminates a session, the LLM Proxy shall treat it as an end-of-session signal.
+8. When a session ends due to a remote backend or transport error, the LLM Proxy shall record the termination category as an error.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -41,10 +43,13 @@ This specification defines end-of-session detection and End-of-Session (EoS) eve
 2. When an End-of-Session event is emitted, the LLM Proxy shall include the session identifier and event timestamp.
 3. If an End-of-Session event has already been emitted for a session, then the LLM Proxy shall not emit a duplicate event for that session.
 4. While event emission is enabled, the LLM Proxy shall emit events for ended sessions before finalizing the session lifecycle.
-5. The LLM Proxy shall emit End-of-Session events using a consistent event type identifier.
+5. The LLM Proxy shall emit End-of-Session events using a consistent backend-scoped identifier (for example, `remote_backend_connection_end_of_session` and RemoteBackendConnectionEndOfSessionEvent).
 6. The LLM Proxy shall emit End-of-Session events for both streaming and non-streaming sessions.
 7. The LLM Proxy shall persist End-of-Session completion state in the database and use it to prevent duplicate End-of-Session events after process restarts.
 8. When emitting End-of-Session events, the LLM Proxy shall not delay response finalization beyond a configurable dispatch timeout.
+9. When an End-of-Session event is emitted, the LLM Proxy shall include a termination category of normal or error.
+10. When the termination category is error, the LLM Proxy shall include a normalized error classification and any available backend status context.
+11. The normalized error classification shall be one of: `transport_error`, `http_error`, `backend_error`, `unknown_error`.
 
 #### Technical Constraints
 - Async compatibility: Event emission must avoid blocking I/O
@@ -110,6 +115,8 @@ This specification defines end-of-session detection and End-of-Session (EoS) eve
 3. When a response protocol emits an explicit completion event (for example, `response.completed` or `message_stop`), the LLM Proxy shall translate it into an end-of-session signal.
 4. When a completion tool call is invoked (for example, `attempt_completion` or `finish`), the LLM Proxy shall translate it into an end-of-session signal for the session.
 5. If multiple completion signals are observed for the same session, then the LLM Proxy shall normalize them to a single End-of-Session event.
+6. When a remote backend or transport error occurs, the LLM Proxy shall translate it into an end-of-session error signal with the error classification recorded.
+7. The error signal classification shall use only the standardized values: `transport_error`, `http_error`, `backend_error`, `unknown_error`.
 
 #### Technical Constraints
 - Async compatibility: Normalization must avoid blocking I/O
@@ -166,3 +173,5 @@ This specification defines end-of-session detection and End-of-Session (EoS) eve
 | Wire Capture | CBOR-encoded traffic recording for debugging. |
 | Staged Init | Sequential initialization phases for services. |
 | DI Container | Dependency injection via `ServiceCollection`. |
+| Termination Category | The outcome classification for an EoS event (normal or error). |
+| Error Classification | Standardized error cause label for error terminations (transport_error, http_error, backend_error, unknown_error). |
