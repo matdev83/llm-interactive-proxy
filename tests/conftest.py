@@ -414,20 +414,32 @@ def pytest_cmdline_parse(pluginmanager, args):
     # 1. Environment variable (worker processes)
     # 2. Config option (after config is created)
     # 3. Plugin registration (fallback)
-    if HAS_PYTEST_XDIST:
+    # Skip XML parsing during collection-only mode to speed up collection
+    is_collect_only = "--collect-only" in args or "--co" in args
+
+    # Disable xdist during collection-only mode to speed up collection
+    # xdist workers add overhead during collection and aren't needed
+    # Do this BEFORE checking xdist status to prevent workers from starting
+    if is_collect_only and HAS_PYTEST_XDIST and hasattr(config.option, "numprocesses"):
+        # Disable xdist by setting numprocesses to 0 (no workers)
+        # This prevents worker startup overhead during collection
+        config.option.numprocesses = 0
+
+    # Skip argument modification when xdist is active (but not during collection-only)
+    # to avoid collection mismatches and deadlocks
+    if HAS_PYTEST_XDIST and not is_collect_only:
         is_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER") is not None
-        # Check if xdist is configured (numprocesses option is set)
+        # Check if xdist is configured (numprocesses option is set and > 0)
+        # Note: numprocesses=0 means xdist is disabled, so we should continue
         has_xdist_config = (
             hasattr(config.option, "numprocesses")
             and config.option.numprocesses is not None
+            and config.option.numprocesses > 0
         )
         xdist_plugin_registered = pluginmanager.hasplugin("xdist")
 
         if is_xdist_worker or has_xdist_config or xdist_plugin_registered:
             return
-
-    # Skip XML parsing during collection-only mode to speed up collection
-    is_collect_only = "--collect-only" in args or "--co" in args
 
     modified_args = args.copy()  # Don't modify original args
 
@@ -495,6 +507,11 @@ def pytest_cmdline_main(config):
 
     # Skip XML parsing during collection-only mode to speed up collection
     is_collect_only = "--collect-only" in config.args or "--co" in config.args
+
+    # Disable xdist during collection-only mode to speed up collection
+    if is_collect_only and HAS_PYTEST_XDIST and hasattr(config.option, "numprocesses"):
+        # Disable xdist by setting numprocesses to 0 (no workers)
+        config.option.numprocesses = 0
 
     has_test_paths = any(arg for arg in config.args if not arg.startswith("-"))
     has_maxfail = any(arg.startswith("--maxfail") for arg in config.args)
