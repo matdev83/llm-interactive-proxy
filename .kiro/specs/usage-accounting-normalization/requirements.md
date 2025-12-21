@@ -22,7 +22,14 @@ This specification defines normalized usage accounting behaviors that eliminate 
 - 1.2 The Usage Accounting Service shall include provider identifier, model identifier, request identifier, prompt token count, completion token count, total token count, cost, completion outcome, and provider extensions in the canonical usage record when those values are available from inputs.
 - 1.3 When prompt token count and completion token count are available, the Usage Accounting Service shall set total token count to their sum.
 - 1.4 If a canonical usage field cannot be derived from inputs, the Usage Accounting Service shall set that field to null in the canonical usage record.
-- 1.5 When a request identifier is available from request context or protocol metadata, the Usage Accounting Service shall include it in the canonical usage record.
+- 1.5 When RequestContext.request_id is present, the Usage Accounting Service shall set request identifier to that value.
+- 1.6 When RequestContext.request_id is absent and RequestContext.processing_context.values includes request_id, the Usage Accounting Service shall set request identifier to that value.
+- 1.7 When backend type is available from response metadata or request context, the Usage Accounting Service shall set provider identifier to that backend type.
+- 1.8 When effective model is available from response metadata or request context, the Usage Accounting Service shall set model identifier to that model.
+- 1.9 When the request is handled by the OpenAI Chat Completions controller, the Usage Accounting Service shall set protocol to openai.
+- 1.10 When the request is handled by the OpenAI Responses controller, the Usage Accounting Service shall set protocol to openai-responses.
+- 1.11 When the request is handled by the Anthropic Messages controller, the Usage Accounting Service shall set protocol to anthropic.
+- 1.12 When the request is handled by the Gemini controller, the Usage Accounting Service shall set protocol to gemini.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -55,6 +62,11 @@ This specification defines normalized usage accounting behaviors that eliminate 
 - 3.2 While a streaming response is in progress, the Usage Accounting Service shall not emit a final canonical usage record.
 - 3.3 If a streaming response terminates early or errors, the Usage Accounting Service shall emit a canonical usage record marked with completion outcome set to incomplete.
 - 3.4 If completion outcome is incomplete, the Usage Accounting Service shall set incomplete reason to one of: client_disconnect, backend_error, timeout, upstream_cancelled, unknown.
+- 3.5 When a streaming response ends after a client disconnect is detected, the Usage Accounting Service shall set incomplete reason to client_disconnect.
+- 3.6 When a streaming response ends after an explicit cancellation callback without an error classification, the Usage Accounting Service shall set incomplete reason to upstream_cancelled.
+- 3.7 When a streaming response ends with an APITimeoutError classification, the Usage Accounting Service shall set incomplete reason to timeout.
+- 3.8 When a streaming response ends with a BackendError or APIConnectionError classification, the Usage Accounting Service shall set incomplete reason to backend_error.
+- 3.9 If no incomplete reason can be determined from available context, the Usage Accounting Service shall set incomplete reason to unknown.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -87,6 +99,7 @@ This specification defines normalized usage accounting behaviors that eliminate 
 - 5.3 The system shall preserve existing public response shapes and usage semantics for all supported protocols.
 - 5.4 When canonical usage fields are unavailable, the system shall not overwrite existing protocol-native usage values with zeroes.
 - 5.5 When response headers include usage metrics, the system shall derive header values from the canonical usage record.
+- 5.6 When wire capture is enabled, the system shall include the canonical usage record under a capture-only metadata key named canonical_usage and shall not add canonical_usage to client response payloads.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -106,8 +119,8 @@ This specification defines normalized usage accounting behaviors that eliminate 
 - The system shall not drop responses solely due to missing or malformed usage data.
 
 ### NFR 3: Observability
-- When wire capture is enabled, the system shall include the canonical usage record in the capture payload.
-- When wire capture is enabled and provider extensions are available, the system shall include those extensions alongside the canonical usage record.
+- When wire capture is enabled, the system shall include the canonical usage record in capture metadata under canonical_usage.
+- When wire capture is enabled and provider extensions are available, the system shall include those extensions alongside the canonical usage record in capture metadata.
 - The system shall emit structured warning logs for normalization failures with request and backend identifiers.
 - The system shall expose normalized usage metrics to existing logging and metrics pipelines without format changes.
 
@@ -124,3 +137,5 @@ This specification defines normalized usage accounting behaviors that eliminate 
 | Provider Extensions | Provider-specific usage metrics preserved alongside the canonical usage record. |
 | Unavailable Value | A usage field that cannot be derived from inputs and is represented as null in the canonical usage record. |
 | Incomplete Outcome | Indicator that a streaming request ended before normal completion, recorded with a completion outcome and reason. |
+| Protocol | Normalized identifier for the frontend API surface: openai, openai-responses, anthropic, gemini. |
+| RequestContext | Transport-agnostic context carrying request_id, session_id, and processing metadata for normalization. |

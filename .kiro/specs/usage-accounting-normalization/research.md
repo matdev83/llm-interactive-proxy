@@ -18,6 +18,7 @@
   - Usage normalization is duplicated across translators, response adapters, and services, creating drift risk.
   - Streaming usage is captured, but incomplete outcomes are not represented explicitly.
   - Canonical usage data is not consistently available to wire capture or structured logging.
+  - RequestContext lacks a protocol mapping and request_id can be absent outside Responses API paths.
 
 ## Research Log
 Document notable investigation steps and their outcomes. Group entries by topic for readability.
@@ -72,6 +73,35 @@ Document notable investigation steps and their outcomes. Group entries by topic 
   - Logging for usage failures lacks standardized context keys.
 - **Implications**: Add canonical usage to response metadata that wire capture can serialize; standardize warning context keys.
 
+### Request Identifier and Protocol Mapping
+- **Context**: Requirements mandate explicit request_id and protocol values in the canonical record.
+- **Sources Consulted**:
+  - `src/core/domain/request_context.py`
+  - `src/core/transport/fastapi/request_adapters.py`
+  - `src/core/app/controllers/chat_controller.py`
+  - `src/core/app/controllers/anthropic_controller.py`
+  - `src/core/app/controllers/responses_controller.py`
+  - `src/core/app/controllers/__init__.py` (Gemini endpoints)
+  - `src/core/interfaces/stream_session_id_resolver_interface.py`
+- **Findings**:
+  - RequestContext.request_id is optional and primarily set in ResponsesController.
+  - RequestContext.processing_context.values may carry request_id for structured output flows.
+  - No standardized protocol field exists in RequestContext; protocol must be set by controllers.
+- **Implications**: Normalize request_id using RequestContext.request_id then processing_context.values.request_id; controllers must populate RequestContext.extensions.protocol with openai, openai-responses, anthropic, or gemini.
+
+### Wire Capture Metadata Placement
+- **Context**: Requirement 5.6 requires canonical usage in captures without altering client payloads.
+- **Sources Consulted**:
+  - `src/core/domain/cbor_capture.py`
+  - `src/core/services/cbor_wire_capture_service.py`
+  - `src/core/services/buffered_wire_capture_service.py`
+  - `src/core/transport/fastapi/adapters/capture/wire_capture_coordinator.py`
+- **Findings**:
+  - CBOR capture metadata is fixed to a compact schema.
+  - Buffered capture supports custom metadata keys on entries.
+  - Wire capture receives payloads separate from response serialization only if adapters provide them.
+- **Implications**: Add canonical_usage to capture metadata (buffered capture) and extend CBOR metadata for canonical usage without changing client response payloads.
+
 ## Architecture Pattern Evaluation
 | Option | Description | Strengths | Risks / Limitations | Notes |
 |--------|-------------|-----------|---------------------|-------|
@@ -118,6 +148,24 @@ Document notable investigation steps and their outcomes. Group entries by topic 
   - Never catch bare `Exception`
   - Log with `exc_info=True`
 - **Selected Approach**: No new error types; log structured warnings and continue response flow.
+
+### Decision: Protocol Mapping Source
+- **Context**: Canonical usage requires explicit protocol values.
+- **Alternatives Considered**:
+  1. Infer protocol from request path in the normalization service.
+  2. Set protocol in controllers and propagate through RequestContext.
+- **Selected Approach**: Controllers set RequestContext.extensions.protocol for openai, openai-responses, anthropic, and gemini.
+- **Rationale**: Controller layer already knows the protocol surface and avoids fragile path inference.
+- **Trade-offs**: Requires controller updates for future protocols.
+
+### Decision: Wire Capture Canonical Usage Placement
+- **Context**: Wire capture must include canonical usage without altering client payloads.
+- **Alternatives Considered**:
+  1. Inject canonical usage into response payloads before capture.
+  2. Attach canonical usage as capture metadata only.
+- **Selected Approach**: Capture metadata only.
+- **Rationale**: Preserves public response shapes while enabling capture inspection.
+- **Trade-offs**: Requires metadata schema extension for CBOR capture.
 
 ## Testing Strategy Research
 

@@ -144,9 +144,8 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         # Check for both True and truthy values to handle edge cases where marker might be set to 1 or other truthy values
         retry_marker = extra_body.get("_tool_call_reactor_retry")
         if (
-            (retry_marker is True or (retry_marker is not False and bool(retry_marker)))
-            and current_retry_count == 0
-        ):
+            retry_marker is True or (retry_marker is not False and bool(retry_marker))
+        ) and current_retry_count == 0:
             return False
 
         # Allow retries as long as we're below the limit (not at or above)
