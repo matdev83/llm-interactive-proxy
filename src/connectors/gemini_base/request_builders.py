@@ -70,7 +70,7 @@ class StandardRequestBodyBuilder:
 class AntigravityRequestBodyBuilder:
     """Request body builder for Antigravity sandbox API.
 
-    Used by gemini-oauth-antigravity backend.
+    Used by antigravity-oauth backend.
     Produces request bodies with requestId, userAgent, and requestType fields.
     """
 

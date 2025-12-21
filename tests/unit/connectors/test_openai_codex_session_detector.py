@@ -14,7 +14,7 @@ from src.connectors._openai_codex_telemetry import get_telemetry, reset_telemetr
 @pytest.fixture(autouse=True)
 def reset_telemetry_state():
     """Reset telemetry singleton before and after each test for isolation.
-    
+
     Also disables telemetry to prevent DEBUG logging spam during tests.
     """
     reset_telemetry()
@@ -22,6 +22,7 @@ def reset_telemetry_state():
     telemetry.disable()
     yield
     reset_telemetry()
+
 
 class TestSessionDetectorMetadataDetection:
     """Test metadata-based detection."""

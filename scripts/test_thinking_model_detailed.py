@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Detailed test to verify gemini-2.5-flash-thinking model compatibility with gemini-oauth-antigravity.
+Detailed test to verify gemini-2.5-flash-thinking model compatibility with antigravity-oauth.
 
 This script checks:
 1. Whether gemini-2.5-flash-thinking is in the hardcoded model list
@@ -21,7 +21,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
@@ -35,7 +35,7 @@ async def test_thinking_model():
     client = httpx.AsyncClient(timeout=60.0)
 
     try:
-        backend = GeminiOAuthAntigravityConnector(
+        backend = AntigravityOAuthConnector(
             client=client, config=config, translation_service=translation_service
         )
 

@@ -29,7 +29,7 @@ from src.connectors.openai_codex import OpenAICodexConnector
 @pytest.fixture(autouse=True)
 def reset_telemetry_state():
     """Reset telemetry singleton before and after each test for isolation.
-    
+
     Also disables telemetry to prevent DEBUG logging spam during benchmarks.
     """
     reset_telemetry()

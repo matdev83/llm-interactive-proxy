@@ -151,7 +151,7 @@ class BackendInstanceFileSource:
             "qwen-oauth",
             "gemini-oauth-free",
             "gemini-oauth-plan",
-            "gemini-oauth-antigravity",
+            "antigravity-oauth",
             "gemini-cli-cloud-project",
             "anthropic-oauth",
         }
@@ -193,7 +193,7 @@ class BackendInstanceFileSource:
             "qwen-oauth",
             "gemini-oauth-free",
             "gemini-oauth-plan",
-            "gemini-oauth-antigravity",
+            "antigravity-oauth",
             "gemini-cli-cloud-project",
             "anthropic-oauth",
         }

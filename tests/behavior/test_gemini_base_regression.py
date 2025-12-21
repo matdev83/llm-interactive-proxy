@@ -35,7 +35,7 @@ class TestErrorPropagationInvariants:
         """Verify AuthenticationError preserves 401 status code for failover."""
         error = AuthenticationError(
             message="Token expired",
-            details={"backend": "gemini-oauth-antigravity"},
+            details={"backend": "antigravity-oauth"},
         )
         assert error.status_code == 401
 
@@ -43,11 +43,11 @@ class TestErrorPropagationInvariants:
         """Verify BackendError preserves backend name for routing."""
         error = BackendError(
             message="API error",
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             code="rate_limit",
             status_code=429,
         )
-        assert error.backend_name == "gemini-oauth-antigravity"
+        assert error.backend_name == "antigravity-oauth"
         assert error.code == "rate_limit"
         assert error.status_code == 429
 
@@ -92,7 +92,7 @@ class TestRateLimitHandling:
         """Verify 429 status code is preserved in errors."""
         error = BackendError(
             message="Rate limit exceeded",
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             code="rate_limit_exceeded",
             status_code=429,
         )
@@ -505,7 +505,7 @@ class TestCircuitBreakerCompatibility:
         """Verify BackendError has all fields circuit breaker needs."""
         error = BackendError(
             message="Service temporarily unavailable",
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             code="service_unavailable",
             status_code=503,
         )

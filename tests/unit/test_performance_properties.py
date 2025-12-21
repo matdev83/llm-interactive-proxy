@@ -22,8 +22,8 @@ from src.core.transport.fastapi.response_adapters import to_fastapi_streaming_re
 @pytest.fixture(autouse=True)
 def clean_memory_state():
     """Reset memory tracking state before each test.
-    
-    This prevents cross-test interference when running in parallel or sequentially 
+
+    This prevents cross-test interference when running in parallel or sequentially
     with other tests that may have left tracemalloc in an inconsistent state.
     """
     # Stop any existing tracemalloc session from previous tests

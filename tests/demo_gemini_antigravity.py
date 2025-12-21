@@ -7,7 +7,7 @@ import sys
 sys.path.append(os.getcwd())
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 async def run_demo():
     print("=" * 60)
-    print("REAL E2E DEMO: Gemini OAuth Antigravity Connector")
+    print("REAL E2E DEMO: Antigravity OAuth Connector")
     print("=" * 60)
 
     # 1. Initialize Real Components
@@ -28,8 +28,8 @@ async def run_demo():
 
     # Real Client
     async with httpx.AsyncClient(timeout=30.0) as client:
-        connector = GeminiOAuthAntigravityConnector(
-            client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            client, config, translation_service, name="antigravity-oauth"
         )
 
         # 2. Initialize (Loads real credentials from state.vscdb)
@@ -56,7 +56,7 @@ async def run_demo():
             messages=[
                 ChatMessage(
                     role="user",
-                    content="Hello! Please say 'Gemini Antigravity is working'.",
+                    content="Hello! Please say 'Antigravity OAuth is working'.",
                 )
             ],
             stream=False,

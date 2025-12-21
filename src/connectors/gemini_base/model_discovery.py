@@ -137,7 +137,7 @@ class ApiModelDiscovery:
 class FallbackModelDiscovery:
     """Model discovery strategy that returns a hardcoded model list.
 
-    Used by gemini-oauth-antigravity backend where the sandbox
+    Used by antigravity-oauth backend where the sandbox
     doesn't expose fetchAvailableModels endpoint.
     """
 

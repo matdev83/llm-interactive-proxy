@@ -1,5 +1,5 @@
 """
-Tests for Gemini OAuth Antigravity connector request format.
+Tests for Antigravity OAuth connector request format.
 
 These tests verify that the Antigravity connector sends requests in the correct
 format expected by the Antigravity sandbox API, including:
@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import (
+from src.connectors.antigravity_oauth import (
     ANTIGRAVITY_SANDBOX_ENDPOINT,
     ANTIGRAVITY_USER_AGENT,
-    GeminiOAuthAntigravityConnector,
+    AntigravityOAuthConnector,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -53,7 +53,7 @@ class TestAntigravityRequestBodyFormat:
     ) -> None:
         """Test that the request body contains all Antigravity-specific fields."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,
@@ -96,7 +96,7 @@ class TestAntigravityRequestBodyFormat:
     ) -> None:
         """Test that Antigravity uses 'requestId' instead of 'user_prompt_id'."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,
@@ -127,7 +127,7 @@ class TestAntigravityHeaders:
     ) -> None:
         """Test that session headers include Antigravity User-Agent."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,
@@ -143,7 +143,7 @@ class TestAntigravityHeaders:
     ) -> None:
         """Test that API headers include Antigravity User-Agent."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,
@@ -176,7 +176,7 @@ class TestAntigravityEndpoint:
     ) -> None:
         """Test that initialize passes the Antigravity sandbox endpoint to parent."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,
@@ -194,7 +194,7 @@ class TestAntigravityEndpoint:
 
             # Mock the parent initialize to capture kwargs
             with patch.object(
-                GeminiOAuthAntigravityConnector.__bases__[0],
+                AntigravityOAuthConnector.__bases__[0],
                 "initialize",
                 new_callable=AsyncMock,
             ) as mock_parent_init:
@@ -256,7 +256,7 @@ class TestAntigravityModelValidation:
     ) -> None:
         """Test that model prefixes are stripped correctly for validation."""
         client = MagicMock(spec=httpx.AsyncClient)
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation_service,

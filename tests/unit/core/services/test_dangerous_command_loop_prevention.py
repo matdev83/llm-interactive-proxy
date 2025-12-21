@@ -365,7 +365,9 @@ class TestDangerousCommandLoopPrevention:
                 ),
                 repeated_swallow_response,  # First retry still dangerous
                 repeated_swallow_response,  # Second retry still dangerous
-                ProcessedResponse(content="final raw", metadata={}),  # Third retry safe (or fallback)
+                ProcessedResponse(
+                    content="final raw", metadata={}
+                ),  # Third retry safe (or fallback)
             ]
         )
 

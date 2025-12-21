@@ -1,10 +1,10 @@
-"""Test script for gemini-oauth-antigravity connector with Claude model."""
+"""Test script for antigravity-oauth connector with Claude model."""
 
 import asyncio
 import logging
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
 
@@ -12,9 +12,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 async def run_demo():
-    """Demonstrate gemini-oauth-antigravity with Claude model."""
+    """Demonstrate antigravity-oauth with Claude model."""
     print("=" * 60)
-    print("REAL E2E DEMO: Gemini OAuth Antigravity Connector (Claude)")
+    print("REAL E2E DEMO: Antigravity OAuth Connector (Claude)")
     print("=" * 60)
 
     # Create connector
@@ -22,7 +22,7 @@ async def run_demo():
     translation_service = TranslationService()
     client = httpx.AsyncClient()
 
-    connector = GeminiOAuthAntigravityConnector(
+    connector = AntigravityOAuthConnector(
         client=client, config=config, translation_service=translation_service
     )
 

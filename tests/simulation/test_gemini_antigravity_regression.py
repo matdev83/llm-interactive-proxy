@@ -1,5 +1,5 @@
 """
-Regression test for gemini-oauth-antigravity backend issues.
+Regression test for antigravity-oauth backend issues.
 
 This test uses a captured CBOR wire capture session to verify the proxy's
 handling of:
@@ -63,8 +63,8 @@ def parse_sse_data(data: bytes) -> dict | None:
 
 
 @pytest.mark.skip(reason="Requires specific complex capture file")
-class TestGeminiAntigravityRegression:
-    """Test cases for gemini-oauth-antigravity backend issues."""
+class TestAntigravityOAuthRegression:
+    """Test cases for antigravity-oauth backend issues."""
 
     def test_capture_file_loads_successfully(self, capture_session):
         """Verify the capture file can be loaded and parsed."""

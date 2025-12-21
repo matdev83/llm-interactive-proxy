@@ -24,7 +24,7 @@ async def main():
 
     try:
         response = await client.chat.completions.create(
-            model="gemini-oauth-antigravity:google/gemini-3-pro-high",
+            model="antigravity-oauth:google/gemini-3-pro-high",
             messages=[
                 {
                     "role": "user",

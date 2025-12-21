@@ -19,9 +19,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import (
+from src.connectors.antigravity_oauth import (
     ANTIGRAVITY_AUTH_KEY,
-    GeminiOAuthAntigravityConnector,
+    AntigravityOAuthConnector,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -115,13 +115,13 @@ def require_antigravity(antigravity_available: bool) -> None:
 
 
 @pytest.fixture
-async def connector() -> AsyncIterator[GeminiOAuthAntigravityConnector]:
+async def connector() -> AsyncIterator[AntigravityOAuthConnector]:
     """Create and initialize a real Antigravity connector."""
     config = AppConfig()
     translation_service = TranslationService()
 
     async with httpx.AsyncClient() as client:
-        conn = GeminiOAuthAntigravityConnector(
+        conn = AntigravityOAuthConnector(
             client=client,
             config=config,
             translation_service=translation_service,
@@ -135,7 +135,7 @@ class TestAntigravityLiveNonStreaming:
 
     @pytest.mark.asyncio
     async def test_connector_initializes_with_real_credentials(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """Verify that the connector initializes successfully with real credentials."""
         assert connector.is_functional
@@ -144,7 +144,7 @@ class TestAntigravityLiveNonStreaming:
 
     @pytest.mark.asyncio
     async def test_non_streaming_simple_prompt(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """Test a simple non-streaming request to claude-sonnet-4-5."""
         request = ChatRequest(
@@ -183,7 +183,7 @@ class TestAntigravityLiveNonStreaming:
         reason="gemini-2.5-pro may return empty responses on Antigravity sandbox"
     )
     async def test_non_streaming_with_gemini_model(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """Test a simple non-streaming request to gemini-2.5-pro.
 
@@ -221,7 +221,7 @@ class TestAntigravityLiveStreaming:
 
     @pytest.mark.asyncio
     async def test_streaming_simple_prompt(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """Test a simple streaming request to claude-sonnet-4-5."""
         request = ChatRequest(
@@ -278,7 +278,7 @@ class TestAntigravityLiveStreaming:
         reason="gemini-2.5-pro may return empty responses on Antigravity sandbox"
     )
     async def test_streaming_with_gemini_model(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """Test a streaming request to gemini-2.5-pro.
 
@@ -331,7 +331,7 @@ class TestAntigravityLiveErrorHandling:
 
     @pytest.mark.asyncio
     async def test_quota_error_contains_reset_info(
-        self, require_antigravity: None, connector: GeminiOAuthAntigravityConnector
+        self, require_antigravity: None, connector: AntigravityOAuthConnector
     ) -> None:
         """
         If a quota error occurs, verify it contains reset information.

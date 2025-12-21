@@ -1,12 +1,12 @@
 """Integration tests for the Antigravity backend connector.
 
-These tests verify that the gemini-oauth-antigravity backend works correctly,
+These tests verify that the antigravity-oauth backend works correctly,
 including graceful degradation when quota is exhausted.
 """
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -31,7 +31,7 @@ def translation_service():
 async def connector(config, translation_service):
     """Create and initialize the Antigravity connector."""
     async with httpx.AsyncClient() as client:
-        conn = GeminiOAuthAntigravityConnector(
+        conn = AntigravityOAuthConnector(
             client=client,
             config=config,
             translation_service=translation_service,
@@ -55,15 +55,15 @@ class TestAntigravityBackendFunctionality:
         self, config, translation_service
     ):
         """Verify that the connector can be created with required parameters."""
-        from src.connectors.gemini_oauth_antigravity import ANTIGRAVITY_SANDBOX_ENDPOINT
+        from src.connectors.antigravity_oauth import ANTIGRAVITY_SANDBOX_ENDPOINT
 
         async with httpx.AsyncClient() as client:
-            conn = GeminiOAuthAntigravityConnector(
+            conn = AntigravityOAuthConnector(
                 client=client,
                 config=config,
                 translation_service=translation_service,
             )
-            assert conn.backend_type == "gemini-oauth-antigravity"
+            assert conn.backend_type == "antigravity-oauth"
             # Verify the module constant for the sandbox endpoint
             assert (
                 ANTIGRAVITY_SANDBOX_ENDPOINT

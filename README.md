@@ -125,7 +125,7 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 - **[ZenMux](docs/user_guide/backends/zenmux.md)** (Unified model aggregator)
 - **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend)
 - **[Hybrid](docs/user_guide/features/hybrid-backend.md)** (Virtual backend for two-phase reasoning)
-- **[Antigravity](docs/user_guide/backends/gemini-oauth-antigravity.md)** (Internal debugging backends for Gemini/Claude)
+- **[Antigravity](docs/user_guide/backends/antigravity-oauth.md)** (Internal debugging backends for Gemini/Claude)
 
 See [Backends Overview](docs/user_guide/backends/overview.md) for full details and configuration.
 

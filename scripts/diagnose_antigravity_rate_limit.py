@@ -18,7 +18,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.services.translation_service import TranslationService
@@ -52,7 +52,7 @@ async def diagnose():
         provider = services.build_service_provider()
         translation_service = provider.get_required_service(TranslationService)
 
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=config,
             translation_service=translation_service,

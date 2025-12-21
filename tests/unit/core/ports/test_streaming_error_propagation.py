@@ -97,7 +97,7 @@ class TestStreamingContentErrorChunks:
                 "id": "chatcmpl-error-789",
                 "model": "claude-sonnet-4-5",
                 "created": 1234567890,
-                "provider": "gemini-oauth-antigravity",
+                "provider": "antigravity-oauth",
             },
             is_done=True,
         )
@@ -110,7 +110,7 @@ class TestStreamingContentErrorChunks:
         assert chunk.metadata["error"]["details"]["retry_after"] == 60
         assert chunk.metadata["id"] == "chatcmpl-error-789"
         assert chunk.metadata["model"] == "claude-sonnet-4-5"
-        assert chunk.metadata["provider"] == "gemini-oauth-antigravity"
+        assert chunk.metadata["provider"] == "antigravity-oauth"
 
     def test_error_chunk_not_marked_empty(self) -> None:
         """Error chunks should not be marked as empty even with no content."""

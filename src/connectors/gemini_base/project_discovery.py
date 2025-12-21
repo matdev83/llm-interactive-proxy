@@ -359,7 +359,7 @@ class PaidTierProjectDiscovery:
 class AntigravityProjectDiscovery:
     """Project discovery strategy for Antigravity sandbox backend.
 
-    Used by gemini-oauth-antigravity backend.
+    Used by antigravity-oauth backend.
     """
 
     def __init__(self) -> None:

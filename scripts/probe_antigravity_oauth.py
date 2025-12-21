@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 """
-Temporary probe for the gemini-oauth-antigravity backend.
+Temporary probe for the antigravity-oauth backend.
 
-This script initializes the Antigravity-backed Gemini connector, sends a simple
+This script initializes the Antigravity OAuth connector, sends a simple
 prompt, and prints the response. It is intended for manual diagnostics; it will
 gracefully report missing credentials instead of crashing.
 
 Examples:
-    ./.venv/Scripts/python.exe scripts/probe_gemini_oauth_antigravity.py
-    ./.venv/Scripts/python.exe scripts/probe_gemini_oauth_antigravity.py \\
+    ./.venv/Scripts/python.exe scripts/probe_antigravity_oauth.py
+    ./.venv/Scripts/python.exe scripts/probe_antigravity_oauth.py \\
         --prompt "Say hello" --model gemini-2.5-flash
 """
 
@@ -26,9 +26,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import (
+from src.connectors.antigravity_oauth import (
     ANTIGRAVITY_SANDBOX_ENDPOINT,
-    GeminiOAuthAntigravityConnector,
+    AntigravityOAuthConnector,
 )
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -37,12 +37,12 @@ from src.core.interfaces.translation_service_interface import ITranslationServic
 from src.core.services.translation_service import TranslationService
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-logger = logging.getLogger("probe_gemini_oauth_antigravity")
+logger = logging.getLogger("probe_antigravity_oauth")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Probe the gemini-oauth-antigravity backend with a simple prompt."
+        description="Probe the antigravity-oauth backend with a simple prompt."
     )
     parser.add_argument(
         "--prompt",
@@ -87,11 +87,11 @@ async def run_probe(args: argparse.Namespace) -> int:
     translation_service = provider.get_required_service(ITranslationService)
 
     async with httpx.AsyncClient(timeout=args.timeout) as client:
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=config,
             translation_service=translation_service,
-            name="gemini-oauth-antigravity",
+            name="antigravity-oauth",
         )
 
         await connector.initialize(gemini_api_base_url=args.base_url)

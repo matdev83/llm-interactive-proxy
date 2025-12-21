@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.getcwd())
 
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -19,7 +19,7 @@ from src.core.transport.fastapi.response_adapters import to_fastapi_streaming_re
 
 
 async def main():
-    print("Starting verification of Gemini Antigravity fixes...")
+    print("Starting verification of Antigravity OAuth fixes...")
 
     # 1. Setup Dependencies
     config = AppConfig()
@@ -29,7 +29,7 @@ async def main():
     client = AsyncMock()
 
     # Instantiate Connector
-    connector = GeminiOAuthAntigravityConnector(
+    connector = AntigravityOAuthConnector(
         client=client, config=config, translation_service=translation_service
     )
 

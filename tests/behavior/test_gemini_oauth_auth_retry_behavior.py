@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
 from src.connectors.gemini_base.streaming_executor import StreamingExecutor
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
 
 
 def get_base_connector_source() -> str:
@@ -30,7 +30,7 @@ class TestAuthRetryBehavior:
     def test_401_triggers_silent_retry_for_client(self) -> None:
         """
         Scenario: OAuth token expires during streaming request
-        Given: A valid session using gemini-oauth-antigravity backend
+        Given: A valid session using antigravity-oauth backend
         When: Backend returns 401 due to expired token
         Then: Proxy should refresh token and retry without client awareness
         """
@@ -166,7 +166,7 @@ class TestAuthRetryIntegration:
         mock_translation = MagicMock()
 
         client = httpx.AsyncClient()
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
             translation_service=mock_translation,

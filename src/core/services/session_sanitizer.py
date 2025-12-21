@@ -29,7 +29,7 @@ class SessionSanitizer:
     """Sanitizes session data when backend changes require cleanup.
 
     When switching between incompatible Gemini backends (e.g., from
-    gemini-oauth-plan to gemini-oauth-antigravity), thought signatures
+    gemini-oauth-plan to antigravity-oauth), thought signatures
     in the session history become invalid and must be removed.
 
     This service:

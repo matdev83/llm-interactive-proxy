@@ -4,7 +4,7 @@ Demo script to verify the Gemini OAuth refactoring works correctly.
 
 Tests two backends:
 - gemini-oauth-plan:gemini-2.5-flash
-- gemini-oauth-antigravity:gemini-2.5-flash
+- antigravity-oauth:gemini-2.5-flash
 
 Usage:
     ./.venv/Scripts/python.exe scripts/demo_gemini_oauth_refactor.py
@@ -15,10 +15,10 @@ Prerequisites:
 
     - Required credentials:
         - ~/.gemini/oauth_creds.json (for gemini-oauth-plan)
-        - Antigravity app credentials (for gemini-oauth-antigravity)
+        - Antigravity app credentials (for antigravity-oauth)
 
 Note:
-    The gemini-oauth-antigravity backend uses the Antigravity sandbox endpoint
+    The antigravity-oauth backend uses the Antigravity sandbox endpoint
     (daily-cloudcode-pa.sandbox.googleapis.com) which may return empty responses
     for some models. This is a backend service limitation, not a code issue.
     If antigravity fails with empty responses but plan works, the refactoring
@@ -49,7 +49,7 @@ TEST_PROMPT = "What is 2 + 2? Answer with just the number."
 # Backends to test
 BACKENDS = [
     "gemini-oauth-plan:gemini-2.5-flash",
-    "gemini-oauth-antigravity:gemini-2.5-flash",
+    "antigravity-oauth:gemini-2.5-flash",
 ]
 
 

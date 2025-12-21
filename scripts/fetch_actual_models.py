@@ -17,7 +17,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.translation_service_interface import ITranslationService
@@ -36,7 +36,7 @@ async def fetch_models():
     client = httpx.AsyncClient(timeout=60.0)
 
     try:
-        backend = GeminiOAuthAntigravityConnector(
+        backend = AntigravityOAuthConnector(
             client=client, config=config, translation_service=translation_service
         )
 

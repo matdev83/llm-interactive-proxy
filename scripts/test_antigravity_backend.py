@@ -33,10 +33,10 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 async def test_antigravity_backend() -> None:
     """Test the Antigravity backend."""
-    from src.connectors.gemini_oauth_antigravity import (
+    from src.connectors.antigravity_oauth import (
         ANTIGRAVITY_SANDBOX_ENDPOINT,
         ANTIGRAVITY_USER_AGENT,
-        GeminiOAuthAntigravityConnector,
+        AntigravityOAuthConnector,
     )
     from src.core.config.app_config import AppConfig
     from src.core.services.translation_service import TranslationService
@@ -50,8 +50,8 @@ async def test_antigravity_backend() -> None:
     translation_service = TranslationService()
     client = httpx.AsyncClient()
 
-    connector = GeminiOAuthAntigravityConnector(
-        client, config, translation_service, name="gemini-oauth-antigravity"
+    connector = AntigravityOAuthConnector(
+        client, config, translation_service, name="antigravity-oauth"
     )
 
     print(f"\n[1] Sandbox endpoint: {ANTIGRAVITY_SANDBOX_ENDPOINT}")

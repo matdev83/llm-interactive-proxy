@@ -162,7 +162,7 @@ else:
     print("No plan request found!")
 
 print("\n" + "=" * 80)
-print("GEMINI-OAUTH-ANTIGRAVITY BACKEND")
+print("ANTIGRAVITY-OAUTH BACKEND")
 print("=" * 80)
 if antigravity_req_idx is not None:
     analyze_request("ANTIGRAVITY", antigravity_req_idx)

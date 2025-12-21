@@ -4,7 +4,7 @@ import httpx
 from src.connectors.anthropic_oauth_antigravity import (
     AnthropicOAuthAntigravityConnector,
 )
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
@@ -16,7 +16,7 @@ client = httpx.AsyncClient()
 config = AppConfig()
 translation_service = TranslationService()
 
-gemini_conn = GeminiOAuthAntigravityConnector(client, config, translation_service)
+gemini_conn = AntigravityOAuthConnector(client, config, translation_service)
 anthropic_conn = AnthropicOAuthAntigravityConnector(client, config, translation_service)
 
 # Test 1: Gemini connector should accept Gemini models

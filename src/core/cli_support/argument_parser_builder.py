@@ -601,7 +601,7 @@ class ArgumentParserBuilder:
             "--enable-antigravity-backend-debugging-override",
             action="store_true",
             default=False,
-            help="Enable the Gemini Antigravity backend connector for debugging. Reserved for internal development.",
+            help="Enable the Antigravity OAuth backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
             "--enable-gemini-oauth-free-backend-debugging-override",

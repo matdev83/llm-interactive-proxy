@@ -13,6 +13,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -379,6 +380,30 @@ class CredentialManager(ICredentialManager):
 
         return True, errors
 
+    def _robust_replace(
+        self, src: str, dst: str, retries: int = 5, delay: float = 0.1
+    ) -> None:
+        """Attempt to replace a file with retries to handle Windows file locking.
+
+        Args:
+            src: Source file path to rename from
+            dst: Destination file path to rename to
+            retries: Number of retry attempts
+            delay: Delay between retries in seconds
+
+        Raises:
+            PermissionError: If all retries fail
+        """
+        for i in range(retries):
+            try:
+                os.replace(src, dst)
+                return
+            except PermissionError:
+                if i < retries - 1:
+                    time.sleep(delay)
+                else:
+                    raise
+
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
     ) -> tuple[bool, list[str]]:
@@ -555,8 +580,8 @@ class CredentialManager(ICredentialManager):
                             f.write("\n")
                             f.flush()
                             os.fsync(f.fileno())  # Ensure written to disk
-                        # Atomic replacement (cross-platform)
-                        os.replace(temp_path, self._auth_path)
+                        # Atomic replacement (cross-platform) with retry for Windows
+                        self._robust_replace(temp_path, str(self._auth_path))
                     except Exception:
                         # Clean up temp file on error
                         with contextlib.suppress(Exception):

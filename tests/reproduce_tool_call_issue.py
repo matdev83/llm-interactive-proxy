@@ -5,7 +5,7 @@ from src.core.ports.streaming_contracts import StreamingContent
 
 
 def test_tool_call_preservation():
-    # Simulate Gemini Antigravity tool call chunk
+    # Simulate Antigravity OAuth tool call chunk
     content = {
         "id": "chatcmpl-test",
         "object": "chat.completion.chunk",

@@ -27,7 +27,7 @@
 | `zenmux` | A (API Key) | |
 | `gemini-oauth-free` | B (File) | Uses `FileCredentialProvider` |
 | `gemini-oauth-plan` | B (File) | Uses `FileCredentialProvider` |
-| `gemini-oauth-antigravity` | B (File) | Uses `AntigravitySQLiteCredentialProvider` |
+| `antigravity-oauth` | B (File) | Uses `AntigravitySQLiteCredentialProvider` |
 | `gemini-cli-cloud-project` | B (File) | Uses GCP service account or ADC |
 | `qwen-oauth` | B (File) | Uses `oauth_creds.json` |
 | `anthropic-oauth` | B (File) | Uses `oauth_creds.json` |

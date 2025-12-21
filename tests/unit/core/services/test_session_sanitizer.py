@@ -19,9 +19,7 @@ class TestBackendCompatibility:
     def test_same_backend_is_compatible(self) -> None:
         """Same backend should always be compatible."""
         assert are_backends_compatible("gemini-oauth-plan", "gemini-oauth-plan")
-        assert are_backends_compatible(
-            "gemini-oauth-antigravity", "gemini-oauth-antigravity"
-        )
+        assert are_backends_compatible("antigravity-oauth", "antigravity-oauth")
         assert are_backends_compatible("openai", "openai")
 
     def test_none_backend_is_compatible(self) -> None:
@@ -38,12 +36,8 @@ class TestBackendCompatibility:
 
     def test_different_groups_not_compatible(self) -> None:
         """Backends in different groups should NOT be compatible."""
-        assert not are_backends_compatible(
-            "gemini-oauth-plan", "gemini-oauth-antigravity"
-        )
-        assert not are_backends_compatible(
-            "gemini-oauth-antigravity", "gemini-oauth-plan"
-        )
+        assert not are_backends_compatible("gemini-oauth-plan", "antigravity-oauth")
+        assert not are_backends_compatible("antigravity-oauth", "gemini-oauth-plan")
 
     def test_non_gemini_backend_is_compatible(self) -> None:
         """Non-Gemini backends don't use signatures, so always compatible."""
@@ -57,12 +51,8 @@ class TestBackendCompatibility:
 
     def test_requires_signature_cleanup_different_groups(self) -> None:
         """Different Gemini groups require cleanup."""
-        assert requires_signature_cleanup(
-            "gemini-oauth-plan", "gemini-oauth-antigravity"
-        )
-        assert requires_signature_cleanup(
-            "gemini-oauth-antigravity", "gemini-oauth-free"
-        )
+        assert requires_signature_cleanup("gemini-oauth-plan", "antigravity-oauth")
+        assert requires_signature_cleanup("antigravity-oauth", "gemini-oauth-free")
 
     def test_requires_signature_cleanup_non_gemini(self) -> None:
         """Non-Gemini backends never require cleanup."""
@@ -73,7 +63,7 @@ class TestBackendCompatibility:
         """Test thought signature detection for backends."""
         assert uses_thought_signatures("gemini-oauth-plan")
         assert uses_thought_signatures("gemini-oauth-free")
-        assert uses_thought_signatures("gemini-oauth-antigravity")
+        assert uses_thought_signatures("antigravity-oauth")
         assert not uses_thought_signatures("openai")
         assert not uses_thought_signatures(None)
 
@@ -126,9 +116,7 @@ class TestSessionSanitizer:
     def test_should_sanitize_incompatible_backends(self) -> None:
         """Sanitization should be required for incompatible backends."""
         sanitizer = SessionSanitizer()
-        assert sanitizer.should_sanitize(
-            "gemini-oauth-plan", "gemini-oauth-antigravity"
-        )
+        assert sanitizer.should_sanitize("gemini-oauth-plan", "antigravity-oauth")
 
     def test_should_not_sanitize_compatible_backends(self) -> None:
         """Sanitization should NOT be required for compatible backends."""
@@ -229,7 +217,7 @@ class TestSessionSanitizer:
             messages=messages,
             session_id=session_id,
             previous_backend="gemini-oauth-plan",
-            new_backend="gemini-oauth-antigravity",
+            new_backend="antigravity-oauth",
         )
 
         assert was_sanitized is True
@@ -346,7 +334,7 @@ class TestMultiSwitchScenarios:
         assert was_sanitized2 is False
 
     def test_signatures_a_to_signatures_b_different_backends(self) -> None:
-        """Scenario: Gemini Plan -> Gemini Antigravity (must clear signatures)."""
+        """Scenario: Gemini Plan -> Antigravity OAuth (must clear signatures)."""
         manager = ThoughtSignatureManager()
         service = ThoughtSignatureService(manager=manager)
         sanitizer = SessionSanitizer(thought_signature_service=service)
@@ -383,7 +371,7 @@ class TestMultiSwitchScenarios:
             messages=messages,
             session_id=session_id,
             previous_backend="gemini-oauth-plan",
-            new_backend="gemini-oauth-antigravity",
+            new_backend="antigravity-oauth",
         )
 
         assert was_sanitized is True
@@ -428,7 +416,7 @@ class TestMultiSwitchScenarios:
             messages=messages_step1,
             session_id=session_id,
             previous_backend="gemini-oauth-plan",
-            new_backend="gemini-oauth-antigravity",
+            new_backend="antigravity-oauth",
         )
         assert was_sanitized2 is True
         assert f"{session_id}:call_plan_orig" not in manager._cache
@@ -457,7 +445,7 @@ class TestMultiSwitchScenarios:
         sanitized_step4, was_sanitized4 = sanitizer.sanitize_session(
             messages=messages_step3,
             session_id=session_id,
-            previous_backend="gemini-oauth-antigravity",
+            previous_backend="antigravity-oauth",
             new_backend="gemini-oauth-plan",
         )
 
@@ -472,7 +460,7 @@ class TestMultiSwitchScenarios:
                     assert tc.extra_content is None or "google" not in tc.extra_content
 
     def test_same_model_different_backends(self) -> None:
-        """Scenario: gemini-2.5-pro on Plan -> gemini-2.5-pro on Antigravity."""
+        """Scenario: gemini-2.5-pro on Plan -> gemini-2.5-pro on Antigravity OAuth."""
         manager = ThoughtSignatureManager()
         service = ThoughtSignatureService(manager=manager)
         sanitizer = SessionSanitizer(thought_signature_service=service)
@@ -500,7 +488,7 @@ class TestMultiSwitchScenarios:
             messages=messages,
             session_id=session_id,
             previous_backend="gemini-oauth-plan",  # Different backend
-            new_backend="gemini-oauth-antigravity",  # Same model could be used
+            new_backend="antigravity-oauth",  # Same model could be used
         )
 
         # Even with same model, different backends = incompatible

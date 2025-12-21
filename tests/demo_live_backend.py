@@ -2,7 +2,7 @@
 Demo script to test Gemini schema sanitization with live backend.
 
 This script:
-1. Initializes the GeminiOAuthAntigravityConnector
+1. Initializes the AntigravityOAuthConnector
 2. Sends a request with the problematic TodoWrite tool
 3. Verifies the request succeeds (proving the schema fix works)
 """
@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.getcwd())
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.translation_service import TranslationService
@@ -74,12 +74,12 @@ async def test_live_backend():
     print("=" * 80)
 
     # Step 1: Initialize connector
-    print("\n[1] Initializing GeminiOAuthAntigravityConnector...")
+    print("\n[1] Initializing AntigravityOAuthConnector...")
     client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=30.0))
     config = AppConfig()
     translation_service = TranslationService()
 
-    connector = GeminiOAuthAntigravityConnector(
+    connector = AntigravityOAuthConnector(
         client=client, config=config, translation_service=translation_service
     )
 

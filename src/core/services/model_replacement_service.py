@@ -81,6 +81,11 @@ class ModelReplacementService:
         # Metrics tracking for monitoring and analysis
         self._metrics = ReplacementMetrics()
 
+        # Performance optimization: Sample probability check debug logs to reduce
+        # hot-path overhead while still emitting visibility points.
+        self._probability_log_every_n = 1000
+        self._probability_log_counter = 0
+
         # Validate configuration with detailed error logging
         try:
             self._config.validate_config()
@@ -181,17 +186,24 @@ class ModelReplacementService:
         # Track probability check for metrics
         self._metrics.record_probability_check(session_id)
 
+        # Sample debug logging to avoid per-call overhead in hot paths.
+        self._probability_log_counter += 1
+
         # Performance optimization: Use cached probability value for faster comparison
         # Evaluate probability using efficient random number generation
         random_value = self._random_generator()
         should_activate = random_value < self._cached_probability
 
         # Log probability check for debugging and monitoring (Requirement 6.4)
-        logger.debug(
-            f"Replacement probability check for session {session_id}: "
-            f"random={random_value:.4f}, threshold={self._cached_probability:.4f}, "
-            f"activate={should_activate}"
-        )
+        if (
+            self._probability_log_counter == 1
+            or self._probability_log_counter % self._probability_log_every_n == 0
+        ):
+            logger.debug(
+                f"Replacement probability check for session {session_id}: "
+                f"random={random_value:.4f}, threshold={self._cached_probability:.4f}, "
+                f"activate={should_activate}"
+            )
 
         return should_activate
 

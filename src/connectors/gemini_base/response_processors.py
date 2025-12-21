@@ -70,7 +70,7 @@ class NoOpResponsePostProcessor:
 class XmlToolCallPostProcessor:
     """Response post-processor that parses XML tool calls.
 
-    Used by gemini-oauth-antigravity backend.
+    Used by antigravity-oauth backend.
     Claude models through Antigravity may return tool calls as XML text
     in the response content, which needs to be parsed and converted
     to proper tool_calls format.

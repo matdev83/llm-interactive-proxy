@@ -1,5 +1,5 @@
 """
-Tests for the Gemini OAuth Antigravity connector.
+Tests for the Antigravity OAuth connector.
 """
 
 import json
@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.mixins.antigravity_auth_mixin import (
     ANTIGRAVITY_AUTH_KEY,
     ANTIGRAVITY_SANDBOX_ENDPOINT,
@@ -26,14 +26,14 @@ def mock_client():
 
 @pytest.fixture
 def connector(mock_client):
-    """Create a GeminiOAuthAntigravityConnector instance."""
+    """Create a AntigravityOAuthConnector instance."""
     from src.core.config.app_config import AppConfig
     from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
     translation_service = TranslationService()
-    return GeminiOAuthAntigravityConnector(
-        mock_client, config, translation_service, name="gemini-oauth-antigravity"
+    return AntigravityOAuthConnector(
+        mock_client, config, translation_service, name="antigravity-oauth"
     )
 
 
@@ -53,8 +53,8 @@ def _write_state_db(db_path: Path, token: str, name: str) -> Path:
     return db_path
 
 
-class TestGeminiOAuthAntigravityConnector:
-    """Test cases for Antigravity-backed Gemini OAuth connector."""
+class TestAntigravityOAuthConnector:
+    """Test cases for Antigravity OAuth connector."""
 
     def test_candidate_paths_use_override(self, connector, monkeypatch, tmp_path):
         """Ensure explicit override takes precedence."""
@@ -311,11 +311,11 @@ class TestGeminiOAuthAntigravityConnector:
         session.request = Mock(side_effect=request_side_effect)
 
         monkeypatch.setattr(
-            "src.connectors.gemini_oauth_antigravity.asyncio.to_thread",
+            "src.connectors.antigravity_oauth.asyncio.to_thread",
             AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)),
         )
         monkeypatch.setattr(
-            "src.connectors.gemini_oauth_antigravity.asyncio.sleep", AsyncMock()
+            "src.connectors.antigravity_oauth.asyncio.sleep", AsyncMock()
         )
 
         project_id = await connector._discover_project_id(session)
@@ -348,7 +348,7 @@ class TestGeminiOAuthAntigravityConnector:
         )
 
         monkeypatch.setattr(
-            "src.connectors.gemini_oauth_antigravity.asyncio.to_thread",
+            "src.connectors.antigravity_oauth.asyncio.to_thread",
             AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)),
         )
 
@@ -448,8 +448,8 @@ class TestGeminiOAuthAntigravityConnector:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
         # Mock credential loading to succeed
@@ -470,8 +470,8 @@ class TestGeminiOAuthAntigravityConnector:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
 
@@ -488,8 +488,8 @@ class TestGeminiOAuthAntigravityConnector:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
         headers = connector._get_session_headers()
@@ -503,8 +503,8 @@ class TestGeminiOAuthAntigravityConnector:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
         # Create a mock request_data with an id
@@ -554,8 +554,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         # Pre-load some models for testing (simulating API-loaded models)
         connector.available_models = [
@@ -621,8 +621,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         # Models not loaded - should not raise
         connector.validate_model("any-model")
@@ -634,8 +634,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         # Set up models from hardcoded fallback (not from API)
         connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
@@ -654,8 +654,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         # Set up models as if loaded from API
         connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
@@ -693,8 +693,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector.available_models = ["model-a", "model-b"]
         connector._available_models_set = set()  # Empty cache
@@ -713,8 +713,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
@@ -754,8 +754,8 @@ class TestModelValidation:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
@@ -819,8 +819,8 @@ class TestGemini3ProModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        return GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        return AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
     def test_map_gemini_3_pro_default_to_high(self, connector):
@@ -982,8 +982,8 @@ class TestGemini3ProModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
@@ -1041,8 +1041,8 @@ class TestGemini3ProModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
@@ -1102,8 +1102,8 @@ class TestClaudeOpusModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        return GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        return AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
     def test_map_claude_opus_always_to_thinking(self, connector):
@@ -1173,8 +1173,8 @@ class TestClaudeSonnetModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        return GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        return AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
     def test_map_claude_sonnet_default_to_base(self, connector):
@@ -1296,8 +1296,8 @@ class TestGptOssModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        return GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        return AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
 
     def test_map_gpt_oss_always_to_medium(self, connector):
@@ -1358,8 +1358,8 @@ class TestGptOssModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
@@ -1420,8 +1420,8 @@ class TestGptOssModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
@@ -1482,8 +1482,8 @@ class TestGptOssModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)
@@ -1544,8 +1544,8 @@ class TestGptOssModelMapping:
 
         config = AppConfig()
         translation_service = TranslationService()
-        connector = GeminiOAuthAntigravityConnector(
-            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        connector = AntigravityOAuthConnector(
+            mock_client, config, translation_service, name="antigravity-oauth"
         )
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)

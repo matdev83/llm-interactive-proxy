@@ -356,7 +356,7 @@ class HybridOrchestrator:
         if spec.reasoning_backend in {
             "gemini-oauth-plan",
             "gemini-oauth-free",
-            "gemini-oauth-antigravity",
+            "antigravity-oauth",
         }:
             raise BackendError(
                 message=f"Backend '{spec.reasoning_backend}' does not support reasoning tags and cannot be used for the reasoning phase.",

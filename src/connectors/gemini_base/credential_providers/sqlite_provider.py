@@ -27,7 +27,7 @@ class AntigravitySQLiteCredentialProvider:
     """Credential provider that loads from Antigravity SQLite database.
 
     This provider implements the ICredentialProvider protocol and is used by
-    the gemini-oauth-antigravity backend.
+    the antigravity-oauth backend.
     """
 
     def __init__(self) -> None:

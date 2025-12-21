@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_oauth_base import GracefulDegradationConfig, ModelRetryState
 from src.core.common.exceptions import BackendError
 
@@ -35,10 +35,10 @@ def mock_translation_service() -> MagicMock:
 @pytest.fixture
 def connector(
     mock_config: MagicMock, mock_translation_service: MagicMock
-) -> GeminiOAuthAntigravityConnector:
-    """Create GeminiOAuthAntigravityConnector for testing."""
+) -> AntigravityOAuthConnector:
+    """Create AntigravityOAuthConnector for testing."""
     client = httpx.AsyncClient()
-    conn = GeminiOAuthAntigravityConnector(
+    conn = AntigravityOAuthConnector(
         client=client,
         config=mock_config,
         translation_service=mock_translation_service,
@@ -58,7 +58,7 @@ class TestCooldownLogic:
     """Tests for model cooldown management."""
 
     def test_model_not_in_cooldown_by_default(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Models should not be in cooldown by default."""
         assert not connector._is_in_cooldown("gemini-2.5-pro")
@@ -66,7 +66,7 @@ class TestCooldownLogic:
         assert not connector._is_in_cooldown("any-model")
 
     def test_set_cooldown_puts_model_in_cooldown(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """_set_cooldown should put a model in cooldown."""
         model = "gemini-2.5-pro"
@@ -78,7 +78,7 @@ class TestCooldownLogic:
         assert model in connector._graceful_degradation.model_retry_states
 
     def test_cooldown_state_per_model(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Cooldown state should be tracked per model, not globally."""
         model_a = "gemini-2.5-pro"
@@ -90,7 +90,7 @@ class TestCooldownLogic:
         assert not connector._is_in_cooldown(model_b)
 
     def test_cooldown_expires_after_duration(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Cooldown should expire after the configured duration."""
         model = "gemini-2.5-pro"
@@ -104,7 +104,7 @@ class TestCooldownLogic:
         assert not connector._is_in_cooldown(model)
 
     def test_multiple_models_can_be_in_cooldown(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Multiple models can be in cooldown simultaneously."""
         models = ["gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5"]
@@ -121,7 +121,7 @@ class TestRecoveryProbeGuards:
 
     @pytest.mark.asyncio
     async def test_recovery_probe_returns_true_for_model_not_in_cooldown(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Recovery probe should return True (recovered) for models not in cooldown."""
         model = "gemini-2.5-pro"
@@ -133,7 +133,7 @@ class TestRecoveryProbeGuards:
 
     @pytest.mark.asyncio
     async def test_recovery_probe_returns_true_for_model_with_no_state(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Recovery probe should return True for models with no retry state."""
         model = "unknown-model"
@@ -145,7 +145,7 @@ class TestRecoveryProbeGuards:
 
     @pytest.mark.asyncio
     async def test_recovery_probe_skipped_when_disabled(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Recovery probing should be skipped when disabled in config."""
         connector._graceful_degradation.config.enable_recovery_probing = False
@@ -158,7 +158,7 @@ class TestRecoveryProbeGuards:
 
     @pytest.mark.asyncio
     async def test_recovery_probe_respects_interval(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Recovery probe should respect the probe interval."""
         model = "gemini-2.5-pro"
@@ -176,7 +176,7 @@ class TestRecoveryProbeGuards:
 
     @pytest.mark.asyncio
     async def test_recovery_probe_bypass_interval_check(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Recovery probe should bypass interval check when flag is set."""
         model = "gemini-2.5-pro"
@@ -270,7 +270,7 @@ class TestRateLimitErrorDetection:
     """Tests for rate limit error detection."""
 
     def test_is_rate_limit_like_error_with_429(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Should detect 429 status code as rate limit error."""
         error = BackendError(
@@ -284,7 +284,7 @@ class TestRateLimitErrorDetection:
         assert result is True
 
     def test_is_rate_limit_like_error_with_empty_response_code(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Should detect empty_response code as rate limit-like error."""
         error = BackendError(
@@ -298,7 +298,7 @@ class TestRateLimitErrorDetection:
         assert result is True
 
     def test_is_rate_limit_like_error_with_500(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Should not detect 500 as rate limit error."""
         error = BackendError(
@@ -316,7 +316,7 @@ class TestBackendFunctionality:
     """Tests for backend functionality management."""
 
     def test_backend_functional_after_initialization(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Backend functional status is False before init, can be set to True."""
         # Before initialization, is_functional is False
@@ -326,7 +326,7 @@ class TestBackendFunctionality:
         assert connector.is_functional is True
 
     def test_mark_backend_unusable_for_quota(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Marking backend unusable for quota should set quota flag."""
         connector._mark_backend_unusable(reason="quota_exceeded")
@@ -336,7 +336,7 @@ class TestBackendFunctionality:
         # (the is_functional behavior depends on implementation)
 
     def test_quota_exceeded_does_not_permanently_fail_backend(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Quota exhaustion should not permanently fail the backend."""
         connector._mark_backend_unusable(reason="quota_exceeded")

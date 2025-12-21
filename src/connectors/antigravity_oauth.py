@@ -1,5 +1,5 @@
 """
-Gemini OAuth connector that reuses Antigravity app credentials.
+Antigravity OAuth connector that reuses Antigravity app credentials.
 
 This backend uses the Antigravity sandbox endpoint and reads credentials from
 the Antigravity VS Code style state database.
@@ -70,9 +70,9 @@ _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
 ).lower() not in {"0", "false", "no"}
 
 
-class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
+class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
     """
-    Connector for Gemini using OAuth credentials from the Antigravity app.
+    Connector for Antigravity OAuth credentials.
 
     This connector uses the Antigravity sandbox endpoint instead of the standard
     Code Assist API endpoint. The sandbox does not expose fetchAvailableModels,
@@ -82,7 +82,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
     independent evolution of Antigravity-specific behavior.
     """
 
-    backend_type: str = "gemini-oauth-antigravity"
+    backend_type: str = "antigravity-oauth"
 
     def __init__(
         self,
@@ -117,7 +117,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
         backends_config = getattr(self.config, "backends", None)
-        backend_config = getattr(backends_config, "gemini_oauth_antigravity", None)
+        backend_config = getattr(backends_config, "antigravity_oauth", None)
         extras = backend_config.extra if backend_config else {}
 
         current = self._enable_antigravity_backend_debugging_override
@@ -141,7 +141,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         except Exception as exc:
             # Never propagate init errors so other backends remain usable.
             logger.warning(
-                "Failed to initialize gemini-oauth-antigravity backend: %s",
+                "Failed to initialize antigravity-oauth backend: %s",
                 exc,
                 exc_info=True,
             )
@@ -1164,6 +1164,4 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthBaseConnector):
         return False
 
 
-backend_registry.register_backend(
-    "gemini-oauth-antigravity", GeminiOAuthAntigravityConnector
-)
+backend_registry.register_backend("antigravity-oauth", AntigravityOAuthConnector)

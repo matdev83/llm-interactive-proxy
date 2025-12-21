@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to check if gemini-2.5-flash-thinking model is available via gemini-oauth-antigravity backend.
+Test script to check if gemini-2.5-flash-thinking model is available via antigravity-oauth backend.
 
 This script:
 1. Initializes the Antigravity backend
@@ -26,7 +26,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
@@ -48,8 +48,8 @@ async def test_thinking_model_availability():
 
     try:
         # Initialize backend
-        logger.info("Initializing GeminiOAuthAntigravityConnector...")
-        backend = GeminiOAuthAntigravityConnector(
+        logger.info("Initializing AntigravityOAuthConnector...")
+        backend = AntigravityOAuthConnector(
             client=client, config=config, translation_service=translation_service
         )
 
@@ -114,12 +114,12 @@ async def main():
 
     if success:
         logger.info(
-            "\nResult: gemini-2.5-flash-thinking CAN be used with gemini-oauth-antigravity"
+            "\nResult: gemini-2.5-flash-thinking CAN be used with antigravity-oauth"
         )
         return 0
     else:
         logger.error(
-            "\nResult: gemini-2.5-flash-thinking CANNOT be used with gemini-oauth-antigravity"
+            "\nResult: gemini-2.5-flash-thinking CANNOT be used with antigravity-oauth"
         )
         return 1
 

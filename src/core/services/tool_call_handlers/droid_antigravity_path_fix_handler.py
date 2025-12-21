@@ -2,7 +2,7 @@
 Droid-Antigravity Path Fix Handler.
 
 Internal debugging handler that fixes relative path formatting in tool calls
-from Gemini Antigravity when used with the Droid agent.
+from Antigravity OAuth backend when used with the Droid agent.
 
 This handler automatically converts relative paths like 'src/file.py' to
 absolute Windows paths like '\\src\\file.py' to avoid round-trip errors.

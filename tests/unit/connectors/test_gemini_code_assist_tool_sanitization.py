@@ -4,7 +4,7 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 def test_sanitize_code_assist_tools_strips_custom_and_rebuilds_functions() -> None:
     canonical = CanonicalChatRequest(
-        model="gemini-oauth-antigravity",
+        model="antigravity-oauth",
         messages=[ChatMessage(role="user", content="hi")],
         tools=[
             {"type": "custom", "custom": {"input_schema": {"type": "object"}}},
@@ -54,7 +54,7 @@ def test_sanitize_code_assist_tools_strips_custom_and_rebuilds_functions() -> No
 def test_sanitize_code_assist_tools_drops_existing_custom_entries() -> None:
     """Custom tool entries from existing request should be removed."""
     canonical = CanonicalChatRequest(
-        model="gemini-oauth-antigravity",
+        model="antigravity-oauth",
         messages=[ChatMessage(role="user", content="hi")],
         tools=None,
     )
@@ -81,7 +81,7 @@ def test_sanitize_code_assist_tools_handles_direct_name_format() -> None:
     This is the format used by some agents like Droid/Factory CLI.
     """
     canonical = CanonicalChatRequest(
-        model="gemini-oauth-antigravity",
+        model="antigravity-oauth",
         messages=[ChatMessage(role="user", content="hi")],
         tools=[
             {
@@ -121,7 +121,7 @@ def test_sanitize_code_assist_tools_handles_anthropic_input_schema_format() -> N
     Anthropic uses input_schema instead of parameters.
     """
     canonical = CanonicalChatRequest(
-        model="gemini-oauth-antigravity",
+        model="antigravity-oauth",
         messages=[ChatMessage(role="user", content="hi")],
         tools=[
             {
@@ -158,7 +158,7 @@ def test_sanitize_code_assist_tools_handles_anthropic_input_schema_format() -> N
 def test_sanitize_code_assist_tools_handles_mixed_formats() -> None:
     """A mix of OpenAI, Anthropic, and direct formats should all be converted."""
     canonical = CanonicalChatRequest(
-        model="gemini-oauth-antigravity",
+        model="antigravity-oauth",
         messages=[ChatMessage(role="user", content="hi")],
         tools=[
             # OpenAI standard format

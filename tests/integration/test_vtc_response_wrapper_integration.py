@@ -77,7 +77,7 @@ class TestVTCResponseWrapperGeminiIntegration:
         """
         Test processing a realistic gemini_base stream with a tool call.
 
-        This simulates what KiloCode would see when using gemini-oauth-antigravity
+        This simulates what KiloCode would see when using antigravity-oauth
         backend with VTC enabled.
         """
         # Simulate a typical gemini_base response with tool call

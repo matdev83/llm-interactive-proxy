@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The current `gemini-oauth-antigravity` backend in `llm-interactive-proxy` is a **passive consumer** that relies on an external application (VS Code with the Antigravity extension) to perform authentication and maintain valid tokens.
+The current `antigravity-oauth` backend in `llm-interactive-proxy` is a **passive consumer** that relies on an external application (VS Code with the Antigravity extension) to perform authentication and maintain valid tokens.
 
 The `oh-my-opencode` project implements an **active OAuth client** that replicates the Antigravity authentication flow. It operates independently of VS Code, handling the full OAuth 2.0 PKCE lifecycle including initial authorization, token exchange, and automatic refreshing.
 
@@ -10,7 +10,7 @@ Porting this logic to `llm-interactive-proxy` is **highly feasible** and recomme
 
 ## Comparison
 
-| Feature | Current `gemini-oauth-antigravity` | `oh-my-opencode` Implementation |
+| Feature | Current `antigravity-oauth` | `oh-my-opencode` Implementation |
 | :--- | :--- | :--- |
 | **Dependency** | **High**: Requires VS Code + Antigravity extension running. | **None**: Standalone implementation. |
 | **Auth Flow** | **Passive**: Reads `state.vscdb` (SQLite) for existing tokens. | **Active**: Implements OAuth 2.0 PKCE flow. |
@@ -21,7 +21,7 @@ Porting this logic to `llm-interactive-proxy` is **highly feasible** and recomme
 ## Technical Deep Dive
 
 ### Current Implementation (`llm-interactive-proxy`)
-*   **File**: `src/connectors/gemini_oauth_antigravity.py`
+*   **File**: `src/connectors/antigravity_oauth.py`
 *   **Strategy**: `AntigravitySQLiteCredentialProvider` reads the `antigravityAuthStatus` key from `state.vscdb`.
 *   **Limitation**: It treats the token as a static bearer token. It has no access to the `client_secret` or logic to perform a refresh exchange.
 
@@ -40,7 +40,7 @@ Porting this logic to `llm-interactive-proxy` is **highly feasible** and recomme
 
 ## Proposed Architecture for `llm-interactive-proxy`
 
-We should implement a new backend flavor, likely named `gemini-oauth-antigravity-active`, or enhance the existing one with a new `CredentialProvider` strategy.
+We should implement a new backend flavor, likely named `antigravity-oauth-active`, or enhance the existing one with a new `CredentialProvider` strategy.
 
 ### 1. New Credential Provider: `AntigravityOAuthCredentialProvider`
 Instead of reading SQLite, this provider will:

@@ -4,7 +4,7 @@ Live end-to-end tests for key backends using real credentials and real network c
 These tests:
 - Discover a free OpenRouter model and run a chat completion through the proxy
 - Exercise the gemini-oauth-plan backend with the gemini-2.5-flash model
-- Exercise the gemini-oauth-antigravity backend with the gpt-oss-120b-medium model
+- Exercise the antigravity-oauth backend with the gpt-oss-120b-medium model
 
 Each test skips automatically if required credentials are missing or expired.
 """
@@ -28,7 +28,7 @@ import requests
 from google.genai import Client as GeminiClient
 from google.genai import types as genai_types
 from openai import OpenAI
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import _collect_api_keys
@@ -261,11 +261,9 @@ def _has_valid_plan_credentials() -> tuple[bool, str]:
 
 
 def _has_valid_antigravity_credentials() -> tuple[bool, str]:
-    """Check gemini-oauth-antigravity credentials and return (ok, reason)."""
+    """Check antigravity-oauth credentials and return (ok, reason)."""
     client = httpx.AsyncClient(timeout=10.0)
-    connector = GeminiOAuthAntigravityConnector(
-        client, AppConfig(), TranslationService()
-    )
+    connector = AntigravityOAuthConnector(client, AppConfig(), TranslationService())
     # Antigravity credentials live in a state DB, not oauth_creds.json
     return asyncio.run(_check_connector_credentials(connector, validate_file=False))
 
@@ -387,18 +385,18 @@ def test_gemini_oauth_plan_end_to_end() -> None:
 
 
 @pytest.mark.slow
-def test_gemini_oauth_antigravity_end_to_end() -> None:
-    """Full flow for gemini-oauth-antigravity using gpt-oss-120b-medium.
+def test_antigravity_oauth_end_to_end() -> None:
+    """Full flow for antigravity-oauth using gpt-oss-120b-medium.
 
     Note: This test depends on external services and may fail due to rate
     limiting, quota exhaustion, or service availability issues.
     """
     ok, reason = _has_valid_antigravity_credentials()
     if not ok:
-        pytest.skip(f"gemini-oauth-antigravity credentials unavailable: {reason}")
+        pytest.skip(f"antigravity-oauth credentials unavailable: {reason}")
 
     proc, port = _start_proxy(
-        "gemini-oauth-antigravity",
+        "antigravity-oauth",
         {
             "DISABLE_GEMINI_OAUTH_FALLBACK": "1",
         },
@@ -425,6 +423,6 @@ def test_gemini_oauth_antigravity_end_to_end() -> None:
                 "Antigravity backend returned empty response - "
                 "may be rate limited or service unavailable"
             )
-        assert text, "No text returned from gemini-oauth-antigravity via proxy"
+        assert text, "No text returned from antigravity-oauth via proxy"
     finally:
         _stop_proxy(proc)

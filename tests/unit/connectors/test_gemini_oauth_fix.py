@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import google.auth.exceptions
 import pytest
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -25,7 +25,7 @@ async def test_stream_generator_yields_dict_on_error():
         "error": {"message": "Not found", "code": 404},
     }
 
-    connector = GeminiOAuthAntigravityConnector(client, config, translation_service)
+    connector = AntigravityOAuthConnector(client, config, translation_service)
     connector.gemini_api_base_url = "https://example.com"
     connector._oauth_credentials = {"access_token": "fake"}
 
@@ -89,7 +89,7 @@ async def test_stream_generator_handles_google_auth_error():
         "error": {"message": "Auth failed", "code": 401},
     }
 
-    connector = GeminiOAuthAntigravityConnector(client, config, translation_service)
+    connector = AntigravityOAuthConnector(client, config, translation_service)
     connector.gemini_api_base_url = "https://example.com"
     connector._oauth_credentials = {"access_token": "fake"}
 
@@ -147,7 +147,7 @@ async def test_stream_generator_yields_usage_merged_with_stop():
 
     translation_service.to_domain_stream_chunk.side_effect = mock_to_domain
 
-    connector = GeminiOAuthAntigravityConnector(client, config, translation_service)
+    connector = AntigravityOAuthConnector(client, config, translation_service)
     connector.gemini_api_base_url = "https://example.com"
     connector._oauth_credentials = {"access_token": "fake_token"}
 

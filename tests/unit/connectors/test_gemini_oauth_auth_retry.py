@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
 from src.connectors.gemini_base.streaming_executor import StreamingExecutor
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
 
 
 @pytest.fixture
@@ -50,10 +50,10 @@ def mock_translation_service() -> MagicMock:
 @pytest.fixture
 def connector(
     mock_config: MagicMock, mock_translation_service: MagicMock
-) -> GeminiOAuthAntigravityConnector:
-    """Create GeminiOAuthAntigravityConnector for testing."""
+) -> AntigravityOAuthConnector:
+    """Create AntigravityOAuthConnector for testing."""
     client = httpx.AsyncClient()
-    conn = GeminiOAuthAntigravityConnector(
+    conn = AntigravityOAuthConnector(
         client=client,
         config=mock_config,
         translation_service=mock_translation_service,
@@ -187,21 +187,21 @@ class TestConnectorHasRequiredMethods:
     """Tests that connector has required methods for auth retry."""
 
     def test_connector_has_refresh_method(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Connector should have _refresh_token_if_needed method."""
         assert hasattr(connector, "_refresh_token_if_needed")
         assert callable(connector._refresh_token_if_needed)
 
     def test_connector_has_chat_completions_method(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Connector should have _chat_completions_code_assist method."""
         assert hasattr(connector, "_chat_completions_code_assist")
         assert callable(connector._chat_completions_code_assist)
 
     def test_connector_has_streaming_method(
-        self, connector: GeminiOAuthAntigravityConnector
+        self, connector: AntigravityOAuthConnector
     ) -> None:
         """Connector should have _chat_completions_code_assist_streaming method."""
         assert hasattr(connector, "_chat_completions_code_assist_streaming")

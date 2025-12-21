@@ -2,7 +2,7 @@
 Regression tests for bugs fixed during the Claude Code proxy debugging session (2025-12-10).
 
 This file documents and tests for specific bugs that were discovered when Claude Code
-(using Anthropic proxy front-end) connected to the proxy with gemini-oauth-antigravity
+(using Anthropic proxy front-end) connected to the proxy with antigravity-oauth
 and cline backends. These bugs caused Claude Code to stall or receive malformed responses.
 
 Bug Summary:
@@ -13,7 +13,7 @@ Bug Summary:
 
 All bugs were related to cross-API translation issues when:
 - Client: Claude Code (Anthropic-compatible frontend)
-- Backend: Various (cline, gemini-oauth-antigravity)
+- Backend: Various (cline, antigravity-oauth)
 - Mode: Non-streaming (stream=false)
 """
 
@@ -419,7 +419,7 @@ class TestBug4NoneFinishReasonWithToolCalls:
 
     Root Cause:
     -----------
-    Some backends (like Gemini via gemini-oauth-antigravity) return tool call responses
+    Some backends (like Gemini via antigravity-oauth) return tool call responses
     with `finish_reason: None` in the OpenAI format. The Anthropic converter was mapping
     this to `stop_reason: None` instead of `stop_reason: "tool_use"`.
 
@@ -441,13 +441,13 @@ class TestBug4NoneFinishReasonWithToolCalls:
         REGRESSION TEST: Tool call response with finish_reason=None must have stop_reason="tool_use".
 
         This was discovered when Claude Code stalled after receiving tool call responses
-        from gemini-oauth-antigravity backend.
+        from antigravity-oauth backend.
         """
         openai_response = {
             "id": "chatcmpl-tool-call",
             "object": "chat.completion",
             "created": 1765367614,
-            "model": "gemini-oauth-antigravity",
+            "model": "antigravity-oauth",
             "choices": [
                 {
                     "index": 0,

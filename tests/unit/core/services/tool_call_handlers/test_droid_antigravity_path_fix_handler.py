@@ -1,7 +1,7 @@
 """
 Unit tests for DroidAntigravityPathFixHandler.
 
-Tests the path fixing functionality for Droid + Gemini Antigravity sessions.
+Tests the path fixing functionality for Droid + Antigravity OAuth sessions.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class TestDroidAntigravityPathFixHandler:
         self,
         *,
         calling_agent: str = "Droid",
-        backend_name: str = "gemini-oauth-antigravity",
+        backend_name: str = "antigravity-oauth",
         model_name: str = "gemini-3-pro-high",
         tool_name: str = "Read",
         tool_arguments: dict | str | None = None,
@@ -72,7 +72,7 @@ class TestDroidAntigravityPathFixHandler:
         """Handler should match when agent is Droid, backend is Antigravity, and path is relative."""
         context = self._create_context(
             calling_agent="Droid",
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             tool_arguments={"file_path": "src/core/config/app_config.py"},
         )
         result = await enabled_handler.can_handle(context)
@@ -208,7 +208,7 @@ class TestDroidAntigravityPathFixHandler:
         rel_path = "src/core/config/app_config.py"
         context = self._create_context(
             calling_agent="Droid",
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             model_name="gemini-3-pro-high",
             tool_name="Read",
             tool_arguments={"file_path": rel_path},
@@ -237,7 +237,7 @@ class TestDroidAntigravityPathFixHandler:
         rel_path = "tests/unit/services/test_steering_leak_protection.py"
         context = self._create_context(
             calling_agent="factory-cli/0.35.0",  # Actual User-Agent from production
-            backend_name="gemini-oauth-antigravity",
+            backend_name="antigravity-oauth",
             model_name="gemini-3-pro-high",
             tool_name="Read",
             tool_arguments={"file_path": rel_path},

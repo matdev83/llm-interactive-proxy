@@ -1,5 +1,5 @@
 """
-Demo script to verify the gemini-oauth-antigravity backend works.
+Demo script to verify the antigravity-oauth backend works.
 
 This script initializes the connector and makes a real API call to demonstrate
 functionality.
@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import httpx
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -44,7 +44,7 @@ async def main() -> int:
     translation_service = provider.get_required_service(ITranslationService)
 
     async with httpx.AsyncClient() as client:
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             client=client,
             config=config,
             translation_service=translation_service,
@@ -129,7 +129,7 @@ async def main() -> int:
             if hasattr(response, "usage") and response.usage:
                 print(f"\nUsage: {response.usage}")
 
-            print("\n[SUCCESS] The gemini-oauth-antigravity backend is working!")
+            print("\n[SUCCESS] The antigravity-oauth backend is working!")
             return 0
 
         except Exception as e:

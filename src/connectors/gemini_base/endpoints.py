@@ -67,7 +67,7 @@ class StandardCodeAssistEndpoint:
 class AntigravitySandboxEndpoint:
     """Endpoint configuration for Antigravity sandbox API.
 
-    Used by gemini-oauth-antigravity backend.
+    Used by antigravity-oauth backend.
     """
 
     def __init__(self, base_url: str | None = None) -> None:

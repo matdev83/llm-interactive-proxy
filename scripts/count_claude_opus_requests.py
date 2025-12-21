@@ -39,7 +39,7 @@ def count_requests():
     log_files = glob.glob(logs_pattern)
 
     # Pattern to match the start of a request handling for this model
-    # Log example: Handling chat completion request: model=gemini-oauth-antigravity:anthropic/claude-opus-4-5-thinking
+    # Log example: Handling chat completion request: model=antigravity-oauth:anthropic/claude-opus-4-5-thinking
     log_regex = re.compile(
         rf"Handling chat completion request: model=.*{re.escape(model_pattern)}"
     )

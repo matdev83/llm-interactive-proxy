@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
+from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_oauth_base import (
     CODE_ASSIST_PROMPT_LIMIT_MARGIN,
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
@@ -136,7 +136,7 @@ class TestPromptLimitResolution:
         mock_translation_service: TranslationService,
     ) -> None:
         """Verify Antigravity connector also respects Claude 200K limit."""
-        connector = GeminiOAuthAntigravityConnector(
+        connector = AntigravityOAuthConnector(
             mock_client, mock_config, mock_translation_service
         )
 
@@ -146,7 +146,7 @@ class TestPromptLimitResolution:
     def test_normalize_model_key_strips_prefix(self) -> None:
         """Verify model normalization strips backend prefixes."""
         normalized = GeminiOAuthBaseConnector._normalize_model_key(
-            "gemini-oauth-antigravity:claude-sonnet-4-5"
+            "antigravity-oauth:claude-sonnet-4-5"
         )
         assert normalized == "claude-sonnet-4-5"
 

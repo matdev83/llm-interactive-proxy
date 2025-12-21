@@ -24,4 +24,3 @@ def _configure_logging_for_property_tests() -> None:
     logging behavior (via mock loggers) to function correctly.
     """
     configure_logging_with_environment_tagging(level=logging.INFO)
-

@@ -251,13 +251,13 @@ class TestBackendRegistrationContinuity:
             len(gemini_backends) > 0
         ), "At least one Gemini backend should be registered"
 
-    def test_gemini_oauth_antigravity_backend_exists(self) -> None:
-        """Verify GeminiOAuthAntigravity backend class exists."""
-        from src.connectors.gemini_oauth_antigravity import (
-            GeminiOAuthAntigravityConnector,
+    def test_antigravity_oauth_backend_exists(self) -> None:
+        """Verify AntigravityOAuth backend class exists."""
+        from src.connectors.antigravity_oauth import (
+            AntigravityOAuthConnector,
         )
 
-        assert GeminiOAuthAntigravityConnector is not None
+        assert AntigravityOAuthConnector is not None
 
     def test_gemini_oauth_plan_backend_exists(self) -> None:
         """Verify GeminiOAuthPlan backend class exists."""

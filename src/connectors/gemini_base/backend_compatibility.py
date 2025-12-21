@@ -18,9 +18,9 @@ _GEMINI_OAUTH_PERSONAL_GROUP: frozenset[str] = frozenset(
     }
 )
 
-_GEMINI_OAUTH_ANTIGRAVITY_GROUP: frozenset[str] = frozenset(
+_ANTIGRAVITY_OAUTH_GROUP: frozenset[str] = frozenset(
     {
-        "gemini-oauth-antigravity",
+        "antigravity-oauth",
     }
 )
 
@@ -34,7 +34,7 @@ _GEMINI_CLOUD_GROUP: frozenset[str] = frozenset(
 # All groups of Gemini backends that use thought signatures
 _GEMINI_SIGNATURE_GROUPS: list[frozenset[str]] = [
     _GEMINI_OAUTH_PERSONAL_GROUP,
-    _GEMINI_OAUTH_ANTIGRAVITY_GROUP,
+    _ANTIGRAVITY_OAUTH_GROUP,
     _GEMINI_CLOUD_GROUP,
 ]
 
