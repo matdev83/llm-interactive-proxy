@@ -168,6 +168,15 @@ class CodebuffWebSocketServer:
 
         finally:
             # Clean up connection
+            # Always attempt to close websocket if it was accepted, even if session_id is None
+            # This prevents resource leaks when exceptions occur before identify completes
+            with contextlib.suppress(Exception):
+                # Try to close websocket - it may already be closed, which is fine
+                # Websocket may already be closed or in an invalid state - this is expected
+                # and safe to ignore
+                await websocket.close(code=1000, reason="Connection cleanup")
+
+            # Disconnect from connection manager if session was registered
             if session_id is not None:
                 try:
                     self._connection_manager.disconnect(websocket)

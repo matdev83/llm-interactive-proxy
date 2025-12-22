@@ -1,0 +1,76 @@
+"""Regression test for StreamingContextRegistry max limit enforcement fix.
+
+This test verifies that StreamingContextRegistry properly enforces the
+_MAX_STREAM_STATES limit to prevent unbounded memory growth even when
+streams are never accessed again.
+"""
+
+import pytest
+
+from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
+
+
+class TestStreamContextRegistryMaxLimitRegression:
+    """Regression tests for StreamingContextRegistry max limit enforcement fix."""
+
+    def test_max_limit_enforced_when_exceeding_limit(self) -> None:
+        """Test that max limit prevents unbounded growth when creating many streams."""
+        registry = StreamingContextRegistry(state_ttl_seconds=300)
+        max_limit = registry._MAX_STREAM_STATES
+
+        # Create more streams than the limit
+        num_streams = max_limit + 100
+        for i in range(num_streams):
+            stream_id = f"stream_{i}"
+            registry.get_content_state(stream_id)
+
+            # States size should never exceed max limit
+            states_size = len(registry._states)
+            assert states_size <= max_limit, (
+                f"States size ({states_size}) exceeded max limit ({max_limit}) "
+                f"after creating {i+1} streams. Max limit enforcement is not working."
+            )
+
+        # Final size should be at or below max limit
+        final_size = len(registry._states)
+        assert final_size <= max_limit, (
+            f"Final states size ({final_size}) exceeds max limit ({max_limit}). "
+            "Max limit enforcement failed."
+        )
+
+    def test_max_limit_enforced_with_orphaned_streams(self) -> None:
+        """Test that max limit is enforced even when streams are never accessed again."""
+        registry = StreamingContextRegistry(state_ttl_seconds=300)
+        max_limit = registry._MAX_STREAM_STATES
+
+        # Create many streams that will never be accessed again
+        num_streams = max_limit + 50
+        for i in range(num_streams):
+            stream_id = f"orphan_stream_{i}"
+            registry.get_content_state(stream_id)
+
+            # States size should never exceed max limit
+            states_size = len(registry._states)
+            assert states_size <= max_limit, (
+                f"States size ({states_size}) exceeded max limit ({max_limit}) "
+                f"after creating orphaned stream {i+1}. Max limit enforcement failed."
+            )
+
+        # Final size should be at or below max limit
+        final_size = len(registry._states)
+        assert final_size <= max_limit, (
+            f"Final states size ({final_size}) exceeds max limit ({max_limit}) "
+            "for orphaned streams. Max limit enforcement failed."
+        )
+
+    def test_max_limit_constant_value(self) -> None:
+        """Test that _MAX_STREAM_STATES constant has expected value."""
+        registry = StreamingContextRegistry()
+        max_limit = registry._MAX_STREAM_STATES
+
+        # Verify constant is defined and has reasonable value
+        assert max_limit == 10000, (
+            f"_MAX_STREAM_STATES ({max_limit}) should be 10000. "
+            "Constant value may have changed."
+        )
+        assert max_limit > 0, "_MAX_STREAM_STATES should be positive"

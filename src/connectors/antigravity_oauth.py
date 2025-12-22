@@ -65,6 +65,9 @@ ANTIGRAVITY_STATE_DB_ENV = "ANTIGRAVITY_STATE_DB"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.5 windows/amd64"
 GLOBAL_STORAGE_SUBPATH = Path("Antigravity") / "User" / "globalStorage"
 
+# Maximum JSON parse size to prevent DoS attacks (10MB)
+MAX_JSON_PARSE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+
 # Enable internal/debug-only backends automatically when running under tests.
 _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
     "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
@@ -276,29 +279,37 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
             if match:
                 tool_json = match.group(1)
-                try:
-                    tools_data = json.loads(tool_json)
-                    if isinstance(tools_data, list):
-                        for tool_data in tools_data:
-                            if tool_data.get("type") == "tool_use":
-                                tool_calls.append(
-                                    ToolCall(
-                                        id=tool_data.get("id", ""),
-                                        type="function",
-                                        function=FunctionCall(
-                                            name=tool_data.get("name", ""),
-                                            arguments=json.dumps(
-                                                tool_data.get("input", {})
+                # DoS protection: Check size before parsing
+                if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
+                    logger.warning(
+                        "Tool JSON payload too large: %d bytes (limit: %d bytes), skipping parsing",
+                        len(tool_json.encode("utf-8")),
+                        MAX_JSON_PARSE_SIZE,
+                    )
+                else:
+                    try:
+                        tools_data = json.loads(tool_json)
+                        if isinstance(tools_data, list):
+                            for tool_data in tools_data:
+                                if tool_data.get("type") == "tool_use":
+                                    tool_calls.append(
+                                        ToolCall(
+                                            id=tool_data.get("id", ""),
+                                            type="function",
+                                            function=FunctionCall(
+                                                name=tool_data.get("name", ""),
+                                                arguments=json.dumps(
+                                                    tool_data.get("input", {})
+                                                ),
                                             ),
-                                        ),
+                                        )
                                     )
-                                )
 
-                    # Remove the <Tool> block from content
-                    content = content.replace(match.group(0), "").strip()
+                        # Remove the <Tool> block from content
+                        content = content.replace(match.group(0), "").strip()
 
-                except Exception as e:
-                    logger.warning(f"Failed to parse XML tool call: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse XML tool call: {e}")
 
             if tool_calls:
                 # Construct CanonicalChatResponse
@@ -376,31 +387,41 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     match = re.search(tool_pattern, content_buffer, re.DOTALL)
                     if match:
                         tool_json = match.group(1)
-                        try:
-                            tools_data = json.loads(tool_json)
-                            if isinstance(tools_data, list):
-                                for tool_data in tools_data:
-                                    if tool_data.get("type") == "tool_use":
-                                        tool_calls.append(
-                                            {
-                                                "id": tool_data.get("id", ""),
-                                                "type": "function",
-                                                "function": {
-                                                    "name": tool_data.get("name", ""),
-                                                    "arguments": json.dumps(
-                                                        tool_data.get("input", {})
-                                                    ),
-                                                },
-                                            }
-                                        )
-                            # Remove XML from content
-                            content_buffer = content_buffer.replace(
-                                match.group(0), ""
-                            ).strip()
-                        except Exception as e:
+                        # DoS protection: Check size before parsing
+                        if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
                             logger.warning(
-                                f"Failed to parse XML tool call in stream: {e}"
+                                "Tool JSON payload too large in stream: %d bytes (limit: %d bytes), skipping parsing",
+                                len(tool_json.encode("utf-8")),
+                                MAX_JSON_PARSE_SIZE,
                             )
+                        else:
+                            try:
+                                tools_data = json.loads(tool_json)
+                                if isinstance(tools_data, list):
+                                    for tool_data in tools_data:
+                                        if tool_data.get("type") == "tool_use":
+                                            tool_calls.append(
+                                                {
+                                                    "id": tool_data.get("id", ""),
+                                                    "type": "function",
+                                                    "function": {
+                                                        "name": tool_data.get(
+                                                            "name", ""
+                                                        ),
+                                                        "arguments": json.dumps(
+                                                            tool_data.get("input", {})
+                                                        ),
+                                                    },
+                                                }
+                                            )
+                                # Remove XML from content
+                                content_buffer = content_buffer.replace(
+                                    match.group(0), ""
+                                ).strip()
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to parse XML tool call in stream: {e}"
+                                )
 
                 if tool_calls:
                     # Yield tool call chunks
@@ -1054,6 +1075,15 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 logger.debug("Auth status value is empty.")
                 return None
 
+            # DoS protection: Check size before parsing
+            if len(raw_value_str.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
+                logger.warning(
+                    "Auth status JSON payload too large: %d bytes (limit: %d bytes)",
+                    len(raw_value_str.encode("utf-8")),
+                    MAX_JSON_PARSE_SIZE,
+                )
+                return None
+
             auth_data = json.loads(raw_value_str)
 
             if auth_data is None:
@@ -1225,6 +1255,14 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             except Exception:
                 # Suppress errors during cleanup
                 pass
+
+    async def shutdown(self) -> None:
+        """Shutdown the connector and clean up resources.
+
+        This method is called by BackendLifecycleManager during backend shutdown
+        to ensure proper cleanup of custom HTTP clients.
+        """
+        await self._cleanup_custom_client()
 
     def __del__(self):
         """Cleanup HTTP client on destruction."""

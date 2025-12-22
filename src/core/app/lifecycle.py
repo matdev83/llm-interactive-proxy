@@ -316,29 +316,27 @@ class AppLifecycle:
         """Stop End-of-Session event subscribers.
 
         Stops all EoS subscribers that were started during application startup.
+        Ensures all subscribers are attempted even if some fail, preventing resource leaks.
         """
         provider = getattr(self.app.state, "service_provider", None)
         if not provider:
             return
 
-        # Stop ProxyMemEosSubscriber
+        # Collect all subscribers first to ensure we attempt to stop all of them
+        # even if one fails partway through
+        subscribers_to_stop: list[tuple[str, Any]] = []
+
+        # Collect ProxyMemEosSubscriber
         try:
             from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
 
             subscriber = provider.get_service(ProxyMemEosSubscriber)
             if subscriber:
-                await subscriber.stop()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("ProxyMemEosSubscriber stopped")
+                subscribers_to_stop.append(("ProxyMemEosSubscriber", subscriber))
         except ImportError:
             pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop ProxyMemEosSubscriber: {e}", exc_info=True
-                )
 
-        # Stop UsageTrackingEosSubscriber
+        # Collect UsageTrackingEosSubscriber
         try:
             from src.core.services.usage_tracking_eos_subscriber import (
                 UsageTrackingEosSubscriber,
@@ -346,18 +344,11 @@ class AppLifecycle:
 
             subscriber = provider.get_service(UsageTrackingEosSubscriber)
             if subscriber:
-                await subscriber.stop()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("UsageTrackingEosSubscriber stopped")
+                subscribers_to_stop.append(("UsageTrackingEosSubscriber", subscriber))
         except ImportError:
             pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop UsageTrackingEosSubscriber: {e}", exc_info=True
-                )
 
-        # Stop WireCaptureEosSubscriber
+        # Collect WireCaptureEosSubscriber
         try:
             from src.core.services.wire_capture_eos_subscriber import (
                 WireCaptureEosSubscriber,
@@ -365,50 +356,35 @@ class AppLifecycle:
 
             subscriber = provider.get_service(WireCaptureEosSubscriber)
             if subscriber:
-                await subscriber.stop()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("WireCaptureEosSubscriber stopped")
+                subscribers_to_stop.append(("WireCaptureEosSubscriber", subscriber))
         except ImportError:
             pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop WireCaptureEosSubscriber: {e}", exc_info=True
-                )
 
-        # Stop TestExecutionReminderEosSubscriber
+        # Collect TestExecutionReminderEosSubscriber
         try:
             from src.services.test_execution_reminder.eos_subscriber import (
                 TestExecutionReminderEosSubscriber,
             )
 
-            # Try to get the subscriber from provider (stored in provider_lifecycle)
             subscriber = getattr(
                 provider, "_test_execution_reminder_eos_subscriber", None
             )
             if subscriber and isinstance(
                 subscriber, TestExecutionReminderEosSubscriber
             ):
-                await subscriber.stop()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("TestExecutionReminderEosSubscriber stopped")
+                subscribers_to_stop.append(
+                    ("TestExecutionReminderEosSubscriber", subscriber)
+                )
             else:
-                # Fallback: try to get from DI if registered as service
                 subscriber = provider.get_service(TestExecutionReminderEosSubscriber)
                 if subscriber:
-                    await subscriber.stop()
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info("TestExecutionReminderEosSubscriber stopped")
+                    subscribers_to_stop.append(
+                        ("TestExecutionReminderEosSubscriber", subscriber)
+                    )
         except ImportError:
             pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop TestExecutionReminderEosSubscriber: {e}",
-                    exc_info=True,
-                )
 
-        # Stop SessionCancellationCleanupEosSubscriber
+        # Collect SessionCancellationCleanupEosSubscriber
         try:
             from src.core.services.session_cancellation_cleanup_eos_subscriber import (
                 SessionCancellationCleanupEosSubscriber,
@@ -416,19 +392,13 @@ class AppLifecycle:
 
             subscriber = provider.get_service(SessionCancellationCleanupEosSubscriber)
             if subscriber:
-                await subscriber.stop()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("SessionCancellationCleanupEosSubscriber stopped")
+                subscribers_to_stop.append(
+                    ("SessionCancellationCleanupEosSubscriber", subscriber)
+                )
         except ImportError:
             pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop SessionCancellationCleanupEosSubscriber: {e}",
-                    exc_info=True,
-                )
 
-        # Stop ModelReplacementEosSubscriber
+        # Collect ModelReplacementEosSubscriber
         try:
             from src.core.services.model_replacement_eos_subscriber import (
                 ModelReplacementEosSubscriber,
@@ -436,18 +406,47 @@ class AppLifecycle:
 
             subscriber = provider.get_service(ModelReplacementEosSubscriber)
             if subscriber:
+                subscribers_to_stop.append(
+                    ("ModelReplacementEosSubscriber", subscriber)
+                )
+        except ImportError:
+            pass
+
+        # Now stop all subscribers, ensuring each is attempted even if others fail
+        for subscriber_name, subscriber in subscribers_to_stop:
+            try:
                 await subscriber.stop()
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("ModelReplacementEosSubscriber stopped")
-        except ImportError:
-            # ModelReplacementEosSubscriber not available
-            pass
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to stop ModelReplacementEosSubscriber: {e}",
-                    exc_info=True,
-                )
+                    logger.info(f"{subscriber_name} stopped")
+            except Exception as e:
+                # Log error but continue to stop remaining subscribers
+                # This prevents resource leaks if one subscriber fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to stop {subscriber_name}: {e}", exc_info=True
+                    )
+                # Attempt direct unsubscribe as fallback if stop() failed
+                try:
+                    from src.core.domain.events.end_of_session_events import (
+                        RemoteBackendConnectionEndOfSessionEvent,
+                    )
+                    from src.core.interfaces.event_bus_interface import IEventBus
+
+                    event_bus = provider.get_service(IEventBus)
+                    if event_bus and hasattr(subscriber, "_handle_eos_event"):
+                        event_bus.unsubscribe(
+                            RemoteBackendConnectionEndOfSessionEvent,
+                            subscriber._handle_eos_event,
+                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Fallback unsubscribe succeeded for {subscriber_name}"
+                            )
+                except Exception as fallback_error:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Fallback unsubscribe failed for {subscriber_name}: {fallback_error}"
+                        )
 
     async def _stop_memory_services(self) -> None:
         """Stop ProxyMem services."""
@@ -646,10 +645,100 @@ class AppLifecycle:
         # Shutdown health check services
         await self._shutdown_health_checks(provider)
 
+        # Shutdown all cached backends to prevent subprocess leaks
+        # This ensures backends like GeminiCliAcpConnector clean up their subprocesses
+        await self._shutdown_all_backends(provider)
+
         # Get wire capture service and shut it down
         wire_capture_service = provider.get_service(IWireCapture)
         if wire_capture_service and hasattr(wire_capture_service, "shutdown"):
             await wire_capture_service.shutdown()
+
+    async def _shutdown_all_backends(self, provider: Any) -> None:
+        """Shutdown all cached backends to prevent resource leaks.
+
+        This method ensures that all backends (including those with subprocesses
+        like GeminiCliAcpConnector) are properly shut down during app shutdown,
+        preventing subprocess leaks.
+
+        Args:
+            provider: The service provider.
+        """
+        try:
+            from typing import cast
+
+            from src.core.interfaces.backend_lifecycle_manager_interface import (
+                IBackendLifecycleManager,
+            )
+
+            lifecycle_manager = provider.get_service(
+                cast(type, IBackendLifecycleManager)
+            )
+            if not lifecycle_manager:
+                return
+
+            # Get all active backends
+            active_backends = lifecycle_manager.get_active_backends()
+            if not active_backends:
+                return
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Shutting down {len(active_backends)} cached backend(s)..."
+                )
+
+            # Shutdown each backend
+            shutdown_tasks = []
+            for cache_key, backend in active_backends.items():
+                try:
+                    shutdown_method = getattr(backend, "shutdown", None)
+                    if shutdown_method:
+                        if asyncio.iscoroutinefunction(shutdown_method):
+                            shutdown_tasks.append(
+                                (
+                                    cache_key,
+                                    asyncio.create_task(shutdown_method()),
+                                )
+                            )
+                        else:
+                            # Synchronous shutdown
+                            shutdown_method()
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"Shut down backend: {cache_key}")
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Error shutting down backend {cache_key}: {e}",
+                            exc_info=True,
+                        )
+
+            # Wait for all async shutdowns to complete
+            if shutdown_tasks:
+                results = await asyncio.gather(
+                    *[task for _, task in shutdown_tasks],
+                    return_exceptions=True,
+                )
+                for (cache_key, _), result in zip(
+                    shutdown_tasks, results, strict=False
+                ):
+                    if isinstance(result, Exception):
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Error shutting down backend {cache_key}: {result}",
+                                exc_info=True,
+                            )
+                    elif logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Shut down backend: {cache_key}")
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("All cached backends shut down")
+
+        except ImportError:
+            # Backend lifecycle manager not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Error shutting down backends: {e}", exc_info=True)
 
     async def _shutdown_health_checks(self, provider: Any) -> None:
         """Shutdown health check services.

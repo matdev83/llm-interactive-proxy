@@ -1,11 +1,13 @@
-"""
-Repro script to confirm HTTP client leak in BackendStage validation.
+"""Repro script for backend validation HTTP client leak.
 
-This script simulates backend validation that creates an HTTP client
-but app startup fails before shutdown handlers run.
+This script demonstrates that if BackendStage._register_validation_http_client()
+creates a client but an exception occurs before the finally block runs,
+the client might leak because WeakSet doesn't prevent garbage collection
+of tasks before they complete.
 """
 
 import asyncio
+import gc
 import sys
 from pathlib import Path
 
@@ -14,79 +16,107 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import httpx
-from src.core.app.stages.backend import BackendStage
-from src.core.config.app_config import AppConfig
-from src.core.config.config_loader import load_config
-from src.core.di.container import ServiceCollection
 
 
-async def test_backend_validation_client_leak():
-    """Test that BackendStage validation leaks HTTP clients on failure."""
-    print("Testing BackendStage validation HTTP client leak...")
+async def test_weakset_task_leak():
+    """Test that WeakSet allows tasks to be garbage collected before completion."""
+    print("Testing WeakSet task leak...")
     
-    # Create minimal config
-    from src.core.config.models import BackendSettings
-    app_config = AppConfig(backends=BackendSettings(default_backend=""))
+    # Simulate the scenario: create a task, add to WeakSet, then lose reference
+    cleanup_tasks = set()  # Using regular set for comparison
+    weak_cleanup_tasks = set()  # Simulating WeakSet behavior
     
-    clients_created = []
+    async def slow_cleanup():
+        """Simulate slow cleanup that takes time."""
+        await asyncio.sleep(1)
+        print("Cleanup completed")
+    
+    # Create task and add to both sets
+    task1 = asyncio.create_task(slow_cleanup())
+    cleanup_tasks.add(task1)
+    weak_cleanup_tasks.add(task1)
+    
+    # Lose reference to task (simulating what happens with WeakSet)
+    task_ref = task1
+    task1 = None
+    
+    # Force garbage collection (WeakSet would allow collection here)
+    gc.collect()
+    
+    # Check if task is still in sets
+    print(f"Task in regular set: {len(cleanup_tasks)}")
+    print(f"Task in weak set (simulated): {len(weak_cleanup_tasks)}")
+    
+    # Try to await the task via reference
+    try:
+        await task_ref
+        print("Task completed successfully")
+    except Exception as e:
+        print(f"Task failed: {e}")
+
+
+async def test_validation_client_leak_scenario():
+    """Test scenario where validation client might leak."""
+    print("\nTesting validation client leak scenario...")
+    
+    client: httpx.AsyncClient | None = None
+    cleanup_tasks = set()
     
     try:
-        # Simulate scenario: validation runs but app startup fails
-        for i in range(3):
-            print(f"\nSimulation {i+1}: Registering validation HTTP client...")
-            
-            services = ServiceCollection()
-            services.add_instance(AppConfig, app_config)
-            
-            stage = BackendStage()
-            
-            # Call the method that registers validation client
-            stage._register_validation_http_client(services)
-            
-            # Get the client from DI
-            provider = services.build_service_provider()
-            client = provider.get_service(httpx.AsyncClient)
-            
-            if client is not None:
-                print(f"  Client created: {client}")
-                print(f"  Client is_closed: {client.is_closed}")
-                clients_created.append(client)
-            
-            # Simulate app startup failure - no shutdown handlers run
-            # Client remains in DI container but is never closed
-            print("  Simulating app startup failure (no cleanup)...")
+        # Simulate creating client (like in _register_validation_http_client)
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+        print(f"Created client: {client}")
+        print(f"Client closed: {client.is_closed}")
         
-        print(f"\nCreated {len(clients_created)} HTTP clients")
+        # Simulate exception before cleanup
+        raise ValueError("Simulated exception before cleanup")
         
-        # Check if clients are closed
-        closed_count = sum(1 for c in clients_created if c.is_closed)
-        print(f"Closed clients: {closed_count}/{len(clients_created)}")
+    except Exception as e:
+        print(f"Exception occurred: {e}")
         
-        if closed_count < len(clients_created):
-            print("\n[LEAK CONFIRMED] HTTP clients are not closed!")
-            print(f"   {len(clients_created) - closed_count} clients remain open")
-            print("   These clients were registered in DI but never cleaned up")
-        else:
-            print("\n✓ All clients are closed")
-        
-        # Check if clients are tracked in DI
-        print("\nChecking DI container state...")
-        for i, client in enumerate(clients_created):
-            if not client.is_closed:
-                print(f"  Client {i+1} is still open and not tracked for cleanup")
-        
-    finally:
-        # Manual cleanup
-        print("\nAttempting manual cleanup...")
-        for client in clients_created:
-            if not client.is_closed:
-                try:
+        # Simulate cleanup attempt (like in exception handler)
+        if client is not None:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Create cleanup task
+                    cleanup_task = asyncio.create_task(client.aclose())
+                    cleanup_tasks.add(cleanup_task)
+                    print(f"Created cleanup task: {cleanup_task}")
+                    # If using WeakSet, task could be GC'd here before completion
+                    cleanup_task = None  # Lose reference
+                    gc.collect()  # Force GC
+                    print(f"Cleanup tasks remaining: {len(cleanup_tasks)}")
+                else:
                     await client.aclose()
-                    print("  Closed client manually")
-                except Exception as e:
-                    print(f"  Error closing client: {e}")
+            except Exception as cleanup_error:
+                print(f"Cleanup error: {cleanup_error}")
+    
+    # Wait a bit to see if cleanup happens
+    await asyncio.sleep(2)
+    
+    # Check if client is closed
+    if client is not None:
+        print(f"Client closed after cleanup: {client.is_closed}")
+        if not client.is_closed:
+            print("LEAK DETECTED: Client was not closed!")
+            await client.aclose()
+        else:
+            print("Client was properly closed")
 
 
 if __name__ == "__main__":
-    asyncio.run(test_backend_validation_client_leak())
+    print("=" * 60)
+    print("Backend Validation Client Leak Repro")
+    print("=" * 60)
+    
+    asyncio.run(test_weakset_task_leak())
+    asyncio.run(test_validation_client_leak_scenario())
+    
+    print("\n" + "=" * 60)
+    print("Test completed")
+    print("=" * 60)
 

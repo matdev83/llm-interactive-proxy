@@ -279,6 +279,11 @@ class ApplicationBuilder:
                 logger.debug(f"Stage '{stage_name}' completed successfully")
             except Exception as e:  # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
+                # Ensure ServiceCollection cleanup tasks are awaited on failure
+                try:
+                    await self._services.dispose()
+                except Exception:
+                    pass  # Suppress errors during cleanup
                 raise RuntimeError(f"Stage '{stage_name}' execution failed: {e}") from e
 
         # Build service provider

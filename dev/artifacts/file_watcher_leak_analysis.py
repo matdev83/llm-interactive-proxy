@@ -25,7 +25,7 @@ def analyze_memory_leak():
     print("=" * 60)
     
     # Issue 1: Race condition in task assignment
-    print("🔍 ISSUE 1: Race condition in _assign_task function")
+    print("ISSUE 1: Race condition in _assign_task function")
     print("""
 In line 170-174 of file_watcher.py:
     def _assign_task(task: asyncio.Future[None]) -> None:
@@ -50,7 +50,7 @@ cleaned up if the callback wasn't registered.
 """)
     
     # Issue 2: Exception handling in schedule_task
-    print("\n🔍 ISSUE 2: Exception handling may leak tasks")
+    print("\nISSUE 2: Exception handling may leak tasks")
     print("""
 In lines 195-203:
         try:
@@ -69,7 +69,7 @@ tasks might be created but never properly tracked or cleaned up.
 """)
     
     # Issue 3: No explicit task cleanup on errors
-    print("\n🔍 ISSUE 3: Missing explicit task cleanup")
+    print("\nISSUE 3: Missing explicit task cleanup")
     print("""
 PROBLEM: When exceptions occur during task creation or scheduling,
 there's no explicit cleanup of any tasks that might have been created

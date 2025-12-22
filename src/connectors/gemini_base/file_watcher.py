@@ -1,5 +1,4 @@
-"""
-File watching for Gemini OAuth credentials.
+"""File watching for Gemini OAuth credentials.
 
 This module handles file system monitoring for credential changes including:
 - Starting/stopping file observers
@@ -8,6 +7,7 @@ This module handles file system monitoring for credential changes including:
 """
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -20,7 +20,6 @@ from watchdog.observers import Observer
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
-from src.connectors.gemini_base.credentials import GeminiPersonalCredentialsFileHandler
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +40,12 @@ class FileWatcherState:
         self.main_loop: asyncio.AbstractEventLoop | None = None
         self.last_reload_event_ts: float = 0.0
 
+    def cleanup_completed_task(self) -> None:
+        """Clean up any completed reload task to prevent memory leaks."""
+        with self.reload_task_lock:
+            if self.pending_reload_task and self.pending_reload_task.done():
+                self.pending_reload_task = None
+
 
 class FileWatcher:
     """Manages file watching for Gemini OAuth credentials.
@@ -55,27 +60,32 @@ class FileWatcher:
         credentials_path: Path | None,
         connector: Any,
         state: FileWatcherState,
+        reload_callback: Callable[[], Coroutine[Any, Any, None]],
     ) -> None:
         """Start watching the credentials file for changes.
 
         Args:
             credentials_path: Path to the credentials file to watch.
-            connector: The connector instance for the file handler callback.
+            connector: Connector instance that owns the file watcher.
             state: File watcher state container.
+            reload_callback: Async function to call for reloading credentials.
         """
-        if not credentials_path or state.file_observer:
+        if credentials_path is None:
             return
 
-        try:
-            event_handler = GeminiPersonalCredentialsFileHandler(connector)
-            state.file_observer = Observer()
-            # Watch the parent directory of the credentials file
-            watch_dir = credentials_path.parent
-            state.file_observer.schedule(event_handler, str(watch_dir), recursive=False)
-            state.file_observer.start()
-            logger.info(f"Started watching credentials file: {credentials_path}")
-        except Exception as e:
-            logger.warning(f"Failed to start file watching: {e}")
+        if state.file_observer is not None:
+            return
+
+        def _on_file_changed(event) -> None:
+            if hasattr(event, "src_path") and event.src_path == str(credentials_path):
+                logger.debug("Credentials file changed, triggering reload")
+                FileWatcher.schedule_credentials_reload(state, reload_callback, connector.stop_file_watching)
+
+        observer = Observer()
+        observer.schedule(_on_file_changed, str(credentials_path.parent), recursive=False)
+        observer.start()
+        state.file_observer = observer
+        logger.debug("Started watching credentials file: %s", credentials_path)
 
     @staticmethod
     def stop_file_watching(state: FileWatcherState) -> None:
@@ -84,23 +94,11 @@ class FileWatcher:
         Args:
             state: File watcher state container.
         """
-        observer = state.file_observer
-        if observer:
-            try:
-                if observer.is_alive():
-                    observer.stop()
-                    # Only join if we're not in the observer thread to avoid
-                    # "cannot join current thread" error
-                    current_thread = threading.current_thread()
-                    if (
-                        hasattr(observer, "_thread")
-                        and observer._thread != current_thread
-                    ):
-                        observer.join()
-                state.file_observer = None
-                logger.info("Stopped watching credentials file")
-            except Exception as e:
-                logger.warning(f"Error stopping file watcher: {e}")
+        if state.file_observer is not None:
+            state.file_observer.stop()
+            state.file_observer.join()
+            state.file_observer = None
+            logger.debug("Stopped watching credentials file")
 
     @staticmethod
     def schedule_credentials_reload(
@@ -120,6 +118,9 @@ class FileWatcher:
         if now - state.last_reload_event_ts < 5.0:
             return
         state.last_reload_event_ts = now
+
+        # Clean up any completed task before creating a new one
+        state.cleanup_completed_task()
 
         with state.reload_task_lock:
             if (
@@ -190,6 +191,11 @@ class FileWatcher:
             except Exception as exc:
                 logger.warning("Failed to schedule credentials reload: %s", exc)
                 with state.reload_task_lock:
+                    # Clear any existing task that might be dangling
+                    if state.pending_reload_task:
+                        with contextlib.suppress(Exception):
+                            state.pending_reload_task.cancel()
+                        state.pending_reload_task = None
                     state.reload_scheduling_in_progress = False
 
         try:
@@ -202,7 +208,11 @@ class FileWatcher:
             stop_watching_callback()
             state.main_loop = None
             with state.reload_task_lock:
-                state.pending_reload_task = None
+                # Explicit cleanup of any pending task to prevent leaks
+                if state.pending_reload_task:
+                    with contextlib.suppress(Exception):
+                        state.pending_reload_task.cancel()
+                    state.pending_reload_task = None
                 state.reload_scheduling_in_progress = False
 
 

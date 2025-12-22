@@ -9,6 +9,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+from weakref import WeakSet
 
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
@@ -99,6 +100,8 @@ class MemoryService:
         )
         # Track when sessions entered analysis_in_progress for TTL cleanup
         self._analysis_in_progress: dict[str, float] = {}
+        # Track cleanup tasks to prevent resource leaks
+        self._cleanup_tasks: WeakSet[asyncio.Task[None]] = WeakSet()
 
     def is_available(self) -> bool:
         """Check if memory feature is globally available."""
@@ -526,13 +529,15 @@ class MemoryService:
                     )
                 # Clear buffers to free memory
                 # Note: We can't await here since we're in a locked context,
-                # so we schedule cleanup tasks (fire-and-forget)
-                _ = asyncio.create_task(  # noqa: RUF006
+                # so we schedule cleanup tasks and track them to prevent resource leaks
+                cleanup_task1 = asyncio.create_task(
                     self._capture_buffer.clear_session(sid)
                 )
-                _ = asyncio.create_task(  # noqa: RUF006
+                cleanup_task2 = asyncio.create_task(
                     self._tool_event_collector.clear_session(sid)
                 )
+                self._cleanup_tasks.add(cleanup_task1)
+                self._cleanup_tasks.add(cleanup_task2)
 
     async def _evict_oldest_session_locked(self) -> None:
         """Evict the oldest session state when max limit is reached (LRU eviction).
@@ -562,13 +567,15 @@ class MemoryService:
 
         # Clear buffers to free memory
         # Note: We can't await here since we're in a locked context,
-        # so we schedule cleanup tasks (fire-and-forget)
-        _ = asyncio.create_task(  # noqa: RUF006
+        # so we schedule cleanup tasks and track them to prevent resource leaks
+        cleanup_task1 = asyncio.create_task(
             self._capture_buffer.clear_session(oldest_session_id)
         )
-        _ = asyncio.create_task(  # noqa: RUF006
+        cleanup_task2 = asyncio.create_task(
             self._tool_event_collector.clear_session(oldest_session_id)
         )
+        self._cleanup_tasks.add(cleanup_task1)
+        self._cleanup_tasks.add(cleanup_task2)
 
     async def _cleanup_stale_analysis_in_progress(self) -> None:
         """Clean up stale entries from _analysis_in_progress based on TTL.

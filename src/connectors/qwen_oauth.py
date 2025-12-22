@@ -1507,23 +1507,39 @@ class QwenOAuthConnector(OpenAIConnector):
 
     def __del__(self) -> None:
         """Cleanup method to stop file watching when connector is destroyed."""
+        # Guard against partial initialization
+        # Check for _file_observer first (used by tests), then _file_watcher_state
         with contextlib.suppress(Exception):
-            self._stop_file_watching()
+            if hasattr(self, "_file_observer") or hasattr(self, "_file_watcher_state"):
+                self._stop_file_watching()
 
-        process = self._cli_refresh_process
-        if process is not None:
-            try:
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-            except Exception:
-                # interpreter shutdown
-                pass
-            finally:
-                self._cli_refresh_process = None
+        # Cleanup CLI refresh process
+        # Use hasattr check to guard against partial initialization
+        if hasattr(self, "_cli_refresh_process"):
+            process = self._cli_refresh_process
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        # Process is still running, terminate it
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            # Process didn't terminate, force kill
+                            process.kill()
+                            try:
+                                process.wait(timeout=5)
+                            except (subprocess.TimeoutExpired, Exception):
+                                # Suppress all exceptions during interpreter shutdown
+                                # The logging system may already be torn down
+                                pass
+                except Exception:
+                    # Suppress all exceptions during interpreter shutdown
+                    # The logging system may already be torn down
+                    pass
+                finally:
+                    # Always clear the reference to prevent leaks
+                    self._cli_refresh_process = None
 
 
 backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

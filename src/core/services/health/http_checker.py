@@ -61,9 +61,16 @@ class HTTPHealthChecker:
         self._client = http_client
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client."""
+        """Get or create the HTTP client.
+
+        Note: If a client is created here and shutdown() is never called,
+        the client will be cleaned up by Python's garbage collector, but
+        it's better to ensure shutdown() is always called during app lifecycle.
+        """
         if self._client is None:
             # Create a dedicated client for health checks
+            # Mark that we own this client for proper cleanup
+            self._owns_client = True
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(
                     connect=5.0,

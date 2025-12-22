@@ -252,6 +252,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             # Process already running
             return
 
+        process: subprocess.Popen[bytes] | None = None
         try:
             # Build command with ACP flags
             cmd = [
@@ -267,13 +268,15 @@ class GeminiCliAcpConnector(GeminiBackend):
             # Spawn process
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
-            self._process = subprocess.Popen(
+            process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(self._project_dir),
             )
+            # Assign to instance variable only after successful creation
+            self._process = process
 
             # Wait a moment for process to start
             await asyncio.sleep(0.1)
@@ -285,7 +288,9 @@ class GeminiCliAcpConnector(GeminiBackend):
                     stderr = self._process.stderr.read().decode(
                         "utf-8", errors="replace"
                     )
-                self._cleanup_process(self._process)
+                # Don't call _cleanup_process here - let exception handler
+                # call _kill_process() which will clean up properly
+                # This avoids double cleanup which causes test failures
                 raise BackendError(
                     message="gemini-cli process failed to start",
                     details={"stderr": stderr},
@@ -297,6 +302,9 @@ class GeminiCliAcpConnector(GeminiBackend):
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to spawn gemini-cli process: {e}")
+            # Ensure process is cleaned up even if exception occurs before assignment
+            if process is not None and process is not self._process:
+                self._cleanup_process(process)
             await self._kill_process()
             raise APIConnectionError(
                 message=f"Failed to start gemini-cli: {e}",
@@ -805,6 +813,53 @@ class GeminiCliAcpConnector(GeminiBackend):
                 future.cancel()
         self._pending_responses.clear()
         await self._kill_process()
+
+    def __del__(self) -> None:
+        """Cleanup subprocess on destruction.
+        
+        This ensures that if GeminiCliAcpConnector is destroyed without
+        shutdown() being called (e.g., during application crash or abrupt exit),
+        the subprocess is still terminated to prevent resource leaks.
+        
+        Note: This is a best-effort cleanup since __del__ cannot be async.
+        The proper cleanup path is via shutdown() which should be called
+        by BackendLifecycleManager during application shutdown.
+        """
+        # Guard against partial initialization
+        if hasattr(self, "_process"):
+            process = self._process
+            if process is not None:
+                try:
+                    # Check if process is still running
+                    if process.poll() is None:
+                        # Process is still running, terminate it synchronously
+                        # We can't await in __del__, so we do best-effort cleanup
+                        try:
+                            process.terminate()
+                            # Wait with timeout (synchronous)
+                            try:
+                                process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                # Process didn't terminate, force kill
+                                process.kill()
+                                try:
+                                    process.wait(timeout=5)
+                                except (subprocess.TimeoutExpired, Exception):
+                                    # Suppress all exceptions during interpreter shutdown
+                                    pass
+                        except Exception:
+                            # Suppress all exceptions during interpreter shutdown
+                            # The logging system may already be torn down
+                            pass
+                    
+                    # Clean up process pipes
+                    self._cleanup_process(process)
+                except Exception:
+                    # Suppress all exceptions during interpreter shutdown
+                    pass
+                finally:
+                    # Clear reference to prevent leaks
+                    self._process = None
 
     async def __aenter__(self) -> "GeminiCliAcpConnector":
         """Async context manager entry."""

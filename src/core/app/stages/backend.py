@@ -10,6 +10,7 @@ This stage registers backend-related services:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import cast
@@ -42,6 +43,16 @@ class BackendStage(InitializationStage):
     - Backend service (main backend interface)
     """
 
+    def __init__(self) -> None:
+        """Initialize the backend stage."""
+        super().__init__()
+        # Track validation HTTP client to ensure cleanup on failure
+        self._validation_client: httpx.AsyncClient | None = None
+        # Track cleanup tasks to prevent resource leaks
+        # Use regular set instead of WeakSet to prevent premature garbage collection
+        # before tasks complete, which could lead to HTTP client leaks
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+
     @property
     def name(self) -> str:
         return "backends"
@@ -54,37 +65,41 @@ class BackendStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register backend services."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Initializing backend services...")
-
         try:
-            # Import connectors package to trigger backend registrations via side effects
-            import importlib
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Initializing backend services...")
 
-            importlib.import_module("src.connectors")
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
-                )
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to import connectors: {e}")
+            try:
+                # Import connectors package to trigger backend registrations via side effects
+                import importlib
 
-        # Validate static_route backend early - fail fast if invalid
-        self._validate_static_route_backend(config)
+                importlib.import_module("src.connectors")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
+                    )
+            except ImportError as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to import connectors: {e}")
 
-        # Backend registrations are now handled by backend registrar
-        # Register backend services via registrar
-        from src.core.di.registrations import backend
+            # Validate static_route backend early - fail fast if invalid
+            self._validate_static_route_backend(config)
 
-        backend.register(services, config)
+            # Backend registrations are now handled by backend registrar
+            # Register backend services via registrar
+            from src.core.di.registrations import backend
 
-        # BackendService registration is handled by core registrar or this stage
-        # Check if already registered, if not register it here for backward compatibility
-        self._register_backend_service(services)
+            backend.register(services, config)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Backend services initialized successfully")
+            # BackendService registration is handled by core registrar or this stage
+            # Check if already registered, if not register it here for backward compatibility
+            self._register_backend_service(services)
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Backend services initialized successfully")
+        finally:
+            # Ensure validation client is cleaned up if stage fails
+            await self._cleanup_validation_client()
 
     def _register_backend_registry(self, services: ServiceCollection) -> None:
         """Register backend registry as singleton instance."""
@@ -970,33 +985,112 @@ class BackendStage(InitializationStage):
                 )
             return
 
+        client: httpx.AsyncClient | None = None
         try:
-            client = httpx.AsyncClient(
-                http2=True,
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                trust_env=False,
-            )
-        except Exception:
-            client = httpx.AsyncClient(
-                http2=False,
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                trust_env=False,
-            )
+            try:
+                client = httpx.AsyncClient(
+                    http2=True,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
+            except Exception:
+                client = httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
+                    trust_env=False,
+                )
 
-        # Register client in DI - it will be cleaned up during app shutdown
-        # The DI container handles httpx.AsyncClient cleanup automatically
-        services.add_instance(httpx.AsyncClient, client)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Registered temporary HTTP client for backend validation before infrastructure stage"
-            )
-        
-        # Note: The client is registered in DI and will be cleaned up by the application
-        # shutdown handler (see application_builder.py lifespan handler). If the app
-        # crashes before shutdown handlers run, the client will be cleaned up by Python's
-        # garbage collector when the process exits.
+            # Track client for cleanup if stage fails
+            # Assign immediately after creation to ensure cleanup even if exception occurs later
+            self._validation_client = client
+
+            # Register client in DI - it will be cleaned up during app shutdown
+            # The DI container handles httpx.AsyncClient cleanup automatically
+            services.add_instance(httpx.AsyncClient, client)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Registered temporary HTTP client for backend validation before infrastructure stage"
+                )
+        except Exception:
+            # If exception occurs after client creation but before assignment/registration,
+            # ensure client is cleaned up to prevent leak
+            if client is not None and self._validation_client is None:
+                # Client was created but not assigned - clean it up immediately
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # Schedule cleanup task and track it to prevent resource leaks
+                        cleanup_task = asyncio.create_task(client.aclose())
+                        self._cleanup_tasks.add(cleanup_task)
+                    else:
+                        loop.run_until_complete(client.aclose())
+                except (RuntimeError, AttributeError):
+                    # No event loop - client will be cleaned up by finalizer
+                    pass
+            raise
+
+    async def _cleanup_validation_client(self) -> None:
+        """Clean up validation HTTP client if stage fails before infrastructure stage runs."""
+        if self._validation_client is not None:
+            client = self._validation_client
+            self._validation_client = None
+            try:
+                if not client.is_closed:
+                    await client.aclose()
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Cleaned up validation HTTP client")
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Error cleaning up validation HTTP client: {e}")
+
+        # Wait for any pending cleanup tasks to complete
+        # Ensure all tasks are properly awaited/cancelled even if cleanup fails
+        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        if pending_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Timeout waiting for cleanup tasks, cancelling")
+                # Cancel all pending tasks
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Await cancelled tasks to ensure they complete
+                # This prevents task references from preventing garbage collection
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Error awaiting cancelled cleanup tasks: {e}")
+            except Exception as e:
+                # If gather itself fails, still cancel and await tasks
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Error during cleanup task gather: {e}")
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    pass  # Suppress errors during final cleanup
+
+        # Clear the cleanup tasks set to prevent memory leaks
+        # This ensures task references don't prevent garbage collection
+        self._cleanup_tasks.clear()
 
     def _validate_static_route_backend(self, config: AppConfig) -> None:
         """Validate that static_route backend exists and is registered.

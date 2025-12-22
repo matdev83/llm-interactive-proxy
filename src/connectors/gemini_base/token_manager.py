@@ -316,6 +316,39 @@ class TokenManager:
             )
             return False
 
+    def __del__(self) -> None:
+        """Cleanup subprocess on destruction.
+
+        This ensures that if TokenManager is used independently or if
+        the connector's __del__ fails, subprocesses are still cleaned up.
+        """
+        # Guard against partial initialization
+        if hasattr(self, "_cli_refresh_process"):
+            process = self._cli_refresh_process
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        # Process is still running, terminate it
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            # Process didn't terminate, force kill
+                            process.kill()
+                            try:
+                                process.wait(timeout=5)
+                            except (subprocess.TimeoutExpired, Exception):
+                                # Suppress all exceptions during interpreter shutdown
+                                # The logging system may already be torn down
+                                pass
+                except Exception:
+                    # Suppress all exceptions during interpreter shutdown
+                    # The logging system may already be torn down
+                    pass
+                finally:
+                    # Always clear the reference to prevent leaks
+                    self._cli_refresh_process = None
+
 
 __all__ = [
     "TokenManager",

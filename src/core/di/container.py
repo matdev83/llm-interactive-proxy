@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import os
 from collections.abc import Callable
 from typing import Any, TypeVar
+from weakref import WeakSet
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.diagnostics import (
@@ -306,6 +308,10 @@ class ServiceCollection(IServiceCollection):
     def __init__(self) -> None:
         """Initialize a service collection."""
         self._descriptors: dict[type, ServiceDescriptor] = {}
+        # Track cleanup tasks to prevent resource leaks
+        # Use regular set instead of WeakSet to prevent premature GC before tasks complete
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._disposed = False
 
     def add_singleton(
         self,
@@ -391,17 +397,12 @@ class ServiceCollection(IServiceCollection):
                 import httpx
 
                 if isinstance(old_instance, httpx.AsyncClient):
-                    import asyncio
-
                     try:
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            # Schedule async close (task is fire-and-forget)
-                            task = asyncio.create_task(
-                                old_instance.aclose()
-                            )
-                            # Store reference to prevent garbage collection
-                            _ = task
+                            # Schedule async close task and track it to prevent resource leaks
+                            cleanup_task = asyncio.create_task(old_instance.aclose())
+                            self._cleanup_tasks.add(cleanup_task)
                         else:
                             # Run synchronously if no event loop
                             loop.run_until_complete(old_instance.aclose())
@@ -428,6 +429,52 @@ class ServiceCollection(IServiceCollection):
             # Don't fail if hooks can't be executed (e.g., in tests)
             pass
         return provider
+
+    async def dispose(self) -> None:
+        """Dispose of the service collection and await pending cleanup tasks.
+        
+        This method ensures that all cleanup tasks created when replacing
+        httpx.AsyncClient instances are properly awaited before the collection
+        is destroyed, preventing resource leaks.
+        
+        Should be called when ServiceCollection is about to be destroyed,
+        e.g., during application shutdown or stage failure.
+        """
+        if self._disposed:
+            return
+        
+        self._disposed = True
+        
+        # Await all pending cleanup tasks to prevent resource leaks
+        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        if pending_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                # Cancel tasks that didn't complete in time
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Await cancelled tasks to ensure they complete
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    pass  # Suppress errors during final cleanup
+            except Exception:
+                # If gather fails, cancel all tasks
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    pass
+        
+        # Clear the cleanup tasks set to prevent memory leaks
+        self._cleanup_tasks.clear()
 
     def register_app_services(self) -> None:
         """Register all application services via registrar orchestration.
