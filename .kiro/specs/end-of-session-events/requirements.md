@@ -161,6 +161,10 @@ This specification defines end-of-session detection and End-of-Session (EoS) eve
 - Input validation: End-of-session signals shall be validated against configured schemas.
 - Authentication: End-of-Session events shall only be emitted for authenticated requests.
 
+### NFR 5: Code Quality
+- LOC limit: DI registration modules shall not exceed 650 lines of code per file.
+- Complexity: Maximum function cyclomatic complexity shall not exceed 50 per function.
+
 ## Glossary
 | Term | Definition |
 |------|------------|

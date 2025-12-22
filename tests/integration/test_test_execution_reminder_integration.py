@@ -780,7 +780,12 @@ async def test_attempt_completion_without_modification():
 
 @pytest.mark.asyncio
 async def test_finish_reason_stop_in_dirty_state():
-    """Test that finish_reason='stop' is detected and blocked in dirty state."""
+    """Test that finish_reason='stop' is NOT blocked (legacy behavior removed per Requirement 7.6).
+
+    Note: finish_reason detection was moved to EoS events. Tool calls with finish_reason
+    are no longer blocked directly. Reminders are now logged when EoS events occur for
+    dirty sessions via TestExecutionReminderEosSubscriber.
+    """
     # Create config with feature enabled
     config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
 
@@ -809,7 +814,7 @@ async def test_finish_reason_stop_in_dirty_state():
         )
     )
 
-    # Try to complete with finish_reason='stop' (should be blocked)
+    # Try to complete with finish_reason='stop' (should NOT be blocked - legacy behavior removed)
     result = await reactor.process_tool_call(
         ToolCallContext(
             session_id=session_id,
@@ -822,14 +827,20 @@ async def test_finish_reason_stop_in_dirty_state():
         )
     )
 
-    assert result is not None, "finish_reason='stop' should be blocked in dirty state"
-    assert result.should_swallow is True
-    assert "test" in result.replacement_response.lower()
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
+    assert (
+        result is None or result.should_swallow is False
+    ), "finish_reason='stop' should NOT be blocked - detection moved to EoS events"
 
 
 @pytest.mark.asyncio
 async def test_finish_reason_in_choices_array():
-    """Test that finish_reason in choices array (OpenAI format) is detected."""
+    """Test that finish_reason in choices array is NOT blocked (legacy behavior removed per Requirement 7.6).
+
+    Note: finish_reason detection was moved to EoS events. Tool calls with finish_reason
+    are no longer blocked directly. Reminders are now logged when EoS events occur for
+    dirty sessions via TestExecutionReminderEosSubscriber.
+    """
     # Create config with feature enabled
     config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
 
@@ -873,15 +884,20 @@ async def test_finish_reason_in_choices_array():
         )
     )
 
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
     assert (
-        result is not None
-    ), "finish_reason in choices array should be blocked in dirty state"
-    assert result.should_swallow is True
+        result is None or result.should_swallow is False
+    ), "finish_reason in choices array should NOT be blocked - detection moved to EoS events"
 
 
 @pytest.mark.asyncio
 async def test_finish_reason_in_metadata():
-    """Test that finish_reason in metadata is detected."""
+    """Test that finish_reason in metadata is NOT blocked (legacy behavior removed per Requirement 7.6).
+
+    Note: finish_reason detection was moved to EoS events. Tool calls with finish_reason
+    are no longer blocked directly. Reminders are now logged when EoS events occur for
+    dirty sessions via TestExecutionReminderEosSubscriber.
+    """
     # Create config with feature enabled
     config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
 
@@ -923,15 +939,20 @@ async def test_finish_reason_in_metadata():
         )
     )
 
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
     assert (
-        result is not None
-    ), "finish_reason in metadata should be blocked in dirty state"
-    assert result.should_swallow is True
+        result is None or result.should_swallow is False
+    ), "finish_reason in metadata should NOT be blocked - detection moved to EoS events"
 
 
 @pytest.mark.asyncio
 async def test_finish_reason_tool_calls():
-    """Test that finish_reason='tool_calls' is detected."""
+    """Test that finish_reason='tool_calls' is NOT blocked (legacy behavior removed per Requirement 7.6).
+
+    Note: finish_reason detection was moved to EoS events. Tool calls with finish_reason
+    are no longer blocked directly. Reminders are now logged when EoS events occur for
+    dirty sessions via TestExecutionReminderEosSubscriber.
+    """
     # Create config with feature enabled
     config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
 
@@ -973,15 +994,20 @@ async def test_finish_reason_tool_calls():
         )
     )
 
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
     assert (
-        result is not None
-    ), "finish_reason='tool_calls' should be blocked in dirty state"
-    assert result.should_swallow is True
+        result is None or result.should_swallow is False
+    ), "finish_reason='tool_calls' should NOT be blocked - detection moved to EoS events"
 
 
 @pytest.mark.asyncio
 async def test_finish_reason_length():
-    """Test that finish_reason='length' is detected."""
+    """Test that finish_reason='length' is NOT blocked (legacy behavior removed per Requirement 7.6).
+
+    Note: finish_reason detection was moved to EoS events. Tool calls with finish_reason
+    are no longer blocked directly. Reminders are now logged when EoS events occur for
+    dirty sessions via TestExecutionReminderEosSubscriber.
+    """
     # Create config with feature enabled
     config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
 
@@ -1023,8 +1049,10 @@ async def test_finish_reason_length():
         )
     )
 
-    assert result is not None, "finish_reason='length' should be blocked in dirty state"
-    assert result.should_swallow is True
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
+    assert (
+        result is None or result.should_swallow is False
+    ), "finish_reason='length' should NOT be blocked - detection moved to EoS events"
 
 
 @pytest.mark.asyncio
@@ -1200,7 +1228,9 @@ async def test_real_agent_flow_with_finish_reason():
         )
     )
 
-    # Step 2: Streaming response ends with finish_reason='stop' (should be blocked)
+    # Step 2: Streaming response ends with finish_reason='stop' (should NOT be blocked - legacy behavior removed)
+    # Note: finish_reason detection was moved to EoS events per Requirement 7.6.
+    # Reminders are now logged when EoS events occur for dirty sessions.
     result = await reactor.process_tool_call(
         ToolCallContext(
             session_id=session_id,
@@ -1220,8 +1250,10 @@ async def test_real_agent_flow_with_finish_reason():
         )
     )
 
-    assert result is not None, "finish_reason='stop' should be blocked"
-    assert result.should_swallow is True
+    # finish_reason detection moved to EoS events, so tool calls are not blocked
+    assert (
+        result is None or result.should_swallow is False
+    ), "finish_reason='stop' should NOT be blocked - detection moved to EoS events"
 
     # Step 3: Agent runs tests
     await reactor.process_tool_call(

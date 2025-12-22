@@ -255,6 +255,7 @@ class CborWireCaptureService(IWireCapture):
         model: str | None = None,
         key_name: str | None = None,
         canonical_usage: dict[str, Any] | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> CaptureMetadata:
         """Extract metadata from context and parameters."""
         client_host: str | None = None
@@ -276,6 +277,18 @@ class CborWireCaptureService(IWireCapture):
         if not resolved_session or not str(resolved_session).strip():
             resolved_session = request_id or self._session_id
 
+        # Extract EoS metadata if provided
+        eos_fields = {}
+        if eos_metadata:
+            eos_fields = {
+                "eos": eos_metadata.get("eos", False),
+                "eos_signal": eos_metadata.get("eos_signal"),
+                "eos_reason": eos_metadata.get("eos_reason"),
+                "eos_termination_category": eos_metadata.get("eos_termination_category"),
+                "eos_error_classification": eos_metadata.get("eos_error_classification"),
+                "eos_error_status_code": eos_metadata.get("eos_error_status_code"),
+            }
+
         return CaptureMetadata(
             session_id=resolved_session,
             backend=backend,
@@ -285,6 +298,7 @@ class CborWireCaptureService(IWireCapture):
             user_agent=user_agent,
             request_id=request_id,
             canonical_usage=canonical_usage,
+            **eos_fields,
         )
 
     async def capture_inbound_request(
@@ -518,9 +532,11 @@ class CborWireCaptureService(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
-        if not self.enabled() or canonical_usage is None:
+        # Allow EoS metadata even without canonical_usage
+        if not self.enabled() or (canonical_usage is None and eos_metadata is None):
             return
 
         self._maybe_start_flush_task()
@@ -538,7 +554,7 @@ class CborWireCaptureService(IWireCapture):
         # Convert CanonicalUsageRecord to dict for metadata
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
-        # Create completion entry with canonical_usage
+        # Create completion entry with canonical_usage and/or EoS metadata
         # This entry follows the stream_end entry and includes canonical_usage
         completion_metadata = self._extract_context_metadata(
             context,
@@ -547,6 +563,7 @@ class CborWireCaptureService(IWireCapture):
             model=model,
             key_name=key_name,
             canonical_usage=canonical_usage_dict,
+            eos_metadata=eos_metadata,
         )
         completion_entry = CaptureEntry(
             timestamp=_get_timestamp(),

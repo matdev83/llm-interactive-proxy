@@ -20,6 +20,7 @@ from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.backend_completion_collaborators import (
     IUsageAccountingOrchestrator,
+    IWireCaptureOrchestrator,
 )
 from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.backend_lifecycle_manager_interface import (
@@ -79,6 +80,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         backend_factory: IBackendFactory | None = None,
         backend_lifecycle_manager: IBackendLifecycleManager | None = None,
         usage_normalization_service: IUsageNormalizationService | None = None,
+        wire_capture_orchestrator: IWireCaptureOrchestrator | None = None,
     ):
         """Initialize the usage accounting orchestrator."""
         self._usage_tracking_service = usage_tracking_service
@@ -89,6 +91,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         self._backend_factory = backend_factory
         self._backend_lifecycle_manager = backend_lifecycle_manager
         self._usage_normalization_service = usage_normalization_service
+        self._wire_capture_orchestrator = wire_capture_orchestrator
 
     async def calculate_and_record_usage(
         self,
@@ -313,6 +316,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         context: RequestContext | None,
         request: CanonicalChatRequest,
         session_id_for_backend: str | None,
+        key_name: str | None = None,
     ) -> StreamingResponseEnvelope:
         """Handle streaming response with session ID injection and phase updates."""
         # Get session_id from context for stream correlation
@@ -470,6 +474,17 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         # Attach canonical usage to envelope
                         # Set canonical_usage directly on envelope (primary location)
                         result.canonical_usage = canonical_usage
+
+                        # Capture canonical usage to wire capture (streaming completion)
+                        if self._wire_capture_orchestrator is not None:
+                            await self._wire_capture_orchestrator.capture_stream_completion(
+                                context=context,
+                                session_id=session_id,
+                                backend_type=backend_type,
+                                effective_model=effective_model,
+                                key_name=key_name,
+                                canonical_usage=canonical_usage,
+                            )
                     except Exception as e:
                         logger.warning(
                             f"Failed to build canonical usage for streaming response: {e}",

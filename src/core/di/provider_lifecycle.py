@@ -340,10 +340,63 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
                     message=test_execution_reminder_message, enabled=True
                 )
                 reactor_service.register_handler_sync(test_execution_reminder_handler)
+
+                # Register TestExecutionReminderEosSubscriber
+                # Note: We create it here but start it in AppLifecycle._start_eos_subscribers
+                try:
+                    from src.core.interfaces.event_bus_interface import IEventBus
+                    from src.services.test_execution_reminder.eos_subscriber import (
+                        TestExecutionReminderEosSubscriber,
+                    )
+                    from typing import cast
+
+                    event_bus: IEventBus = provider.get_required_service(
+                        cast(type, IEventBus)
+                    )
+                    eos_subscriber = TestExecutionReminderEosSubscriber(
+                        event_bus=event_bus,
+                        reminder_handler=test_execution_reminder_handler,
+                    )
+                    # Store the subscriber in provider for AppLifecycle to start/stop
+                    # This is necessary because the handler is created inline here,
+                    # so we can't register the subscriber as a service in DI
+                    provider._test_execution_reminder_eos_subscriber = eos_subscriber  # type: ignore[attr-defined]
+                except ImportError:
+                    logger = logging.getLogger(__name__)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "TestExecutionReminderEosSubscriber not available, skipping"
+                        )
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Could not register test execution reminder handler: {e}")
+
+        # Register End-of-Session tool call handler if EoS is enabled
+        try:
+            from src.core.interfaces.end_of_session_service_interface import (
+                IEndOfSessionService,
+            )
+            from src.core.services.end_of_session_tool_call_handler import (
+                EndOfSessionToolCallHandler,
+            )
+
+            eos_service = provider.get_service(cast(type, IEndOfSessionService))  # type: ignore[type-abstract]
+            if eos_service is not None:
+                eos_config = config.end_of_session
+                if eos_config.enabled and eos_config.detect_tool_completion:
+                    eos_handler = EndOfSessionToolCallHandler(
+                        end_of_session_service=eos_service,
+                        config=eos_config,
+                    )
+                    reactor_service.register_handler_sync(eos_handler)
+                    logger = logging.getLogger(__name__)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Registered EndOfSessionToolCallHandler")
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Could not register End-of-Session tool call handler: {e}")
 
         # Register unified steering handler if available
         try:

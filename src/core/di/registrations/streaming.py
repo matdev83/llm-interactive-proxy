@@ -24,6 +24,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     """Register streaming pipeline services.
 
     This registrar handles:
+    - EndOfSessionService and IEndOfSessionService
     - StreamingContextRegistry
     - MiddlewareApplicationManager
     - MiddlewareApplicationProcessor
@@ -34,6 +35,9 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
         services: The service collection to register into
         app_config: Optional application configuration
     """
+    # Register EndOfSessionService (must be before StreamNormalizer)
+    _register_end_of_session_service(services, app_config)
+
     # Register StreamingContextRegistry
     _register_streaming_context_registry(services)
 
@@ -330,6 +334,26 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
             )
         )
 
+        # EndOfSessionStreamProcessor (requires IEndOfSessionService)
+        from src.core.interfaces.end_of_session_service_interface import (
+            IEndOfSessionService,
+        )
+
+        eos_service = provider.get_service(cast(type, IEndOfSessionService))  # type: ignore[type-abstract]
+        if eos_service is not None:
+            config = provider.get_required_service(AppConfig)
+            eos_config = config.end_of_session
+            from src.core.services.streaming.end_of_session_stream_processor import (
+                EndOfSessionStreamProcessor,
+            )
+
+            processors.append(
+                EndOfSessionStreamProcessor(
+                    end_of_session_service=eos_service,
+                    config=eos_config,
+                )
+            )
+
         # MiddlewareApplicationProcessor (requires MiddlewareApplicationManager)
         middleware_processor = provider.get_service(MiddlewareApplicationProcessor)
         if middleware_processor is not None:
@@ -531,3 +555,72 @@ def _register_loop_detection_processor(services: ServiceCollection) -> None:
     except ImportError as e:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Could not register LoopDetectionProcessor: {e}")
+
+
+def _register_end_of_session_service(
+    services: ServiceCollection, app_config: AppConfig | None
+) -> None:
+    """Register the End-of-Session service.
+
+    This service must be registered before StreamNormalizer so that
+    EndOfSessionStreamProcessor can resolve IEndOfSessionService.
+
+    Args:
+        services: The service collection to register into
+        app_config: Optional application configuration (required for EoS config)
+    """
+    from typing import cast
+
+    from src.core.config.models.end_of_session import EndOfSessionConfig
+    from src.core.interfaces.end_of_session_service_interface import (
+        IEndOfSessionService,
+    )
+    from src.core.interfaces.event_bus_interface import IEventBus
+    from src.core.services.end_of_session_service import EndOfSessionService
+
+    # Check if app_config is provided (required for EoS config)
+    # Note: EventBus should be registered in CoreServicesStage before streaming.register()
+    # is called, so we don't need to check for it here. The factory will handle errors.
+    if app_config is None:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "app_config not provided, skipping EndOfSessionService registration"
+            )
+        return
+
+    def end_of_session_service_factory(
+        provider: IServiceProvider,
+    ) -> EndOfSessionService:
+        event_bus: IEventBus = provider.get_required_service(cast(type, IEventBus))
+        eos_config: EndOfSessionConfig = app_config.end_of_session
+
+        # SessionMetricsRepository is registered in persistence.register(),
+        # which runs after streaming.register(). Since factories are lazy,
+        # this will only be resolved when EndOfSessionService is first used,
+        # which happens after all registrations are complete.
+        from src.core.database.repositories.usage_repository import (
+            SessionMetricsRepository,
+        )
+
+        session_repo: SessionMetricsRepository = provider.get_required_service(
+            SessionMetricsRepository
+        )
+        return EndOfSessionService(
+            event_bus=event_bus,
+            config=eos_config,
+            session_repository=session_repo,
+        )
+
+    register_singleton_if_absent(
+        services,
+        EndOfSessionService,
+        implementation_factory=end_of_session_service_factory,
+    )
+    register_singleton_if_absent(
+        services,
+        cast(type, IEndOfSessionService),
+        implementation_factory=lambda p: p.get_required_service(EndOfSessionService),
+    )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered EndOfSessionService in streaming registrations")

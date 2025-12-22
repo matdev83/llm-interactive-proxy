@@ -7,6 +7,7 @@ from src.core.config.models.backends import (
     BackendSettings,
     get_openrouter_headers,
 )
+from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig, LogLevel
 from src.core.config.models.misc import (
     CodebuffConfig,
@@ -36,6 +37,7 @@ __all__ = [
     "CodebuffConfig",
     "EditPrecisionConfig",
     "EmptyResponseConfig",
+    "EndOfSessionConfig",
     "LogLevel",
     "LoggingConfig",
     "ModelAliasRule",

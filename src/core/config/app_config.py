@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
-from src.core.config.loading.loader import AppConfigLoader
 from src.core.config.models import (
     AuthConfig,
     BackendConfig,
@@ -128,6 +127,8 @@ class AppConfig(AppConfigModel):
         env: Mapping[str, str] = os.environ if environ is None else environ
         res = resolution or ParameterResolution()
 
+        from src.core.config.loading.loader import AppConfigLoader
+
         loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
         model = loader.load(None, environ=env, resolution=res)
         return cast(AppConfig, cls.model_validate(model.model_dump()))
@@ -163,6 +164,8 @@ def load_config(
     """Load configuration from file and environment."""
     env = os.environ if environ is None else environ
     res = resolution or ParameterResolution()
+
+    from src.core.config.loading.loader import AppConfigLoader
 
     loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
     model = loader.load(config_path, environ=env, resolution=res)

@@ -67,6 +67,8 @@ class HealthCheckStage(InitializationStage):
             logger.info("Initializing health check services...")
 
         try:
+            # EventBus and EndOfSessionService are now registered in CoreServicesStage
+            # Only register EventBus here if not already registered (for backward compatibility)
             self._register_event_bus(services)
             self._register_endpoint_registry(services)
             self._register_health_checkers(services)
@@ -84,9 +86,22 @@ class HealthCheckStage(InitializationStage):
             raise
 
     def _register_event_bus(self, services: ServiceCollection) -> None:
-        """Register the event bus."""
+        """Register the event bus if not already registered.
+
+        EventBus is now registered in CoreServicesStage, but this method
+        provides backward compatibility by checking if it's already registered.
+        """
+        from typing import cast
+
         from src.core.interfaces.event_bus_interface import IEventBus
         from src.core.services.event_bus import EventBus
+
+        # Check if EventBus is already registered by checking descriptors
+        # This is safe because we're checking before building the provider
+        if EventBus in services._descriptors:  # type: ignore[attr-defined]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("EventBus already registered, skipping registration")
+            return
 
         def event_bus_factory(provider: IServiceProvider) -> EventBus:
             return EventBus()

@@ -32,6 +32,14 @@ from src.core.interfaces.exception_normalizer_interface import IExceptionNormali
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 
+# Import EoS adapter (optional dependency)
+try:
+    from src.core.services.backend_completion_flow.eos_adapter import (
+        BackendCompletionFlowEosAdapter,
+    )
+except ImportError:
+    BackendCompletionFlowEosAdapter = None  # type: ignore[assignment, misc]
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +90,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         exception_normalizer: IExceptionNormalizer,
         stream_formatting_service: IStreamFormattingService,
         resilience_coordinator: IResilienceCoordinator | None = None,
+        eos_adapter: BackendCompletionFlowEosAdapter | None = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
@@ -96,6 +105,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._resilience = resilience_coordinator
         self._exception_normalizer = exception_normalizer
         self._stream_formatting_service = stream_formatting_service
+        self._eos_adapter = eos_adapter
 
     def _normalize_backend_exception(
         self, exc: Exception, backend_type: str
@@ -319,26 +329,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             context=context,
                             request=domain_request,
                             session_id_for_backend=session_id_for_backend,
+                            key_name=key_name,
                         )
                     )
 
-                    # Capture canonical usage for streaming response after completion
-                    canonical_usage = None
-                    if (
-                        hasattr(streaming_result, "canonical_usage")
-                        and streaming_result.canonical_usage is not None
-                    ):
-                        canonical_usage = streaming_result.canonical_usage
-
-                    if canonical_usage is not None:
-                        await self._wire_capture_orchestrator.capture_stream_completion(
-                            context=context,
-                            session_id=getattr(context, "session_id", None),
-                            backend_type=backend_type,
-                            effective_model=effective_model,
-                            key_name=key_name,
-                            canonical_usage=canonical_usage,
-                        )
+                    # Note: canonical_usage capture is now handled inside
+                    # handle_streaming_response's finally block, which executes
+                    # when the stream completes (not here, before stream consumption)
 
                     return streaming_result
 
@@ -466,6 +463,23 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     normalized_exc=normalized_exc,
                 )
 
+                # 3. Record EoS error termination signal (fail-open)
+                if self._eos_adapter is not None:
+                    try:
+                        await self._eos_adapter.record_error_termination(
+                            error=normalized_exc,
+                            session_id=session_id_for_backend,
+                            backend_type=current_backend,
+                            context=context,
+                        )
+                    except Exception as eos_error:
+                        # Fail-open: log but don't interfere with error handling
+                        logger.warning(
+                            "Failed to record EoS error termination: %s",
+                            eos_error,
+                            exc_info=True,
+                        )
+
                 # Step 13: Apply failure recovery (retry/failover)
                 if allow_failover:
                     return await self._failover_executor.apply_failure_recovery(
@@ -518,12 +532,50 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 exc, "__handled_by_inner_handler__", False
             ):
                 self._resilience.record_failure(backend_type, effective_model, exc)
+
+            # Record EoS error termination signal (fail-open)
+            if self._eos_adapter is not None:
+                try:
+                    session_id = getattr(context, "session_id", None) if context else None
+                    await self._eos_adapter.record_error_termination(
+                        error=exc,
+                        session_id=session_id,
+                        backend_type=backend_type,
+                        context=context,
+                    )
+                except Exception as eos_error:
+                    # Fail-open: log but don't interfere with error handling
+                    logger.warning(
+                        "Failed to record EoS error termination: %s",
+                        eos_error,
+                        exc_info=True,
+                    )
+
             # Propagate expected exceptions as-is
             raise
         except Exception as exc:
             # Normalize any remaining "foreign" exception into a domain error to keep
             # transport/framework types out of the service boundary.
             normalized_exc = self._normalize_backend_exception(exc, backend_type)
+
+            # Record EoS error termination signal (fail-open)
+            if self._eos_adapter is not None:
+                try:
+                    session_id = getattr(context, "session_id", None) if context else None
+                    await self._eos_adapter.record_error_termination(
+                        error=normalized_exc,
+                        session_id=session_id,
+                        backend_type=backend_type,
+                        context=context,
+                    )
+                except Exception as eos_error:
+                    # Fail-open: log but don't interfere with error handling
+                    logger.warning(
+                        "Failed to record EoS error termination: %s",
+                        eos_error,
+                        exc_info=True,
+                    )
+
             if isinstance(normalized_exc, LLMProxyError):
                 raise normalized_exc from exc
 

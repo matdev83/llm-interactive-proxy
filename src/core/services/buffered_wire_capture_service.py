@@ -600,9 +600,11 @@ class BufferedWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
-        if not self.enabled() or canonical_usage is None:
+        # Allow EoS metadata even without canonical_usage
+        if not self.enabled() or (canonical_usage is None and eos_metadata is None):
             return
 
         self._maybe_start_flush_task()
@@ -613,8 +615,12 @@ class BufferedWireCapture(IWireCapture):
         # Convert CanonicalUsageRecord to dict for metadata
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
-        # Create completion entry with canonical_usage
-        metadata = {"canonical_usage": canonical_usage_dict}
+        # Create completion entry with canonical_usage and/or EoS metadata
+        metadata: dict[str, Any] = {}
+        if canonical_usage_dict:
+            metadata["canonical_usage"] = canonical_usage_dict
+        if eos_metadata:
+            metadata["eos_metadata"] = eos_metadata
         completion_entry = self._create_entry(
             direction="stream_completion",
             source=backend,

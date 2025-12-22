@@ -43,6 +43,13 @@ class CaptureMetadata:
     total_chunks: int | None = None  # Set on stream_end
     total_bytes: int | None = None  # Set on stream_end
     canonical_usage: dict[str, Any] | None = None  # Canonical usage record
+    # End-of-Session (EoS) metadata
+    eos: bool = False  # True if this entry represents an EoS event
+    eos_signal: str | None = None  # EoS signal type (e.g., "done_sentinel")
+    eos_reason: str | None = None  # EoS reason/description
+    eos_termination_category: str | None = None  # "normal" or "error"
+    eos_error_classification: str | None = None  # Error classification if error termination
+    eos_error_status_code: int | None = None  # HTTP status code if error termination
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values for compact CBOR."""
@@ -73,6 +80,18 @@ class CaptureMetadata:
             result["tb"] = self.total_bytes
         if self.canonical_usage is not None:
             result["cu"] = self.canonical_usage
+        if self.eos:
+            result["eos"] = True
+        if self.eos_signal is not None:
+            result["eos_sig"] = self.eos_signal
+        if self.eos_reason is not None:
+            result["eos_reason"] = self.eos_reason
+        if self.eos_termination_category is not None:
+            result["eos_term"] = self.eos_termination_category
+        if self.eos_error_classification is not None:
+            result["eos_err_cls"] = self.eos_error_classification
+        if self.eos_error_status_code is not None:
+            result["eos_err_code"] = self.eos_error_status_code
         return result
 
     @classmethod
@@ -92,6 +111,12 @@ class CaptureMetadata:
             total_chunks=data.get("tc"),
             total_bytes=data.get("tb"),
             canonical_usage=data.get("cu"),
+            eos=data.get("eos", False),
+            eos_signal=data.get("eos_sig"),
+            eos_reason=data.get("eos_reason"),
+            eos_termination_category=data.get("eos_term"),
+            eos_error_classification=data.get("eos_err_cls"),
+            eos_error_status_code=data.get("eos_err_code"),
         )
 
 

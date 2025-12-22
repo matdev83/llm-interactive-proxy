@@ -317,11 +317,14 @@ class StructuredWireCapture(IWireCapture):
             payload={},
         )
 
-        # Add canonical usage to metadata
+        # Add canonical usage and/or EoS metadata to metadata
         if isinstance(entry, dict):
             if "metadata" not in entry:
                 entry["metadata"] = {}
-            entry["metadata"]["canonical_usage"] = canonical_usage_dict
+            if canonical_usage_dict:
+                entry["metadata"]["canonical_usage"] = canonical_usage_dict
+            if eos_metadata:
+                entry["metadata"]["eos_metadata"] = eos_metadata
 
         await self._append_json(entry)
 

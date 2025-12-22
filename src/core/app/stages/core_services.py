@@ -67,6 +67,9 @@ class CoreServicesStage(InitializationStage):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered AppConfig instance")
 
+        # Register EventBus early for EoS services
+        self._register_event_bus(services)
+
         # Register ApplicationStateService
         services.add_singleton(ApplicationStateService)
         services.add_singleton(IApplicationState, ApplicationStateService)
@@ -424,6 +427,42 @@ class CoreServicesStage(InitializationStage):
             )
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered wire capture service")
+
+            # Register WireCaptureEosSubscriber
+            def wire_capture_eos_subscriber_factory(
+                provider: IServiceProvider,
+            ) -> WireCaptureEosSubscriber:
+                """Factory to create WireCaptureEosSubscriber."""
+                from src.core.interfaces.event_bus_interface import IEventBus
+                from src.core.services.wire_capture_eos_subscriber import (
+                    WireCaptureEosSubscriber,
+                )
+                from typing import cast
+
+                event_bus: IEventBus = provider.get_required_service(
+                    cast(type, IEventBus)
+                )
+                wire_capture: IWireCapture = provider.get_required_service(IWireCapture)
+                return WireCaptureEosSubscriber(
+                    event_bus=event_bus, wire_capture=wire_capture
+                )
+
+            try:
+                from src.core.services.wire_capture_eos_subscriber import (
+                    WireCaptureEosSubscriber,
+                )
+
+                services.add_singleton(
+                    WireCaptureEosSubscriber,
+                    implementation_factory=wire_capture_eos_subscriber_factory,
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Registered WireCaptureEosSubscriber")
+            except ImportError:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "WireCaptureEosSubscriber not available, skipping registration"
+                    )
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register wire capture service: {e}")
@@ -515,6 +554,47 @@ class CoreServicesStage(InitializationStage):
                     f"(persistence_path={usage_config.persistence_path}, "
                     f"flush_interval={usage_config.flush_interval_seconds}s)"
                 )
+
+            # Register UsageTrackingEosSubscriber
+            def usage_tracking_eos_subscriber_factory(
+                provider: IServiceProvider,
+            ) -> UsageTrackingEosSubscriber:
+                """Factory to create UsageTrackingEosSubscriber."""
+                from src.core.database.repositories.usage_repository import (
+                    SessionMetricsRepository,
+                )
+                from src.core.interfaces.event_bus_interface import IEventBus
+                from src.core.services.usage_tracking_eos_subscriber import (
+                    UsageTrackingEosSubscriber,
+                )
+                from typing import cast
+
+                event_bus: IEventBus = provider.get_required_service(
+                    cast(type, IEventBus)
+                )
+                session_repo: SessionMetricsRepository = (
+                    provider.get_required_service(SessionMetricsRepository)
+                )
+                return UsageTrackingEosSubscriber(
+                    event_bus=event_bus, session_repository=session_repo
+                )
+
+            try:
+                from src.core.services.usage_tracking_eos_subscriber import (
+                    UsageTrackingEosSubscriber,
+                )
+
+                services.add_singleton(
+                    UsageTrackingEosSubscriber,
+                    implementation_factory=usage_tracking_eos_subscriber_factory,
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Registered UsageTrackingEosSubscriber")
+            except ImportError:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "UsageTrackingEosSubscriber not available, skipping registration"
+                    )
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register usage tracking services: {e}")
@@ -581,6 +661,25 @@ class CoreServicesStage(InitializationStage):
                     f"Could not register usage normalization service: {e}",
                     exc_info=True,
                 )
+
+    def _register_event_bus(self, services: ServiceCollection) -> None:
+        """Register the event bus."""
+        from typing import cast
+
+        from src.core.interfaces.event_bus_interface import IEventBus
+        from src.core.services.event_bus import EventBus
+
+        def event_bus_factory(provider: IServiceProvider) -> EventBus:
+            return EventBus()
+
+        services.add_singleton(EventBus, implementation_factory=event_bus_factory)
+        services.add_singleton(
+            cast(type, IEventBus),
+            implementation_factory=lambda p: p.get_required_service(EventBus),
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered EventBus")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that core services can be registered."""

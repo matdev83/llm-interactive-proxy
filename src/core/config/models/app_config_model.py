@@ -7,6 +7,7 @@ from pydantic import ConfigDict, Field
 from src.core.auth.sso.config import SSOConfig
 from src.core.config.models.auth import AuthConfig
 from src.core.config.models.backends import BackendSettings
+from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig
 from src.core.config.models.misc import (
     CodebuffConfig,
@@ -82,6 +83,7 @@ class AppConfigModel(DomainModel, IConfig):
     sandboxing: SandboxingConfiguration = Field(default_factory=SandboxingConfiguration)
     codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
     usage_tracking: UsageTrackingConfig = Field(default_factory=UsageTrackingConfig)
+    end_of_session: EndOfSessionConfig = Field(default_factory=EndOfSessionConfig)
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
     health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     failure_handling: FailureHandlingConfig = Field(

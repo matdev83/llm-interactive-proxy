@@ -69,6 +69,7 @@ class ArgumentParserBuilder:
         self._add_identity_arguments(parser)
         self._add_memory_arguments(parser)
         self._add_failure_handling_arguments(parser)
+        self._add_end_of_session_arguments(parser)
 
         return parser
 
@@ -1114,4 +1115,46 @@ class ArgumentParserBuilder:
             type=float,
             metavar="SECONDS",
             help="Minimum retry wait even for sub-second retry-after (default: 1.0)",
+        )
+
+    def _add_end_of_session_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add end-of-session event arguments."""
+        eos_group = parser.add_argument_group(
+            "End-of-Session Events",
+            "Options for end-of-session detection and event emission",
+        )
+        eos_group.add_argument(
+            "--enable-end-of-session",
+            dest="end_of_session_enabled",
+            action="store_true",
+            default=None,
+            help="Enable end-of-session detection and event emission",
+        )
+        eos_group.add_argument(
+            "--disable-end-of-session",
+            dest="end_of_session_enabled",
+            action="store_false",
+            default=None,
+            help="Disable end-of-session detection and event emission",
+        )
+        eos_group.add_argument(
+            "--end-of-session-emit-events",
+            dest="end_of_session_emit_events",
+            action="store_true",
+            default=None,
+            help="Enable event emission (default when EoS is enabled)",
+        )
+        eos_group.add_argument(
+            "--end-of-session-detect-only",
+            dest="end_of_session_emit_events",
+            action="store_false",
+            default=None,
+            help="Enable detect-only mode (no events emitted)",
+        )
+        eos_group.add_argument(
+            "--end-of-session-dispatch-timeout",
+            dest="end_of_session_dispatch_timeout_seconds",
+            type=float,
+            metavar="SECONDS",
+            help="Maximum time to wait for event dispatch (default: 5.0, 0 for fire-and-forget)",
         )

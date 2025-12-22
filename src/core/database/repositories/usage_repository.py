@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
 from src.core.database.repositories.base import AsyncRepository
@@ -657,6 +657,13 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
                 existing.backend_type = metrics.backend_type
                 existing.model = metrics.model
                 existing.proxy_user = metrics.proxy_user
+                # Update EoS fields if provided
+                if metrics.eos_emitted_at is not None:
+                    existing.eos_emitted_at = metrics.eos_emitted_at
+                if metrics.eos_signal_type is not None:
+                    existing.eos_signal_type = metrics.eos_signal_type
+                if metrics.eos_reason is not None:
+                    existing.eos_reason = metrics.eos_reason
                 session.add(existing)
                 await session.flush()
                 return existing
@@ -689,3 +696,97 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
             )
             result = await session.execute(statement)
             return list(result.scalars().all())
+
+    async def claim_eos_emission(
+        self,
+        session_id: str,
+        emitted_at: datetime,
+        signal_type: str,
+        reason: str | None = None,
+    ) -> bool:
+        """Atomically claim the right to emit EoS event for a session.
+
+        This method performs an atomic conditional update that only succeeds
+        if eos_emitted_at is NULL, ensuring at-most-once emission per session.
+
+        Precondition: Session metrics record must exist for the given session_id.
+        If the record doesn't exist, the claim will fail (return False) as no rows
+        will be updated. The caller should ensure session metrics are created before
+        attempting to claim EoS emission.
+
+        Args:
+            session_id: Session identifier
+            emitted_at: Timestamp when EoS event is emitted
+            signal_type: Type of signal that triggered EoS (e.g., "done_sentinel")
+            reason: Optional reason/context for the EoS event
+
+        Returns:
+            True if claim succeeded (first emission), False if already claimed or
+            session metrics don't exist
+
+        Raises:
+            Database errors are logged and re-raised for upstream handling.
+        """
+        async with self._engine.session() as session:
+            try:
+                # Atomic conditional update: only update if eos_emitted_at IS NULL
+                # Also set is_completed=True per design.md requirement for restart-safe
+                # idempotency using both is_completed and eos_emitted_at
+                statement = (
+                    update(SessionMetricsTable)
+                    .where(SessionMetricsTable.session_id == session_id)
+                    .where(SessionMetricsTable.eos_emitted_at.is_(None))
+                    .values(
+                        eos_emitted_at=emitted_at,
+                        eos_signal_type=signal_type,
+                        eos_reason=reason,
+                        is_completed=True,
+                    )
+                )
+                result = await session.execute(statement)
+
+                # Return True if any row was updated (claim succeeded)
+                # Context manager handles commit automatically
+                return result.rowcount > 0
+            except Exception as e:
+                logger.error(
+                    "Failed to claim EoS emission for session %s: %s",
+                    session_id,
+                    e,
+                    exc_info=True,
+                )
+                raise
+
+    async def has_ended(self, session_id: str) -> bool:
+        """Check if EoS event has been emitted for a session.
+
+        Fast check for hot-path dedupe. Returns True if eos_emitted_at is not NULL.
+        Returns False if the session doesn't exist or hasn't ended.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            True if session has ended (EoS event emitted), False otherwise
+            (including when session metrics don't exist)
+
+        Raises:
+            Database errors are logged and re-raised for upstream handling.
+        """
+        async with self._engine.session() as session:
+            try:
+                statement = select(SessionMetricsTable.eos_emitted_at).where(
+                    SessionMetricsTable.session_id == session_id
+                )
+                result = await session.execute(statement)
+                eos_emitted_at = result.scalar_one_or_none()
+
+                return eos_emitted_at is not None
+            except Exception as e:
+                logger.error(
+                    "Failed to check EoS status for session %s: %s",
+                    session_id,
+                    e,
+                    exc_info=True,
+                )
+                raise

@@ -5,7 +5,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import pytest
+from src.core.database.config import DatabaseConfig
+from src.core.database.engine import DatabaseEngine
 from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
+from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 
@@ -228,6 +232,50 @@ class TestSessionMetricsTable:
         assert metrics.total_tokens == 1000
         assert metrics.is_completed is False
 
+    def test_create_session_metrics_with_eos_fields(self):
+        """Test creating session metrics with EoS fields."""
+        now = datetime.now(timezone.utc)
+        eos_time = datetime.now(timezone.utc)
+        metrics = SessionMetricsTable(
+            session_id="session-456",
+            start_time=now,
+            last_activity=now,
+            turn_count=3,
+            total_tokens=500,
+            total_tool_calls=1,
+            is_completed=True,
+            backend_type="anthropic",
+            model="claude-3",
+            proxy_user="user@test.com",
+            eos_emitted_at=eos_time,
+            eos_signal_type="done_sentinel",
+            eos_reason="Stream completed",
+        )
+
+        assert metrics.eos_emitted_at == eos_time
+        assert metrics.eos_signal_type == "done_sentinel"
+        assert metrics.eos_reason == "Stream completed"
+
+    def test_create_session_metrics_with_null_eos_fields(self):
+        """Test creating session metrics with null EoS fields."""
+        now = datetime.now(timezone.utc)
+        metrics = SessionMetricsTable(
+            session_id="session-789",
+            start_time=now,
+            last_activity=now,
+            turn_count=1,
+            total_tokens=100,
+            total_tool_calls=0,
+            is_completed=False,
+            eos_emitted_at=None,
+            eos_signal_type=None,
+            eos_reason=None,
+        )
+
+        assert metrics.eos_emitted_at is None
+        assert metrics.eos_signal_type is None
+        assert metrics.eos_reason is None
+
 
 class TestUsageRecordTableIndexes:
     """Tests to verify table has proper indexes defined."""
@@ -254,5 +302,210 @@ class TestSessionMetricsTableIndexes:
         """Verify that indexes are defined on the table."""
         table_args = SessionMetricsTable.__table_args__
 
-        # Should have indexes
-        assert len(table_args) >= 2, "Expected at least 2 composite indexes"
+        # Should have indexes (last_activity, user_activity, eos_emitted_at)
+        assert len(table_args) >= 3, "Expected at least 3 composite indexes"
+
+        # Check for specific index names
+        index_names = [idx.name for idx in table_args if hasattr(idx, "name")]
+        assert "idx_session_metrics_last_activity" in index_names
+        assert "idx_session_metrics_user_activity" in index_names
+        assert "idx_session_metrics_eos_emitted_at" in index_names
+
+
+class TestSessionMetricsRepositoryEoS:
+    """Tests for SessionMetricsRepository EoS methods."""
+
+    @pytest.fixture
+    async def engine(self) -> DatabaseEngine:
+        """Create in-memory database engine for testing."""
+        config = DatabaseConfig(url="sqlite+aiosqlite:///:memory:")
+        engine = DatabaseEngine(config)
+        await engine.initialize()
+        yield engine
+        await engine.close()
+
+    @pytest.fixture
+    def repository(self, engine: DatabaseEngine) -> SessionMetricsRepository:
+        """Create session metrics repository for testing."""
+        return SessionMetricsRepository(engine)
+
+    @pytest.fixture
+    async def sample_metrics(
+        self, repository: SessionMetricsRepository
+    ) -> SessionMetricsTable:
+        """Create a sample session metrics entry."""
+        now = datetime.now(timezone.utc)
+        metrics = SessionMetricsTable(
+            session_id="test-session-123",
+            start_time=now,
+            last_activity=now,
+            turn_count=5,
+            total_tokens=1000,
+            total_tool_calls=3,
+            is_completed=False,
+            backend_type="openai",
+            model="gpt-4",
+            proxy_user="test@example.com",
+        )
+        return await repository.upsert(metrics)
+
+    @pytest.mark.asyncio
+    async def test_claim_eos_emission_succeeds_when_not_claimed(
+        self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
+    ):
+        """Test that claim_eos_emission succeeds when eos_emitted_at is NULL."""
+        emitted_at = datetime.now(timezone.utc)
+        signal_type = "done_sentinel"
+        reason = "Stream completed"
+
+        result = await repository.claim_eos_emission(
+            sample_metrics.session_id, emitted_at, signal_type, reason
+        )
+
+        assert result is True
+
+        # Verify the claim was persisted
+        updated = await repository.get_by_id(sample_metrics.session_id)
+        assert updated is not None
+        # SQLite stores naive datetime, so compare timestamps
+        assert updated.eos_emitted_at is not None
+        assert (
+            abs(
+                (
+                    updated.eos_emitted_at.replace(tzinfo=timezone.utc) - emitted_at
+                ).total_seconds()
+            )
+            < 1
+        )
+        assert updated.eos_signal_type == signal_type
+        assert updated.eos_reason == reason
+        # Verify is_completed is set to True per design.md requirement
+        assert updated.is_completed is True
+
+    @pytest.mark.asyncio
+    async def test_claim_eos_emission_fails_when_already_claimed(
+        self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
+    ):
+        """Test that claim_eos_emission fails when eos_emitted_at is already set."""
+        # First claim succeeds
+        first_emitted_at = datetime.now(timezone.utc)
+        first_result = await repository.claim_eos_emission(
+            sample_metrics.session_id, first_emitted_at, "done_sentinel", "First claim"
+        )
+        assert first_result is True
+
+        # Second claim fails
+        second_emitted_at = datetime.now(timezone.utc)
+        second_result = await repository.claim_eos_emission(
+            sample_metrics.session_id,
+            second_emitted_at,
+            "finish_reason",
+            "Second claim",
+        )
+        assert second_result is False
+
+        # Verify first claim is still present
+        updated = await repository.get_by_id(sample_metrics.session_id)
+        assert updated is not None
+        # SQLite stores naive datetime, so compare timestamps
+        assert updated.eos_emitted_at is not None
+        assert (
+            abs(
+                (
+                    updated.eos_emitted_at.replace(tzinfo=timezone.utc)
+                    - first_emitted_at
+                ).total_seconds()
+            )
+            < 1
+        )
+        assert updated.eos_signal_type == "done_sentinel"
+
+    @pytest.mark.asyncio
+    async def test_has_ended_returns_false_when_not_ended(
+        self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
+    ):
+        """Test that has_ended returns False when eos_emitted_at is NULL."""
+        result = await repository.has_ended(sample_metrics.session_id)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_has_ended_returns_true_when_ended(
+        self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
+    ):
+        """Test that has_ended returns True when eos_emitted_at is set."""
+        # Claim EoS emission
+        emitted_at = datetime.now(timezone.utc)
+        await repository.claim_eos_emission(
+            sample_metrics.session_id, emitted_at, "done_sentinel", "Test"
+        )
+
+        # Check has_ended
+        result = await repository.has_ended(sample_metrics.session_id)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_has_ended_returns_false_for_nonexistent_session(
+        self, repository: SessionMetricsRepository
+    ):
+        """Test that has_ended returns False for nonexistent session."""
+        result = await repository.has_ended("nonexistent-session")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_claim_eos_emission_returns_false_when_session_metrics_dont_exist(
+        self, repository: SessionMetricsRepository
+    ):
+        """Test that claim_eos_emission returns False when session metrics don't exist."""
+        emitted_at = datetime.now(timezone.utc)
+        signal_type = "done_sentinel"
+        reason = "Stream completed"
+
+        # Attempt to claim EoS for a nonexistent session
+        result = await repository.claim_eos_emission(
+            "nonexistent-session-id", emitted_at, signal_type, reason
+        )
+
+        # Should return False since no rows were updated
+        assert result is False
+
+        # Verify no session metrics were created
+        metrics = await repository.get_by_id("nonexistent-session-id")
+        assert metrics is None
+
+    @pytest.mark.asyncio
+    async def test_claim_eos_emission_atomicity_under_concurrency(
+        self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
+    ):
+        """Test that only one concurrent claim succeeds."""
+        import asyncio
+
+        emitted_at = datetime.now(timezone.utc)
+
+        # Create multiple concurrent claims
+        async def claim() -> bool:
+            return await repository.claim_eos_emission(
+                sample_metrics.session_id,
+                emitted_at,
+                "done_sentinel",
+                "Concurrent claim",
+            )
+
+        # Run 10 concurrent claims
+        results = await asyncio.gather(*[claim() for _ in range(10)])
+
+        # Only one should succeed
+        assert sum(results) == 1
+
+        # Verify the claim was persisted
+        updated = await repository.get_by_id(sample_metrics.session_id)
+        assert updated is not None
+        # SQLite stores naive datetime, so compare timestamps
+        assert updated.eos_emitted_at is not None
+        assert (
+            abs(
+                (
+                    updated.eos_emitted_at.replace(tzinfo=timezone.utc) - emitted_at
+                ).total_seconds()
+            )
+            < 1
+        )

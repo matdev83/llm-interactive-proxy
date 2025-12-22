@@ -143,59 +143,35 @@ class TestExecutionReminderHandler(IToolCallHandler):
                     )
                     return False
 
-            # Check if this is a completion signal
-            # Extract finish_reason and metadata if available
-            finish_reason = self._extract_finish_reason(context.full_response)
-            metadata = self._extract_metadata(context.full_response)
-            is_completion = CompletionSignalDetector.is_completion_signal(
-                tool_name=tool_name,
-                tool_arguments=tool_arguments,
-                finish_reason=finish_reason,
-                metadata=metadata,
-            )
+            # Check if this is a completion tool call (by tool name only)
+            # Note: finish_reason-based completion detection is now handled by EoS events
+            # We only check tool names here for immediate steering before EoS event
+            is_completion_tool = CompletionSignalDetector.is_completion_tool(tool_name)
 
-            if is_completion:
+            if is_completion_tool:
+
                 # Get current state for logging
                 state = self._get_session_state(context.session_id)
                 current_state = "dirty" if (state and state.is_dirty) else "clean"
 
-                # Determine detection reason
-                is_tool_match = CompletionSignalDetector._is_completion_tool(tool_name)
-                is_finish_reason_match = (
-                    CompletionSignalDetector._is_finish_reason(finish_reason)
-                    if finish_reason is not None
-                    else False
-                )
-
-                if is_tool_match and is_finish_reason_match:
-                    reason = "tool_name_and_finish_reason"
-                elif is_tool_match:
-                    reason = "tool_name"
-                elif is_finish_reason_match:
-                    reason = "finish_reason"
-                else:
-                    reason = "unknown"
-
-                # Log completion signal detection with reason and current state
+                # Log completion tool detection
                 logger.info(
-                    "Completion signal detected: session=%s, reason=%s, current_state=%s, tool=%s, finish_reason=%s",
+                    "Completion tool detected: session=%s, current_state=%s, tool=%s",
                     context.session_id,
-                    reason,
                     current_state,
                     tool_name,
-                    finish_reason,
                 )
 
                 # Only handle if session is dirty
                 if state and state.is_dirty:
                     logger.debug(
-                        "Completion signal in dirty state will trigger steering for session %s",
+                        "Completion tool in dirty state will trigger steering for session %s",
                         context.session_id,
                     )
                     return True
                 else:
                     logger.debug(
-                        "Completion signal in clean state, allowing through for session %s",
+                        "Completion tool in clean state, allowing through for session %s",
                         context.session_id,
                     )
 
@@ -234,17 +210,14 @@ class TestExecutionReminderHandler(IToolCallHandler):
             if not state or not state.is_dirty:
                 return ToolCallReactionResult(should_swallow=False)
 
-            # Extract finish_reason and metadata for completion signal verification
-            finish_reason = self._extract_finish_reason(context.full_response)
-            metadata = self._extract_metadata(context.full_response)
-            is_completion = CompletionSignalDetector.is_completion_signal(
-                tool_name=context.tool_name,
-                tool_arguments=context.tool_arguments,
-                finish_reason=finish_reason,
-                metadata=metadata,
+            # Check if this is a completion tool (by tool name only)
+            # Note: finish_reason-based completion detection is now handled by EoS events
+            is_completion_tool = CompletionSignalDetector.is_completion_tool(
+                context.tool_name
             )
 
-            if not is_completion:
+            if not is_completion_tool:
+
                 return ToolCallReactionResult(should_swallow=False)
 
             # Create message preview (first 100 chars)
@@ -508,88 +481,3 @@ class TestExecutionReminderHandler(IToolCallHandler):
             )
             return None
 
-    def _extract_finish_reason(self, full_response: Any) -> str | None:
-        """Extract finish_reason from the full LLM response.
-
-        This method attempts to extract the finish_reason field from streaming
-        responses, which indicates the end of the LLM's response.
-
-        Args:
-            full_response: The full response from the LLM
-
-        Returns:
-            The finish_reason value or None if not found
-        """
-        try:
-            if not isinstance(full_response, dict):
-                return None
-
-            # Check top-level finish_reason
-            if "finish_reason" in full_response:
-                finish_reason_value = full_response["finish_reason"]
-                return (
-                    str(finish_reason_value)
-                    if finish_reason_value is not None
-                    else None
-                )
-
-            # Check in choices array (OpenAI format)
-            choices = full_response.get("choices", [])
-            if choices and isinstance(choices, list) and len(choices) > 0:
-                first_choice = choices[0]
-                if isinstance(first_choice, dict):
-                    finish_reason = first_choice.get("finish_reason")
-                    if finish_reason:
-                        return str(finish_reason)
-
-            # Check in metadata
-            metadata = full_response.get("metadata", {})
-            if isinstance(metadata, dict) and "finish_reason" in metadata:
-                finish_reason_value = metadata["finish_reason"]
-                return (
-                    str(finish_reason_value)
-                    if finish_reason_value is not None
-                    else None
-                )
-
-            return None
-
-        except Exception as e:
-            logger.debug(
-                "Error extracting finish_reason: %s",
-                str(e),
-            )
-            return None
-
-    def _extract_metadata(self, full_response: Any) -> dict[str, Any] | None:
-        """Extract metadata from the full LLM response.
-
-        This method attempts to extract metadata that may contain finish_reason
-        or other completion indicators.
-
-        Args:
-            full_response: The full response from the LLM
-
-        Returns:
-            The metadata dict or None if not found
-        """
-        try:
-            if not isinstance(full_response, dict):
-                return None
-
-            # Check for metadata field
-            if "metadata" in full_response:
-                metadata = full_response["metadata"]
-                if isinstance(metadata, dict):
-                    return metadata
-
-            # Return the full response as metadata if it's a dict
-            # This allows checking for finish_reason at the top level
-            return full_response
-
-        except Exception as e:
-            logger.debug(
-                "Error extracting metadata: %s",
-                str(e),
-            )
-            return None

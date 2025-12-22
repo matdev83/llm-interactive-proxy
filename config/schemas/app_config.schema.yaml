@@ -317,6 +317,16 @@ properties:
       write_queue_batch_size: { type: integer, minimum: 1 }
       write_queue_flush_interval_seconds: { type: number, minimum: 0.1 }
       write_queue_max_size: { type: integer, minimum: 1 }
+  end_of_session:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      emit_events: { type: boolean }
+      detect_stream_signals: { type: boolean }
+      detect_tool_completion: { type: boolean }
+      emission_ttl_seconds: { type: integer, minimum: 0 }
+      dispatch_timeout_seconds: { type: number, minimum: 0.0 }
   memory:
     type: object
     additionalProperties: false

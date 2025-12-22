@@ -17,6 +17,31 @@ from src.core.interfaces.di_interface import IServiceProvider
 logger = logging.getLogger(__name__)
 
 
+def _create_eos_adapter(provider: IServiceProvider) -> Any | None:
+    """Create EoS adapter if available and enabled (optional dependency)."""
+    try:
+        from src.core.config.app_config import AppConfig
+        from src.core.interfaces.end_of_session_service_interface import (
+            IEndOfSessionService,
+        )
+        from src.core.services.backend_completion_flow.eos_adapter import (
+            BackendCompletionFlowEosAdapter,
+        )
+
+        eos_service = provider.get_service(cast(type, IEndOfSessionService))  # type: ignore[type-abstract]
+        if eos_service is not None:
+            config = provider.get_required_service(AppConfig)
+            eos_config = config.end_of_session
+            if eos_config.enabled:
+                return BackendCompletionFlowEosAdapter(
+                    end_of_session_service=eos_service,
+                    config=eos_config,
+                )
+    except ImportError:
+        pass
+    return None
+
+
 def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     """Register resilience services.
 
@@ -509,6 +534,9 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             usage_normalization_service: IUsageNormalizationService | None = (
                 provider.get_service(cast(type, IUsageNormalizationService))
             )
+            wire_capture_orch = provider.get_service(
+                cast(type, IWireCaptureOrchestrator)
+            )
             return UsageAccountingOrchestrator(
                 usage_tracking_service=usage_tracking_service,
                 usage_tracking_wrapper=usage_tracking_wrapper,
@@ -518,6 +546,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 backend_factory=backend_factory,
                 backend_lifecycle_manager=backend_lifecycle_manager,
                 usage_normalization_service=usage_normalization_service,
+                wire_capture_orchestrator=wire_capture_orch,
             )
 
         register_singleton_if_absent(
@@ -566,6 +595,8 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             resilience_coordinator: IResilienceCoordinator | None = (
                 provider.get_service(cast(type, IResilienceCoordinator))
             )
+            eos_adapter = _create_eos_adapter(provider)
+
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
                 request_preparer=request_preparer,
@@ -577,6 +608,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 exception_normalizer=exception_normalizer,
                 stream_formatting_service=stream_formatting_service,
                 resilience_coordinator=resilience_coordinator,
+                eos_adapter=eos_adapter,
             )
 
         register_singleton_if_absent(

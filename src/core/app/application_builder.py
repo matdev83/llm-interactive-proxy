@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
-from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.services import get_service_collection
 from src.core.interfaces.di_interface import IServiceProvider
@@ -22,6 +21,9 @@ from src.core.interfaces.di_interface import IServiceProvider
 from .stages.base import InitializationStage
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.core.config.app_config import AppConfig
 
 
 def _register_sandboxing_handler(
@@ -545,6 +547,8 @@ async def build_app_async(config: AppConfig | None = None) -> FastAPI:
         Configured FastAPI application
     """
     if config is None:
+        from src.core.config.app_config import AppConfig
+
         config = AppConfig.from_env()
 
     builder: ApplicationBuilder = ApplicationBuilder().add_default_stages()
@@ -567,6 +571,8 @@ def build_app(config: AppConfig | None = None) -> FastAPI:
     import asyncio
 
     if config is None:
+        from src.core.config.app_config import AppConfig
+
         config = AppConfig.from_env()
 
     async def _build_wrapper() -> FastAPI:

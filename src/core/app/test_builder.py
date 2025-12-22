@@ -10,28 +10,17 @@ from __future__ import annotations
 # type: ignore[unreachable]
 import asyncio
 import logging
-from typing import Any, cast
-
-from fastapi import FastAPI
+from typing import TYPE_CHECKING, Any, cast
 
 from src.core.app.application_builder import ApplicationBuilder
-from src.core.app.stages import (
-    CommandStage,
-    ControllerStage,
-    CoreServicesStage,
-    InfrastructureStage,
-    ProcessorStage,
-)
-from src.core.app.stages.test_stages import (
-    CustomTestStage,
-    MinimalTestStage,
-    MockBackendStage,
-    RealBackendTestStage,
-)
 from src.core.app.test_utils import get_app_config_from_state
-from src.core.config.app_config import AppConfig
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from src.core.config.app_config import AppConfig
 
 
 class ApplicationTestBuilder(ApplicationBuilder):
@@ -55,6 +44,15 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
+        from src.core.app.stages import (
+            CommandStage,
+            ControllerStage,
+            CoreServicesStage,
+            InfrastructureStage,
+            ProcessorStage,
+        )
+        from src.core.app.stages.test_stages import MockBackendStage
+
         self.add_stage(InfrastructureStage())
         self.add_stage(CoreServicesStage())
         self.add_stage(MockBackendStage())  # Mock backends instead of real ones
@@ -74,6 +72,9 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
+        from src.core.app.stages import CoreServicesStage, InfrastructureStage
+        from src.core.app.stages.test_stages import MinimalTestStage
+
         self.add_stage(InfrastructureStage())
         self.add_stage(CoreServicesStage())
         self.add_stage(MinimalTestStage())
@@ -90,6 +91,8 @@ class ApplicationTestBuilder(ApplicationBuilder):
         Returns:
             Self for method chaining
         """
+        from src.core.app.stages.test_stages import CustomTestStage
+
         custom_stage = CustomTestStage(name, services, dependencies)
         self.add_stage(custom_stage)
         return self
@@ -282,6 +285,7 @@ def create_test_config() -> AppConfig:
     import os
 
     from src.core.config.app_config import (
+        AppConfig,
         AuthConfig,
         BackendConfig,
         BackendSettings,
@@ -339,6 +343,17 @@ def build_httpx_mock_test_app(config: AppConfig | None = None) -> FastAPI:
     if config is None:
         config = create_test_config()
 
+    from fastapi import FastAPI
+
+    from src.core.app.stages import (
+        CommandStage,
+        ControllerStage,
+        CoreServicesStage,
+        InfrastructureStage,
+        ProcessorStage,
+    )
+    from src.core.app.stages.test_stages import RealBackendTestStage
+
     # Use real backend services for HTTP mocking
     builder = (
         ApplicationTestBuilder()
@@ -362,6 +377,17 @@ def build_integration_test_app(config: AppConfig | None = None) -> FastAPI:
     """
     if config is None:
         config = create_test_config()
+
+    from fastapi import FastAPI
+
+    from src.core.app.stages import (
+        CommandStage,
+        ControllerStage,
+        CoreServicesStage,
+        InfrastructureStage,
+        ProcessorStage,
+    )
+    from src.core.app.stages.test_stages import MockBackendStage
 
     # Use mostly real stages but with test configuration
     builder = (
@@ -392,6 +418,10 @@ def build_unit_test_app(
     """
     if config is None:
         config = create_test_config()
+
+    from fastapi import FastAPI
+
+    from src.core.app.stages import CoreServicesStage
 
     builder: ApplicationTestBuilder = ApplicationTestBuilder()
     builder = builder.add_stage(CoreServicesStage())  # type: ignore[assignment]

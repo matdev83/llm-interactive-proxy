@@ -131,6 +131,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for a completed streaming response.
 
@@ -145,6 +146,10 @@ class IWireCapture(ABC):
             model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
+            eos_metadata: Optional End-of-Session metadata dict with keys:
+                eos (bool), eos_signal (str), eos_reason (str),
+                eos_termination_category (str), eos_error_classification (str),
+                eos_error_status_code (int)
         """
         ...
 

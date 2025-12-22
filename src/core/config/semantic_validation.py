@@ -30,6 +30,7 @@ class ConfigurationValidator:
         self._validate_wire_capture_config()
         self._validate_logging_config()
         self._validate_backend_config()
+        self._validate_end_of_session_config()
 
         if self.errors:
             raise ConfigurationError(
@@ -122,6 +123,28 @@ class ConfigurationValidator:
                 f"backends.default_backend is set to '{default_backend}' but no configuration "
                 f"exists for this backend. Ensure the backend is properly configured."
             )
+
+    def _validate_end_of_session_config(self) -> None:
+        """Validate end-of-session configuration."""
+        eos_config = self.config_data.get("end_of_session", {})
+
+        if not eos_config:
+            # No end_of_session config provided - defaults will be used
+            return
+
+        enabled = eos_config.get("enabled", False)
+        emit_events = eos_config.get("emit_events", True)
+
+        # Validate detect-only mode (enabled=True, emit_events=False)
+        if enabled and not emit_events:
+            self.warnings.append(
+                "end_of_session.enabled=True but end_of_session.emit_events=False. "
+                "This enables detect-only mode: detection runs but no events are emitted."
+            )
+
+        # Field-level validation (emission_ttl_seconds >= 0, dispatch_timeout_seconds >= 0.0)
+        # is handled by Pydantic Field constraints when the config is loaded.
+        # This semantic validation focuses on business logic consistency.
 
     def _get_recovery_instructions(self) -> list[str]:
         """Generate actionable recovery instructions based on errors."""

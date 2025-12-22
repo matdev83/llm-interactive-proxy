@@ -264,6 +264,7 @@ class IWireCaptureOrchestrator(ABC):
         effective_model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response.
 
@@ -274,6 +275,7 @@ class IWireCaptureOrchestrator(ABC):
             effective_model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
+            eos_metadata: Optional End-of-Session metadata dict
         """
         ...
 
@@ -336,8 +338,18 @@ class IUsageAccountingOrchestrator(ABC):
         context: RequestContext | None,
         request: CanonicalChatRequest,
         session_id_for_backend: str | None,
+        key_name: str | None = None,
     ) -> StreamingResponseEnvelope:
         """Handle streaming response with wire capture and session ID injection.
+
+        Args:
+            result: Streaming response envelope
+            backend_type: Backend type
+            effective_model: Model name
+            context: Request context
+            request: Domain request
+            session_id_for_backend: Session ID for backend
+            key_name: Key name for wire capture (used for canonical usage capture)
 
         Returns:
             Wrapped streaming response envelope

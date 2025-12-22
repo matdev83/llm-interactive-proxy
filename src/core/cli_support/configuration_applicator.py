@@ -293,6 +293,7 @@ class ConfigurationApplicator:
             BackendApplicator,
             CompactionApplicator,
             EditPrecisionApplicator,
+            EndOfSessionApplicator,
             FailureHandlingApplicator,
             IdentityApplicator,
             LoggingApplicator,
@@ -317,6 +318,7 @@ class ConfigurationApplicator:
             RoutingApplicator(),
             CompactionApplicator(),
             SandboxingApplicator(),
+            EndOfSessionApplicator(),
         ]
 
 

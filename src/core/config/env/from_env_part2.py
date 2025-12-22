@@ -144,6 +144,51 @@ def apply_config_part2(
         ),
     }
 
+    config["end_of_session"] = {
+        "enabled": _env_to_bool(
+            "END_OF_SESSION_ENABLED",
+            False,
+            env,
+            path="end_of_session.enabled",
+            resolution=resolution,
+        ),
+        "emit_events": _env_to_bool(
+            "END_OF_SESSION_EMIT_EVENTS",
+            True,
+            env,
+            path="end_of_session.emit_events",
+            resolution=resolution,
+        ),
+        "detect_stream_signals": _env_to_bool(
+            "END_OF_SESSION_DETECT_STREAM_SIGNALS",
+            True,
+            env,
+            path="end_of_session.detect_stream_signals",
+            resolution=resolution,
+        ),
+        "detect_tool_completion": _env_to_bool(
+            "END_OF_SESSION_DETECT_TOOL_COMPLETION",
+            True,
+            env,
+            path="end_of_session.detect_tool_completion",
+            resolution=resolution,
+        ),
+        "emission_ttl_seconds": _env_to_int(
+            "END_OF_SESSION_EMISSION_TTL_SECONDS",
+            3600,
+            env,
+            path="end_of_session.emission_ttl_seconds",
+            resolution=resolution,
+        ),
+        "dispatch_timeout_seconds": _env_to_float(
+            "END_OF_SESSION_DISPATCH_TIMEOUT_SECONDS",
+            5.0,
+            env,
+            path="end_of_session.dispatch_timeout_seconds",
+            resolution=resolution,
+        ),
+    }
+
     model_aliases_env = env.get("MODEL_ALIASES")
     if model_aliases_env:
         try:

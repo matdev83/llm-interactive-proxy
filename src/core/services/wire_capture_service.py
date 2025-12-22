@@ -191,15 +191,17 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
-        if not self.enabled() or canonical_usage is None:
+        # Allow EoS metadata even without canonical_usage
+        if not self.enabled() or (canonical_usage is None and eos_metadata is None):
             return
 
         # Convert CanonicalUsageRecord to dict for JSON serialization
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
-        # For legacy wire capture, append canonical_usage as a separate entry
+        # For legacy wire capture, append canonical_usage and/or EoS metadata as a separate entry
         header = self._format_header(
             direction="STREAM_COMPLETION",
             context=context,
@@ -208,7 +210,12 @@ class WireCapture(IWireCapture):
             model=model,
             key_name=key_name,
         )
-        body = _safe_json_dump({"canonical_usage": canonical_usage_dict})
+        body_dict: dict[str, Any] = {}
+        if canonical_usage_dict:
+            body_dict["canonical_usage"] = canonical_usage_dict
+        if eos_metadata:
+            body_dict["eos_metadata"] = eos_metadata
+        body = _safe_json_dump(body_dict)
         await self._append(f"{header}\n{body}\n")
 
     def wrap_inbound_stream(

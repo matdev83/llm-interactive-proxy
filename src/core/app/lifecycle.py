@@ -44,6 +44,9 @@ class AppLifecycle:
         # Start ProxyMem services (analysis worker, maintenance)
         await self._start_memory_services()
 
+        # Start EoS subscribers
+        await self._start_eos_subscribers()
+
         # Start usage tracking services (async write queue)
         await self._start_usage_tracking_services()
 
@@ -57,6 +60,9 @@ class AppLifecycle:
         """
         if logger.isEnabledFor(logging.INFO):
             logger.info("Shutting down application lifecycle...")
+
+        # Stop EoS subscribers
+        await self._stop_eos_subscribers()
 
         # Stop ProxyMem services
         await self._stop_memory_services()
@@ -120,6 +126,192 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Error starting ProxyMem services: %s", e)
+
+    async def _start_eos_subscribers(self) -> None:
+        """Start End-of-Session event subscribers.
+
+        Starts all EoS subscribers that listen for RemoteBackendConnectionEndOfSessionEvent.
+        """
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        # Start ProxyMemEosSubscriber
+        try:
+            from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
+
+            subscriber = provider.get_service(ProxyMemEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ProxyMemEosSubscriber started")
+        except ImportError:
+            # ProxyMemEosSubscriber not available (memory disabled)
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to start ProxyMemEosSubscriber: {e}", exc_info=True)
+
+        # Start UsageTrackingEosSubscriber
+        try:
+            from src.core.services.usage_tracking_eos_subscriber import (
+                UsageTrackingEosSubscriber,
+            )
+
+            subscriber = provider.get_service(UsageTrackingEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("UsageTrackingEosSubscriber started")
+        except ImportError:
+            # UsageTrackingEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start UsageTrackingEosSubscriber: {e}", exc_info=True
+                )
+
+        # Start WireCaptureEosSubscriber
+        try:
+            from src.core.services.wire_capture_eos_subscriber import (
+                WireCaptureEosSubscriber,
+            )
+
+            subscriber = provider.get_service(WireCaptureEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("WireCaptureEosSubscriber started")
+        except ImportError:
+            # WireCaptureEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start WireCaptureEosSubscriber: {e}", exc_info=True
+                )
+
+        # Start TestExecutionReminderEosSubscriber
+        # Note: This subscriber is created inline in provider_lifecycle and stored
+        # in provider._test_execution_reminder_eos_subscriber
+        try:
+            from src.services.test_execution_reminder.eos_subscriber import (
+                TestExecutionReminderEosSubscriber,
+            )
+
+            # Try to get the subscriber from provider (stored in provider_lifecycle)
+            subscriber = getattr(provider, "_test_execution_reminder_eos_subscriber", None)
+            if subscriber and isinstance(subscriber, TestExecutionReminderEosSubscriber):
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("TestExecutionReminderEosSubscriber started")
+            else:
+                # Fallback: try to get from DI if registered as service
+                subscriber = provider.get_service(TestExecutionReminderEosSubscriber)
+                if subscriber:
+                    await subscriber.start()
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("TestExecutionReminderEosSubscriber started")
+        except ImportError:
+            # TestExecutionReminderEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start TestExecutionReminderEosSubscriber: {e}",
+                    exc_info=True,
+                )
+
+    async def _stop_eos_subscribers(self) -> None:
+        """Stop End-of-Session event subscribers.
+
+        Stops all EoS subscribers that were started during application startup.
+        """
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        # Stop ProxyMemEosSubscriber
+        try:
+            from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
+
+            subscriber = provider.get_service(ProxyMemEosSubscriber)
+            if subscriber:
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ProxyMemEosSubscriber stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to stop ProxyMemEosSubscriber: {e}", exc_info=True)
+
+        # Stop UsageTrackingEosSubscriber
+        try:
+            from src.core.services.usage_tracking_eos_subscriber import (
+                UsageTrackingEosSubscriber,
+            )
+
+            subscriber = provider.get_service(UsageTrackingEosSubscriber)
+            if subscriber:
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("UsageTrackingEosSubscriber stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to stop UsageTrackingEosSubscriber: {e}", exc_info=True
+                )
+
+        # Stop WireCaptureEosSubscriber
+        try:
+            from src.core.services.wire_capture_eos_subscriber import (
+                WireCaptureEosSubscriber,
+            )
+
+            subscriber = provider.get_service(WireCaptureEosSubscriber)
+            if subscriber:
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("WireCaptureEosSubscriber stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to stop WireCaptureEosSubscriber: {e}", exc_info=True
+                )
+
+        # Stop TestExecutionReminderEosSubscriber
+        try:
+            from src.services.test_execution_reminder.eos_subscriber import (
+                TestExecutionReminderEosSubscriber,
+            )
+
+            # Try to get the subscriber from provider (stored in provider_lifecycle)
+            subscriber = getattr(provider, "_test_execution_reminder_eos_subscriber", None)
+            if subscriber and isinstance(subscriber, TestExecutionReminderEosSubscriber):
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("TestExecutionReminderEosSubscriber stopped")
+            else:
+                # Fallback: try to get from DI if registered as service
+                subscriber = provider.get_service(TestExecutionReminderEosSubscriber)
+                if subscriber:
+                    await subscriber.stop()
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("TestExecutionReminderEosSubscriber stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to stop TestExecutionReminderEosSubscriber: {e}",
+                    exc_info=True,
+                )
 
     async def _stop_memory_services(self) -> None:
         """Stop ProxyMem services."""

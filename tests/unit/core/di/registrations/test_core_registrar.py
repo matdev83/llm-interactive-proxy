@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.registrations import core, streaming
+from src.core.di.registrations import persistence
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
@@ -283,7 +284,24 @@ class TestCoreRegistrarRequestProcessing:
         services.add_instance(IAngelServiceFactory, MagicMock())
         services.add_instance(IWireCapture, MagicMock())
 
+        # Register EventBus (required by EoS services)
+        from typing import cast
+
+        from src.core.interfaces.di_interface import IServiceProvider
+        from src.core.interfaces.event_bus_interface import IEventBus
+        from src.core.services.event_bus import EventBus
+
+        def event_bus_factory(provider: IServiceProvider) -> EventBus:
+            return EventBus()
+
+        services.add_singleton(EventBus, implementation_factory=event_bus_factory)
+        services.add_singleton(
+            cast(type, IEventBus),
+            implementation_factory=lambda p: p.get_required_service(EventBus),
+        )
+
         core.register(services, config)
+        persistence.register(services, config)
         streaming.register(services, config)
         provider = services.build_service_provider()
 

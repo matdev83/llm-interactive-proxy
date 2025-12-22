@@ -253,6 +253,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response (best-effort).
 
@@ -263,6 +264,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             effective_model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
+            eos_metadata: Optional End-of-Session metadata
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():
@@ -273,6 +275,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     model=effective_model,
                     key_name=key_name,
                     canonical_usage=canonical_usage,
+                    eos_metadata=eos_metadata,
                 )
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):

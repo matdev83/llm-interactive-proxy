@@ -23,6 +23,7 @@ Domain Applicators:
 - RoutingApplicator: routing policies
 - CompactionApplicator: context compaction
 - SandboxingApplicator: file access sandboxing
+- EndOfSessionApplicator: end-of-session detection and event emission
 
 Requirements satisfied:
 - 6.1: ConfigurationApplicator delegates to domain-specific applicators
@@ -36,6 +37,9 @@ from src.core.cli_support.applicators.backend_applicator import BackendApplicato
 from src.core.cli_support.applicators.compaction_applicator import CompactionApplicator
 from src.core.cli_support.applicators.editprecision_applicator import (
     EditPrecisionApplicator,
+)
+from src.core.cli_support.applicators.endofsession_applicator import (
+    EndOfSessionApplicator,
 )
 from src.core.cli_support.applicators.failurehandling_applicator import (
     FailureHandlingApplicator,
@@ -54,6 +58,7 @@ __all__ = [
     "BackendApplicator",
     "CompactionApplicator",
     "EditPrecisionApplicator",
+    "EndOfSessionApplicator",
     "FailureHandlingApplicator",
     "IdentityApplicator",
     "LoggingApplicator",

@@ -111,7 +111,11 @@ class TestLogging:
     async def test_completion_signal_logging(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Test that completion signals are logged with reason and current state."""
+        """Test that completion signals are logged with current state and tool name.
+
+        Note: finish_reason detection was moved to EoS events per Requirement 7.6.
+        The handler now only logs completion tool detection (by tool name).
+        """
         caplog.set_level(logging.INFO)
 
         handler = TestExecutionReminderHandler(enabled=True)
@@ -143,11 +147,11 @@ class TestLogging:
         # Process the completion signal
         await handler.can_handle(context_complete)
 
-        # Should log completion signal detection with reason and current state
+        # Should log completion tool detection with session, current state, and tool name
+        # Note: "reason=" was removed when finish_reason detection moved to EoS events
         assert any(
-            "Completion signal detected" in record.message
+            "Completion tool detected" in record.message
             and "session=test-session-789" in record.message
-            and "reason=" in record.message
             and "current_state=dirty" in record.message
             and "tool=task_complete" in record.message
             for record in caplog.records
