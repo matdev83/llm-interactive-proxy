@@ -504,6 +504,15 @@ class ApplicationBuilder:
             # Shutdown
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Shutting down application")
+            # Dispose of ServiceCollection to await pending cleanup tasks
+            # This ensures cleanup tasks created when replacing httpx.AsyncClient
+            # instances are properly awaited before closing the final client
+            try:
+                await self._services.dispose()
+            except Exception:
+                # Best-effort disposal; ignore errors to avoid masking real failures
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Failed to dispose ServiceCollection", exc_info=True)
             # Clean up resources
             try:
                 import httpx

@@ -63,6 +63,9 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         # Disabled backends registry
         self._disabled_backends: dict[str, dict[str, Any]] = {}
 
+        # Track shutdown tasks created by discard() to prevent resource leaks
+        self._shutdown_tasks: set[asyncio.Task[None]] = set()
+
     @staticmethod
     def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
         """Return True when the cache key maps to a session-scoped backend."""
@@ -206,8 +209,11 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 if self._factory:
                     self._factory.unregister_backend_notifications(backend)
                     self._factory.unregister_backend(cache_key)
+            # Create shutdown task and track it to prevent resource leaks
             task = asyncio.create_task(self.shutdown(backend))
-            task.add_done_callback(lambda t: None)
+            self._shutdown_tasks.add(task)
+            # Remove task from tracking set when it completes
+            task.add_done_callback(self._shutdown_tasks.discard)
 
         for cache_key in global_cache_keys_to_remove:
             backend = self._backends.pop(cache_key, None)
@@ -302,3 +308,48 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             await self.shutdown(evicted_backend)
             # Clean up backend config if this was the last instance of this backend type
             self._maybe_cleanup_backend_config(evicted_key)
+
+    async def await_pending_shutdown_tasks(self, timeout: float = 5.0) -> None:
+        """Await all pending shutdown tasks created by discard().
+
+        This method ensures that shutdown tasks created during backend discard
+        operations are properly awaited, preventing resource leaks.
+
+        Args:
+            timeout: Maximum time to wait for tasks to complete (default: 5.0 seconds).
+        """
+        if not self._shutdown_tasks:
+            return
+
+        # Filter out completed tasks
+        pending_tasks = [t for t in self._shutdown_tasks if not t.done()]
+        if not pending_tasks:
+            # All tasks completed, clear the set
+            self._shutdown_tasks.clear()
+            return
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Awaiting %d pending backend shutdown task(s)...", len(pending_tasks)
+            )
+
+        try:
+            # Wait for all pending tasks with timeout
+            await asyncio.wait_for(
+                asyncio.gather(*pending_tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Timeout waiting for backend shutdown tasks, cancelling remaining tasks"
+                )
+            # Cancel any remaining tasks
+            for task in pending_tasks:
+                if not task.done():
+                    task.cancel()
+            # Wait briefly for cancellations
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+        finally:
+            # Clear completed tasks from tracking set
+            self._shutdown_tasks = {t for t in self._shutdown_tasks if not t.done()}

@@ -2472,6 +2472,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Discover or retrieve the project ID for Code Assist API."""
         raise NotImplementedError
 
+    async def shutdown(self) -> None:
+        """Shutdown the connector and clean up resources.
+
+        This method is called by BackendLifecycleManager during backend shutdown
+        to ensure proper cleanup of resources like TokenManager subprocesses.
+        """
+        # Clean up TokenManager subprocess if available
+        if hasattr(self, "_token_manager") and self._token_manager:
+            try:
+                await self._token_manager.cleanup()
+            except Exception:
+                # Best-effort cleanup; suppress errors to avoid masking real failures
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error cleaning up TokenManager during shutdown", exc_info=True
+                    )
+
     def __del__(self):
         """Cleanup file watcher on destruction."""
         # Guard against partial initialization
@@ -2479,6 +2496,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             self._stop_file_watching()
 
         # Cleanup CLI refresh process via token manager
+        # Note: This is best-effort cleanup in __del__. The preferred path
+        # is via shutdown() which calls token_manager.cleanup() explicitly.
         if hasattr(self, "_token_manager"):
             cli_process = self._token_manager._cli_refresh_process
             if cli_process and cli_process.poll() is None:

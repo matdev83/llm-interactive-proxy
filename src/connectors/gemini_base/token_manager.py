@@ -316,6 +316,43 @@ class TokenManager:
             )
             return False
 
+    async def cleanup(self) -> None:
+        """Clean up subprocess to prevent resource leaks.
+
+        This method explicitly terminates the CLI refresh subprocess if it's
+        still running. Should be called during connector shutdown to ensure
+        subprocesses are properly terminated.
+
+        Note: This is the preferred cleanup method over relying on __del__,
+        which may not be called in scenarios with circular references or
+        during interpreter shutdown.
+        """
+        if hasattr(self, "_cli_refresh_process"):
+            process = self._cli_refresh_process
+            if process is not None:
+                try:
+                    # Check if process is still running
+                    if process.poll() is None:
+                        # Process is still running, terminate it
+                        process.terminate()
+                        try:
+                            # Wait with timeout
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            # Process didn't terminate, force kill
+                            process.kill()
+                            try:
+                                process.wait(timeout=5)
+                            except (subprocess.TimeoutExpired, Exception):
+                                # Suppress all exceptions during cleanup
+                                pass
+                except Exception:
+                    # Suppress all exceptions during cleanup
+                    pass
+                finally:
+                    # Clear reference to prevent leaks
+                    self._cli_refresh_process = None
+
     def __del__(self) -> None:
         """Cleanup subprocess on destruction.
 

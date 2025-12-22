@@ -1,12 +1,15 @@
-"""Repro script for BackendStage cleanup tasks leak.
+"""Repro script for BackendStage validation HTTP client cleanup tasks leak.
 
-This script demonstrates that if BackendStage._register_validation_http_client()
-creates cleanup tasks but an exception occurs during cleanup or cleanup is interrupted,
-tasks may not be properly awaited/cancelled, leading to resource leaks.
+This script demonstrates that BackendStage creates cleanup tasks for HTTP clients
+in exception handlers, but these tasks may not be awaited if the stage fails early,
+causing async task accumulation.
+
+Attack vector: A remote actor can trigger backend validation failures repeatedly,
+causing cleanup tasks to accumulate without being awaited, preventing garbage
+collection of HTTP client resources.
 """
 
 import asyncio
-import gc
 import sys
 from pathlib import Path
 
@@ -14,148 +17,171 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import httpx
-
 
 async def test_cleanup_tasks_leak_scenario():
-    """Test scenario where cleanup tasks might leak."""
+    """Test scenario where BackendStage cleanup tasks leak."""
+    print("=" * 60)
     print("Testing BackendStage cleanup tasks leak scenario...")
-    
-    client: httpx.AsyncClient | None = None
-    cleanup_tasks: set[asyncio.Task[None]] = set()
+    print("=" * 60)
     
     try:
-        # Simulate creating client (like in _register_validation_http_client)
+        import httpx
+        from src.core.app.stages.backend import BackendStage
+        from src.core.di.container import ServiceCollection
+        
+        # Count tasks before
+        tasks_before = len(asyncio.all_tasks())
+        print(f"Active tasks before: {tasks_before}")
+        
+        # Create BackendStage instance
+        print("\nCreating BackendStage instance...")
+        stage = BackendStage()
+        
+        # Create services collection
+        services = ServiceCollection()
+        
+        # Simulate creating HTTP client that will need cleanup
+        print("Creating HTTP client for validation...")
         client = httpx.AsyncClient(
+            http2=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            trust_env=False,
         )
-        print(f"Created client: {client}")
-        print(f"Client closed: {client.is_closed}")
         
-        # Simulate exception before cleanup (like in exception handler)
-        # This mimics the scenario where cleanup_task is added but cleanup fails
+        # Simulate the exception path in _register_validation_http_client
+        # where cleanup task is created but may not be awaited
+        print("\nSimulating exception during client registration...")
         try:
-            loop = asyncio.get_event_loop()
+            # This simulates the code path where client is created but exception occurs
+            # before it's registered, triggering cleanup task creation
+            loop = asyncio.get_running_loop()
             if loop.is_running():
-                # Create cleanup task and add to set (like BackendStage does)
+                # Schedule cleanup task (this is what happens in the exception handler)
                 cleanup_task = asyncio.create_task(client.aclose())
-                cleanup_tasks.add(cleanup_task)
+                stage._cleanup_tasks.add(cleanup_task)
                 print(f"Created cleanup task: {cleanup_task}")
-                print(f"Cleanup tasks count: {len(cleanup_tasks)}")
                 
-                # Simulate exception during cleanup (like timeout or cancellation error)
-                raise ValueError("Simulated exception during cleanup")
+                # Simulate stage failure before cleanup tasks are awaited
+                # This is the bug - tasks are created but not awaited
+                print("Simulating stage failure (cleanup tasks not awaited)...")
+                
+                # Check if cleanup task is still pending
+                await asyncio.sleep(0.1)
+                
+                tasks_after = len(asyncio.all_tasks())
+                print(f"Active tasks after: {tasks_after}")
+                
+                # Check cleanup tasks set
+                pending_tasks = [t for t in stage._cleanup_tasks if not t.done()]
+                print(f"Pending cleanup tasks: {len(pending_tasks)}")
+                
+                if len(pending_tasks) > 0:
+                    print(f"\n[LEAK DETECTED] {len(pending_tasks)} cleanup tasks not awaited!")
+                    print("This indicates task leak because cleanup tasks were created")
+                    print("but not awaited during stage failure")
+                    
+                    # Clean up for test
+                    print("\nCleaning up leaked tasks...")
+                    await stage._cleanup_validation_client()
+                    
+                    # Verify cleanup
+                    remaining_tasks = [t for t in stage._cleanup_tasks if not t.done()]
+                    if len(remaining_tasks) == 0:
+                        print("Tasks cleaned up successfully")
+                    else:
+                        print(f"WARNING: {len(remaining_tasks)} tasks still pending")
+                    
+                    # Close client if still open
+                    if not client.is_closed:
+                        await client.aclose()
+                    
+                    return False  # Leak confirmed
+                else:
+                    print("All tasks completed (unexpected)")
+                    if not client.is_closed:
+                        await client.aclose()
+                    return True
         except Exception as e:
-            print(f"Exception during cleanup setup: {e}")
-            # If cleanup fails here, tasks remain in set but may not be awaited
-        
+            print(f"Exception during test: {e}")
+            # Ensure client is closed
+            if not client.is_closed:
+                await client.aclose()
+            raise
+            
     except Exception as e:
-        print(f"Exception occurred: {e}")
-    
-    # Simulate cleanup attempt (like in _cleanup_validation_client)
-    # But simulate a scenario where cleanup is interrupted
-    print("\nSimulating cleanup attempt...")
-    pending_tasks = [t for t in cleanup_tasks if not t.done()]
-    if pending_tasks:
-        print(f"Pending cleanup tasks: {len(pending_tasks)}")
-        try:
-            # Simulate timeout scenario
-            await asyncio.wait_for(
-                asyncio.gather(*pending_tasks, return_exceptions=True),
-                timeout=0.1,  # Very short timeout to trigger TimeoutError
-            )
-        except asyncio.TimeoutError:
-            print("Timeout waiting for cleanup tasks (simulated leak scenario)")
-            # In real code, tasks should be cancelled here, but if this fails...
-            for task in pending_tasks:
-                if not task.done():
-                    print(f"Task {task} not done, should be cancelled")
-                    # Simulate cancellation failure
-                    # task.cancel()  # This should happen but might fail
-    
-    # Wait a bit to see if cleanup happens
-    await asyncio.sleep(1)
-    
-    # Check if client is closed
-    if client is not None:
-        print(f"\nClient closed after cleanup: {client.is_closed}")
-        if not client.is_closed:
-            print("LEAK DETECTED: Client was not closed!")
-            await client.aclose()
-        else:
-            print("Client was properly closed")
-    
-    # Check if tasks are still pending
-    pending_after = [t for t in cleanup_tasks if not t.done()]
-    if pending_after:
-        print(f"LEAK DETECTED: {len(pending_after)} cleanup tasks still pending!")
-        for task in pending_after:
-            print(f"  - Task: {task}, done: {task.done()}")
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-    else:
-        print("All cleanup tasks completed")
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
-async def test_cleanup_interruption_scenario():
-    """Test scenario where cleanup is interrupted by exception."""
+async def test_multiple_failures_leak():
+    """Test that multiple stage failures create multiple cleanup tasks that leak."""
     print("\n" + "=" * 60)
-    print("Testing cleanup interruption scenario...")
-    
-    client: httpx.AsyncClient | None = None
-    cleanup_tasks: set[asyncio.Task[None]] = set()
+    print("Testing multiple BackendStage failures cleanup tasks leak...")
+    print("=" * 60)
     
     try:
-        client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-        )
+        import httpx
+        from src.core.app.stages.backend import BackendStage
         
-        # Add cleanup task
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            cleanup_task = asyncio.create_task(client.aclose())
-            cleanup_tasks.add(cleanup_task)
-            print(f"Created cleanup task: {cleanup_task}")
+        tasks_before = len(asyncio.all_tasks())
+        print(f"Active tasks before: {tasks_before}")
         
-        # Simulate cleanup attempt that gets interrupted
-        pending_tasks = [t for t in cleanup_tasks if not t.done()]
-        if pending_tasks:
-            try:
-                # Simulate exception during gather
-                async def failing_cleanup():
-                    await asyncio.sleep(0.1)
-                    raise RuntimeError("Cleanup failed")
-                
-                # Replace task with failing one for demonstration
-                failing_task = asyncio.create_task(failing_cleanup())
-                cleanup_tasks.add(failing_task)
-                
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
-            except Exception as e:
-                print(f"Exception during cleanup: {e}")
-                # If exception occurs, tasks might not be properly handled
-    
+        stage = BackendStage()
+        
+        # Simulate multiple failures
+        print("\nSimulating 3 stage failures...")
+        for i in range(3):
+            client = httpx.AsyncClient(
+                http2=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
+            )
+            
+            # Create cleanup task
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                cleanup_task = asyncio.create_task(client.aclose())
+                stage._cleanup_tasks.add(cleanup_task)
+                print(f"  Created cleanup task {i+1}: {cleanup_task}")
+            
+            await asyncio.sleep(0.1)
+        
+        # Simulate shutdown without awaiting cleanup tasks
+        print("\nSimulating shutdown without awaiting cleanup tasks...")
+        await asyncio.sleep(0.2)
+        
+        pending_tasks = [t for t in stage._cleanup_tasks if not t.done()]
+        print(f"Pending cleanup tasks: {len(pending_tasks)}")
+        
+        if len(pending_tasks) > 0:
+            print(f"\n[LEAK DETECTED] {len(pending_tasks)} cleanup tasks not awaited!")
+            print("This indicates task leak because cleanup tasks accumulate")
+            print("without being awaited during shutdown")
+            
+            # Clean up
+            print("\nCleaning up leaked tasks...")
+            await stage._cleanup_validation_client()
+            
+            remaining_tasks = [t for t in stage._cleanup_tasks if not t.done()]
+            if len(remaining_tasks) == 0:
+                print("Tasks cleaned up successfully")
+            else:
+                print(f"WARNING: {len(remaining_tasks)} tasks still pending")
+            
+            return False  # Leak confirmed
+        else:
+            print("All tasks completed (unexpected)")
+            return True
+            
     except Exception as e:
-        print(f"Exception: {e}")
-    finally:
-        # Ensure cleanup
-        if client and not client.is_closed:
-            await client.aclose()
-        
-        # Cancel any remaining tasks
-        for task in cleanup_tasks:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 if __name__ == "__main__":
@@ -163,10 +189,13 @@ if __name__ == "__main__":
     print("BackendStage Cleanup Tasks Leak Repro")
     print("=" * 60)
     
-    asyncio.run(test_cleanup_tasks_leak_scenario())
-    asyncio.run(test_cleanup_interruption_scenario())
+    result1 = asyncio.run(test_cleanup_tasks_leak_scenario())
+    result2 = asyncio.run(test_multiple_failures_leak())
     
     print("\n" + "=" * 60)
-    print("Test completed")
+    if result1 and result2:
+        print("All tests passed (no leak detected)")
+    else:
+        print("[LEAK CONFIRMED] Fix needed!")
     print("=" * 60)
 

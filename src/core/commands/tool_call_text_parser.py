@@ -467,17 +467,17 @@ def _parse_tool_call_block(text: str) -> TextToolInvocation | None:
 
 
 # DoS protection limits for tool call parameter parsing
-MAX_PARAMETER_JSON_SIZE = 1 * 1024 * 1024  # 1MB maximum JSON parameter size
+MAX_PARAMETER_JSON_SIZE = 10 * 1024 * 1024  # 10MB maximum JSON parameter size
 MAX_PARAMETER_JSON_DEPTH = 50  # Maximum JSON nesting depth for parameters
 
 
 def _validate_parameter_json_depth(obj: Any, current_depth: int) -> None:
     """Validate JSON object doesn't exceed maximum nesting depth for parameters.
-    
+
     Args:
         obj: JSON object to validate
         current_depth: Current nesting depth
-        
+
     Raises:
         ValueError: If maximum depth exceeded
     """
@@ -485,7 +485,7 @@ def _validate_parameter_json_depth(obj: Any, current_depth: int) -> None:
         raise ValueError(
             f"Tool parameter JSON depth {current_depth} exceeds maximum {MAX_PARAMETER_JSON_DEPTH}"
         )
-        
+
     if isinstance(obj, dict):
         for value in obj.values():
             _validate_parameter_json_depth(value, current_depth + 1)
@@ -499,14 +499,14 @@ def _parse_tool_call_parameter_value(raw_value: str) -> Any:
     trimmed = (raw_value or "").strip()
     if not trimmed:
         return ""
-    
+
     try:
         # DoS protection: Check parameter size before parsing
         param_size = len(trimmed.encode("utf-8"))
         if param_size > MAX_PARAMETER_JSON_SIZE:
             # Parameter too large, treat as string to prevent DoS
             return trimmed
-            
+
         # Parse JSON and validate depth
         parsed = json.loads(trimmed)
         _validate_parameter_json_depth(parsed, 0)

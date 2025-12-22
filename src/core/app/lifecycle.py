@@ -474,6 +474,13 @@ class AppLifecycle:
             if maintenance:
                 await maintenance.stop_periodic_cleanup()
 
+            # Clean up MemoryService cleanup tasks
+            from src.core.memory.service import MemoryService
+
+            memory_service = provider.get_service(MemoryService)
+            if memory_service:
+                await memory_service.cleanup()
+
             if logger.isEnabledFor(logging.INFO):
                 logger.info("ProxyMem services stopped")
 
@@ -514,6 +521,7 @@ class AppLifecycle:
 
         Gracefully stops the AsyncUsageWriteQueue, ensuring all pending
         usage records are flushed to the database before shutdown.
+        Also stops InMemoryUsageStore persistence thread to prevent thread leaks.
         """
         provider = getattr(self.app.state, "service_provider", None)
         if not provider:
@@ -534,6 +542,23 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Error stopping usage write queue: %s", e)
+
+        # Stop InMemoryUsageStore persistence thread to prevent thread leaks
+        try:
+            from src.core.services.in_memory_usage_store import InMemoryUsageStore
+
+            usage_store = provider.get_service(InMemoryUsageStore)
+            if usage_store:
+                usage_store.stop_persistence_thread()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("InMemoryUsageStore persistence thread stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Error stopping InMemoryUsageStore persistence thread: %s", e
+                )
 
     async def _start_health_checks(self) -> None:
         """Start health check services if enabled."""
@@ -729,6 +754,16 @@ class AppLifecycle:
                             )
                     elif logger.isEnabledFor(logging.DEBUG):
                         logger.debug(f"Shut down backend: {cache_key}")
+
+            # Await any pending shutdown tasks created by discard() operations
+            # This prevents resource leaks from untracked shutdown tasks
+            try:
+                await lifecycle_manager.await_pending_shutdown_tasks(timeout=5.0)
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error awaiting pending backend shutdown tasks: %s", e
+                    )
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info("All cached backends shut down")

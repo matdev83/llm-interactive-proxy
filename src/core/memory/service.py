@@ -9,7 +9,6 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from weakref import WeakSet
 
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
@@ -101,7 +100,9 @@ class MemoryService:
         # Track when sessions entered analysis_in_progress for TTL cleanup
         self._analysis_in_progress: dict[str, float] = {}
         # Track cleanup tasks to prevent resource leaks
-        self._cleanup_tasks: WeakSet[asyncio.Task[None]] = WeakSet()
+        # Use regular set instead of WeakSet to prevent premature GC before tasks complete
+        # Tasks will be explicitly awaited during cleanup()
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
 
     def is_available(self) -> bool:
         """Check if memory feature is globally available."""
@@ -498,6 +499,52 @@ class MemoryService:
     def get_active_session_count(self) -> int:
         """Get the number of active memory-enabled sessions."""
         return len(self._session_states)
+
+    async def cleanup(self) -> None:
+        """Clean up pending cleanup tasks to prevent resource leaks.
+
+        This method awaits all pending cleanup tasks created during session
+        eviction. Should be called during application shutdown to ensure
+        all resources (HTTP connections, file handles, etc.) are properly released.
+        """
+        # Take snapshot of pending tasks
+        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        if pending_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                # Cancel tasks that didn't complete in time
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Timeout waiting for MemoryService cleanup tasks, cancelling"
+                    )
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Await cancelled tasks to ensure they complete
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    pass  # Suppress errors during final cleanup
+            except Exception:
+                # If gather fails, cancel all tasks
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error during MemoryService cleanup task gather", exc_info=True
+                    )
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    pass  # Suppress errors during final cleanup
+
+        # Clear the cleanup tasks set to prevent memory leaks
+        self._cleanup_tasks.clear()
 
     async def _maybe_cleanup_stale_sessions_locked(self) -> None:
         """Clean up stale session states based on TTL.

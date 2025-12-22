@@ -116,6 +116,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._stream_formatting_service = stream_formatting_service
         self._eos_adapter = eos_adapter
         self._cancellation_coordinator = cancellation_coordinator
+        # Track cancellation tasks to prevent resource leaks
+        self._cancellation_tasks: set[asyncio.Task[None]] = set()
 
     def _normalize_backend_exception(
         self, exc: Exception, backend_type: str
@@ -312,10 +314,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             """Cancellable wrapper for streaming backend work."""
 
                             def __init__(
-                                self, cancel_callback: Callable[[], Awaitable[None]]
+                                self,
+                                cancel_callback: Callable[[], Awaitable[None]],
+                                cancellation_tasks: set[asyncio.Task[None]],
                             ):
                                 self._cancel_callback = cancel_callback
                                 self._cancelled: bool = False
+                                self._cancellation_tasks = cancellation_tasks
 
                             def cancel(self) -> None:
                                 """Cancel the streaming backend work."""
@@ -324,15 +329,21 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                     # Schedule cancellation callback execution
                                     try:
                                         loop = asyncio.get_running_loop()
-                                        # Call cancel_callback to get coroutine, then create task (fire-and-forget)
+                                        # Call cancel_callback to get coroutine, then create task and track it
                                         coro = self._cancel_callback()
-                                        _ = loop.create_task(coro)  # type: ignore[arg-type]  # noqa: RUF006
+                                        task = loop.create_task(coro)  # type: ignore[arg-type]
+                                        # Track task to prevent resource leaks
+                                        self._cancellation_tasks.add(task)
+                                        # Remove task from set when done to prevent unbounded growth
+                                        task.add_done_callback(
+                                            self._cancellation_tasks.discard
+                                        )
                                     except RuntimeError:
                                         # No event loop, skip cancellation
                                         pass
 
                         cancellable: ICancellable = StreamingCancellable(
-                            result.cancel_callback
+                            result.cancel_callback, self._cancellation_tasks
                         )
                         self._cancellation_coordinator.register_cancellable(
                             session_key, cancellable
@@ -692,3 +703,30 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 message=f"Backend call failed: {exc!s}",
                 backend_name=backend_type,
             ) from exc
+
+    async def cleanup(self) -> None:
+        """Clean up pending cancellation tasks to prevent resource leaks.
+
+        This method cancels and awaits all pending cancellation tasks.
+        Should be called during application shutdown to ensure all resources
+        are properly released.
+        """
+        # Take snapshot of pending tasks
+        pending_tasks = [t for t in self._cancellation_tasks if not t.done()]
+        if pending_tasks:
+            try:
+                # Cancel all pending tasks
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Await cancelled tasks to ensure they complete
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+            except Exception:
+                # Suppress errors during cleanup
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error during cancellation task cleanup", exc_info=True
+                    )
+            finally:
+                # Clear the set to prevent memory leaks
+                self._cancellation_tasks.clear()

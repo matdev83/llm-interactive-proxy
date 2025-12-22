@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of patterns to prevent unbounded memory growth
+# Each pattern contains compiled regex objects that can consume significant memory
+# Set high enough to accommodate default patterns while still preventing unbounded growth
+_MAX_PATTERNS = 50
 
 
 @dataclass
@@ -35,9 +43,14 @@ class TestRunnerRegistry:
     command detection across multiple programming languages.
     """
 
-    def __init__(self) -> None:
-        """Initialize with default patterns for popular languages."""
+    def __init__(self, max_patterns: int = _MAX_PATTERNS) -> None:
+        """Initialize with default patterns for popular languages.
+
+        Args:
+            max_patterns: Maximum number of patterns to store (prevents memory leaks)
+        """
         self._patterns: list[TestRunnerPattern] = []
+        self._max_patterns = max_patterns
         self._load_default_patterns()
 
     def match_command(self, command: str) -> tuple[bool, str | None, str | None]:
@@ -97,6 +110,23 @@ class TestRunnerRegistry:
             ... )
             >>> registry.register_pattern(custom_pattern)
         """
+        # Enforce maximum pattern limit to prevent memory leaks
+        if len(self._patterns) >= self._max_patterns:
+            # Remove oldest patterns (simple FIFO eviction)
+            # Remove the oldest pattern(s) to make room for new one
+            excess = len(self._patterns) - self._max_patterns + 1
+
+            # Simple approach: remove the oldest excess patterns
+            # Keep patterns from index 'excess' to end
+            self._patterns = self._patterns[excess:]
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Evicted %d oldest patterns to maintain max_patterns=%d limit",
+                    excess,
+                    self._max_patterns,
+                )
+
         self._patterns.append(pattern)
 
     def _load_default_patterns(self) -> None:
@@ -452,3 +482,8 @@ class TestRunnerRegistry:
                 priority=10,
             )
         )
+
+        # Note: Kotlin projects also use Gradle for testing, but we treat all
+        # Gradle test commands as Java since we cannot distinguish between
+        # Java and Kotlin projects from the command alone. This covers both
+        # Java and Kotlin test execution.

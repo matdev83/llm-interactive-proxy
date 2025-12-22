@@ -1505,6 +1505,39 @@ class QwenOAuthConnector(OpenAIConnector):
                 "total_tokens": 0,
             }
 
+    async def shutdown(self) -> None:
+        """Shutdown the connector and clean up resources.
+
+        This method is called by BackendLifecycleManager during backend shutdown
+        to ensure proper cleanup of resources like CLI refresh subprocesses.
+        """
+        # Cleanup CLI refresh process
+        if hasattr(self, "_cli_refresh_process"):
+            process = self._cli_refresh_process
+            if process is not None:
+                try:
+                    # Check if process is still running
+                    if process.poll() is None:
+                        # Process is still running, terminate it
+                        process.terminate()
+                        try:
+                            # Wait with timeout
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            # Process didn't terminate, force kill
+                            process.kill()
+                            try:
+                                process.wait(timeout=5)
+                            except (subprocess.TimeoutExpired, Exception):
+                                # Suppress all exceptions during cleanup
+                                pass
+                except Exception:
+                    # Suppress all exceptions during cleanup
+                    pass
+                finally:
+                    # Clear reference to prevent leaks
+                    self._cli_refresh_process = None
+
     def __del__(self) -> None:
         """Cleanup method to stop file watching when connector is destroyed."""
         # Guard against partial initialization

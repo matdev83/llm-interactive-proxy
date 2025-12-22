@@ -40,9 +40,9 @@ class TestToolCallTextParserDoSRegression:
         return json.dumps(large_array)
 
     def test_large_json_rejected_as_string(self) -> None:
-        """Test that large JSON payloads (>1MB) are rejected and returned as string."""
+        """Test that large JSON payloads (>10MB) are rejected and returned as string."""
         # Create payload larger than MAX_PARAMETER_JSON_SIZE
-        large_json = self.create_large_json(size_mb=5)  # 5MB > 1MB limit
+        large_json = self.create_large_json(size_mb=12)  # 12MB > 10MB limit
         payload_size = len(large_json.encode("utf-8"))
 
         assert payload_size > MAX_PARAMETER_JSON_SIZE, (
@@ -148,9 +148,9 @@ class TestToolCallTextParserDoSRegression:
     def test_max_constants_defined(self) -> None:
         """Test that DoS protection constants are defined correctly."""
         # Verify constants exist and have reasonable values
-        assert MAX_PARAMETER_JSON_SIZE == 1 * 1024 * 1024, (
-            f"MAX_PARAMETER_JSON_SIZE ({MAX_PARAMETER_JSON_SIZE}) should be 1MB "
-            "(1048576 bytes)"
+        assert MAX_PARAMETER_JSON_SIZE == 10 * 1024 * 1024, (
+            f"MAX_PARAMETER_JSON_SIZE ({MAX_PARAMETER_JSON_SIZE}) should be 10MB "
+            "(10485760 bytes)"
         )
         assert MAX_PARAMETER_JSON_DEPTH == 50, (
             f"MAX_PARAMETER_JSON_DEPTH ({MAX_PARAMETER_JSON_DEPTH}) should be 50"
@@ -162,7 +162,7 @@ class TestToolCallTextParserDoSRegression:
 
     def test_size_at_limit_boundary(self) -> None:
         """Test parameter exactly at the size limit."""
-        # Create payload exactly at 1MB limit
+        # Create payload exactly at 10MB limit
         limit_bytes = MAX_PARAMETER_JSON_SIZE
         # Subtract JSON structure overhead
         content_size = limit_bytes - 100  # Leave room for JSON structure
