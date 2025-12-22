@@ -16,12 +16,17 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, MutableMapping
+
+from cachetools import LRUCache
 
 logger = logging.getLogger(__name__)
 
 # Maximum number of sessions to track (prevents unbounded memory growth)
 _MAX_SESSIONS = 1000
+
+# Maximum number of message hashes to track per session
+_MAX_HASHES_PER_SESSION = 10000
 
 # Session TTL in seconds (1 hour) - cleanup stale entries
 _SESSION_TTL_SECONDS = 3600
@@ -32,7 +37,10 @@ class SessionRedactionState:
     """Tracks redaction state for a single session."""
 
     # Set of content hashes that have been processed
-    processed_hashes: set[str] = field(default_factory=set)
+    # We use LRUCache to limit memory usage per session
+    processed_hashes: MutableMapping[str, bool] = field(
+        default_factory=lambda: LRUCache(maxsize=_MAX_HASHES_PER_SESSION)
+    )
 
     # Timestamp of last access (for TTL cleanup)
     last_access: float = field(default_factory=time.time)
@@ -121,7 +129,7 @@ class RedactionCache:
                 self._states[session_id] = SessionRedactionState()
 
             state = self._states[session_id]
-            state.processed_hashes.add(content_hash)
+            state.processed_hashes[content_hash] = True
             state.last_access = time.time()
             state.total_processed += 1
 
@@ -170,7 +178,7 @@ class RedactionCache:
 
                 content_hash = self._compute_content_hash(content)
                 if content_hash not in state.processed_hashes:
-                    state.processed_hashes.add(content_hash)
+                    state.processed_hashes[content_hash] = True
                     state.total_processed += 1
 
             state.last_access = time.time()
