@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any, MutableMapping
 
-from cachetools import TTLCache
+from cachetools import TTLCache  # type: ignore
 
 _codex_tool_call_index_base: MutableMapping[str, int] = TTLCache(maxsize=1000, ttl=600)
-_codex_tool_call_item_index: MutableMapping[str, dict[str, int]] = TTLCache(maxsize=1000, ttl=600)
+_codex_tool_call_item_index: MutableMapping[str, dict[str, int]] = TTLCache(
+    maxsize=1000, ttl=600
+)
 _codex_function_name_cache: MutableMapping[str, str] = TTLCache(maxsize=1000, ttl=600)
 
 
