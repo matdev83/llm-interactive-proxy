@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from enum import Enum
+
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +72,15 @@ class RateLimitStateManager:
 
     def __init__(self) -> None:
         """Initialize the state manager."""
-        self._instance_state: dict[str, InstanceState] = {}
-        self._model_state: dict[tuple[str, str], ModelState] = {}
+        # Use TTLCache to prevent unbounded growth (memory leak protection).
+        # TTL of 3600s (1 hour) is sufficient for most rate limits.
+        # Maxsize prevents memory exhaustion if random keys are generated.
+        self._instance_state: MutableMapping[str, InstanceState] = TTLCache(
+            maxsize=1000, ttl=3600
+        )
+        self._model_state: MutableMapping[tuple[str, str], ModelState] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     # -------------------------------------------------------------------------
     # Instance-Level Operations
@@ -95,9 +105,8 @@ class RateLimitStateManager:
         if state.status == InstanceStatus.RATE_LIMITED:
             if state.cooldown_until and time.time() < state.cooldown_until:
                 return InstanceStatus.RATE_LIMITED
-            # Cooldown expired, reset to active
-            state.status = InstanceStatus.ACTIVE
-            state.cooldown_until = None
+            # Cooldown expired, remove from state to free memory
+            self._instance_state.pop(instance_id, None)
 
         return InstanceStatus.ACTIVE
 
@@ -128,6 +137,7 @@ class RateLimitStateManager:
 
         state = self._instance_state.get(instance_id)
         if not state:
+            # Should be covered by status check, but for safety
             return AvailabilityResult(available=True)
 
         if status == InstanceStatus.DISABLED:
@@ -244,8 +254,8 @@ class RateLimitStateManager:
             return True
 
         if time.time() >= state.cooldown_until:
-            # Cooldown expired
-            state.cooldown_until = None
+            # Cooldown expired, remove from state
+            self._model_state.pop(key, None)
             return True
 
         return False
@@ -275,8 +285,8 @@ class RateLimitStateManager:
             return AvailabilityResult(available=True)
 
         if time.time() >= state.cooldown_until:
-            # Cooldown expired
-            state.cooldown_until = None
+            # Cooldown expired, remove from state
+            self._model_state.pop(key, None)
             return AvailabilityResult(available=True)
 
         remaining = state.cooldown_until - time.time()
