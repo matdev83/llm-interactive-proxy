@@ -4,12 +4,12 @@ Automatically add context-saving flags to pytest commands to preserve context wi
 
 ## Overview
 
-The Pytest Context Saving feature automatically adds context-saving flags (`-r fE` and `-q`) to pytest commands to preserve context window space while maintaining essential information. The proxy recognizes pytest commands and intelligently adds flags only when they're not already present, reducing verbose output to save valuable context window tokens while still showing failed tests and errors.
+The Pytest Context Saving feature automatically adds context-saving flags (`-r fE` and `-q`) to pytest commands to preserve context window space while maintaining essential information. The proxy recognizes pytest commands and intelligently adds flags only when they're not already present, and skips `-q` when verbose output is explicitly requested, reducing output while still showing failed tests and errors.
 
 ## Key Features
 
 - **Automatic Detection**: Recognizes pytest commands (`pytest`, `python -m pytest`, etc.)
-- **Smart Flag Addition**: Automatically adds `-r fE` (show failed tests and errors) and `-q` (quiet mode) flags
+- **Smart Flag Addition**: Automatically adds `-r fE` (show failed tests and errors) and `-q` (quiet mode) flags, skipping `-q` when verbose output is requested
 - **Conditional Logic**: Only adds flags when they're not already present in the command
 - **Context Preservation**: Reduces verbose output to save valuable context window tokens
 - **Opt-in Feature**: Disabled by default, must be explicitly enabled
@@ -70,11 +70,11 @@ pytest tests/ -r fE -q
 ### Command with Existing Flags
 
 ```bash
-# If flags already present, no changes:
-pytest tests/ -r fE -q --verbose
+# If verbose output is requested, skip -q:
+pytest tests/ --verbose
 
-# Result: No modification (flags already present)
-pytest tests/ -r fE -q --verbose
+# Result: -r fE added, -q skipped
+pytest -r fE tests/ --verbose
 ```
 
 ### Complex Command
@@ -216,7 +216,7 @@ For models with smaller context windows, context saving helps fit more informati
 
 **Too much output still visible:**
 
-- Context saving only adds `-r fE -q` flags
+- Context saving only adds `-r fE` and `-q` flags (skipping `-q` when verbose output is requested)
 - If tests have many failures, all failures will still be shown
 - Consider combining with [Pytest Compression](pytest-compression.md)
 - Review if additional pytest flags are needed

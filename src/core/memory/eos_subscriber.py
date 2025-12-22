@@ -96,4 +96,3 @@ class ProxyMemEosSubscriber:
                 e,
                 exc_info=True,
             )
-

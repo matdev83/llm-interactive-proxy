@@ -433,16 +433,19 @@ class CoreServicesStage(InitializationStage):
                 provider: IServiceProvider,
             ) -> WireCaptureEosSubscriber:
                 """Factory to create WireCaptureEosSubscriber."""
+                from typing import cast
+
                 from src.core.interfaces.event_bus_interface import IEventBus
                 from src.core.services.wire_capture_eos_subscriber import (
                     WireCaptureEosSubscriber,
                 )
-                from typing import cast
 
                 event_bus: IEventBus = provider.get_required_service(
                     cast(type, IEventBus)
                 )
-                wire_capture: IWireCapture = provider.get_required_service(IWireCapture)
+                wire_capture: IWireCapture = provider.get_required_service(
+                    cast(type, IWireCapture)
+                )
                 return WireCaptureEosSubscriber(
                     event_bus=event_bus, wire_capture=wire_capture
                 )
@@ -560,6 +563,8 @@ class CoreServicesStage(InitializationStage):
                 provider: IServiceProvider,
             ) -> UsageTrackingEosSubscriber:
                 """Factory to create UsageTrackingEosSubscriber."""
+                from typing import cast
+
                 from src.core.database.repositories.usage_repository import (
                     SessionMetricsRepository,
                 )
@@ -567,13 +572,12 @@ class CoreServicesStage(InitializationStage):
                 from src.core.services.usage_tracking_eos_subscriber import (
                     UsageTrackingEosSubscriber,
                 )
-                from typing import cast
 
                 event_bus: IEventBus = provider.get_required_service(
                     cast(type, IEventBus)
                 )
-                session_repo: SessionMetricsRepository = (
-                    provider.get_required_service(SessionMetricsRepository)
+                session_repo: SessionMetricsRepository = provider.get_required_service(
+                    SessionMetricsRepository
                 )
                 return UsageTrackingEosSubscriber(
                     event_bus=event_bus, session_repository=session_repo

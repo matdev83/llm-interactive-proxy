@@ -10,11 +10,9 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionSignalType,
@@ -184,9 +182,7 @@ class TestSignalEmission:
         mock_eos_service.record_signal.assert_awaited_once()
         signal = mock_eos_service.record_signal.call_args[0][0]
         assert signal.signal_type == EndOfSessionSignalType.TOOL_COMPLETION
-        assert (
-            signal.termination_category == EndOfSessionTerminationCategory.NORMAL
-        )
+        assert signal.termination_category == EndOfSessionTerminationCategory.NORMAL
         assert signal.session_id == completion_tool_context.session_id
         assert signal.backend == completion_tool_context.backend_name
         assert completion_tool_context.tool_name in signal.reason
@@ -260,4 +256,3 @@ class TestHandlerProperties:
     def test_priority_property(self, handler: EndOfSessionToolCallHandler):
         """Test that priority property returns correct value."""
         assert handler.priority == 85
-

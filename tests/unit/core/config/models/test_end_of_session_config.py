@@ -14,7 +14,7 @@ class TestEndOfSessionConfigDefaults:
         """Test that default values are set correctly."""
         config = EndOfSessionConfig()
 
-        assert config.enabled is False
+        assert config.enabled is True
         assert config.emit_events is True
         assert config.detect_stream_signals is True
         assert config.detect_tool_completion is True

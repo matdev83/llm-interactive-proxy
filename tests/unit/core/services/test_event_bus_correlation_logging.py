@@ -7,9 +7,8 @@ failures are properly isolated.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from src.core.domain.events.end_of_session_events import (
@@ -45,7 +44,9 @@ class TestEventBusCorrelationLogging:
         """Test that error logging for EoS events includes session_id."""
         error_raised = ValueError("Test error")
 
-        async def failing_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        async def failing_handler(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             raise error_raised
 
         event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, failing_handler)
@@ -68,7 +69,10 @@ class TestEventBusCorrelationLogging:
             if call_args.kwargs.get("extra"):
                 extra = call_args.kwargs["extra"]
                 # Check if session_id is in extra dict or in the message
-                assert "test-session-123" in str(extra) or "test-session-123" in log_message
+                assert (
+                    "test-session-123" in str(extra)
+                    or "test-session-123" in log_message
+                )
 
     @pytest.mark.asyncio
     async def test_listener_failures_are_isolated(
@@ -78,16 +82,22 @@ class TestEventBusCorrelationLogging:
         successful_calls: list[str] = []
         failed_calls: list[str] = []
 
-        async def failing_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        async def failing_handler(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             failed_calls.append(event.session_id)
             raise ValueError("Handler failed")
 
-        async def successful_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        async def successful_handler(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             successful_calls.append(event.session_id)
 
         # Subscribe both handlers
         event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, failing_handler)
-        event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, successful_handler)
+        event_bus.subscribe(
+            RemoteBackendConnectionEndOfSessionEvent, successful_handler
+        )
 
         # Publish event - both handlers should be called
         await event_bus.publish(eos_event)
@@ -111,7 +121,9 @@ class TestEventBusCorrelationLogging:
         async def handler2(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
             received_events.append(event)
 
-        async def failing_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        async def failing_handler(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             received_events.append(event)
             raise ValueError("Handler failed")
 
@@ -167,10 +179,15 @@ class TestEventBusCorrelationLogging:
         self, event_bus: EventBus, eos_event: RemoteBackendConnectionEndOfSessionEvent
     ) -> None:
         """Test that multiple failing listeners all get their errors logged."""
-        async def failing_handler1(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+
+        async def failing_handler1(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             raise ValueError("Handler 1 failed")
 
-        async def failing_handler2(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        async def failing_handler2(
+            event: RemoteBackendConnectionEndOfSessionEvent,
+        ) -> None:
             raise RuntimeError("Handler 2 failed")
 
         event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, failing_handler1)
@@ -187,4 +204,3 @@ class TestEventBusCorrelationLogging:
             for call in mock_logger.exception.call_args_list:
                 log_message = call[0][0]
                 assert "test-session-123" in log_message or "session_id" in str(call)
-

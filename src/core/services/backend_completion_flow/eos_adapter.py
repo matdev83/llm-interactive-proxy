@@ -137,9 +137,7 @@ class BackendCompletionFlowEosAdapter:
                 },
             )
 
-    def _classify_error(
-        self, error: Exception
-    ) -> EndOfSessionErrorClassification:
+    def _classify_error(self, error: Exception) -> EndOfSessionErrorClassification:
         """Classify error into standardized error classification.
 
         Args:
@@ -208,4 +206,3 @@ class BackendCompletionFlowEosAdapter:
                 return status_code
 
         return None
-

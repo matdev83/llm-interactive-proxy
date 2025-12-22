@@ -15,9 +15,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.config.models.end_of_session import EndOfSessionConfig
-from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionErrorClassification,
@@ -27,7 +25,6 @@ from src.core.domain.events.end_of_session_events import (
     RemoteBackendConnectionEndOfSessionEvent,
 )
 from src.core.domain.streaming.streaming_content import StreamingContent
-from src.core.interfaces.event_bus_interface import IEventBus
 from src.core.interfaces.memory_service_interface import IMemoryService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
@@ -182,7 +179,11 @@ async def test_streaming_eos_emission_with_persistence(
     # Process streaming content with completion marker
     content = StreamingContent(
         content="test content",
-        metadata={"session_id": session_id, "protocol": "openai", "backend_name": "openai"},
+        metadata={
+            "session_id": session_id,
+            "protocol": "openai",
+            "backend_name": "openai",
+        },
         is_done=True,
     )
 
@@ -461,4 +462,3 @@ async def test_error_classification_defaults_to_unknown(
     assert len(events_received) == 1
     event = events_received[0]
     assert event.error_classification == EndOfSessionErrorClassification.UNKNOWN_ERROR
-

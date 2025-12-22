@@ -16,8 +16,7 @@ from unittest.mock import MagicMock
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.di.registrations import core, streaming
-from src.core.di.registrations import persistence
+from src.core.di.registrations import core, persistence, streaming
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor

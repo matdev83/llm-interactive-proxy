@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -259,4 +258,3 @@ async def test_handle_eos_event_handles_repository_failure_gracefully(
     await subscriber._handle_eos_event(event)
 
     mock_session_repo.create.assert_called_once()
-

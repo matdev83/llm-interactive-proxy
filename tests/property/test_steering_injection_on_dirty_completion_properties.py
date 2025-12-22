@@ -43,36 +43,26 @@ def completion_signal_strategy(draw: Any) -> tuple[str, dict[str, Any], str | No
     """Generate completion signals (tool_name, tool_arguments, finish_reason).
 
     Returns a tuple of (tool_name, tool_arguments, finish_reason) that
-    represents a completion signal using Phase 2 detection methods.
-    """
-    # Choose between tool-based or finish_reason-based completion
-    use_tool = draw(st.booleans())
+    represents a completion signal using tool-based detection.
 
-    if use_tool:
-        # Use a completion tool name (Phase 2: actual agent tool names)
-        completion_tools = [
-            "attempt_completion",  # Cline, Roo-Code
-            "finish",  # OpenHands
-            "task_complete",
-            "mark_complete",
-            "finish_task",
-            "complete",
-            "done",
-        ]
-        tool_name = draw(st.sampled_from(completion_tools))
-        tool_arguments = {}
-        finish_reason = None
-    else:
-        # Use a finish_reason marker (Phase 2: streaming completion)
-        tool_name = "some_tool"
-        tool_arguments = {}
-        finish_reasons = [
-            "stop",
-            "tool_calls",
-            "length",
-            "end_turn",
-        ]
-        finish_reason = draw(st.sampled_from(finish_reasons))
+    Note: finish_reason-based completion detection is now handled by EoS events,
+    not by the TestExecutionReminderHandler's can_handle method directly.
+    Therefore, this strategy only generates tool-based completion signals.
+    """
+    # Use a completion tool name (Phase 2: actual agent tool names)
+    # Note: finish_reason-based completion is handled by EoS events, not can_handle
+    completion_tools = [
+        "attempt_completion",  # Cline, Roo-Code
+        "finish",  # OpenHands
+        "task_complete",
+        "mark_complete",
+        "finish_task",
+        "complete",
+        "done",
+    ]
+    tool_name = draw(st.sampled_from(completion_tools))
+    tool_arguments: dict[str, Any] = {}
+    finish_reason = None
 
     return tool_name, tool_arguments, finish_reason
 

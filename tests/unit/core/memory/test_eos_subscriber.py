@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionSignalType,
     EndOfSessionTerminationCategory,
@@ -172,7 +170,9 @@ async def test_handle_eos_event_skips_when_memory_not_enabled(
     await subscriber._handle_eos_event(event)
 
     # Should check if enabled but not call mark_session_complete
-    mock_memory_service.is_enabled_for_session.assert_called_once_with("test-session-123")
+    mock_memory_service.is_enabled_for_session.assert_called_once_with(
+        "test-session-123"
+    )
     mock_memory_service.mark_session_complete.assert_not_called()
 
 
@@ -188,4 +188,3 @@ async def test_subscriber_unsubscribes_on_stop(
     call_args = mock_event_bus.unsubscribe.call_args
     assert call_args[0][0] == RemoteBackendConnectionEndOfSessionEvent
     assert call_args[0][1] == subscriber._handle_eos_event
-

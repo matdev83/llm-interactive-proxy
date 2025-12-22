@@ -41,7 +41,35 @@ def _module_is_available(name: str) -> bool:
 HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
 HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
 HAS_PYTEST_XDIST = _module_is_available("xdist")
+HAS_PYTEST_TESTMON = _module_is_available("pytest_testmon")
 _SESSION_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _has_user_test_selection(args: list[str]) -> bool:
+    if any(arg for arg in args if not arg.startswith("-")):
+        return True
+    for arg in args:
+        if arg in ("-k", "-m", "--lf", "--last-failed", "--ff", "--failed-first"):
+            return True
+        if arg.startswith(("-k", "-m")):
+            return True
+    return False
+
+
+def _should_enable_testmon(args: list[str]) -> bool:
+    if any(arg in ("--help", "--version", "--fixtures") for arg in args):
+        return False
+    return HAS_PYTEST_TESTMON and not _has_user_test_selection(args)
+
+
+def _has_verbosity_flag(args: list[str]) -> bool:
+    for arg in args:
+        if arg in ("--verbose", "--quiet"):
+            return True
+        if arg.startswith(("-v", "-q")):
+            return True
+    return False
+
 
 if HAS_PYTEST_ASYNCIO:
     import pytest_asyncio.plugin as pytest_asyncio_plugin
@@ -441,7 +469,15 @@ def pytest_cmdline_parse(pluginmanager, args):
         if is_xdist_worker or has_xdist_config or xdist_plugin_registered:
             return
 
+    original_args = list(args)
     modified_args = args.copy()  # Don't modify original args
+
+    use_testmon = _should_enable_testmon(original_args)
+    if use_testmon:
+        if "--testmon" not in modified_args:
+            modified_args.append("--testmon")
+    elif "--testmon" in modified_args:
+        modified_args = [arg for arg in modified_args if arg != "--testmon"]
 
     has_test_paths = any(arg for arg in modified_args if not arg.startswith("-"))
     has_maxfail = any(arg.startswith("--maxfail") for arg in modified_args)
@@ -478,9 +514,7 @@ def pytest_cmdline_parse(pluginmanager, args):
             modified_args.append("--maxfail=1")
 
         # Add -q for quiet output unless user specified a verbosity level
-        has_verbosity_flag = any(
-            arg in ("-v", "--verbose", "-q", "--quiet") for arg in modified_args
-        )
+        has_verbosity_flag = _has_verbosity_flag(modified_args)
         if not has_verbosity_flag:
             modified_args.append("-q")
 
@@ -507,6 +541,22 @@ def pytest_cmdline_main(config):
 
     # Skip XML parsing during collection-only mode to speed up collection
     is_collect_only = "--collect-only" in config.args or "--co" in config.args
+
+    invocation_params = getattr(config, "invocation_params", None)
+    original_args = None
+    if invocation_params is not None:
+        invocation_args = getattr(invocation_params, "args", None)
+        if isinstance(invocation_args, list | tuple):
+            original_args = list(invocation_args)
+    if original_args is None:
+        original_args = list(config.args)
+
+    use_testmon = _should_enable_testmon(original_args)
+    if use_testmon:
+        if "--testmon" not in config.args:
+            config.args.append("--testmon")
+    elif "--testmon" in config.args:
+        config.args = [arg for arg in config.args if arg != "--testmon"]
 
     # Disable xdist during collection-only mode to speed up collection
     if is_collect_only and HAS_PYTEST_XDIST and hasattr(config.option, "numprocesses"):
@@ -546,9 +596,7 @@ def pytest_cmdline_main(config):
             config.args.append("--maxfail=1")
 
         # Add -q for quiet output unless user specified a verbosity level
-        has_verbosity_flag = any(
-            arg in ("-v", "--verbose", "-q", "--quiet") for arg in config.args
-        )
+        has_verbosity_flag = _has_verbosity_flag(config.args)
         if not has_verbosity_flag:
             config.args.append("-q")
 

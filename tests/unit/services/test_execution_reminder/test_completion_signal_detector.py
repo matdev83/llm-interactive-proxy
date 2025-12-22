@@ -26,12 +26,9 @@ class TestCompletionSignalDetector:
             is True
         )
         assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="finish_task")
-            is True
+            CompletionSignalDetector.is_completion_tool(tool_name="finish_task") is True
         )
-        assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="complete") is True
-        )
+        assert CompletionSignalDetector.is_completion_tool(tool_name="complete") is True
         assert CompletionSignalDetector.is_completion_tool(tool_name="done") is True
 
         # Case variations should work
@@ -48,54 +45,41 @@ class TestCompletionSignalDetector:
     def test_non_completion_tool_rejection(self) -> None:
         """Test that non-completion tools are not detected."""
         assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="write_file")
-            is False
+            CompletionSignalDetector.is_completion_tool(tool_name="write_file") is False
         )
         assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="read_file")
-            is False
+            CompletionSignalDetector.is_completion_tool(tool_name="read_file") is False
         )
         assert (
             CompletionSignalDetector.is_completion_tool(tool_name="execute_command")
             is False
         )
         assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="run_tests")
-            is False
+            CompletionSignalDetector.is_completion_tool(tool_name="run_tests") is False
         )
-        assert (
-            CompletionSignalDetector.is_completion_tool(tool_name="pytest") is False
-        )
+        assert CompletionSignalDetector.is_completion_tool(tool_name="pytest") is False
 
     def test_attempt_completion_tool_detection(self) -> None:
         """Test detection of attempt_completion tool (used by Cline/Roo-Code)."""
         # This is the most common completion tool used by real agents
         assert (
-            CompletionSignalDetector.is_completion_tool(
-                tool_name="attempt_completion"
-            )
+            CompletionSignalDetector.is_completion_tool(tool_name="attempt_completion")
             is True
         )
 
         # Case variations should work
         assert (
-            CompletionSignalDetector.is_completion_tool(
-                tool_name="ATTEMPT_COMPLETION"
-            )
+            CompletionSignalDetector.is_completion_tool(tool_name="ATTEMPT_COMPLETION")
             is True
         )
         assert (
-            CompletionSignalDetector.is_completion_tool(
-                tool_name="Attempt_Completion"
-            )
+            CompletionSignalDetector.is_completion_tool(tool_name="Attempt_Completion")
             is True
         )
 
         # With hyphens instead of underscores
         assert (
-            CompletionSignalDetector.is_completion_tool(
-                tool_name="attempt-completion"
-            )
+            CompletionSignalDetector.is_completion_tool(tool_name="attempt-completion")
             is True
         )
 

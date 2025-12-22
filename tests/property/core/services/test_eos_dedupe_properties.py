@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from hypothesis import HealthCheck, given
 from hypothesis import strategies as st
-
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -127,20 +126,23 @@ async def test_property_multiple_signals_single_emission(
     eos_service._ended_sessions.clear()
     mock_event_bus.publish.reset_mock()
     mock_session_repository.claim_eos_emission.reset_mock()
-    
+
     # Configure claim to succeed only on first call per session
     call_counts: dict[str, int] = {}
+
     async def claim_side_effect(*args, **kwargs):
         session_id = kwargs.get("session_id", args[0] if args else None)
         if session_id not in call_counts:
             call_counts[session_id] = 0
         call_counts[session_id] += 1
         return call_counts[session_id] == 1
-    
+
     mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
 
     # Process all signals concurrently
-    await asyncio.gather(*[eos_service.record_signal(signal) for signal in normalized_signals])
+    await asyncio.gather(
+        *[eos_service.record_signal(signal) for signal in normalized_signals]
+    )
 
     # Verify only one event was emitted
     assert mock_event_bus.publish.await_count == 1
@@ -180,16 +182,17 @@ async def test_property_concurrent_sessions_independent_dedupe(
     eos_service._ended_sessions.clear()
     mock_event_bus.publish.reset_mock()
     mock_session_repository.claim_eos_emission.reset_mock()
-    
+
     # Configure claim to succeed only on first call per session
     call_counts: dict[str, int] = {}
+
     async def claim_side_effect(*args, **kwargs):
         session_id = kwargs.get("session_id", args[0] if args else None)
         if session_id not in call_counts:
             call_counts[session_id] = 0
         call_counts[session_id] += 1
         return call_counts[session_id] == 1
-    
+
     mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
 
     # Create signals for each session
@@ -213,7 +216,9 @@ async def test_property_concurrent_sessions_independent_dedupe(
     assert mock_event_bus.publish.await_count == unique_session_count
 
     # Verify all claims were attempted (cache may prevent some, but at least one per session)
-    assert mock_session_repository.claim_eos_emission.await_count >= unique_session_count
+    assert (
+        mock_session_repository.claim_eos_emission.await_count >= unique_session_count
+    )
 
 
 @pytest.mark.asyncio
@@ -262,14 +267,15 @@ async def test_property_random_signal_ordering_maintains_dedupe(
     eos_service._ended_sessions.clear()
     mock_event_bus.publish.reset_mock()
     mock_session_repository.claim_eos_emission.reset_mock()
-    
+
     # Configure claim to succeed only on first call
     call_count = 0
+
     async def claim_side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         return call_count == 1
-    
+
     mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
 
     # Process signals sequentially (simulating random ordering)
@@ -309,7 +315,7 @@ async def test_property_restart_scenario_maintains_dedupe(
     mock_event_bus = MagicMock(spec=IEventBus)
     mock_event_bus.publish = AsyncMock()
     mock_event_bus.publish_nowait = AsyncMock()
-    
+
     # Create first service instance
     mock_repo1 = MagicMock(spec=SessionMetricsRepository)
     mock_repo1.claim_eos_emission = AsyncMock(return_value=True)  # First claim succeeds
@@ -403,14 +409,15 @@ async def test_property_concurrent_signal_processing_single_emission(
     eos_service._ended_sessions.clear()
     mock_event_bus.publish.reset_mock()
     mock_session_repository.claim_eos_emission.reset_mock()
-    
+
     # Configure claim to succeed only on first call
     call_count = 0
+
     async def claim_side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         return call_count == 1
-    
+
     mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
 
     # Create multiple signals for same session

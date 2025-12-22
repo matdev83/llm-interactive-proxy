@@ -37,11 +37,26 @@ class TestServiceRegistration:
 
     def test_stream_normalizer_registration(self) -> None:
         """Test that IStreamNormalizer resolves to StreamNormalizer as a singleton."""
+        from typing import cast
+
         from src.core.config.app_config import AppConfig
         from src.core.di.registrations import core, streaming, tooling
+        from src.core.interfaces.event_bus_interface import IEventBus
+        from src.core.services.event_bus import EventBus
 
         services = ServiceCollection()
         config = AppConfig()
+
+        # Register EventBus (required by EndOfSessionService which is used by StreamNormalizer)
+        def event_bus_factory(provider: IServiceProvider) -> EventBus:
+            return EventBus()
+
+        services.add_singleton(EventBus, implementation_factory=event_bus_factory)
+        services.add_singleton(
+            cast(type, IEventBus),
+            implementation_factory=lambda p: p.get_required_service(EventBus),
+        )
+
         # Register core, tooling, and streaming services
         # (StreamNormalizer is now in streaming registrar, but depends on tooling services)
         core.register(services, config)

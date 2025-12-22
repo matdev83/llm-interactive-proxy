@@ -48,7 +48,9 @@ class CaptureMetadata:
     eos_signal: str | None = None  # EoS signal type (e.g., "done_sentinel")
     eos_reason: str | None = None  # EoS reason/description
     eos_termination_category: str | None = None  # "normal" or "error"
-    eos_error_classification: str | None = None  # Error classification if error termination
+    eos_error_classification: str | None = (
+        None  # Error classification if error termination
+    )
     eos_error_status_code: int | None = None  # HTTP status code if error termination
 
     def to_dict(self) -> dict[str, Any]:

@@ -80,7 +80,7 @@ class WireCaptureEosSubscriber:
                 backend, model = backend.split(":", 1)
 
             # Build EoS metadata dict
-            eos_metadata = {
+            eos_metadata: dict[str, bool | str | int | None] = {
                 "eos": True,
                 "eos_signal": event.signal_type.value,
                 "eos_reason": event.reason,
@@ -89,7 +89,9 @@ class WireCaptureEosSubscriber:
             # Add error fields if this is an error termination
             if event.termination_category == EndOfSessionTerminationCategory.ERROR:
                 eos_metadata["eos_error_classification"] = (
-                    event.error_classification.value if event.error_classification else None
+                    event.error_classification.value
+                    if event.error_classification
+                    else None
                 )
                 eos_metadata["eos_error_status_code"] = event.error_status_code
 
@@ -117,4 +119,3 @@ class WireCaptureEosSubscriber:
                 e,
                 exc_info=True,
             )
-

@@ -536,7 +536,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Record EoS error termination signal (fail-open)
             if self._eos_adapter is not None:
                 try:
-                    session_id = getattr(context, "session_id", None) if context else None
+                    session_id = (
+                        getattr(context, "session_id", None) if context else None
+                    )
                     await self._eos_adapter.record_error_termination(
                         error=exc,
                         session_id=session_id,
@@ -561,7 +563,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Record EoS error termination signal (fail-open)
             if self._eos_adapter is not None:
                 try:
-                    session_id = getattr(context, "session_id", None) if context else None
+                    session_id = (
+                        getattr(context, "session_id", None) if context else None
+                    )
                     await self._eos_adapter.record_error_termination(
                         error=normalized_exc,
                         session_id=session_id,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionErrorClassification,
     EndOfSessionSignalType,
@@ -155,4 +154,3 @@ async def test_subscriber_unsubscribes_on_stop(
     call_args = mock_event_bus.unsubscribe.call_args
     assert call_args[0][0] == RemoteBackendConnectionEndOfSessionEvent
     assert call_args[0][1] == subscriber._handle_eos_event
-

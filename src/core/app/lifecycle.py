@@ -150,7 +150,9 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to start ProxyMemEosSubscriber: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to start ProxyMemEosSubscriber: {e}", exc_info=True
+                )
 
         # Start UsageTrackingEosSubscriber
         try:
@@ -201,8 +203,12 @@ class AppLifecycle:
             )
 
             # Try to get the subscriber from provider (stored in provider_lifecycle)
-            subscriber = getattr(provider, "_test_execution_reminder_eos_subscriber", None)
-            if subscriber and isinstance(subscriber, TestExecutionReminderEosSubscriber):
+            subscriber = getattr(
+                provider, "_test_execution_reminder_eos_subscriber", None
+            )
+            if subscriber and isinstance(
+                subscriber, TestExecutionReminderEosSubscriber
+            ):
                 await subscriber.start()
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("TestExecutionReminderEosSubscriber started")
@@ -245,7 +251,9 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to stop ProxyMemEosSubscriber: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to stop ProxyMemEosSubscriber: {e}", exc_info=True
+                )
 
         # Stop UsageTrackingEosSubscriber
         try:
@@ -292,8 +300,12 @@ class AppLifecycle:
             )
 
             # Try to get the subscriber from provider (stored in provider_lifecycle)
-            subscriber = getattr(provider, "_test_execution_reminder_eos_subscriber", None)
-            if subscriber and isinstance(subscriber, TestExecutionReminderEosSubscriber):
+            subscriber = getattr(
+                provider, "_test_execution_reminder_eos_subscriber", None
+            )
+            if subscriber and isinstance(
+                subscriber, TestExecutionReminderEosSubscriber
+            ):
                 await subscriber.stop()
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("TestExecutionReminderEosSubscriber stopped")

@@ -213,7 +213,11 @@ class EndOfSessionService(IEndOfSessionService):
                     "session_id": event.session_id,
                     "signal_type": event.signal_type.value,
                     "termination_category": event.termination_category.value,
-                    "error_classification": event.error_classification.value if event.error_classification else None,
+                    "error_classification": (
+                        event.error_classification.value
+                        if event.error_classification
+                        else None
+                    ),
                 },
             )
             return
@@ -235,7 +239,11 @@ class EndOfSessionService(IEndOfSessionService):
                     "session_id": event.session_id,
                     "signal_type": event.signal_type.value,
                     "termination_category": event.termination_category.value,
-                    "error_classification": event.error_classification.value if event.error_classification else None,
+                    "error_classification": (
+                        event.error_classification.value
+                        if event.error_classification
+                        else None
+                    ),
                 },
             )
         except asyncio.TimeoutError:
@@ -280,12 +288,11 @@ class EndOfSessionService(IEndOfSessionService):
             # If session is already in cache, remove it first to update position (LRU)
             if session_id in self._ended_sessions:
                 self._ended_sessions.pop(session_id)
-            
+
             # Add to end (most recently used)
             self._ended_sessions[session_id] = None
-            
+
             # Evict oldest if limit exceeded
             if len(self._ended_sessions) > MAX_CACHE_SIZE:
                 # Pop first item (oldest)
                 self._ended_sessions.popitem(last=False)
-

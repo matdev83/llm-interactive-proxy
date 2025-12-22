@@ -11,17 +11,14 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
     BackendError,
-    RateLimitExceededError,
 )
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.domain.events.end_of_session_events import (
@@ -166,10 +163,7 @@ class TestErrorClassification:
         )
 
         signal = mock_eos_service.record_signal.call_args[0][0]
-        assert (
-            signal.error_classification
-            == EndOfSessionErrorClassification.HTTP_ERROR
-        )
+        assert signal.error_classification == EndOfSessionErrorClassification.HTTP_ERROR
 
     @pytest.mark.asyncio
     async def test_classifies_backend_error(
@@ -179,7 +173,9 @@ class TestErrorClassification:
     ):
         """Test classification of backend API errors."""
         # BackendError without status_code should be BACKEND_ERROR
-        error = BackendError("Backend API error", backend_name="openai", status_code=None)
+        error = BackendError(
+            "Backend API error", backend_name="openai", status_code=None
+        )
 
         await adapter.record_error_termination(
             error=error, session_id="test-123", backend_type="openai"
@@ -187,8 +183,7 @@ class TestErrorClassification:
 
         signal = mock_eos_service.record_signal.call_args[0][0]
         assert (
-            signal.error_classification
-            == EndOfSessionErrorClassification.BACKEND_ERROR
+            signal.error_classification == EndOfSessionErrorClassification.BACKEND_ERROR
         )
 
     @pytest.mark.asyncio
@@ -206,8 +201,7 @@ class TestErrorClassification:
 
         signal = mock_eos_service.record_signal.call_args[0][0]
         assert (
-            signal.error_classification
-            == EndOfSessionErrorClassification.UNKNOWN_ERROR
+            signal.error_classification == EndOfSessionErrorClassification.UNKNOWN_ERROR
         )
 
     @pytest.mark.asyncio
@@ -241,7 +235,9 @@ class TestErrorClassification:
         """Test classification of httpx.HTTPStatusError via __cause__."""
         response = MagicMock()
         response.status_code = 503
-        httpx_error = httpx.HTTPStatusError("HTTP error", request=MagicMock(), response=response)
+        httpx_error = httpx.HTTPStatusError(
+            "HTTP error", request=MagicMock(), response=response
+        )
         error = BackendError("Wrapped HTTP error", backend_name="openai")
         error.__cause__ = httpx_error
 
@@ -250,10 +246,7 @@ class TestErrorClassification:
         )
 
         signal = mock_eos_service.record_signal.call_args[0][0]
-        assert (
-            signal.error_classification
-            == EndOfSessionErrorClassification.HTTP_ERROR
-        )
+        assert signal.error_classification == EndOfSessionErrorClassification.HTTP_ERROR
 
 
 class TestSessionIdExtraction:
@@ -331,7 +324,9 @@ class TestStatusCodeExtraction:
         """Test that status_code is extracted from error cause."""
         response = MagicMock()
         response.status_code = 503
-        httpx_error = httpx.HTTPStatusError("HTTP error", request=MagicMock(), response=response)
+        httpx_error = httpx.HTTPStatusError(
+            "HTTP error", request=MagicMock(), response=response
+        )
         # Create error without status_code so cause's status_code is used
         error = BackendError("Wrapped error", backend_name="openai", status_code=None)
         error.__cause__ = httpx_error
@@ -367,9 +362,7 @@ class TestSignalPayload:
         signal = mock_eos_service.record_signal.call_args[0][0]
         assert signal.session_id == "test-123"
         assert signal.signal_type == EndOfSessionSignalType.ERROR_TERMINATION
-        assert (
-            signal.termination_category == EndOfSessionTerminationCategory.ERROR
-        )
+        assert signal.termination_category == EndOfSessionTerminationCategory.ERROR
         assert signal.error_classification is not None
         assert signal.error_status_code == 500
         assert signal.backend == "openai"
@@ -395,4 +388,3 @@ class TestFailOpen:
         )
 
         mock_eos_service.record_signal.assert_awaited_once()
-

@@ -18,8 +18,11 @@ from typing import cast
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.registrations import core, streaming
+from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.event_bus_interface import IEventBus
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.services.event_bus import EventBus
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
@@ -29,6 +32,19 @@ from src.core.services.streaming.middleware_application_processor import (
 )
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
+
+def _register_event_bus(services: ServiceCollection) -> None:
+    """Register EventBus for tests that need it (e.g., StreamNormalizer with EoS)."""
+
+    def event_bus_factory(provider: IServiceProvider) -> EventBus:
+        return EventBus()
+
+    services.add_singleton(EventBus, implementation_factory=event_bus_factory)
+    services.add_singleton(
+        cast(type, IEventBus),
+        implementation_factory=lambda p: p.get_required_service(EventBus),
+    )
 
 
 class TestStreamingRegistrar:
@@ -93,6 +109,8 @@ class TestStreamingRegistrar:
         services = ServiceCollection()
         config = AppConfig()
 
+        # Register EventBus (required by EndOfSessionService which is used by StreamNormalizer)
+        _register_event_bus(services)
         # Register core services first (streaming depends on core)
         core.register(services, config)
         streaming.register(services, config)
@@ -120,6 +138,8 @@ class TestStreamingRegistrar:
         services = ServiceCollection()
         config = AppConfig()
 
+        # Register EventBus (required by EndOfSessionService which is used by StreamNormalizer)
+        _register_event_bus(services)
         # Register core services first (streaming depends on core)
         core.register(services, config)
         streaming.register(services, config)
@@ -175,6 +195,8 @@ class TestStreamingRegistrar:
         services = ServiceCollection()
         config = AppConfig()
 
+        # Register EventBus (required by EndOfSessionService which is used by StreamNormalizer)
+        _register_event_bus(services)
         # Register core services first
         core.register(services, config)
 

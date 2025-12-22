@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -306,10 +305,10 @@ class TestAtomicClaimDedupe:
 
         # Process all signals concurrently
         await asyncio.gather(*[service.record_signal(signal) for signal in signals])
-        
+
         # Only one emission should occur
         assert mock_event_bus.publish.await_count == 1
-        
+
         # All claims should have been attempted (but cache may prevent some)
         # At least one claim should have been attempted
         assert mock_session_repository.claim_eos_emission.await_count >= 1
@@ -529,7 +528,6 @@ class TestDispatchTimeout:
 
         # Should have attempted publish (shield prevents cancellation)
         mock_event_bus.publish.assert_awaited_once()
-
 
     @pytest.mark.asyncio
     async def test_timeout_logs_warning_but_continues(

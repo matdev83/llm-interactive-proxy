@@ -30,8 +30,20 @@ from src.services.steering.policies.pytest_full_suite_policy import (
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logger.addHandler(logging.NullHandler())
-    logger.propagate = False
+logger.propagate = False
 PASS_THROUGH_RESULT = ToolCallReactionResult(should_swallow=False)
+
+
+def _has_short_flag(token: str, flag_char: str) -> bool:
+    return token.startswith(f"-{flag_char}") and not token.startswith("--")
+
+
+def _has_verbose_flag(token: str) -> bool:
+    return token == "--verbose" or _has_short_flag(token, "v")
+
+
+def _has_quiet_flag(token: str) -> bool:
+    return token == "--quiet" or _has_short_flag(token, "q")
 
 
 def _extract_command(arguments: Any) -> str | None:
@@ -188,6 +200,7 @@ class PytestContextSavingHandler(IToolCallHandler):
         pytest_index = -1
         has_r_flag = False
         has_q_flag = False
+        has_verbose_flag = False
         for index, token in enumerate(tokens):
             if pytest_index == -1 and "pytest" in token:
                 pytest_index = index
@@ -195,10 +208,12 @@ class PytestContextSavingHandler(IToolCallHandler):
             lowered = token.lower()
             if not has_r_flag and (lowered == "-r" or lowered.startswith("-r")):
                 has_r_flag = True
-            if not has_q_flag and lowered in {"-q", "--quiet"}:
+            if not has_q_flag and _has_quiet_flag(token):
                 has_q_flag = True
+            if not has_verbose_flag and _has_verbose_flag(token):
+                has_verbose_flag = True
 
-            if pytest_index != -1 and has_r_flag and has_q_flag:
+            if pytest_index != -1 and has_r_flag and (has_q_flag or has_verbose_flag):
                 break
 
         if pytest_index == -1:
@@ -207,7 +222,7 @@ class PytestContextSavingHandler(IToolCallHandler):
         to_insert: list[str] = []
         if not has_r_flag:
             to_insert.append("-r fE")
-        if not has_q_flag:
+        if not has_q_flag and not has_verbose_flag:
             to_insert.append("-q")
 
         if not to_insert:

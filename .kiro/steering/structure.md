@@ -23,6 +23,9 @@ Where most cross-cutting proxy logic lives.
 - `src/core/interfaces/`: `I*` interfaces used for DI boundaries and test seams
 - `src/core/di/`: DI container implementation + registrations
 - `src/core/config/`: config models/loaders/validation and precedence logic
+- `src/core/auth/`: SSO authentication/authorization flow and supporting services
+- `src/core/security/`: security middleware and loop-prevention guardrails
+- `src/core/memory/`: session memory capture, summarization, and injection services
 - `src/core/transport/fastapi/`: adapters between domain envelopes and FastAPI request/response types
   - `adapters/`: modular layer components for response transformation (SSE, metadata, usage, sanitization, capture, streaming, response builders)
   - `response_adapters.py`: thin facade delegating to adapters/ layer components
@@ -50,6 +53,8 @@ WebSocket server and protocol handling for real-time “agent” communication.
 Not everything is under `src/core/`; some features live at top-level:
 - `src/loop_detection/`
 - `src/tool_call_loop/`
+- `src/services/`: cross-cutting non-core services (steering policies, test-execution reminder)
+- `src/resources/`: embedded prompt resources and assets (e.g., Codex prompts)
 - plus a few request/response middleware helpers (e.g., `src/request_middleware.py`)
 
 ### Configuration and runtime outputs
@@ -101,5 +106,5 @@ Default stage order:
 
 ---
 
-_Updated: 2025-12-17_
+_Updated: 2025-12-22_
 _Document stable structure and change locations; avoid exhaustive file listings_

@@ -150,8 +150,6 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
 
         # Register LoopDetectionFeature with the ILoopDetector from DI
         try:
-            from typing import cast
-
             from src.core.interfaces.loop_detector_interface import ILoopDetector
             from src.core.services.response_middleware import LoopDetectionFeature
 
@@ -348,7 +346,6 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
                     from src.services.test_execution_reminder.eos_subscriber import (
                         TestExecutionReminderEosSubscriber,
                     )
-                    from typing import cast
 
                     event_bus: IEventBus = provider.get_required_service(
                         cast(type, IEventBus)
@@ -396,7 +393,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register End-of-Session tool call handler: {e}")
+                logger.debug(
+                    f"Could not register End-of-Session tool call handler: {e}"
+                )
 
         # Register unified steering handler if available
         try:

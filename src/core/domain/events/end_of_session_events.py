@@ -143,7 +143,9 @@ class RemoteBackendConnectionEndOfSessionEvent(DomainEvent):
 
     session_id: str = ""
     signal_type: EndOfSessionSignalType = EndOfSessionSignalType.DONE_SENTINEL
-    termination_category: EndOfSessionTerminationCategory = EndOfSessionTerminationCategory.NORMAL
+    termination_category: EndOfSessionTerminationCategory = (
+        EndOfSessionTerminationCategory.NORMAL
+    )
     reason: str | None = None
     error_classification: EndOfSessionErrorClassification | None = None
     error_status_code: int | None = None
@@ -165,4 +167,3 @@ __all__ = [
     "EndOfSessionSignal",
     "RemoteBackendConnectionEndOfSessionEvent",
 ]
-

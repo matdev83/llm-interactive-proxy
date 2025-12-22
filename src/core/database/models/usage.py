@@ -245,7 +245,9 @@ class SessionMetricsTable(SQLModel, table=True):
     eos_emitted_at: datetime | None = Field(default=None, nullable=True)
     eos_signal_type: str | None = Field(default=None, max_length=64, nullable=True)
     eos_reason: str | None = Field(default=None, max_length=512, nullable=True)
-    eos_error_classification: str | None = Field(default=None, max_length=64, nullable=True)
+    eos_error_classification: str | None = Field(
+        default=None, max_length=64, nullable=True
+    )
     eos_error_status_code: int | None = Field(default=None, nullable=True)
 
     __table_args__ = (

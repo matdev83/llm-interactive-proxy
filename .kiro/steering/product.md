@@ -31,19 +31,24 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 - **Tool Access Control**: Fine-grained control over LLM tool permissions
 - **File Access Sandboxing**: Restricts file operations to safe directories
 
-### 4. Traffic Management
+### 4. Authentication & Authorization
+- **SSO Authentication**: OAuth2-based SSO with configurable providers and login UX
+- **Authorization Modes**: Single-user and enterprise authorization policies
+- **Public Login Protection**: Optional CAPTCHA support for exposed auth endpoints
+
+### 5. Traffic Management
 - **Model Override**: Force applications to use specific models
 - **Random Model Replacement**: Probabilistically swap models for resilience
 - **API Key Rotation**: Aggregate and auto-rotate keys to maximize free-tier usage
 - **Edit Precision Tuning**: Auto-adjust parameters when models struggle
 
-### 5. Observability & Debugging
+### 6. Observability & Debugging
 - **Wire Capture**: CBOR-encoded binary captures of all traffic
 - **Usage Tracking**: Token consumption, costs, performance metrics
 - **Traffic Replay**: Simulation tools for testing and debugging
 - **Structured Logging**: JSON logs with request correlation
 
-### 6. Codebuff WebSocket Server
+### 7. Codebuff WebSocket Server
 - Real-time AI communication via WebSocket
 - Session management and streaming responses
 - File context support for AI agents
@@ -75,5 +80,5 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 
 **License**: AGPL-3.0-or-later (see `LICENSE`)
 
-_Updated: 2025-12-14_
+_Updated: 2025-12-22_
 _Focus on patterns and purpose; link out for exhaustive catalogs_

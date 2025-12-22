@@ -9,7 +9,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (

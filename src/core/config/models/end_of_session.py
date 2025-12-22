@@ -37,7 +37,7 @@ class EndOfSessionConfig(DomainModel):
 
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
+    enabled: bool = True
     """Global toggle for end-of-session detection and emission."""
 
     emit_events: bool = True
@@ -74,4 +74,3 @@ class EndOfSessionConfig(DomainModel):
         # Validation is handled by Field constraints (ge=0)
         # Additional business logic validation can be added here if needed
         return self
-

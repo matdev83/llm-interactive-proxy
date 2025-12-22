@@ -480,4 +480,3 @@ class TestExecutionReminderHandler(IToolCallHandler):
                 str(e),
             )
             return None
-

@@ -63,4 +63,3 @@ class IEndOfSessionService(ABC):
         Returns:
             True if session has ended (EoS event emitted), False otherwise
         """
-

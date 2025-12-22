@@ -731,7 +731,6 @@ class TestTestExecutionReminderHandlerCompletionDetection:
 
     @pytest.mark.asyncio
     async def test_completion_attempt_completion_tool(self) -> None:
-
         """Test that attempt_completion tool is detected."""
         handler = TestExecutionReminderHandler(enabled=True)
 
@@ -761,7 +760,6 @@ class TestTestExecutionReminderHandlerCompletionDetection:
 
 
 class TestTestExecutionReminderHandlerNonCompletionScenarios:
-
     """Test scenarios that should not trigger completion detection."""
 
     @pytest.mark.asyncio

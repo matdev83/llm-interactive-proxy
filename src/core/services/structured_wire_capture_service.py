@@ -297,9 +297,10 @@ class StructuredWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        eos_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
-        if not self.enabled() or canonical_usage is None:
+        if not self.enabled() or (canonical_usage is None and eos_metadata is None):
             return
 
         # Convert CanonicalUsageRecord to dict for metadata

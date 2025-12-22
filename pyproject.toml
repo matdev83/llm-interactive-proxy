@@ -109,7 +109,7 @@ testpaths = ["tests"]
 # This reduces I/O overhead during local development
 # Use --junit-xml=test-results.xml to enable explicitly
 # Using loadfile distribution - more efficient for test suites with file-level fixtures
-addopts = "--testmon --asyncio-mode=auto -W ignore --max-worker-restart=3 -n 4 --dist=loadfile -r fE"
+addopts = "--asyncio-mode=auto -W ignore --max-worker-restart=3 -n 4 --dist=loadfile -r fE"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "WARNING"

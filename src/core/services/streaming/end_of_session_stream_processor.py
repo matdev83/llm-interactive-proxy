@@ -212,4 +212,3 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
 
         This processor is stateless, so reset is a no-op.
         """
-

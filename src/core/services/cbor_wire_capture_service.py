@@ -284,8 +284,12 @@ class CborWireCaptureService(IWireCapture):
                 "eos": eos_metadata.get("eos", False),
                 "eos_signal": eos_metadata.get("eos_signal"),
                 "eos_reason": eos_metadata.get("eos_reason"),
-                "eos_termination_category": eos_metadata.get("eos_termination_category"),
-                "eos_error_classification": eos_metadata.get("eos_error_classification"),
+                "eos_termination_category": eos_metadata.get(
+                    "eos_termination_category"
+                ),
+                "eos_error_classification": eos_metadata.get(
+                    "eos_error_classification"
+                ),
                 "eos_error_status_code": eos_metadata.get("eos_error_status_code"),
             }
 

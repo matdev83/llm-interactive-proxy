@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class CompletionSignalDetector:
     """Detects completion signals in tool calls.
@@ -58,4 +56,3 @@ class CompletionSignalDetector:
                 return True
 
         return False
-

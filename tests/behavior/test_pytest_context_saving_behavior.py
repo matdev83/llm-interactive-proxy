@@ -330,12 +330,12 @@ class TestContextSavingFlagAdditionBehavior:
             # Check that context-saving flags appear early in the command
             flag_positions = {
                 "-r fE": after_pytest.find("-r fE"),
-                "-q": after_pytest.find("-q"),
             }
 
             # All flags should be present and positioned reasonably
             for flag, position in flag_positions.items():
                 assert position != -1, f"Flag {flag} not found in: {updated_command}"
+            assert "-q" not in updated_command
 
 
 class TestToolArgumentModificationBehavior:
@@ -457,7 +457,7 @@ class TestToolArgumentModificationBehavior:
         assert len(arguments["args"]) == 1
         updated_arg = arguments["args"][0]
         assert "-r fE" in updated_arg
-        assert "-q" in updated_arg
+        assert "-q" not in updated_arg
 
     def test_dict_args_string_field_modification(self):
         """
@@ -484,7 +484,7 @@ class TestToolArgumentModificationBehavior:
         # Then
         assert arguments["args"] != "pytest tests/ -v"
         assert "-r fE" in arguments["args"]
-        assert "-q" in arguments["args"]
+        assert "-q" not in arguments["args"]
 
     def test_string_arguments_are_rewritten(self):
         """
@@ -638,7 +638,7 @@ class TestFlagConflictResolutionBehavior:
 
         # Context-saving flags should be added
         assert "-r fE" in updated_command
-        assert "-q" in updated_command
+        assert "-q" not in updated_command
 
     def test_flag_ordering_consistency(self):
         """
@@ -676,13 +676,18 @@ class TestFlagConflictResolutionBehavior:
             for flag in ["-r fE", "-q"]:
                 if flag in updated_cmd:
                     flags.append(flag)
-            flag_orders.append(flags)
+            flag_orders.append((cmd, flags))
 
         # Then - All flag orders should be consistent
-        for i in range(1, len(flag_orders)):
-            assert (
-                flag_orders[i] == flag_orders[0]
-            ), f"Inconsistent flag ordering: {flag_orders}"
+        baseline = None
+        for cmd, flags in flag_orders:
+            if "-v" in cmd or "--verbose" in cmd:
+                assert flags == ["-r fE"]
+                continue
+            if baseline is None:
+                baseline = flags
+                continue
+            assert flags == baseline, f"Inconsistent flag ordering: {flag_orders}"
 
     def test_edge_case_command_structures(self):
         """
