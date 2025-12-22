@@ -3,7 +3,9 @@ import sys
 from pathlib import Path
 
 # Add the project root to the sys.path to import project modules
-project_root = Path(__file__).resolve().parents[1]
+project_root = (
+    Path(__file__).resolve().parents[2]
+)  # Go up 2 levels to reach project root
 sys.path.insert(0, str(project_root))
 
 from src.core.common.logging_utils import (
