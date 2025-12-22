@@ -233,13 +233,13 @@ Use the included demo script to query health status:
 
 ```bash
 # Human-readable format
-.venv/Scripts/python.exe scripts/demo_health_api.py
+.venv/Scripts/python.exe dev/scripts/demo_health_api.py
 
 # Raw JSON output
-.venv/Scripts/python.exe scripts/demo_health_api.py --raw
+.venv/Scripts/python.exe dev/scripts/demo_health_api.py --raw
 
 # Query different proxy URL
-.venv/Scripts/python.exe scripts/demo_health_api.py http://localhost:9000
+.venv/Scripts/python.exe dev/scripts/demo_health_api.py http://localhost:9000
 ```
 
 ## Logging

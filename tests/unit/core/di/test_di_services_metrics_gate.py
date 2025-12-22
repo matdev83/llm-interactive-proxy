@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 # Add scripts directory to path for imports
-scripts_path = Path(__file__).parent.parent.parent.parent.parent / "scripts"
+scripts_path = Path(__file__).parent.parent.parent.parent.parent / "dev" / "scripts"
 sys.path.insert(0, str(scripts_path))
 
 from analyze_complexity import (
@@ -279,7 +279,7 @@ class TestRealCodebaseValidation:
 
             error_lines.append(f"\n{'=' * 80}")
             error_lines.append(
-                "Run 'python scripts/analyze_complexity.py --validate-di-services-scope' "
+                "Run 'python dev/scripts/analyze_complexity.py --validate-di-services-scope' "
                 "for detailed violation report."
             )
             error_lines.append(f"{'=' * 80}")

@@ -47,7 +47,7 @@ We welcome contributions to the LLM Interactive Proxy! This guide covers the con
 7. **Install pre-commit hooks**:
 
    ```bash
-   ./.venv/Scripts/python.exe scripts/install-hooks.py
+   ./.venv/Scripts/python.exe dev/scripts/install-hooks.py
    ```
 
 ## Contribution Workflow
@@ -340,7 +340,7 @@ The project uses mandatory pre-commit hooks that:
 **Running manually**:
 
 ```bash
-./.venv/Scripts/python.exe scripts/pre_commit_api_key_check.py
+./.venv/Scripts/python.exe dev/scripts/pre_commit_api_key_check.py
 ```
 
 ### Security Best Practices
@@ -427,13 +427,13 @@ See [adding-backends.md](adding-backends.md) for detailed guide.
 
 ```bash
 # Run hook manually
-./.venv/Scripts/python.exe scripts/pre-commit-hook.py
+./.venv/Scripts/python.exe dev/scripts/pre-commit-hook.py
 
 # Check for secrets
-./.venv/Scripts/python.exe scripts/pre_commit_api_key_check.py
+./.venv/Scripts/python.exe dev/scripts/pre_commit_api_key_check.py
 
 # Reinstall hooks
-./.venv/Scripts/python.exe scripts/install-hooks.py
+./.venv/Scripts/python.exe dev/scripts/install-hooks.py
 ```
 
 ### Import Errors

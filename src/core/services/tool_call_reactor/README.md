@@ -36,10 +36,10 @@ When buffer state is unavailable (e.g., in non-streaming responses or when conte
 
 The no-global-state constraint is enforced via:
 
-1. **Static analysis script**: `scripts/check_no_globals.py` scans this directory for violations. Run manually or add to CI:
+1. **Static analysis script**: `dev/scripts/check_no_globals.py` scans this directory for violations. Run manually or add to CI:
 
    ```bash
-   python scripts/check_no_globals.py
+   python dev/scripts/check_no_globals.py
    ```
 
 2. **Integration tests**: `tests/integration/test_tool_call_reactor_no_globals.py` verifies that the subsystem can be constructed and operated via DI without global state.

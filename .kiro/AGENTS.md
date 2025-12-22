@@ -715,6 +715,8 @@ Next: /kiro:spec-impl user-authentication 2.1
 - `src/connectors/` - Backend implementations
 - `src/core/simulation/` - Debugging tools
 - `var/wire_captures_cbor/` - CBOR traffic captures
+- `scripts/` - End-user tools
+- `dev/scripts/` - Development tools & artifacts
 
 **Testing Requirements**:
 - TDD mandatory (test → fail → code → pass)

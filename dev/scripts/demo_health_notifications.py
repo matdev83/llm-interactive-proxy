@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core.domain.configuration.health_check_config import HealthCheckConfig
 from src.core.domain.events.health_events import (

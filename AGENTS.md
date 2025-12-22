@@ -62,13 +62,18 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | `src/core/simulation/` | **Debugging**. Traffic replay & inspection tools (`capture_reader.py`). |
 | `var/wire_captures_cbor/` | **Data**. Binary captures of all traffic (pair with `var/logs/`). |
 
+## Script Organization
+
+- **`scripts/`**: Tools for the **end user** ONLY.
+- **`dev/`**: All development artifacts, debugging tools, and internal scripts.
+
 ## Commands & Workflow
 
 **Rule**: Edit `pyproject.toml` for deps. **NO** manual `pip install`. **NO** emojis.
 
 | Action | Command |
 |--------|---------|
-| Manage Alembic config | `./.venv/Scripts/python.exe scripts/manage_alembic_config.py <alembic_args>` |
+| Manage Alembic config | `./.venv/Scripts/python.exe dev/scripts/manage_alembic_config.py <alembic_args>` |
 | Test (Default) | `./.venv/Scripts/python.exe -m pytest` (uses `pyproject.toml` addopts) |
 | Test (Unit) | `./.venv/Scripts/python.exe -m pytest tests/unit` |
 | Test (Integration) | `./.venv/Scripts/python.exe -m pytest tests/integration` |

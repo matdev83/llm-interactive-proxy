@@ -69,6 +69,11 @@ Not everything is under `src/core/`; some features live at top-level:
   - `tests/unit/`, `tests/integration/`, `tests/property/`, `tests/behavior/`, `tests/regression/`
   - markers live in `pyproject.toml` under `[tool.pytest.ini_options]`
 
+### Tooling & Scripts
+- `scripts/`: **End-user tools** only (CLI helpers, inspection tools, admin scripts).
+- `dev/scripts/`: **Development tools** (build, test, lint, maintenance).
+  - `dev/scripts/artifacts/`: Retired/one-off scripts and reproduction tools.
+
 ## Startup Lifecycle (Staged Initialization)
 
 Source of truth: `src/core/app/stages/application_stages.py`.

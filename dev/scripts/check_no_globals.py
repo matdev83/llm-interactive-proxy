@@ -73,7 +73,7 @@ def main() -> int:
     Returns:
         Exit code: 0 if no violations, 1 if violations found.
     """
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).parent.parent.parent
     subsystem_dir = project_root / "src" / "core" / "services" / "tool_call_reactor"
 
     if not subsystem_dir.exists():

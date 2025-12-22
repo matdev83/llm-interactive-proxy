@@ -511,7 +511,7 @@ When modifying cross-layer boundaries, verify:
 Run the boundary type checker before submitting PRs:
 
 ```bash
-./.venv/Scripts/python.exe scripts/check_boundary_types.py
+./.venv/Scripts/python.exe dev/scripts/check_boundary_types.py
 ```
 
 This script checks for:
