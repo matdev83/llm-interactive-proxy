@@ -9,13 +9,27 @@ from typing import Any
 class RateLimitRegistry:
     """Tracks when a backend/model/key combination can be retried."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_size: int = 10000) -> None:
         self._until: dict[tuple[str, str, str], float] = {}
+        self._max_size = max_size
 
     def set(
         self, backend: str, model: str | None, key_name: str, delay_seconds: float
     ) -> None:
+        if len(self._until) >= self._max_size:
+            self._cleanup_expired()
+            if len(self._until) >= self._max_size:
+                # Evict oldest inserted (FIFO behavior with dict)
+                first_key = next(iter(self._until))
+                del self._until[first_key]
+
         self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
+
+    def _cleanup_expired(self) -> None:
+        now = time.time()
+        expired_keys = [k for k, ts in self._until.items() if now >= ts]
+        for k in expired_keys:
+            del self._until[k]
 
     def get(self, backend: str, model: str | None, key_name: str) -> float | None:
         key = (backend, model or "", key_name)
