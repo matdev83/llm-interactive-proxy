@@ -130,7 +130,13 @@ class TestStreamNormalizer:
 
     @pytest.mark.asyncio
     async def test_reset_called_before_stream(self) -> None:
-        """Test that reset() is called on all processors before processing a stream."""
+        """Test that reset() is NOT called on processors before processing a stream.
+
+        Note: StreamNormalizer is registered as a Singleton, so calling reset() here
+        would wipe state for ALL concurrent streams in shared processors (like
+        ToolCallRepairProcessor -> StreamingContextRegistry). Processors must be
+        session-aware and manage state per-stream instead of relying on reset.
+        """
 
         # Create a processor that tracks reset calls
         class ResetTrackingProcessor(IStreamProcessor):
@@ -162,9 +168,13 @@ class TestStreamNormalizer:
         ):
             chunks.append(chunk)
 
-        # Verify reset was called on both processors before processing
-        assert processor1.reset_count == 1, "Processor 1 reset should be called once"
-        assert processor2.reset_count == 1, "Processor 2 reset should be called once"
+        # Verify reset was NOT called (intentional - singleton issue)
+        assert (
+            processor1.reset_count == 0
+        ), "Processor 1 reset should NOT be called (singleton)"
+        assert (
+            processor2.reset_count == 0
+        ), "Processor 2 reset should NOT be called (singleton)"
         assert processor1.process_count == 2, "Processor 1 should process 2 chunks"
         assert processor2.process_count == 2, "Processor 2 should process 2 chunks"
 

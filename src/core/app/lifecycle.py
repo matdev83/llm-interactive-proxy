@@ -30,6 +30,25 @@ class AppLifecycle:
         self.config = config
         self._background_tasks: list[asyncio.Task] = []
 
+    def _remove_completed_task(self, task: asyncio.Task) -> None:
+        """Remove a completed task from the background tasks list.
+
+        This callback is registered on each task to prevent memory leaks.
+        """
+        with suppress(ValueError):
+            # Task already removed (shouldn't happen, but safe to ignore)
+            self._background_tasks.remove(task)
+
+    def _cleanup_completed_tasks(self) -> None:
+        """Remove all completed tasks from the background tasks list.
+
+        This prevents unbounded memory growth from accumulating completed tasks.
+        """
+        # Remove completed tasks in reverse order to avoid index shifting issues
+        for i in range(len(self._background_tasks) - 1, -1, -1):
+            if self._background_tasks[i].done():
+                self._background_tasks.pop(i)
+
     async def startup(self) -> None:
         """Perform startup tasks.
 
@@ -543,7 +562,7 @@ class AppLifecycle:
     def _start_background_tasks(self) -> None:
         """Start background tasks."""
         # Start session cleanup task
-        if self.config.get("session_cleanup_enabled", False):
+        if self.config.get("session_cleanup_enabled", True):
             interval = self.config.get(
                 "session_cleanup_interval", 3600
             )  # 1 hour default
@@ -552,7 +571,11 @@ class AppLifecycle:
             task = asyncio.create_task(
                 self._session_cleanup_task(interval, max_age), name="session_cleanup"
             )
+            # Clean up completed tasks before adding new one (lazy cleanup)
+            self._cleanup_completed_tasks()
+            # Add task and register callback to remove it when done
             self._background_tasks.append(task)
+            task.add_done_callback(self._remove_completed_task)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     f"Started session cleanup task (interval: {interval}s, max age: {max_age}s)"

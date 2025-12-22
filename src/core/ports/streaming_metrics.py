@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import defaultdict
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from cachetools import TTLCache  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -31,23 +33,19 @@ class StreamingMetrics:
     - error_terminations: Number of streams that ended with errors
 
     Metrics are tracked per stream using stream_id for isolation.
+    Uses TTLCache to prevent memory leaks if end_stream() is not called.
     """
 
-    # Per-stream metrics
-    _stream_metrics: dict[str, dict[str, int]] = field(
-        default_factory=lambda: defaultdict(
-            lambda: {
-                "chunks_sent": 0,
-                "sentinels_emitted": 0,
-                "middleware_mutations": 0,
-                "error_terminations": 0,
-            }
-        )
+    # Per-stream metrics: stream_id -> metric_name -> count
+    # TTL: 1 hour, Max size: 10,000 active streams
+    _stream_metrics: MutableMapping[str, dict[str, int]] = field(
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
-    # Per-stream timers
-    _stream_timers: dict[str, dict[str, float]] = field(
-        default_factory=lambda: defaultdict(dict)
+    # Per-stream timers: stream_id -> timer_name -> start_time
+    # TTL: 1 hour, Max size: 10,000 active streams
+    _stream_timers: MutableMapping[str, dict[str, float]] = field(
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
     # Global aggregated metrics
@@ -61,6 +59,17 @@ class StreamingMetrics:
         }
     )
 
+    def _get_or_init_stream_metrics(self, stream_id: str) -> dict[str, int]:
+        """Get metrics for a stream, initializing if needed."""
+        if stream_id not in self._stream_metrics:
+            self._stream_metrics[stream_id] = {
+                "chunks_sent": 0,
+                "sentinels_emitted": 0,
+                "middleware_mutations": 0,
+                "error_terminations": 0,
+            }
+        return self._stream_metrics[stream_id]
+
     def increment_chunks_sent(self, stream_id: str | None = None) -> None:
         """Increment the chunks_sent counter.
 
@@ -68,7 +77,7 @@ class StreamingMetrics:
             stream_id: Optional stream identifier for per-stream tracking
         """
         if stream_id:
-            self._stream_metrics[stream_id]["chunks_sent"] += 1
+            self._get_or_init_stream_metrics(stream_id)["chunks_sent"] += 1
         self._global_metrics["chunks_sent"] += 1
 
     def increment_sentinels_emitted(self, stream_id: str | None = None) -> None:
@@ -78,7 +87,7 @@ class StreamingMetrics:
             stream_id: Optional stream identifier for per-stream tracking
         """
         if stream_id:
-            self._stream_metrics[stream_id]["sentinels_emitted"] += 1
+            self._get_or_init_stream_metrics(stream_id)["sentinels_emitted"] += 1
         self._global_metrics["sentinels_emitted"] += 1
 
     def increment_middleware_mutations(self, stream_id: str | None = None) -> None:
@@ -88,7 +97,7 @@ class StreamingMetrics:
             stream_id: Optional stream identifier for per-stream tracking
         """
         if stream_id:
-            self._stream_metrics[stream_id]["middleware_mutations"] += 1
+            self._get_or_init_stream_metrics(stream_id)["middleware_mutations"] += 1
         self._global_metrics["middleware_mutations"] += 1
 
     def increment_error_terminations(self, stream_id: str | None = None) -> None:
@@ -98,7 +107,7 @@ class StreamingMetrics:
             stream_id: Optional stream identifier for per-stream tracking
         """
         if stream_id:
-            self._stream_metrics[stream_id]["error_terminations"] += 1
+            self._get_or_init_stream_metrics(stream_id)["error_terminations"] += 1
         self._global_metrics["error_terminations"] += 1
 
     def start_timer(self, stream_id: str, timer_name: str) -> None:
@@ -108,6 +117,8 @@ class StreamingMetrics:
             stream_id: Stream identifier
             timer_name: Name of the timer (e.g., "normalization", "processing")
         """
+        if stream_id not in self._stream_timers:
+            self._stream_timers[stream_id] = {}
         self._stream_timers[stream_id][timer_name] = time.perf_counter()
 
     def stop_timer(self, stream_id: str, timer_name: str) -> float | None:

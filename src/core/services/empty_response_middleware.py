@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from cachetools import TTLCache
+
 from src.core.common.exceptions import BackendError
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
@@ -54,10 +56,12 @@ class EmptyResponseFeature(IResponseFeature):
         super().__init__(priority)
         self._enabled = enabled
         self._max_retries = max_retries
-        self._retry_counts: dict[str, int] = {}
+        self._retry_counts: dict[str, int] = TTLCache(maxsize=10000, ttl=3600)
         self._recovery_prompt: str | None = None
         # Streaming state: track activity per stream
-        self._stream_activity: dict[str, dict[str, bool]] = {}
+        self._stream_activity: dict[str, dict[str, bool]] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     def _has_tool_calls(
         self, response: ProcessedResponse, context: dict[str, Any] | None = None
@@ -416,9 +420,11 @@ class EmptyResponseMiddleware(IResponseMiddleware):
         )
         self._enabled = enabled
         self._max_retries = max_retries
-        self._retry_counts: dict[str, int] = {}
+        self._retry_counts: dict[str, int] = TTLCache(maxsize=10000, ttl=3600)
         self._recovery_prompt: str | None = None
-        self._stream_activity: dict[str, dict[str, bool]] = {}
+        self._stream_activity: dict[str, dict[str, bool]] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     def _has_tool_calls(
         self, response: ProcessedResponse, context: dict[str, Any] | None = None

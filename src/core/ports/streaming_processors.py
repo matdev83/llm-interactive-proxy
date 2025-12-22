@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -31,6 +32,14 @@ _THINK_TAG_PATTERN = re.compile(
 )
 # Keep a small window of trailing content to detect think tags that span chunks.
 _THINK_TAG_LOOKBACK = 128
+
+# Maximum number of session states to keep in memory to prevent unbounded growth
+# 10,000 sessions provides a large window for active sessions without unbounded growth
+_MAX_SESSION_STATES = 10_000
+
+# TTL for session states: remove if not accessed for 1 hour
+# This prevents accumulation of stale sessions that were never completed
+_SESSION_STATE_TTL_SECONDS = 3600
 
 
 class LoopDetectionProcessor(IStreamProcessor):
@@ -399,12 +408,16 @@ class ThinkTagsProcessor(IStreamProcessor):
         self,
         enabled: bool = True,
         streaming_buffer_size: int = 16384,  # Increased from 4096 to 16KB
+        max_session_states: int = _MAX_SESSION_STATES,
+        session_ttl_seconds: int = _SESSION_STATE_TTL_SECONDS,
     ) -> None:
         """Initialize the think tags processor.
 
         Args:
             enabled: Whether the processor is enabled
             streaming_buffer_size: Maximum buffer size for streaming chunks
+            max_session_states: Maximum number of session states to keep in memory
+            session_ttl_seconds: TTL in seconds for stale session states
         """
         self._enabled = enabled
         self._streaming_buffer_size = streaming_buffer_size
@@ -414,7 +427,12 @@ class ThinkTagsProcessor(IStreamProcessor):
         self._streaming_buffers: dict[str, str] = {}
         self._reasoning_extracted: dict[str, dict[str, Any]] = {}
         self._stream_states: dict[str, str] = {}  # waiting, in_think, post_think
+        self._last_access: dict[str, float] = (
+            {}
+        )  # Track last access time for TTL cleanup
         self._think_tag_lookback = _THINK_TAG_LOOKBACK
+        self._max_session_states = max_session_states
+        self._session_ttl_seconds = session_ttl_seconds
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process streaming content and fix think tags.
@@ -447,6 +465,9 @@ class ThinkTagsProcessor(IStreamProcessor):
 
         session_id = self._get_or_set_session_id(content)
 
+        # Clean up stale sessions periodically to prevent unbounded growth
+        self._maybe_cleanup_stale_sessions()
+
         # Extract text content
         text_content = self._extract_text_content(content.content)
         if not text_content:
@@ -478,6 +499,7 @@ class ThinkTagsProcessor(IStreamProcessor):
         self._streaming_buffers.clear()
         self._reasoning_extracted.clear()
         self._stream_states.clear()
+        self._last_access.clear()
         self._logger.debug("Think tags processor state reset")
 
     def _extract_text_content(self, content: str | dict | bytes) -> str:
@@ -641,15 +663,28 @@ class ThinkTagsProcessor(IStreamProcessor):
         self._stream_states.pop(session_id, None)
         # Clean up reasoning_extracted to prevent memory leaks
         self._reasoning_extracted.pop(session_id, None)
+        self._last_access.pop(session_id, None)
 
     def _ensure_session_state(self, session_id: str) -> None:
         """Initialize state containers for a session if missing."""
+        now = time.time()
+
+        # Check if we need to evict old sessions before adding new one
+        if session_id not in self._streaming_buffers:
+            self._maybe_cleanup_stale_sessions()
+            # Enforce max limit by evicting oldest sessions if needed
+            while len(self._streaming_buffers) >= self._max_session_states:
+                self._evict_oldest_session()
+
         if session_id not in self._streaming_buffers:
             self._streaming_buffers[session_id] = ""
         if session_id not in self._stream_states:
             self._stream_states[session_id] = "waiting"
         if session_id not in self._reasoning_extracted:
             self._reasoning_extracted[session_id] = {}
+
+        # Update last access time
+        self._last_access[session_id] = now
 
     def _get_or_set_session_id(self, content: StreamingContent) -> str:
         """Ensure the streaming chunk carries a session identifier."""
@@ -661,3 +696,46 @@ class ThinkTagsProcessor(IStreamProcessor):
         else:
             content.stream_id = session_id
         return session_id
+
+    def _maybe_cleanup_stale_sessions(self) -> None:
+        """Clean up stale session states based on TTL.
+
+        This prevents unbounded growth when streams never complete or fail.
+        """
+        if len(self._streaming_buffers) < self._max_session_states:
+            return
+
+        now = time.time()
+        expired_sessions = [
+            (sid, last_access)
+            for sid, last_access in self._last_access.items()
+            if now - last_access > self._session_ttl_seconds
+        ]
+
+        for sid, last_access in expired_sessions:
+            self._cleanup_session_state(sid)
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Removed stale think tags session state: %s (last access: %.1fs ago)",
+                    sid,
+                    now - last_access,
+                )
+
+    def _evict_oldest_session(self) -> None:
+        """Evict the oldest session state when max limit is reached (LRU eviction).
+
+        This prevents unbounded growth by removing least recently used sessions.
+        """
+        if not self._last_access:
+            return
+
+        # Find oldest session by last access time
+        oldest_session_id = min(self._last_access.items(), key=lambda x: x[1])[0]
+        self._cleanup_session_state(oldest_session_id)
+
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug(
+                "Evicted oldest think tags session state: %s (max_sessions=%d reached)",
+                oldest_session_id,
+                self._max_session_states,
+            )

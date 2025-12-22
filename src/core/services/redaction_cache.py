@@ -15,8 +15,9 @@ import hashlib
 import logging
 import threading
 import time
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
-from typing import Any, MutableMapping
+from typing import Any
 
 from cachetools import LRUCache
 

@@ -168,8 +168,39 @@ class XmlToolCallPostProcessor:
             import uuid
 
             buffer: list[ProcessedResponse] = []
+            buffer_size = 0
+            MAX_BUFFER_SIZE = 5 * 1024 * 1024  # 5MB limit for tool detection
+
             async for chunk in original_iterator:
                 buffer.append(chunk)
+
+                # Estimate size to prevent OOM/DoS
+                if hasattr(chunk, "content"):
+                    chunk_content = chunk.content
+                    if isinstance(chunk_content, str):
+                        buffer_size += len(chunk_content)
+                    elif isinstance(chunk_content, dict):
+                        # Rough estimate for dict content
+                        choices = chunk_content.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content_part = delta.get("content", "")
+                            if content_part:
+                                buffer_size += len(content_part)
+
+                if buffer_size > MAX_BUFFER_SIZE:
+                    # Buffer exceeded limit, stop buffering and yield everything
+                    logger.warning(
+                        "Response exceeded %s bytes during XML tool detection; skipping tool parsing to prevent OOM/DoS.",
+                        MAX_BUFFER_SIZE
+                    )
+                    for buffered_chunk in buffer:
+                        yield buffered_chunk
+                    buffer = []
+                    # Stream remaining chunks directly
+                    async for remaining_chunk in original_iterator:
+                        yield remaining_chunk
+                    return
 
             # Reconstruct full content
             full_content = ""

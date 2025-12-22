@@ -2,7 +2,7 @@ import hashlib
 import logging
 import re
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +20,12 @@ class APIKeyRedactor:
             # Escape special regex characters and compile pattern
             self._key_patterns[key] = re.compile(re.escape(key))
 
+        # Initialize cache for frequently processed content
+        self._redact_cache: OrderedDict[str, str] = OrderedDict()
+        self._cache_max_size = 512
+
     def _redact_cached(self, text: str) -> str:
         """Cached version of redact for frequently processed content."""
-        # Use OrderedDict for LRU cache with hash keys to reduce memory usage
-        if not hasattr(self, "_redact_cache"):
-            self._redact_cache: OrderedDict[str, str] = OrderedDict()
-            self._cache_max_size = 512  # Reduced from 1024 to save memory
-
         # Use hash of text instead of full text as key to reduce memory
         text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -39,14 +38,14 @@ class APIKeyRedactor:
 
         # Add new entry and enforce size limit
         self._redact_cache[text_hash] = result
-        while len(self._redact_cache) > self._cache_max_size:
+        if len(self._redact_cache) > self._cache_max_size:
             # Remove oldest entry (LRU eviction)
             self._redact_cache.popitem(last=False)
 
         return result
 
     def redact(self, text: str) -> str:
-        """Replace any occurrences of known API keys in *text*."""
+        """Replace any occurrences of known API keys in *text*. """
         if not text:
             return text
 
@@ -82,6 +81,9 @@ class ProxyCommandFilter:
     def __init__(self, command_prefix: str = "!/") -> None:
         self.command_prefix = command_prefix
         self._update_pattern()
+        # Initialize cache for frequently processed content
+        self._filter_cache: OrderedDict[str, str] = OrderedDict()
+        self._cache_max_size = 512
 
     def _update_pattern(self) -> None:
         """Update the regex pattern when command prefix changes."""
@@ -91,17 +93,48 @@ class ProxyCommandFilter:
             rf"{prefix_escaped}[A-Za-z0-9_-]+(?:\([^)]*\))?",
             re.IGNORECASE,
         )
+        # Clear cache when pattern changes
+        if hasattr(self, "_filter_cache"):
+            self._filter_cache.clear()
 
     def set_command_prefix(self, new_prefix: str) -> None:
         """Update the command prefix and regenerate the pattern."""
         self.command_prefix = new_prefix
         self._update_pattern()
 
+    def _filter_cached(self, text: str, filter_func: Callable[[str], str]) -> str:
+        """Helper for caching filter results."""
+        if not text:
+            return text
+
+        # Use hash of text + function name as key
+        cache_key = hashlib.sha256(
+            f"{text}:{filter_func.__name__}".encode("utf-8")
+        ).hexdigest()
+
+        if cache_key in self._filter_cache:
+            self._filter_cache.move_to_end(cache_key)
+            return self._filter_cache[cache_key]
+
+        result = filter_func(text)
+
+        self._filter_cache[cache_key] = result
+        if len(self._filter_cache) > self._cache_max_size:
+            self._filter_cache.popitem(last=False)
+
+        return result
+
     def filter_commands(self, text: str) -> str:
         """
         Remove any proxy commands from text and issue warnings.
         This is an emergency filter to prevent command leaks to remote LLMs.
         """
+        # For short texts, use cached version
+        if text and len(text) < 1000:
+            return self._filter_cached(text, self._filter_commands_internal)
+        return self._filter_commands_internal(text)
+
+    def _filter_commands_internal(self, text: str) -> str:
         if not text or not text.strip():
             return text
 
@@ -164,6 +197,12 @@ class ProxyCommandFilter:
         Remove proxy commands only if they appear at the end of the text (after trimming whitespace).
         This is used when processing user input where commands should only be executed if at the end.
         """
+        # For short texts, use cached version
+        if text and len(text) < 1000:
+            return self._filter_cached(text, self._filter_end_of_message_commands_only_internal)
+        return self._filter_end_of_message_commands_only_internal(text)
+
+    def _filter_end_of_message_commands_only_internal(self, text: str) -> str:
         if not text or not text.strip():
             return text
 
@@ -214,6 +253,12 @@ class ProxyCommandFilter:
         Remove proxy commands only if they appear on the last non-blank line.
         This is used when strict command detection is enabled.
         """
+        # For short texts, use cached version
+        if text and len(text) < 1000:
+            return self._filter_cached(text, self._filter_commands_with_strict_mode_internal)
+        return self._filter_commands_with_strict_mode_internal(text)
+
+    def _filter_commands_with_strict_mode_internal(self, text: str) -> str:
         if not text or not text.strip():
             return text
 

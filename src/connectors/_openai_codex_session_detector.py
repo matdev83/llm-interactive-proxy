@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from cachetools import TTLCache  # type: ignore
 
 if TYPE_CHECKING:
     pass
@@ -64,14 +66,22 @@ class SessionDetector:
         "<edit_file>",
     }
 
-    def __init__(self, cache_ttl_seconds: int = 3600, heuristic_threshold: int = 2):
+    def __init__(
+        self,
+        cache_ttl_seconds: int = 3600,
+        heuristic_threshold: int = 2,
+        max_cache_size: int = 10000,
+    ):
         """Initialize the session detector.
 
         Args:
             cache_ttl_seconds: Time-to-live for cached detection results
             heuristic_threshold: Minimum number of XML tags to trigger heuristic detection
+            max_cache_size: Maximum number of entries to keep in cache
         """
-        self._cache: dict[str, DetectionResult] = {}
+        self._cache: MutableMapping[str, DetectionResult] = TTLCache(
+            maxsize=max_cache_size, ttl=cache_ttl_seconds
+        )
         self._cache_lock = asyncio.Lock()
         self._cache_ttl = cache_ttl_seconds
         self._heuristic_threshold = heuristic_threshold
@@ -106,46 +116,39 @@ class SessionDetector:
         # Check cache first
         cache_key = self._build_cache_key(session_id, backend, agent)
         async with self._cache_lock:
-            if cache_key in self._cache:
-                cached = self._cache[cache_key]
-                # Check if cache entry is still valid
-                if time.time() - cached.timestamp < self._cache_ttl:
-                    # Increment cache hit counter
-                    self._cache_hits += 1
+            cached = self._cache.get(cache_key)
+            if cached:
+                # Increment cache hit counter
+                self._cache_hits += 1
 
-                    logger.debug(
-                        "Using cached KiloCode detection result for session %s: %s",
-                        session_id,
-                        cached.is_kilocode,
-                    )
+                logger.debug(
+                    "Using cached KiloCode detection result for session %s: %s",
+                    session_id,
+                    cached.is_kilocode,
+                )
 
-                    # Log telemetry for cache hit
-                    telemetry = get_telemetry()
-                    if telemetry:
-                        telemetry.log_detection_event(
-                            session_id=session_id,
-                            is_kilocode=cached.is_kilocode,
-                            detection_method="cached",
-                            confidence=cached.confidence,
-                            duration_ms=0.0,  # Cache hits are essentially instant
-                            agent_string=cached.agent_string,
-                        )
-
-                    return DetectionResult(
+                # Log telemetry for cache hit
+                telemetry = get_telemetry()
+                if telemetry:
+                    telemetry.log_detection_event(
+                        session_id=session_id,
                         is_kilocode=cached.is_kilocode,
                         detection_method="cached",
                         confidence=cached.confidence,
+                        duration_ms=0.0,  # Cache hits are essentially instant
                         agent_string=cached.agent_string,
-                        timestamp=cached.timestamp,
                     )
-                else:
-                    # Cache expired, remove it
-                    del self._cache[cache_key]
-                    # Increment cache miss counter (expired entry)
-                    self._cache_misses += 1
-            else:
-                # Increment cache miss counter (entry not found)
-                self._cache_misses += 1
+
+                return DetectionResult(
+                    is_kilocode=cached.is_kilocode,
+                    detection_method="cached",
+                    confidence=cached.confidence,
+                    agent_string=cached.agent_string,
+                    timestamp=cached.timestamp,
+                )
+
+            # Increment cache miss counter
+            self._cache_misses += 1
 
         # Perform detection
         start_time = time.time()

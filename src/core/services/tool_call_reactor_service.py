@@ -492,18 +492,23 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         self,
         session_ttl_seconds: int = 3600,
         max_sessions: int = 10000,
+        max_entries_per_session: int = 100,  # Reduced from 1000 to prevent memory bloat
     ) -> None:
         """Initialize the history tracker.
 
         Args:
             session_ttl_seconds: TTL for session history (default: 1 hour)
             max_sessions: Maximum number of sessions to track (default: 10000)
+            max_entries_per_session: Maximum tool call entries per session (default: 100)
         """
         self._history: dict[str, list[dict[str, Any]]] = {}
         self._session_last_access: dict[str, datetime] = {}
         self._session_ttl_seconds = session_ttl_seconds
         self._max_sessions = max_sessions
+        self._max_entries_per_session = max_entries_per_session
         self._lock = asyncio.Lock()
+        # Track total entries across all sessions for global limit enforcement
+        self._total_entries = 0
 
     async def record_tool_call(
         self, session_id: str, tool_name: str, context: dict[str, Any]
@@ -544,10 +549,16 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             }
 
             session_history.append(entry)
+            self._total_entries += 1
 
-            # Keep only recent entries (last 1000 per session)
-            if len(session_history) > 1000:
-                self._history[session_id] = session_history[-1000:]
+            # Enforce per-session limit to prevent memory bloat
+            if len(session_history) > self._max_entries_per_session:
+                # Remove oldest entries to stay within limit
+                excess_count = len(session_history) - self._max_entries_per_session
+                self._history[session_id] = session_history[
+                    self._max_entries_per_session :
+                ]
+                self._total_entries -= excess_count
 
     async def get_call_count(
         self, session_id: str, tool_name: str, time_window_seconds: int
@@ -616,8 +627,21 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             )
             to_remove = len(self._history) - self._max_sessions
             for session_id, _ in sorted_sessions[:to_remove]:
+                # Subtract entries being removed from total count
+                session_history = self._history.get(session_id, [])
+                self._total_entries -= len(session_history)
+                # Remove session from history and last access tracking
                 self._history.pop(session_id, None)
                 self._session_last_access.pop(session_id, None)
+
+    async def get_total_entries_count(self) -> int:
+        """Get the total number of tool call entries across all sessions.
+
+        Returns:
+            Total number of entries stored in memory.
+        """
+        async with self._lock:
+            return self._total_entries
 
     async def clear_history(self, session_id: str | None = None) -> None:
         """Clear the call history.
@@ -628,9 +652,14 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         """
         async with self._lock:
             if session_id is None:
+                # Reset total count when clearing all history
+                self._total_entries = 0
                 self._history.clear()
                 self._session_last_access.clear()
             elif session_id in self._history:
+                # Subtract entries being removed from total count
+                session_history = self._history.get(session_id, [])
+                self._total_entries -= len(session_history)
                 self._history[session_id].clear()
                 self._session_last_access.pop(session_id, None)
 

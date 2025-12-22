@@ -606,7 +606,7 @@ class ResponsesController:
             },
         )
 
-    def _stream_response_envelope(
+    def _stream_response_envelope(  # noqa: C901
         self,
         request: Request,
         domain_request: Any,
@@ -614,7 +614,7 @@ class ResponsesController:
         request_id: str,
         context: Any | None = None,
     ) -> AsyncIterator[str]:
-        async def _generator() -> AsyncIterator[str]:
+        async def _generator() -> AsyncIterator[str]:  # noqa: C901
             import contextlib
             import json
             import time

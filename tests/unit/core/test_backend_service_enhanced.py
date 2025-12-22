@@ -622,12 +622,11 @@ class TestBackendServiceCompletions:
 
         # Only one call should have been made (no retry with allow_failover=False)
         assert len(backend.calls) == 1
-        expected_kwargs = {
-            "session_id": "session-123",
-            "project": "proj-alpha",
-            "project_dir": "/tmp/proj",
-        }
-        assert backend.calls[0]["kwargs"] == expected_kwargs
+        actual_kwargs = backend.calls[0]["kwargs"]
+        # Check that expected kwargs are present (allow for additional kwargs like cancellation_coordinator, cancellation_token)
+        assert actual_kwargs["session_id"] == "session-123"
+        assert actual_kwargs["project"] == "proj-alpha"
+        assert actual_kwargs["project_dir"] == "/tmp/proj"
 
     @pytest.mark.asyncio
     async def test_call_completion_backend_error(self, service, chat_request):

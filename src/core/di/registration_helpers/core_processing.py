@@ -14,17 +14,20 @@ from typing import cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.di.registrations._shared import (
-    register_singleton_if_absent,
-    register_transient_if_absent,
-)
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
 
 
-def register_request_processing_orchestration(services: ServiceCollection) -> None:
+def register_request_processing_orchestration(
+    services: ServiceCollection,
+) -> None:
     """Register request processing orchestration services."""
+    # Import here to avoid circular import with registrations package
+    from src.core.di.registrations._shared import (
+        register_singleton_if_absent,
+        register_transient_if_absent,
+    )
     from src.core.interfaces.backend_processor_interface import IBackendProcessor
     from src.core.interfaces.backend_request_manager_interface import (
         IBackendRequestManager,
@@ -750,6 +753,10 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
 
 def register_phase_components(services: ServiceCollection) -> None:
     """Register request processor phase components."""
+    # Import here to avoid circular import with registrations package
+    from src.core.di.registrations._shared import (
+        register_singleton_if_absent,
+    )
     from src.core.interfaces.request_processor_internal import (
         IBackendExecutor,
         IBackendPreparer,

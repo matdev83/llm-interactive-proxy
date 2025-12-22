@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -23,6 +25,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of session states to keep in memory to prevent unbounded growth.
+# 10,000 sessions is roughly ~2-3 MB of memory, providing a large window
+# for active sessions without unbounded growth. Eviction uses LRU policy.
+_MAX_SESSION_STATES = 10_000
+
+# TTL for session states: remove if not accessed for 1 hour
+# This prevents accumulation of stale sessions that were never completed or disabled
+_SESSION_STATE_TTL_SECONDS = 3600
+
+# TTL for analysis_in_progress entries: remove if stuck for 30 minutes
+# This prevents accumulation of sessions stuck in analysis if worker crashes
+_ANALYSIS_IN_PROGRESS_TTL_SECONDS = 1800
+
 
 @dataclass
 class SessionMemoryState:
@@ -39,6 +54,7 @@ class SessionMemoryState:
     summary_task: asyncio.Task | None = (
         None  # Background task for delayed summarization
     )
+    last_access: float = field(default_factory=time.time)  # For TTL-based cleanup
 
 
 class MemoryService:
@@ -70,12 +86,14 @@ class MemoryService:
         self._tool_event_collector = (
             tool_event_collector or DeterministicToolEventCollector()
         )
-        self._session_states: dict[str, SessionMemoryState] = {}
+        # Use OrderedDict for LRU eviction to prevent unbounded memory growth
+        self._session_states: OrderedDict[str, SessionMemoryState] = OrderedDict()
         self._state_lock = asyncio.Lock()
         self._analysis_queue: asyncio.Queue[str] = asyncio.Queue(
             maxsize=config.analysis_queue_maxsize
         )
-        self._analysis_in_progress: set[str] = set()
+        # Track when sessions entered analysis_in_progress for TTL cleanup
+        self._analysis_in_progress: dict[str, float] = {}
 
     def is_available(self) -> bool:
         """Check if memory feature is globally available."""
@@ -84,6 +102,12 @@ class MemoryService:
     async def is_enabled_for_session(self, session_id: str) -> bool:
         """Check if memory is enabled for a specific session."""
         async with self._state_lock:
+            if session_id in self._session_states:
+                # Update last access time and move to end (LRU)
+                state = self._session_states[session_id]
+                state.last_access = time.time()
+                self._session_states.move_to_end(session_id)
+                await self._maybe_cleanup_stale_sessions_locked()
             return session_id in self._session_states
 
     async def enable_for_session(
@@ -150,6 +174,12 @@ class MemoryService:
                     user_id, project_root
                 )
 
+            # Check if we need to evict old sessions before adding new one
+            await self._maybe_cleanup_stale_sessions_locked()
+            # Enforce max limit by evicting oldest sessions if needed
+            while len(self._session_states) >= _MAX_SESSION_STATES:
+                await self._evict_oldest_session_locked()
+
             self._session_states[session_id] = SessionMemoryState(
                 user_id=user_id,
                 tenant_id=tenant_id,
@@ -157,6 +187,8 @@ class MemoryService:
                 project_root=project_root,
                 project_id=project_id,
             )
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
 
             return True
 
@@ -217,6 +249,9 @@ class MemoryService:
             if session_id not in self._session_states:
                 return False
             state = self._session_states[session_id]
+            # Update last access time and move to end (LRU)
+            state.last_access = time.time()
+            self._session_states.move_to_end(session_id)
             project_root = state.project_root
 
         await self._tool_event_collector.record_tool_event(
@@ -243,6 +278,9 @@ class MemoryService:
                 return False
 
             state = self._session_states[session_id]
+            # Update last access time and move to end (LRU)
+            state.last_access = time.time()
+            self._session_states.move_to_end(session_id)
             if state.queued_for_analysis:
                 logger.debug("Session %s already queued for analysis", session_id)
                 return False
@@ -317,18 +355,31 @@ class MemoryService:
         """Get the user ID associated with a session."""
         async with self._state_lock:
             state = self._session_states.get(session_id)
+            if state:
+                # Update last access time and move to end (LRU)
+                state.last_access = time.time()
+                self._session_states.move_to_end(session_id)
             return state.user_id if state else None
 
     async def get_session_project_root(self, session_id: str) -> str | None:
         """Get the project root associated with a session."""
         async with self._state_lock:
             state = self._session_states.get(session_id)
+            if state:
+                # Update last access time and move to end (LRU)
+                state.last_access = time.time()
+                self._session_states.move_to_end(session_id)
             return state.project_root if state else None
 
     async def get_session_state(self, session_id: str) -> SessionMemoryState | None:
         """Get the full session state."""
         async with self._state_lock:
-            return self._session_states.get(session_id)
+            state = self._session_states.get(session_id)
+            if state:
+                # Update last access time and move to end (LRU)
+                state.last_access = time.time()
+                self._session_states.move_to_end(session_id)
+            return state
 
     async def get_captured_interactions(
         self, session_id: str
@@ -356,14 +407,19 @@ class MemoryService:
         """
         try:
             session_id = self._analysis_queue.get_nowait()
-            self._analysis_in_progress.add(session_id)
+            # Track when session entered analysis_in_progress for TTL cleanup
+            self._analysis_in_progress[session_id] = time.time()
+            # Clean up stale analysis_in_progress entries
+            await self._cleanup_stale_analysis_in_progress()
             return session_id
         except asyncio.QueueEmpty:
+            # Still clean up stale entries even if queue is empty
+            await self._cleanup_stale_analysis_in_progress()
             return None
 
     async def complete_analysis(self, session_id: str) -> None:
         """Mark analysis as complete for a session."""
-        self._analysis_in_progress.discard(session_id)
+        self._analysis_in_progress.pop(session_id, None)
 
         async with self._state_lock:
             self._session_states.pop(session_id, None)
@@ -413,3 +469,98 @@ class MemoryService:
     def get_active_session_count(self) -> int:
         """Get the number of active memory-enabled sessions."""
         return len(self._session_states)
+
+    async def _maybe_cleanup_stale_sessions_locked(self) -> None:
+        """Clean up stale session states based on TTL.
+
+        Must be called with _state_lock held.
+        """
+        now = time.time()
+        expired_sessions = [
+            sid
+            for sid, state in self._session_states.items()
+            if now - state.last_access > _SESSION_STATE_TTL_SECONDS
+        ]
+
+        for sid in expired_sessions:
+            state = self._session_states.get(sid)
+            if state:
+                # Cancel any pending summary task
+                if state.summary_task and not state.summary_task.done():
+                    state.summary_task.cancel()
+                # Remove from session states
+                del self._session_states[sid]
+                # Also remove from analysis_in_progress if present
+                self._analysis_in_progress.pop(sid, None)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Removed stale session state: %s (last access: %.1fs ago)",
+                        sid,
+                        now - state.last_access,
+                    )
+                # Clear buffers to free memory
+                # Note: We can't await here since we're in a locked context,
+                # so we schedule cleanup tasks (fire-and-forget)
+                _ = asyncio.create_task(  # noqa: RUF006
+                    self._capture_buffer.clear_session(sid)
+                )
+                _ = asyncio.create_task(  # noqa: RUF006
+                    self._tool_event_collector.clear_session(sid)
+                )
+
+    async def _evict_oldest_session_locked(self) -> None:
+        """Evict the oldest session state when max limit is reached (LRU eviction).
+
+        Must be called with _state_lock held.
+        """
+        if not self._session_states:
+            return
+
+        # Get oldest entry (first in OrderedDict)
+        oldest_session_id, oldest_state = next(iter(self._session_states.items()))
+
+        # Cancel any pending summary task
+        if oldest_state.summary_task and not oldest_state.summary_task.done():
+            oldest_state.summary_task.cancel()
+
+        # Remove from session states
+        del self._session_states[oldest_session_id]
+        # Also remove from analysis_in_progress if present
+        self._analysis_in_progress.pop(oldest_session_id, None)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Evicted oldest session state: %s (max_sessions=%d reached)",
+                oldest_session_id,
+                _MAX_SESSION_STATES,
+            )
+
+        # Clear buffers to free memory
+        # Note: We can't await here since we're in a locked context,
+        # so we schedule cleanup tasks (fire-and-forget)
+        _ = asyncio.create_task(  # noqa: RUF006
+            self._capture_buffer.clear_session(oldest_session_id)
+        )
+        _ = asyncio.create_task(  # noqa: RUF006
+            self._tool_event_collector.clear_session(oldest_session_id)
+        )
+
+    async def _cleanup_stale_analysis_in_progress(self) -> None:
+        """Clean up stale entries from _analysis_in_progress based on TTL.
+
+        This prevents accumulation of sessions stuck in analysis if worker crashes.
+        """
+        now = time.time()
+        expired_sessions = [
+            (sid, timestamp)
+            for sid, timestamp in self._analysis_in_progress.items()
+            if now - timestamp > _ANALYSIS_IN_PROGRESS_TTL_SECONDS
+        ]
+
+        for sid, timestamp in expired_sessions:
+            self._analysis_in_progress.pop(sid, None)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Removed stale analysis_in_progress entry: %s (stuck for %.1fs)",
+                    sid,
+                    now - timestamp,
+                )

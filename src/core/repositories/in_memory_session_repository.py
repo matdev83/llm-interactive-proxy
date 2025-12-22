@@ -13,16 +13,31 @@ from src.core.services.conversation_fingerprint_service import (
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of sessions to keep in memory to prevent unbounded growth
+# 50,000 sessions provides a large window for active sessions without unbounded growth
+_MAX_SESSIONS = 50_000
+
+# Default TTL for sessions: remove if not accessed for 24 hours
+# This prevents accumulation of stale sessions when cleanup_expired is never called
+_DEFAULT_SESSION_TTL_SECONDS = 24 * 3600
+
 
 class InMemorySessionRepository(ISessionRepository):
     """In-memory implementation of session repository.
 
     This repository keeps sessions in memory and does not persist them.
     It is suitable for development and testing.
+    
+    Automatically cleans up stale sessions to prevent unbounded memory growth.
     """
 
-    def __init__(self) -> None:
-        """Initialize the in-memory session repository."""
+    def __init__(self, max_sessions: int = _MAX_SESSIONS, default_ttl_seconds: int = _DEFAULT_SESSION_TTL_SECONDS) -> None:
+        """Initialize the in-memory session repository.
+        
+        Args:
+            max_sessions: Maximum number of sessions to keep in memory
+            default_ttl_seconds: Default TTL in seconds for stale sessions
+        """
         self._sessions: dict[str, Session] = {}
         self._user_sessions: dict[str, list[str]] = {}
         self._last_accessed: dict[str, float] = {}
@@ -30,6 +45,51 @@ class InMemorySessionRepository(ISessionRepository):
         self._fingerprints: dict[str, str] = {}  # session_id -> fingerprint
         self._client_sessions: dict[str, list[str]] = {}  # client_key -> session_ids
         self._fingerprint_bundles: dict[str, ConversationFingerprintBundle] = {}
+        self._max_sessions = max_sessions
+        self._default_ttl_seconds = default_ttl_seconds
+
+    async def _maybe_cleanup_stale_sessions(self) -> None:
+        """Clean up stale sessions based on TTL.
+
+        This prevents unbounded growth when cleanup_expired is never called.
+        """
+        if len(self._sessions) < self._max_sessions:
+            return
+
+        now = time.time()
+        expired_sessions = []
+
+        for session_id, last_access in self._last_accessed.items():
+            if now - last_access > self._default_ttl_seconds:
+                expired_sessions.append(session_id)
+
+        for session_id in expired_sessions:
+            await self.delete(session_id)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Removed stale session: %s (last access: %.1fs ago)",
+                    session_id,
+                    now - self._last_accessed.get(session_id, 0),
+                )
+
+    async def _evict_oldest_session(self) -> None:
+        """Evict the oldest session when max limit is reached (LRU eviction).
+
+        This prevents unbounded growth by removing least recently used sessions.
+        """
+        if not self._last_accessed:
+            return
+
+        # Find oldest session by last access time
+        oldest_session_id = min(self._last_accessed.items(), key=lambda x: x[1])[0]
+        await self.delete(oldest_session_id)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Evicted oldest session: %s (max_sessions=%d reached)",
+                oldest_session_id,
+                self._max_sessions,
+            )
 
     async def get_by_id(self, id: str) -> Session | None:
         """Get a session by its ID."""
@@ -48,6 +108,14 @@ class InMemorySessionRepository(ISessionRepository):
             logger.debug(
                 f"InMemorySessionRepository.add: session_id={entity.id}, history_size={len(entity.history)}"
             )
+        
+        # Check if we need to evict old sessions before adding new one
+        if entity.id not in self._sessions:
+            await self._maybe_cleanup_stale_sessions()
+            # Enforce max limit by evicting oldest sessions if needed
+            while len(self._sessions) >= self._max_sessions:
+                await self._evict_oldest_session()
+        
         self._sessions[entity.id] = entity
         self._last_accessed[entity.id] = time.time()
 
@@ -175,9 +243,7 @@ class InMemorySessionRepository(ISessionRepository):
                     age = now_timestamp - last_access_timestamp
             else:
                 # Fall back to internal tracking
-                last_access_timestamp = self._last_accessed.get(
-                    session_id, now_timestamp
-                )
+                last_access_timestamp = self._last_accessed.get(session_id, 0.0)
                 age = now_timestamp - last_access_timestamp
 
             if age > max_age_seconds:

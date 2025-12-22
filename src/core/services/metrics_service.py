@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -12,8 +12,11 @@ from src.core.domain.metrics import TimerStats
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of metrics to track to prevent unbounded memory growth
+_MAX_METRICS = 10000
+
 _lock = threading.RLock()
-_counters: dict[str, int] = defaultdict(int)
+_counters: OrderedDict[str, int] = OrderedDict()
 
 
 @dataclass
@@ -26,7 +29,7 @@ class TimerData:
     max: float = float("-inf")
 
 
-_timers: dict[str, TimerData] = defaultdict(TimerData)
+_timers: OrderedDict[str, TimerData] = OrderedDict()
 
 
 def inc(name: str, by: int = 1) -> None:
@@ -37,7 +40,14 @@ def inc(name: str, by: int = 1) -> None:
         by: The amount to increment by (default: 1)
     """
     with _lock:
-        _counters[name] += by
+        if name in _counters:
+            _counters[name] += by
+            _counters.move_to_end(name)
+        else:
+            if len(_counters) >= _MAX_METRICS:
+                # Evict oldest entry (FIFO behavior with OrderedDict)
+                _counters.popitem(last=False)
+            _counters[name] = by
 
 
 def get(name: str) -> int:
@@ -50,7 +60,10 @@ def get(name: str) -> int:
         The current counter value, or 0 if not found
     """
     with _lock:
-        return int(_counters.get(name, 0))
+        val = _counters.get(name, 0)
+        if name in _counters:
+            _counters.move_to_end(name)
+        return int(val)
 
 
 def snapshot() -> dict[str, int]:
@@ -71,7 +84,16 @@ def record_duration(name: str, duration_seconds: float) -> None:
         duration_seconds: The duration to record in seconds
     """
     with _lock:
-        data = _timers[name]
+        if name in _timers:
+            data = _timers[name]
+            _timers.move_to_end(name)
+        else:
+            if len(_timers) >= _MAX_METRICS:
+                # Evict oldest entry
+                _timers.popitem(last=False)
+            data = TimerData()
+            _timers[name] = data
+
         data.count += 1
         data.total += duration_seconds
         if duration_seconds < data.min:

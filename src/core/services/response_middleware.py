@@ -198,7 +198,7 @@ class LoopDetectionFeature(IResponseFeature):
         """
         super().__init__(priority)
         self._loop_detector = loop_detector
-        self._accumulated_content: dict[str, str] = TTLCache(maxsize=1000, ttl=300)
+        self._accumulated_content: TTLCache[str, str] = TTLCache(maxsize=1000, ttl=300)
 
     async def _check_and_accumulate(
         self,
@@ -391,7 +391,7 @@ class LoopDetectionMiddleware(IResponseMiddleware):
             "Use LoopDetectionFeature instead for proper streaming/non-streaming parity."
         )
         self._loop_detector = loop_detector
-        self._accumulated_content: dict[str, str] = TTLCache(maxsize=1000, ttl=300)
+        self._accumulated_content: TTLCache[str, str] = TTLCache(maxsize=1000, ttl=300)
         self._priority = priority
 
     @property

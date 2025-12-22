@@ -324,10 +324,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         if response.status_code >= 400:
             try:
-                if hasattr(response, "aread"):
-                    body_bytes = await response.aread()  # type: ignore[no-untyped-call]
+                # Read only first 1MB of error body to prevent DoS
+                body_bytes = b""
+                if hasattr(response, "aiter_bytes"):
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                            break
+                elif hasattr(response, "aread"):
+                    body_bytes = await response.aread()
                 else:
                     body_bytes = b""
+                
                 body_text = body_bytes.decode("utf-8", errors="ignore")
             except Exception:
                 body_text = ""
@@ -1020,10 +1028,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # Check for errors
         if response.status_code >= 400:
             try:
-                if hasattr(response, "aread"):
-                    body_bytes = await response.aread()  # type: ignore[no-untyped-call]
+                # Read only first 1MB of error body to prevent DoS
+                body_bytes = b""
+                if hasattr(response, "aiter_bytes"):
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                            break
+                elif hasattr(response, "aread"):
+                    body_bytes = await response.aread()
                 else:
                     body_bytes = b""
+                
                 body_text = body_bytes.decode("utf-8", errors="ignore")
             except Exception:
                 body_text = ""

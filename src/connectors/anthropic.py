@@ -558,8 +558,22 @@ class AnthropicBackend(LLMBackend):
             from src.core.common.exceptions import BackendError
 
             try:
-                body_text = (await response.aread()).decode("utf-8")
-                logger.error(f"Anthropic API error {response.status_code}: {body_text}")
+                # Read only first 1MB of error body to prevent DoS
+                body_bytes = b""
+                if hasattr(response, "aiter_bytes"):
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                            break
+                elif hasattr(response, "aread"):
+                    # Fallback
+                    body_bytes = await response.aread()
+                else:
+                    body_bytes = b""
+                
+                body_text = body_bytes.decode("utf-8", errors="ignore")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Anthropic API error {response.status_code}: {body_text}")
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
@@ -908,7 +922,21 @@ class AnthropicBackend(LLMBackend):
             from src.core.common.exceptions import BackendError
 
             try:
-                body_text = (await response.aread()).decode("utf-8")
+                # Read only first 1MB of error body to prevent DoS
+                body_bytes = b""
+                if hasattr(response, "aiter_bytes"):
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                            break
+                elif hasattr(response, "aread"):
+                    # Fallback
+                    body_bytes = await response.aread()
+                else:
+                    body_bytes = b""
+                
+                body_text = body_bytes.decode("utf-8", errors="ignore")
+                
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Anthropic API error {response.status_code}: {body_text}"

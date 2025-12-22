@@ -195,7 +195,8 @@ def test_thought_signature_server_side_injection() -> None:
     # Store a signature in the cache (simulating what happens when we receive a response)
     session_id = "test_session_abc"
     cache_key = f"{session_id}:{tc_without_sig.id}"
-    service.cache[cache_key] = "cached_signature_xyz"
+    # Use update() method to properly set cache entries (direct assignment doesn't work through property)
+    service._manager.update({cache_key: "cached_signature_xyz"})
 
     # Create a request with the tool call
     req = CanonicalChatRequest(

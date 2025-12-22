@@ -13,6 +13,9 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
+# Maximum JSON message size to prevent DoS attacks (1MB)
+MAX_MESSAGE_SIZE = 1024 * 1024
+
 from src.codebuff.exceptions import (
     CodebuffMessageError,
     CodebuffValidationError,
@@ -54,8 +57,26 @@ class MessageRouter:
             Parsed message as dictionary
 
         Raises:
-            CodebuffMessageError: If JSON parsing fails
+            CodebuffMessageError: If JSON parsing fails or message is too large
         """
+        # DoS protection: Check message size before parsing
+        message_size = len(raw_message.encode("utf-8"))
+        if message_size > MAX_MESSAGE_SIZE:
+            logger.warning(
+                "Message too large: %d bytes (limit: %d bytes)",
+                message_size,
+                MAX_MESSAGE_SIZE,
+            )
+            raise CodebuffMessageError(
+                message=f"Message too large: {message_size} bytes (limit: {MAX_MESSAGE_SIZE} bytes)",
+                message_type="unknown",
+                details={
+                    "raw_message": raw_message[:100],
+                    "message_size": message_size,
+                    "size_limit": MAX_MESSAGE_SIZE,
+                },
+            )
+
         try:
             return cast(dict[str, Any], json.loads(raw_message))
         except json.JSONDecodeError as e:

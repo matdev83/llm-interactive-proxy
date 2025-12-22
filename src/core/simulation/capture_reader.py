@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 class CaptureReaderError(Exception):
     """Base exception for capture reader errors."""
 
+
 # Maximum number of entries to load from capture file to prevent DoS attacks
 MAX_CAPTURE_ENTRIES = 10000
 
@@ -90,7 +91,7 @@ class CaptureReader:
                 f"Invalid capture file header: magic={header.magic}, version={header.version}"
             )
 
-# Read entries
+        # Read entries
         entries: list[CaptureEntry] = []
         while True:
             try:
@@ -98,10 +99,10 @@ class CaptureReader:
                 if len(entries) >= MAX_CAPTURE_ENTRIES:
                     logger.warning(
                         "Reached maximum capture entries limit (%d), stopping load to prevent DoS",
-                        MAX_CAPTURE_ENTRIES
+                        MAX_CAPTURE_ENTRIES,
                     )
                     break
-                    
+
                 entry_dict = cbor2.load(f)
                 entry = CaptureEntry.from_dict(entry_dict)
                 entries.append(entry)

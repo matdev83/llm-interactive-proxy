@@ -17,7 +17,10 @@ def temp_project_root(tmp_path: Path) -> Path:
 
     # Copy the manage_alembic_config.py script into the temporary root
     shutil.copy(
-        Path(__file__).resolve().parents[2] / "scripts" / "manage_alembic_config.py",
+        Path(__file__).resolve().parents[2]
+        / "dev"
+        / "scripts"
+        / "manage_alembic_config.py",
         tmp_path / "manage_alembic_config.py",
     )
 
@@ -129,9 +132,7 @@ def test_alembic_ini_and_example_missing_integration(temp_project_root: Path) ->
     """
     alembic_ini = temp_project_root / "alembic.ini"
     alembic_example_ini = temp_project_root / "alembic.example.ini"
-    script_to_run = (
-        Path(__file__).resolve().parents[2] / "scripts" / "manage_alembic_config.py"
-    )
+    script_to_run = temp_project_root / "manage_alembic_config.py"
 
     # Setup: Ensure both files are missing
     if alembic_ini.exists():

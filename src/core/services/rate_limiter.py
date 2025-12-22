@@ -32,6 +32,9 @@ class InMemoryRateLimiter(IRateLimiter):
             default_time_window: Default time window in seconds
         """
         self._usage: dict[str, list[float]] = {}  # Dict[str, List[float]]
+        self._usage_last_access: dict[str, float] = (
+            {}
+        )  # Track last access time for cleanup
         self._limits: dict[str, tuple[int, int]] = {}  # Dict[str, (int, int)]
         self._limits_last_access: dict[str, float] = (
             {}
@@ -41,6 +44,10 @@ class InMemoryRateLimiter(IRateLimiter):
         # Default limits (operations per time window)
         self._default_limit = default_limit
         self._default_time_window = default_time_window
+        # Maximum number of usage entries to prevent unbounded growth
+        self._max_usage_entries = 10000
+        # TTL for usage entries: remove if not accessed for 1 hour
+        self._usage_ttl_seconds = 3600
         # Maximum number of custom limits to prevent unbounded growth
         self._max_limits = 10000
         # TTL for limits: remove if not accessed for 24 hours
@@ -61,6 +68,9 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         now = time.time()
 
+        # Track access time for cleanup
+        self._usage_last_access[key] = now
+
         # Get the timestamps of previous usages
         timestamps = self._usage.get(key, [])
 
@@ -78,10 +88,15 @@ class InMemoryRateLimiter(IRateLimiter):
         elif key in self._usage:
             # All timestamps expired - remove key to prevent unbounded growth
             del self._usage[key]
+            self._usage_last_access.pop(key, None)
             # Also clean up custom limits if no usage data exists
             if key in self._limits:
                 del self._limits[key]
                 self._limits_last_access.pop(key, None)
+
+        # Clean up stale usage entries periodically to prevent memory leak
+        if len(self._usage) > self._max_usage_entries:
+            await self._cleanup_stale_usage_locked(now)
 
         # Calculate remaining
         used = len(current)
@@ -147,15 +162,38 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         now = time.time()
 
-        # Get existing timestamps
+        # Track access time for cleanup
+        self._usage_last_access[key] = now
+
+        # Check if we need to evict old entries before adding new one
+        if key not in self._usage and len(self._usage) >= self._max_usage_entries:
+            await self._cleanup_stale_usage_locked(now)
+            # If still at capacity, evict oldest
+            if len(self._usage) >= self._max_usage_entries:
+                await self._evict_oldest_usage_locked()
+
+        # Get existing timestamps and clean up expired ones before adding new entries
+        # This prevents unbounded list growth when record_usage() is called frequently
+        # without check_limit() being called to clean up expired timestamps
         timestamps = self._usage.get(key, [])
+        if timestamps:
+            # Get the limits for this key to determine time window
+            limit, time_window = self._get_limits(key)
+            cutoff = now - time_window
+            # Filter out expired timestamps to prevent unbounded growth
+            timestamps = [ts for ts in timestamps if ts > cutoff]
 
         # Add new timestamps (one for each cost unit)
         for _ in range(cost):
             timestamps.append(now)
 
-        # Update usage data
-        self._usage[key] = timestamps
+        # Update usage data (remove key if all timestamps expired)
+        if timestamps:
+            self._usage[key] = timestamps
+        elif key in self._usage:
+            # All timestamps expired - remove key to prevent unbounded growth
+            del self._usage[key]
+            self._usage_last_access.pop(key, None)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Recorded usage for {key}: cost={cost}")
@@ -168,6 +206,7 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         if key in self._usage:
             del self._usage[key]
+            self._usage_last_access.pop(key, None)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Reset rate limit counters for {key}")
         if key in self._cooldowns:
@@ -270,6 +309,53 @@ class InMemoryRateLimiter(IRateLimiter):
                 "Evicted oldest limit for key %s (max_limits=%d reached)",
                 oldest_key,
                 self._max_limits,
+            )
+
+    async def _cleanup_stale_usage_locked(self, now: float) -> None:
+        """Remove stale usage entries that haven't been accessed recently.
+
+        This prevents unbounded growth of the _usage dictionary when many
+        unique keys are used but become inactive.
+
+        Args:
+            now: Current timestamp
+        """
+        cutoff = now - self._usage_ttl_seconds
+        expired_keys = [
+            (k, last_access)
+            for k, last_access in self._usage_last_access.items()
+            if last_access < cutoff
+        ]
+
+        for expired_key, last_access in expired_keys:
+            self._usage.pop(expired_key, None)
+            self._usage_last_access.pop(expired_key, None)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Removed stale usage entry for key %s (last access: %.1fs ago)",
+                    expired_key,
+                    now - last_access,
+                )
+
+    async def _evict_oldest_usage_locked(self) -> None:
+        """Evict the oldest usage entry when max_usage_entries is reached.
+
+        Uses LRU eviction based on last access time.
+
+        This prevents unbounded growth by removing least recently used entries.
+        """
+        if not self._usage_last_access:
+            return
+
+        # Find the key with oldest last access time
+        oldest_key = min(self._usage_last_access.items(), key=lambda x: x[1])[0]
+        self._usage.pop(oldest_key, None)
+        self._usage_last_access.pop(oldest_key, None)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Evicted oldest usage entry for key %s (max_usage_entries=%d reached)",
+                oldest_key,
+                self._max_usage_entries,
             )
 
 

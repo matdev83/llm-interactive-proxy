@@ -341,7 +341,7 @@ class ContentAccumulationProcessor(IStreamProcessor):
             if isinstance(reasoning_value, str):
                 normalized_reasoning = reasoning_value.strip()
                 if normalized_reasoning:
-                    state.reasoning_chunks.append(normalized_reasoning)
+                    state.append_reasoning_chunk(normalized_reasoning)
 
         if raw_chunk:
             chunk_text = ""

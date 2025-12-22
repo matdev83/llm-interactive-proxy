@@ -177,11 +177,8 @@ class CodebuffWebSocketServer:
                     )
                 # Defensive: ensure termination is reported even if exception occurred
                 # (only if identify completed and we haven't already reported)
-                try:
+                with contextlib.suppress(Exception):
                     await self._report_client_termination(session_id)
-                except Exception:
-                    # Fail-open: best-effort reporting
-                    pass
 
     async def _wait_for_identify(self, websocket: WebSocket) -> str | None:
         """Wait for and process the identify message.

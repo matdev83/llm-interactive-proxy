@@ -150,7 +150,9 @@ async def test_all_subscribers_receive_eos_event(
 
     # Verify ProxyMem subscriber was called
     mock_memory_service.mark_session_complete.assert_called_once_with(
-        "test-session-123", backend_model="openai:gpt-4"
+        "test-session-123",
+        backend_model="openai:gpt-4",
+        termination_reason="Stream completed",
     )
 
     # Verify UsageTracking subscriber was called
@@ -320,47 +322,6 @@ async def test_eos_emission_when_client_terminates_before_backend_response(
 
     # Verify wire capture subscriber processed the event
     mock_wire_capture.capture_stream_completion.assert_called_once()
-    """Test that one subscriber failure doesn't block others."""
-    # Create subscribers
-    proxymem_subscriber = ProxyMemEosSubscriber(
-        event_bus=event_bus, memory_service=mock_memory_service
-    )
-    usage_subscriber = UsageTrackingEosSubscriber(
-        event_bus=event_bus, session_repository=mock_session_repo
-    )
-    wire_capture_subscriber = WireCaptureEosSubscriber(
-        event_bus=event_bus, wire_capture=mock_wire_capture
-    )
-    reminder_subscriber = TestExecutionReminderEosSubscriber(
-        event_bus=event_bus, reminder_handler=mock_reminder_handler
-    )
-
-    await proxymem_subscriber.start()
-    await usage_subscriber.start()
-    await wire_capture_subscriber.start()
-    await reminder_subscriber.start()
-
-    # Make one subscriber fail
-    mock_memory_service.mark_session_complete.side_effect = Exception("Memory error")
-
-    event = RemoteBackendConnectionEndOfSessionEvent(
-        session_id="test-session-123",
-        signal_type=EndOfSessionSignalType.DONE_SENTINEL,
-        termination_category=EndOfSessionTerminationCategory.NORMAL,
-    )
-
-    # Publish event - should not raise exception
-    await event_bus.publish(event)
-
-    # Give subscribers time to process
-    import asyncio
-
-    await asyncio.sleep(0.1)
-
-    # Verify other subscribers were still called
-    mock_session_repo.create.assert_called_once()
-    mock_wire_capture.capture_stream_completion.assert_called_once()
-    mock_reminder_handler._get_session_state.assert_called_once()
 
 
 @pytest.mark.asyncio

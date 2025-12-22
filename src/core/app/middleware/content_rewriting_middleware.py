@@ -1,13 +1,22 @@
 import json
 from typing import Any
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from src.core.services.content_rewriter_service import ContentRewriterService
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response, StreamingResponse
 
 
 class ContentRewritingMiddleware(BaseHTTPMiddleware):
+    # Maximum request body size (10 MB) to prevent DoS attacks
+    MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+
+    # Maximum JSON nesting depth to prevent stack overflow attacks
+    MAX_NESTING_DEPTH = 100
+
+    # Maximum number of array elements to prevent memory exhaustion
+    MAX_ARRAY_ELEMENTS = 1_000_000
+
     def __init__(self, app, rewriter: ContentRewriterService):
         super().__init__(app)
         self.rewriter = rewriter
@@ -344,6 +353,34 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
         return is_rewritten
 
+    def _validate_json_size(self, body_bytes: bytes) -> None:
+        """Validate request body size to prevent DoS attacks."""
+        if len(body_bytes) > self.MAX_BODY_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Request body too large. Maximum size is {self.MAX_BODY_SIZE // (1024*1024)}MB",
+            )
+
+    def _validate_json_structure(self, data: Any, depth: int = 0) -> None:
+        """Validate JSON structure to prevent DoS attacks through deep nesting or massive arrays."""
+        if depth > self.MAX_NESTING_DEPTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"JSON nesting depth exceeds maximum allowed depth of {self.MAX_NESTING_DEPTH}",
+            )
+
+        if isinstance(data, dict):
+            for value in data.values():
+                self._validate_json_structure(value, depth + 1)
+        elif isinstance(data, list):
+            if len(data) > self.MAX_ARRAY_ELEMENTS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"JSON array size exceeds maximum allowed elements of {self.MAX_ARRAY_ELEMENTS}",
+                )
+            for item in data:
+                self._validate_json_structure(item, depth + 1)
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
@@ -353,8 +390,13 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             body_bytes = await request.body()
             scope_for_next_call = request.scope
 
+            # Validate body size to prevent DoS attacks
+            self._validate_json_size(body_bytes)
+
             try:
                 data = json.loads(body_bytes)
+                # Validate JSON structure to prevent DoS attacks
+                self._validate_json_structure(data)
                 is_rewritten = False
 
                 if self._rewrite_chat_messages(data):

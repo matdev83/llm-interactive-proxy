@@ -75,6 +75,7 @@ class AsyncUsageWriteQueue:
         batch_size: int = 100,
         flush_interval_seconds: float = 5.0,
         max_queue_size: int = 10000,
+        max_pending_records: int | None = None,
     ):
         """Initialize the async write queue.
 
@@ -83,11 +84,19 @@ class AsyncUsageWriteQueue:
             batch_size: Maximum batch size before flush (default: 100)
             flush_interval_seconds: Seconds between automatic flushes (default: 5.0)
             max_queue_size: Maximum queue size before blocking (default: 10000)
+            max_pending_records: Maximum pending records cache size (default: max_queue_size * 2)
         """
         self._writer = writer
         self._batch_size = batch_size
         self._flush_interval = flush_interval_seconds
         self._max_queue_size = max_queue_size
+        # Limit pending records cache to prevent unbounded memory growth
+        # Use 2x queue size to allow for some buffer while processing
+        self._max_pending_records = (
+            max_pending_records
+            if max_pending_records is not None
+            else max_queue_size * 2
+        )
 
         # Async queues for records
         self._insert_queue: asyncio.Queue[UsageRecord] = asyncio.Queue(
@@ -98,6 +107,7 @@ class AsyncUsageWriteQueue:
         )
 
         # In-memory cache for pending records (fast lookups before persistence)
+        # Dict maintains insertion order (Python 3.7+) for FIFO eviction
         self._pending_records: dict[str, UsageRecord] = {}
         self._pending_lock = asyncio.Lock()
 
@@ -175,6 +185,8 @@ class AsyncUsageWriteQueue:
         try:
             self._insert_queue.put_nowait(record)
             # Add to pending cache for fast lookups (sync since we're in non-async context)
+            # Enforce size limit to prevent unbounded memory growth
+            self._enforce_pending_records_limit()
             self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
@@ -197,6 +209,8 @@ class AsyncUsageWriteQueue:
         try:
             self._update_queue.put_nowait(record)
             # Update pending cache (sync since we're in non-async context)
+            # Enforce size limit to prevent unbounded memory growth
+            self._enforce_pending_records_limit()
             self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
@@ -225,6 +239,24 @@ class AsyncUsageWriteQueue:
         """Add a record to the pending cache."""
         async with self._pending_lock:
             self._pending_records[record.id] = record
+
+    def _enforce_pending_records_limit(self) -> None:
+        """Enforce size limit on pending records cache using FIFO eviction.
+
+        This prevents unbounded memory growth when records accumulate faster
+        than they can be processed, or when the background task stops/fails.
+        """
+        # Dict maintains insertion order (Python 3.7+), so we can evict oldest entries
+        while len(self._pending_records) >= self._max_pending_records:
+            # Remove oldest entry (first inserted)
+            oldest_id = next(iter(self._pending_records))
+            self._pending_records.pop(oldest_id, None)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted oldest pending record %s (max_pending_records=%d reached)",
+                    oldest_id,
+                    self._max_pending_records,
+                )
 
     async def _remove_from_pending(self, record_ids: list[str]) -> None:
         """Remove records from the pending cache."""
@@ -302,6 +334,9 @@ class AsyncUsageWriteQueue:
         if not batch:
             return
 
+        # Collect record IDs before processing to ensure cleanup even on failure
+        record_ids = [r.id for r in batch]
+
         try:
             # Run the actual database write in executor to not block event loop
             loop = asyncio.get_running_loop()
@@ -310,15 +345,17 @@ class AsyncUsageWriteQueue:
             )
             self._total_inserts += count
 
-            # Remove from pending cache
-            await self._remove_from_pending([r.id for r in batch])
-
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Inserted %d usage records", count)
 
         except Exception as e:
             logger.error("Failed to insert batch of %d records: %s", len(batch), e)
             # Records are lost - could implement retry queue here
+
+        finally:
+            # Always remove from pending cache to prevent memory leak
+            # Records have been removed from queue, so they won't be retried
+            await self._remove_from_pending(record_ids)
 
     async def _process_update_batch(self, batch: list[UsageRecord]) -> None:
         """Process a batch of updates.
@@ -329,6 +366,9 @@ class AsyncUsageWriteQueue:
         if not batch:
             return
 
+        # Collect record IDs before processing to ensure cleanup even on failure
+        record_ids = [r.id for r in batch]
+
         try:
             # Run the actual database write in executor to not block event loop
             loop = asyncio.get_running_loop()
@@ -337,15 +377,17 @@ class AsyncUsageWriteQueue:
             )
             self._total_updates += count
 
-            # Remove from pending cache
-            await self._remove_from_pending([r.id for r in batch])
-
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Updated %d usage records", count)
 
         except Exception as e:
             logger.error("Failed to update batch of %d records: %s", len(batch), e)
             # Records are lost - could implement retry queue here
+
+        finally:
+            # Always remove from pending cache to prevent memory leak
+            # Records have been removed from queue, so they won't be retried
+            await self._remove_from_pending(record_ids)
 
     async def _drain_queues(self) -> None:
         """Drain all remaining records from queues."""

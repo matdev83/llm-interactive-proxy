@@ -26,6 +26,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import (
@@ -356,6 +357,8 @@ class OpenAIConnector(LLMBackend):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: Any | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Perform health check if enabled (for subclasses that support it)
@@ -1227,7 +1230,17 @@ class OpenAIConnector(LLMBackend):
         if status_code >= 400:
             body = ""
             try:
-                body_bytes = await response.aread()
+                # Read only first 1MB of error body to prevent DoS
+                body_bytes = b""
+                if hasattr(response, "aiter_bytes"):
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                            break
+                elif hasattr(response, "aread"):
+                    body_bytes = await response.aread()
+                else:
+                    body_bytes = b""
                 body = body_bytes.decode("utf-8")
             except Exception:
                 body = str(getattr(response, "text", ""))

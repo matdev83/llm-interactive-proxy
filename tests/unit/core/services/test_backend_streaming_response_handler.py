@@ -794,7 +794,7 @@ class TestAngelVerification:
         ]
         corrected_stream = async_chunk_iterator(corrected_chunks)
 
-        async def corrected_stream_gen(request, stream, context):
+        async def corrected_stream_gen(request, stream, context, request_context=None):
             async for chunk in corrected_stream:
                 yield chunk
 

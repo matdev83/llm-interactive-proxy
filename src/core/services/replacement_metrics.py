@@ -13,6 +13,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from cachetools import TTLCache
+
 logger = logging.getLogger(__name__)
 
 # Maximum number of timestamps to keep in memory to prevent unbounded growth
@@ -35,18 +37,20 @@ class ReplacementMetrics:
     # Activation tracking (Requirement 3.2)
     total_activations: int = 0
     activations_by_session: dict[str, int] = field(
-        default_factory=lambda: defaultdict(int)
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
     activation_timestamps: list[float] = field(default_factory=list)
 
     # Turn count distribution tracking (Requirement 4.1)
     total_turns_completed: int = 0
-    turns_by_session: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    turns_by_session: dict[str, int] = field(
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
+    )
 
     # Opt-out tracking (Requirements 9.1, 9.2)
     total_opt_outs: int = 0
     opt_outs_by_session: dict[str, int] = field(
-        default_factory=lambda: defaultdict(int)
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
     opt_out_timestamps: list[float] = field(default_factory=list)
     header_opt_outs: int = 0
@@ -55,7 +59,7 @@ class ReplacementMetrics:
     # Probability check tracking
     total_probability_checks: int = 0
     probability_checks_by_session: dict[str, int] = field(
-        default_factory=lambda: defaultdict(int)
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
     # Metadata
@@ -74,7 +78,9 @@ class ReplacementMetrics:
             turn_count: The number of turns for this activation
         """
         self.total_activations += 1
-        self.activations_by_session[session_id] += 1
+        self.activations_by_session[session_id] = (
+            self.activations_by_session.get(session_id, 0) + 1
+        )
         self.activation_timestamps.append(time.time())
 
         # Enforce size limit to prevent unbounded memory growth
@@ -106,7 +112,7 @@ class ReplacementMetrics:
             session_id: The session identifier
         """
         self.total_turns_completed += 1
-        self.turns_by_session[session_id] += 1
+        self.turns_by_session[session_id] = self.turns_by_session.get(session_id, 0) + 1
 
         logger.debug(
             f"Metrics: Recorded turn completion for session {session_id}, "
@@ -121,7 +127,9 @@ class ReplacementMetrics:
             opt_out_type: Type of opt-out ('header' or 'session')
         """
         self.total_opt_outs += 1
-        self.opt_outs_by_session[session_id] += 1
+        self.opt_outs_by_session[session_id] = (
+            self.opt_outs_by_session.get(session_id, 0) + 1
+        )
         self.opt_out_timestamps.append(time.time())
 
         # Enforce size limit to prevent unbounded memory growth
@@ -153,7 +161,9 @@ class ReplacementMetrics:
             session_id: The session identifier
         """
         self.total_probability_checks += 1
-        self.probability_checks_by_session[session_id] += 1
+        self.probability_checks_by_session[session_id] = (
+            self.probability_checks_by_session.get(session_id, 0) + 1
+        )
 
     def get_activation_rate(self, time_window_seconds: float | None = None) -> float:
         """Calculate activation rate per time period.
@@ -316,13 +326,13 @@ class ReplacementMetrics:
                 "total_activations": self.total_activations,
                 "activation_rate_per_second": self.get_activation_rate(),
                 "activations_last_60s": self.get_activation_rate(60.0) * 60,
-                "unique_sessions_activated": len(self.activations_by_session),
+                "unique_sessions_activated": len(dict(self.activations_by_session)),
             },
             "turn_count_metrics": {
                 "total_turns_completed": self.total_turns_completed,
                 "average_turn_count": self.get_average_turn_count(),
                 "turn_count_distribution": self.get_turn_count_distribution(),
-                "unique_sessions_with_turns": len(self.turns_by_session),
+                "unique_sessions_with_turns": len(dict(self.turns_by_session)),
             },
             "opt_out_metrics": {
                 "total_opt_outs": self.total_opt_outs,
@@ -330,11 +340,11 @@ class ReplacementMetrics:
                 "session_opt_outs": self.session_opt_outs,
                 "opt_out_rate_per_second": self.get_opt_out_rate(),
                 "opt_outs_last_60s": self.get_opt_out_rate(60.0) * 60,
-                "unique_sessions_opted_out": len(self.opt_outs_by_session),
+                "unique_sessions_opted_out": len(dict(self.opt_outs_by_session)),
             },
             "probability_check_metrics": {
                 "total_probability_checks": self.total_probability_checks,
-                "unique_sessions_checked": len(self.probability_checks_by_session),
+                "unique_sessions_checked": len(dict(self.probability_checks_by_session)),
             },
         }
 

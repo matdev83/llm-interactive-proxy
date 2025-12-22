@@ -15,6 +15,7 @@ class _FakeTask:
     def __init__(self, name: str = "task") -> None:
         self._name = name
         self.cancelled = False
+        self._callbacks: list[Any] = []
 
     def cancel(self) -> None:
         self.cancelled = True
@@ -24,6 +25,10 @@ class _FakeTask:
 
     def get_name(self) -> str:
         return self._name
+
+    def add_done_callback(self, callback: Any) -> None:
+        """Add a callback to be called when the task is done."""
+        self._callbacks.append(callback)
 
     def __await__(self):  # type: ignore[override]
         async def _inner() -> None:

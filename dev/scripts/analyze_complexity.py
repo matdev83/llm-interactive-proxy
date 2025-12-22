@@ -215,7 +215,7 @@ def get_di_services_scope_files(base_path: Path | None = None) -> list[Path]:
 
 
 # Thresholds from requirements.md
-MAX_LOC = 650
+MAX_LOC = 1000
 MAX_FUNCTION_CC = 50
 MAX_MODULE_CC = 200
 

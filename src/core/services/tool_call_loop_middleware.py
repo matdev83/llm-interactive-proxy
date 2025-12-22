@@ -14,6 +14,8 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from cachetools import TTLCache
+
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
@@ -57,7 +59,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
-        self._session_trackers: OrderedDict[str, ToolCallTracker] = OrderedDict()
+        self._session_trackers: dict[str, ToolCallTracker] = TTLCache(
+            maxsize=max_cached_sessions, ttl=3600
+        )
         self._max_cached_sessions = max_cached_sessions
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
 
@@ -406,7 +410,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
-        self._session_trackers: OrderedDict[str, ToolCallTracker] = OrderedDict()
+        self._session_trackers: dict[str, ToolCallTracker] = TTLCache(
+            maxsize=max_cached_sessions, ttl=3600
+        )
         self._max_cached_sessions = max_cached_sessions
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
 

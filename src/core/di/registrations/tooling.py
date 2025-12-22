@@ -95,7 +95,9 @@ def _register_tool_call_reactor_core(
                 max_sessions = getattr(reactor_config, "max_sessions", max_sessions)
 
             return InMemoryToolCallHistoryTracker(
-                session_ttl_seconds=session_ttl, max_sessions=max_sessions
+                session_ttl_seconds=session_ttl, 
+                max_sessions=max_sessions,
+                max_entries_per_session=getattr(reactor_config, "max_entries_per_session", 100)
             )
 
         register_singleton_if_absent(

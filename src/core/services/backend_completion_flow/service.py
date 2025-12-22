@@ -303,38 +303,40 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     )
 
                     # Create cancellable wrapper for streaming responses
-                    if isinstance(result, StreamingResponseEnvelope):
-                        if result.cancel_callback is not None:
+                    if (
+                        isinstance(result, StreamingResponseEnvelope)
+                        and result.cancel_callback is not None
+                    ):
 
-                            class StreamingCancellable:
-                                """Cancellable wrapper for streaming backend work."""
+                        class StreamingCancellable:
+                            """Cancellable wrapper for streaming backend work."""
 
-                                def __init__(
-                                    self, cancel_callback: Callable[[], Awaitable[None]]
-                                ):
-                                    self._cancel_callback = cancel_callback
-                                    self._cancelled: bool = False
+                            def __init__(
+                                self, cancel_callback: Callable[[], Awaitable[None]]
+                            ):
+                                self._cancel_callback = cancel_callback
+                                self._cancelled: bool = False
 
-                                def cancel(self) -> None:
-                                    """Cancel the streaming backend work."""
-                                    if not self._cancelled:
-                                        self._cancelled = True
-                                        # Schedule cancellation callback execution
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                            # Call cancel_callback to get coroutine, then create task
-                                            coro = self._cancel_callback()
-                                            loop.create_task(coro)
-                                        except RuntimeError:
-                                            # No event loop, skip cancellation
-                                            pass
+                            def cancel(self) -> None:
+                                """Cancel the streaming backend work."""
+                                if not self._cancelled:
+                                    self._cancelled = True
+                                    # Schedule cancellation callback execution
+                                    try:
+                                        loop = asyncio.get_running_loop()
+                                        # Call cancel_callback to get coroutine, then create task (fire-and-forget)
+                                        coro = self._cancel_callback()
+                                        _ = loop.create_task(coro)  # type: ignore[arg-type]  # noqa: RUF006
+                                    except RuntimeError:
+                                        # No event loop, skip cancellation
+                                        pass
 
-                            cancellable: ICancellable = StreamingCancellable(
-                                result.cancel_callback
-                            )
-                            self._cancellation_coordinator.register_cancellable(
-                                session_key, cancellable
-                            )
+                        cancellable: ICancellable = StreamingCancellable(
+                            result.cancel_callback
+                        )
+                        self._cancellation_coordinator.register_cancellable(
+                            session_key, cancellable
+                        )
                     # For non-streaming responses, HTTP calls are typically fast
                     # and gating prevents new calls, so we skip registration
 

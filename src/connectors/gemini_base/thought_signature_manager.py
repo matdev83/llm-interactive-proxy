@@ -39,14 +39,16 @@ class ThoughtSignatureManager:
         """Access to cache for backward compatibility."""
         # Convert from (sig, timestamp) tuples back to just signatures
         return {key: value for key, (value, _) in self._cache.items()}
-    
+
     @cache.setter
     def cache(self, value: dict[str, str]) -> None:
         """Set cache for backward compatibility (stores with current timestamp)."""
         # Convert from just signatures to (sig, timestamp) tuples
         current_time = time.time()
-        self._cache = OrderedDict((key, (sig, current_time)) for key, sig in value.items())
-    
+        self._cache = OrderedDict(
+            (key, (sig, current_time)) for key, sig in value.items()
+        )
+
     def update(self, updates: dict[str, str]) -> None:
         """Update cache with new values (for backward compatibility)."""
         current_time = time.time()
@@ -108,7 +110,7 @@ class ThoughtSignatureManager:
 
         cache_entry = self._cache.get(cache_key)
         sig: str | None = None
-        
+
         if cache_entry:
             cached_sig, timestamp = cache_entry
             if current_time - timestamp > self._ttl_seconds:

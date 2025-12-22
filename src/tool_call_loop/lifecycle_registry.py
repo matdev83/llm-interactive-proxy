@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
+
+from cachetools import TTLCache
 
 
 @dataclass
@@ -50,7 +51,9 @@ class ToolCallLifecycleRegistry:
     def __init__(self, max_streams: int = 1024) -> None:
         self._lock = threading.Lock()
         self._max_streams = max_streams
-        self._states: OrderedDict[str, ToolCallStreamState] = OrderedDict()
+        self._states: dict[str, ToolCallStreamState] = TTLCache(
+            maxsize=max_streams, ttl=3600
+        )
 
     def register_detection(self, stream_key: str, signature: str) -> bool:
         """
@@ -109,12 +112,4 @@ class ToolCallLifecycleRegistry:
         if state is None:
             state = ToolCallStreamState()
             self._states[stream_key] = state
-            self._evict_if_needed()
-        else:
-            # Update order for LRU eviction
-            self._states.move_to_end(stream_key)
         return state
-
-    def _evict_if_needed(self) -> None:
-        while len(self._states) > self._max_streams:
-            self._states.popitem(last=False)

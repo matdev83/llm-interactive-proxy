@@ -346,7 +346,7 @@ async def test_multiple_listeners_receive_events(
 
     # Verify all subscribers received the event
     mock_memory_service.mark_session_complete.assert_called_once_with(
-        session_id, backend_model="openai:gpt-4"
+        session_id, backend_model="openai:gpt-4", termination_reason=None
     )
     mock_session_repo.create.assert_called_once()
     mock_wire_capture.capture_stream_completion.assert_called_once()
@@ -538,3 +538,78 @@ async def test_client_termination_reason_flows_to_subscribers(
     assert eos_metadata.get("eos_reason") == "client_disconnected"
     assert eos_metadata.get("eos_signal") == "client_termination"
     assert eos_metadata.get("eos_termination_category") == "normal"
+
+
+@pytest.mark.asyncio
+async def test_eos_event_with_none_termination_reason_handled_gracefully(
+    eos_service: EndOfSessionService,
+    mock_session_repo: SessionMetricsRepository,
+    event_bus: EventBus,
+    all_subscribers: tuple,
+    mock_wire_capture: IWireCapture,
+    mock_memory_service: IMemoryService,
+) -> None:
+    """Test that subscribers handle None termination reason gracefully.
+
+    Edge case: Some EoS events may not have a termination reason (e.g., normal completion).
+    Subscribers should handle this gracefully without errors.
+    """
+    session_id = "none-reason-session-789"
+    events_received: list[RemoteBackendConnectionEndOfSessionEvent] = []
+
+    # Capture events
+    async def event_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        events_received.append(event)
+
+    event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, event_handler)
+
+    # Create EoS signal with None reason (e.g., normal completion without explicit reason)
+    signal = EndOfSessionSignal(
+        session_id=session_id,
+        signal_type=EndOfSessionSignalType.DONE_SENTINEL,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        observed_at=datetime.now(timezone.utc),
+        reason=None,  # No explicit reason
+        backend="openai:gpt-4",
+    )
+
+    await eos_service.record_signal(signal)
+
+    # Give time for event processing
+    await asyncio.sleep(0.1)
+
+    # Verify event was emitted
+    assert len(events_received) == 1
+    event = events_received[0]
+    assert event.reason is None
+
+    # Verify usage tracking subscriber handled None gracefully
+    # Should not raise exception, should set eos_reason to None
+    update_called = mock_session_repo.update.called
+    create_called = mock_session_repo.create.called
+    assert (
+        update_called or create_called
+    ), "Session metrics should be updated or created"
+
+    # Verify that eos_reason is actually set to None in metrics
+    if update_called:
+        update_call_args = mock_session_repo.update.call_args
+        metrics: SessionMetricsTable = update_call_args[0][0]
+        assert metrics.eos_reason is None
+    elif create_called:
+        create_call_args = mock_session_repo.create.call_args
+        metrics: SessionMetricsTable = create_call_args[0][0]
+        assert metrics.eos_reason is None
+
+    # Verify wire capture subscriber handled None gracefully
+    mock_wire_capture.capture_stream_completion.assert_called_once()
+    capture_call_args = mock_wire_capture.capture_stream_completion.call_args
+    eos_metadata = capture_call_args.kwargs.get("eos_metadata", {})
+    assert eos_metadata.get("eos_reason") is None
+
+    # Verify ProxyMem subscriber handled None gracefully
+    # Should pass None as termination_reason without error
+    mock_memory_service.mark_session_complete.assert_called()
+    # Check that termination_reason=None was passed
+    call_args = mock_memory_service.mark_session_complete.call_args
+    assert call_args.kwargs.get("termination_reason") is None

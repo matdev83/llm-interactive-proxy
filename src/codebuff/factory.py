@@ -85,11 +85,11 @@ def create_codebuff_server(
 
     metrics_initializer = None
     with contextlib.suppress(Exception):
-        metrics_initializer = service_provider.get_service(ISessionMetricsInitializer)
+        metrics_initializer = service_provider.get_service(ISessionMetricsInitializer)  # type: ignore[type-abstract]
 
     client_eos_service = None
     with contextlib.suppress(Exception):
-        client_eos_service = service_provider.get_service(IClientEndOfSessionService)
+        client_eos_service = service_provider.get_service(IClientEndOfSessionService)  # type: ignore[type-abstract]
 
     # Create WebSocket server
     server = CodebuffWebSocketServer(

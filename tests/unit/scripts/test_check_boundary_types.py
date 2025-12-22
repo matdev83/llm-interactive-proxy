@@ -1,6 +1,13 @@
 """Tests for check_boundary_types.py script."""
 
-from scripts.check_boundary_types import (
+import sys
+from pathlib import Path
+
+# Add dev/scripts to path for imports
+dev_scripts_path = Path(__file__).parent.parent.parent.parent / "dev" / "scripts"
+sys.path.insert(0, str(dev_scripts_path))
+
+from check_boundary_types import (
     BoundaryTypeChecker,
     check_boundary_types,
 )
