@@ -30,6 +30,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -442,6 +443,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
         key_name: str | None = None,
@@ -451,6 +456,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format

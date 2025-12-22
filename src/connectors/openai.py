@@ -38,6 +38,9 @@ from src.core.services.translation_service import TranslationService
 
 from .base import LLMBackend, add_vendor_prefix
 
+# Maximum SSE buffer size to prevent DoS attacks (16KB)
+MAX_SSE_BUFFER_SIZE = 16384
+
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
 
@@ -807,6 +810,12 @@ class OpenAIConnector(LLMBackend):
                                 if isinstance(chunk_bytes, bytes | bytearray)
                                 else str(chunk_bytes)
                             )
+                            # DoS protection: Limit buffer size to prevent memory exhaustion
+                            if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
+                                logger.warning(
+                                    "SSE buffer overflow: truncating to prevent DoS"
+                                )
+                                buffer = buffer[-MAX_SSE_BUFFER_SIZE:] if buffer else ""
                             buffer += chunk_text
                             while True:
                                 if alt_separator in buffer:

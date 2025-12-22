@@ -6,12 +6,27 @@ import time
 from collections import defaultdict
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
+
+from src.core.domain.metrics import TimerStats
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
 _counters: dict[str, int] = defaultdict(int)
-_timers: dict[str, list[float]] = defaultdict(list)
+
+
+@dataclass
+class TimerData:
+    """Internal storage for timer metrics."""
+
+    count: int = 0
+    total: float = 0.0
+    min: float = float("inf")
+    max: float = float("-inf")
+
+
+_timers: dict[str, TimerData] = defaultdict(TimerData)
 
 
 def inc(name: str, by: int = 1) -> None:
@@ -56,7 +71,13 @@ def record_duration(name: str, duration_seconds: float) -> None:
         duration_seconds: The duration to record in seconds
     """
     with _lock:
-        _timers[name].append(duration_seconds)
+        data = _timers[name]
+        data.count += 1
+        data.total += duration_seconds
+        if duration_seconds < data.min:
+            data.min = duration_seconds
+        if duration_seconds > data.max:
+            data.max = duration_seconds
 
 
 @contextmanager
@@ -79,9 +100,6 @@ def timer(name: str) -> Generator[None, None, None]:
         record_duration(name, duration)
 
 
-from src.core.domain.metrics import TimerStats
-
-
 def get_timer_stats(name: str) -> TimerStats:
     """Get statistics for a timer metric.
 
@@ -92,8 +110,18 @@ def get_timer_stats(name: str) -> TimerStats:
         TimerStats containing count, total, average, min, and max durations
     """
     with _lock:
-        durations = _timers.get(name, [])
-        if not durations:
+        if name not in _timers:
+            return TimerStats(
+                count=0,
+                total=0.0,
+                average=0.0,
+                min=0.0,
+                max=0.0,
+            )
+
+        data = _timers[name]
+        # Handle case where count is 0 (shouldn't happen if in dict, but for safety)
+        if data.count == 0:
             return TimerStats(
                 count=0,
                 total=0.0,
@@ -103,11 +131,11 @@ def get_timer_stats(name: str) -> TimerStats:
             )
 
         return TimerStats(
-            count=len(durations),
-            total=sum(durations),
-            average=sum(durations) / len(durations),
-            min=min(durations),
-            max=max(durations),
+            count=data.count,
+            total=data.total,
+            average=data.total / data.count,
+            min=data.min,
+            max=data.max,
         )
 
 

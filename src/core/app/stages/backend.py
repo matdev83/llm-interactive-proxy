@@ -450,6 +450,20 @@ class BackendStage(InitializationStage):
                     provider.get_required_service(cast(type, IBackendCompletionFlow))
                 )
 
+                # Get cancellation coordinator (optional, registered in streaming phase)
+                cancellation_coordinator = None
+                try:
+                    from src.core.interfaces.session_cancellation_coordinator_interface import (
+                        ISessionCancellationCoordinator,
+                    )
+
+                    cancellation_coordinator = provider.get_service(
+                        cast(type, ISessionCancellationCoordinator)
+                    )
+                except Exception:
+                    # Cancellation coordinator not available (optional dependency)
+                    pass
+
                 # Construct BackendService with all explicit dependencies (Requirement 2.4)
                 return BackendService(  # noqa: DI-bypass (factory construction)
                     backend_factory,
@@ -477,6 +491,7 @@ class BackendStage(InitializationStage):
                     backend_model_resolver=backend_model_resolver,
                     failover_planner=failover_planner,
                     backend_completion_flow=backend_completion_flow,
+                    cancellation_coordinator=cancellation_coordinator,
                 )
 
             services.add_singleton(

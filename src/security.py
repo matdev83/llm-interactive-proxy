@@ -1,5 +1,7 @@
+import hashlib
 import logging
 import re
+from collections import OrderedDict
 from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
@@ -20,14 +22,27 @@ class APIKeyRedactor:
 
     def _redact_cached(self, text: str) -> str:
         """Cached version of redact for frequently processed content."""
-        # Simple manual caching to avoid memory leaks with lru_cache on methods
+        # Use OrderedDict for LRU cache with hash keys to reduce memory usage
         if not hasattr(self, "_redact_cache"):
-            self._redact_cache: dict[str, str] = {}
-        if text in self._redact_cache:
-            return self._redact_cache[text]
+            self._redact_cache: OrderedDict[str, str] = OrderedDict()
+            self._cache_max_size = 512  # Reduced from 1024 to save memory
+
+        # Use hash of text instead of full text as key to reduce memory
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        # Move to end if accessed (LRU behavior)
+        if text_hash in self._redact_cache:
+            self._redact_cache.move_to_end(text_hash)
+            return self._redact_cache[text_hash]
+
         result = self._redact_internal(text)
-        if len(self._redact_cache) < 1024:  # Limit cache size
-            self._redact_cache[text] = result
+
+        # Add new entry and enforce size limit
+        self._redact_cache[text_hash] = result
+        while len(self._redact_cache) > self._cache_max_size:
+            # Remove oldest entry (LRU eviction)
+            self._redact_cache.popitem(last=False)
+
         return result
 
     def redact(self, text: str) -> str:

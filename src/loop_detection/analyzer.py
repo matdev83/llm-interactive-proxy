@@ -102,6 +102,7 @@ class PatternAnalyzer:
                     buffer_content=full_buffer_content,
                 )
                 self.history.append(event)
+                self._truncate_event_history_if_needed()
                 return event
 
             self._last_chunk_index += 1
@@ -173,6 +174,31 @@ class PatternAnalyzer:
 
         return False
 
+    def _truncate_event_history_if_needed(self) -> None:
+        """Truncate event history if it exceeds maximum size to prevent memory leaks.
+
+        Uses a reasonable default limit for event history (100 events) to prevent
+        unbounded growth in long-running sessions. Each event can contain large
+        buffer_content strings, so limiting the number of events is important.
+        """
+        # Use a reasonable default limit for event history
+        # This is separate from max_history_length which is for stream characters
+        max_event_history = 100
+
+        if len(self.history) <= max_event_history:
+            return
+
+        # Remove oldest entries to keep only the most recent ones
+        trunc_amount = len(self.history) - max_event_history
+        self.history = self.history[trunc_amount:]
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Truncated pattern analyzer event history: removed %d oldest entries, keeping %d",
+                trunc_amount,
+                max_event_history,
+            )
+
     def _truncate_and_update_indices(self) -> None:
         max_history = self.config.max_history_length
         if len(self._stream_history) <= max_history:
@@ -211,6 +237,14 @@ class PatternAnalyzer:
             return False
 
         existing_indices.append(self._last_chunk_index)
+
+        # Limit index list size to prevent memory leaks
+        # We only need recent indices for loop detection, so keep at most
+        # 2x the loop threshold to allow some history while preventing unbounded growth
+        max_indices = self.config.content_loop_threshold * 2
+        if len(existing_indices) > max_indices:
+            # Keep only the most recent indices
+            existing_indices[:] = existing_indices[-max_indices:]
 
         if len(existing_indices) < self.config.content_loop_threshold:
             return False

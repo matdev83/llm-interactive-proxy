@@ -121,3 +121,14 @@ class IModelReplacementService(Protocol):
             original_model: The user-specified model name
         """
         ...
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Clean up state for an ended session.
+
+        Removes session state from internal dictionaries to prevent
+        unbounded memory growth. Should be called when a session ends.
+
+        Args:
+            session_id: The session identifier
+        """
+        ...

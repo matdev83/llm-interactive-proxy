@@ -42,7 +42,7 @@ class ResolvedParameter:
 class ParameterResolution:
     """Track configuration values and the source that supplied them."""
 
-    _history: dict[str, list[_ParameterRecord]]
+    _history: dict[str, _ParameterRecord]
 
     def __init__(self) -> None:
         self._history = {}
@@ -59,10 +59,16 @@ class ParameterResolution:
         *,
         origin: str | None = None,
     ) -> None:
-        """Record that a parameter was set by a specific source."""
+        """Record that a parameter was set by a specific source.
 
-        entries = self._history.setdefault(name, [])
-        entries.append(_ParameterRecord(value=value, source=source, origin=origin))
+        Replaces any previous record for the same parameter name to prevent
+        unbounded memory growth. Only the latest record is kept since that's
+        what build_report() and latest_by_source() use.
+        """
+
+        self._history[name] = _ParameterRecord(
+            value=value, source=source, origin=origin
+        )
 
     def build_report(self, config: Any) -> list[ResolvedParameter]:
         """Build a report of all resolved parameters for the supplied config."""
@@ -74,10 +80,12 @@ class ParameterResolution:
         for name, value in flattened.items():
             record = self._history.get(name)
             if record:
-                entry = record[-1]
                 report.append(
                     ResolvedParameter(
-                        name=name, value=value, source=entry.source, origin=entry.origin
+                        name=name,
+                        value=value,
+                        source=record.source,
+                        origin=record.origin,
                     )
                 )
             else:
@@ -92,16 +100,15 @@ class ParameterResolution:
             seen.add(name)
 
         # Include parameters we tracked but which might not appear in the final config
-        for name, records in self._history.items():
+        for name, record in self._history.items():
             if name in seen:
                 continue
-            entry = records[-1]
             report.append(
                 ResolvedParameter(
                     name=name,
-                    value=entry.value,
-                    source=entry.source,
-                    origin=entry.origin,
+                    value=record.value,
+                    source=record.source,
+                    origin=record.origin,
                 )
             )
 
@@ -111,9 +118,9 @@ class ParameterResolution:
         """Return the latest recorded values for a given source."""
 
         result: dict[str, _ParameterRecord] = {}
-        for name, records in self._history.items():
-            if records and records[-1].source is source:
-                result[name] = records[-1]
+        for name, record in self._history.items():
+            if record.source is source:
+                result[name] = record
         return result
 
     def log(self, logger: logging.Logger, config: Any) -> None:

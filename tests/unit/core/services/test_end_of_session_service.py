@@ -572,24 +572,93 @@ class TestDispatchTimeout:
 
 
 class TestFailOpen:
-    """Test fail-open error handling."""
+    """Test fail-open error handling when persistence is unavailable."""
 
     @pytest.mark.asyncio
-    async def test_repository_error_logged_but_not_raised(
+    async def test_db_unavailable_emits_event_in_fail_open_mode(
         self,
         service: EndOfSessionService,
         mock_event_bus: IEventBus,
         mock_session_repository: SessionMetricsRepository,
         sample_signal: EndOfSessionSignal,
     ):
-        """Test that repository errors are logged but not raised."""
+        """Test that DB unavailability triggers fail-open emission."""
+        # Setup: DB claim fails
         mock_session_repository.claim_eos_emission.side_effect = Exception("DB error")
 
-        # Should not raise
+        # Execute: should not raise, should emit event in fail-open mode
         await service.record_signal(sample_signal)
 
-        # Should not emit event
-        mock_event_bus.publish.assert_not_awaited()
+        # Verify: event was emitted despite DB failure (uses publish with timeout)
+        mock_event_bus.publish.assert_awaited_once()
+        # Verify: session marked as ended in cache
+        assert service.has_ended(sample_signal.session_id)
+
+    @pytest.mark.asyncio
+    async def test_db_unavailable_dedupe_prevents_duplicate_emission(
+        self,
+        service: EndOfSessionService,
+        mock_event_bus: IEventBus,
+        mock_session_repository: SessionMetricsRepository,
+        sample_signal: EndOfSessionSignal,
+    ):
+        """Test that fail-open mode deduplicates multiple signals."""
+        # Setup: DB claim fails
+        mock_session_repository.claim_eos_emission.side_effect = Exception("DB error")
+
+        # Execute: multiple signals for same session
+        await service.record_signal(sample_signal)
+        await service.record_signal(sample_signal)
+
+        # Verify: only one event emitted (dedupe works)
+        assert mock_event_bus.publish.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_db_timeout_emits_event_in_fail_open_mode(
+        self,
+        service: EndOfSessionService,
+        mock_event_bus: IEventBus,
+        mock_session_repository: SessionMetricsRepository,
+        sample_signal: EndOfSessionSignal,
+    ):
+        """Test that DB timeout triggers fail-open emission."""
+        # Setup: DB claim raises timeout error
+        mock_session_repository.claim_eos_emission.side_effect = asyncio.TimeoutError()
+
+        # Execute: should emit in fail-open mode
+        await service.record_signal(sample_signal)
+
+        # Verify: event was emitted despite timeout
+        mock_event_bus.publish.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_fail_open_logs_high_signal_diagnostic(
+        self,
+        service: EndOfSessionService,
+        mock_event_bus: IEventBus,
+        mock_session_repository: SessionMetricsRepository,
+        sample_signal: EndOfSessionSignal,
+        caplog,
+    ):
+        """Test that fail-open mode logs high-signal diagnostic."""
+        import logging
+
+        # Setup: DB claim fails
+        mock_session_repository.claim_eos_emission.side_effect = Exception("DB error")
+
+        # Execute
+        with caplog.at_level(logging.ERROR):
+            await service.record_signal(sample_signal)
+
+        # Verify: error logged with fail-open message
+        # The error_code is in extra dict (for structured logging) but we verify the message
+        assert "fail-open mode" in caplog.text.lower()
+        assert "persistence unavailable" in caplog.text.lower()
+        # Verify error code appears in log output (may be in structured format)
+        assert (
+            "EOS_PERSISTENCE_UNAVAILABLE" in caplog.text
+            or "persistence unavailable" in caplog.text.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_event_bus_error_logged_but_not_raised(

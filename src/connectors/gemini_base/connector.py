@@ -19,6 +19,7 @@ from src.core.domain.chat import (
     CanonicalChatRequest,
     ChatMessage,
 )
+from src.core.domain.session_key import SessionKey
 
 if TYPE_CHECKING:
 
@@ -1550,6 +1551,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Any = None,
         key_name: str | None = None,
@@ -1559,6 +1564,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Handle chat completions using Google Code Assist API.
 
         This method delegates to the chat completion coordinator for orchestration.

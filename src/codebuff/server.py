@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -32,6 +33,17 @@ from src.codebuff.schemas import (
     SubscribeMessage,
     UnsubscribeMessage,
 )
+from src.core.domain.client_termination import (
+    ClientEndOfSessionSignal,
+    ClientTerminationReason,
+)
+from src.core.interfaces.client_end_of_session_service_interface import (
+    IClientEndOfSessionService,
+)
+from src.core.interfaces.session_metrics_initializer_interface import (
+    ISessionMetricsInitializer,
+)
+from src.core.transport.session_key_resolver import create_codebuff_session_key
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -53,6 +65,8 @@ class CodebuffWebSocketServer:
         prompt_handler: PromptHandler,
         init_handler: InitHandler,
         subscription_handler: SubscriptionHandler,
+        metrics_initializer: ISessionMetricsInitializer | None = None,
+        client_eos_service: IClientEndOfSessionService | None = None,
     ) -> None:
         """Initialize the WebSocket server.
 
@@ -62,12 +76,16 @@ class CodebuffWebSocketServer:
             prompt_handler: Handler for prompt actions
             init_handler: Handler for init actions
             subscription_handler: Handler for subscription actions
+            metrics_initializer: Optional service for initializing session metrics
+            client_eos_service: Optional service for reporting client termination
         """
         self._connection_manager = connection_manager
         self._message_router = message_router
         self._prompt_handler = prompt_handler
         self._init_handler = init_handler
         self._subscription_handler = subscription_handler
+        self._metrics_initializer = metrics_initializer
+        self._client_eos_service = client_eos_service
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
 
@@ -116,11 +134,16 @@ class CodebuffWebSocketServer:
             self._connection_manager.connect(websocket, session_id)
             logger.info("Connection registered: session_id=%s", session_id)
 
+            # Requirement 5.5: Initialize session metrics after identify
+            # This ensures metrics exist before any potential termination
+            await self._initialize_session_metrics(session_id)
+
             # Process messages
             await self._process_messages(websocket)
 
         except WebSocketDisconnect:
             logger.info("WebSocket disconnected: session_id=%s", session_id)
+            # Termination reporting happens in finally block to ensure it always runs
 
         except CodebuffSessionError as e:
             logger.error(
@@ -152,6 +175,13 @@ class CodebuffWebSocketServer:
                     logger.error(
                         "Error during disconnect cleanup: %s", str(e), exc_info=True
                     )
+                # Defensive: ensure termination is reported even if exception occurred
+                # (only if identify completed and we haven't already reported)
+                try:
+                    await self._report_client_termination(session_id)
+                except Exception:
+                    # Fail-open: best-effort reporting
+                    pass
 
     async def _wait_for_identify(self, websocket: WebSocket) -> str | None:
         """Wait for and process the identify message.
@@ -297,6 +327,72 @@ class CodebuffWebSocketServer:
         except Exception as e:
             logger.error("Error sending message: %s", str(e), exc_info=True)
             raise
+
+    async def _initialize_session_metrics(self, client_session_id: str) -> None:
+        """Initialize session metrics for Codebuff session.
+
+        Requirement 5.5: Ensure session metrics exist before any potential termination.
+
+        Args:
+            client_session_id: The client-provided session ID
+        """
+        if self._metrics_initializer is None:
+            return
+
+        try:
+            session_key = create_codebuff_session_key(client_session_id)
+            await self._metrics_initializer.ensure_session_metrics(
+                session_key, observed_at=datetime.now(timezone.utc)
+            )
+        except Exception as exc:
+            # Requirement 3.9: Fail-open behavior - log but don't raise
+            # Design.md line 434: Log with high-signal error code/metric for visibility
+            logger.warning(
+                "Failed to initialize session metrics for Codebuff session %s: %s",
+                client_session_id,
+                exc,
+                exc_info=True,
+                extra={
+                    "session_id": client_session_id,
+                    "error_code": "SESSION_METRICS_INIT_FAILED",
+                },
+            )
+
+    async def _report_client_termination(self, client_session_id: str) -> None:
+        """Report client termination for Codebuff WebSocket disconnect.
+
+        Requirement 1.7, 3.2: Report client termination when WebSocket disconnects.
+
+        Args:
+            client_session_id: The client-provided session ID
+        """
+        if self._client_eos_service is None:
+            return
+
+        try:
+            session_key = create_codebuff_session_key(client_session_id)
+            signal = ClientEndOfSessionSignal(
+                session_key=session_key,
+                observed_at=datetime.now(timezone.utc),
+                reason=ClientTerminationReason.CLIENT_DISCONNECTED,
+                details=f"Codebuff WebSocket disconnect - session_id={client_session_id}",
+            )
+            # Shield termination reporting to ensure it executes even if task is cancelled
+            await asyncio.shield(
+                self._client_eos_service.report_client_termination(signal)
+            )
+        except Exception as exc:
+            # Fail-open: log but don't raise - termination reporting is best-effort
+            # Design.md line 445: Log with high-visibility error code
+            logger.warning(
+                "Failed to report client termination for Codebuff disconnect: %s",
+                exc,
+                exc_info=True,
+                extra={
+                    "session_id": client_session_id,
+                    "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                },
+            )
 
     async def start_heartbeat_monitor(self) -> None:
         """Start the background heartbeat monitoring task.

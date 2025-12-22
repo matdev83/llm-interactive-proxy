@@ -222,6 +222,14 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 _unregister_and_shutdown(cache_key, backend)
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Discarded per-session backend instance: %s", cache_key)
+                # Clean up backend config if this was the last instance of this backend type
+                self._maybe_cleanup_backend_config(cache_key)
+
+        # Clean up backend config for the discarded backend type if no instances remain
+        if backend_type not in self._backends and not any(
+            key.startswith(f"{backend_type}:") for key in self._per_session_backends
+        ):
+            self._backend_configs.pop(backend_type, None)
 
     def is_disabled(self, backend_type: str) -> bool:
         """Check if backend is permanently disabled."""
@@ -238,6 +246,31 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         result.update(self._per_session_backends)
         return result
 
+    def _maybe_cleanup_backend_config(self, cache_key: str) -> None:
+        """Clean up backend config if no instances of this backend type remain.
+
+        Args:
+            cache_key: The cache key that was evicted (e.g., "backend_type" or "backend_type:session_id")
+        """
+        # Extract backend_type from cache_key
+        # Format is either "backend_type" or "backend_type:session_id"
+        backend_type = cache_key.split(":", 1)[0]
+
+        # Check if any instances of this backend type still exist
+        has_global_instance = backend_type in self._backends
+        has_per_session_instance = any(
+            key.startswith(f"{backend_type}:") for key in self._per_session_backends
+        )
+
+        # Only clean up config if no instances remain
+        if not has_global_instance and not has_per_session_instance:
+            self._backend_configs.pop(backend_type, None)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Cleaned up backend config for %s (no instances remain)",
+                    backend_type,
+                )
+
     async def _enforce_per_session_backend_limit(self) -> None:
         """Ensure the per-session backend cache does not grow without bound."""
         limit = max(self._per_session_backend_limit, 1)
@@ -252,6 +285,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                     limit,
                 )
             await self.shutdown(evicted_backend)
+            # Clean up backend config if this was the last instance of this backend type
+            self._maybe_cleanup_backend_config(evicted_key)
 
     async def _enforce_global_backend_limit(self) -> None:
         """Ensure the global backend cache does not grow without bound."""
@@ -265,3 +300,5 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                     limit,
                 )
             await self.shutdown(evicted_backend)
+            # Clean up backend config if this was the last instance of this backend type
+            self._maybe_cleanup_backend_config(evicted_key)

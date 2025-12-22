@@ -78,15 +78,20 @@ class ProxyMemEosSubscriber:
             # Extract backend_model from backend field (format: "backend:model")
             backend_model = event.backend if event.backend else None
 
+            # Extract termination reason from event (Requirement 5.3, 5.4)
+            termination_reason = event.reason
+
             # Mark session complete (idempotency handled by MemoryService)
             await self._memory_service.mark_session_complete(
                 event.session_id,
                 backend_model=backend_model,
+                termination_reason=termination_reason,
             )
             logger.debug(
-                "Marked ProxyMem session %s complete (backend_model=%s)",
+                "Marked ProxyMem session %s complete (backend_model=%s, termination_reason=%s)",
                 event.session_id,
                 backend_model,
+                termination_reason,
             )
         except Exception as e:
             # Fail-open: log error but don't block other subscribers

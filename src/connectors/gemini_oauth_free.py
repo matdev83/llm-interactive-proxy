@@ -31,6 +31,7 @@ from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
@@ -98,6 +99,10 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
         key_name: str | None = None,
@@ -107,6 +112,9 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Handle chat completions with debugging flag validation.
 
         Raises:

@@ -14,6 +14,7 @@ from src.connectors.utils.cline_auth import ClineAuthMixin, _ClineTokenStore
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
@@ -238,8 +239,15 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         incoming_headers = kwargs.pop("incoming_headers", None)
         if not self._enable_cline_backend_debugging_override:
             self._validate_cline_agent(incoming_headers)

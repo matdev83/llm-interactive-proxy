@@ -42,6 +42,14 @@ class EndOfSessionSignalType(str, Enum):
     ERROR_TERMINATION = "error_termination"
     """Backend or transport error termination."""
 
+    CLIENT_TERMINATION = "client_termination"
+    """Client-side termination (disconnect or cancellation).
+
+    When used, the termination category MUST be NORMAL (not ERROR), as client
+    termination is considered a normal session ending from the proxy's perspective.
+    See requirement 3.3 in client-end-of-session-handling specification.
+    """
+
 
 class EndOfSessionTerminationCategory(str, Enum):
     """Canonical termination categories for end-of-session events.

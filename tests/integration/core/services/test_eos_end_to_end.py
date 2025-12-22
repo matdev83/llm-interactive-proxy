@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.config.models.end_of_session import EndOfSessionConfig
+from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionErrorClassification,
@@ -462,3 +463,78 @@ async def test_error_classification_defaults_to_unknown(
     assert len(events_received) == 1
     event = events_received[0]
     assert event.error_classification == EndOfSessionErrorClassification.UNKNOWN_ERROR
+
+
+@pytest.mark.asyncio
+async def test_client_termination_reason_flows_to_subscribers(
+    eos_service: EndOfSessionService,
+    mock_session_repo: SessionMetricsRepository,
+    event_bus: EventBus,
+    all_subscribers: tuple,
+    mock_wire_capture: IWireCapture,
+) -> None:
+    """Test that client termination reason flows through to usage tracking and wire capture.
+
+    Requirement 5.1, 5.2: Usage tracking and wire capture should finalize with
+    client termination reason on End-of-Session.
+    """
+    session_id = "client-termination-session-456"
+    events_received: list[RemoteBackendConnectionEndOfSessionEvent] = []
+
+    # Capture events
+    async def event_handler(event: RemoteBackendConnectionEndOfSessionEvent) -> None:
+        events_received.append(event)
+
+    event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, event_handler)
+
+    # Create client termination signal
+    signal = EndOfSessionSignal(
+        session_id=session_id,
+        signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        observed_at=datetime.now(timezone.utc),
+        reason="client_disconnected",
+        backend="openai:gpt-4",
+    )
+
+    await eos_service.record_signal(signal)
+
+    # Give time for event processing
+    await asyncio.sleep(0.1)
+
+    # Verify event was emitted with client termination reason
+    assert len(events_received) == 1
+    event = events_received[0]
+    assert event.session_id == session_id
+    assert event.signal_type == EndOfSessionSignalType.CLIENT_TERMINATION
+    assert event.termination_category == EndOfSessionTerminationCategory.NORMAL
+    assert event.reason == "client_disconnected"
+
+    # Verify usage tracking subscriber recorded the reason
+    # Check if update was called (for existing metrics) or create was called (for new metrics)
+    update_called = mock_session_repo.update.called
+    create_called = mock_session_repo.create.called
+    assert (
+        update_called or create_called
+    ), "Session metrics should be updated or created"
+
+    if update_called:
+        # Verify update call includes termination reason
+        update_call_args = mock_session_repo.update.call_args
+        metrics: SessionMetricsTable = update_call_args[0][0]
+        assert metrics.eos_reason == "client_disconnected"
+        assert metrics.eos_signal_type == "client_termination"
+    elif create_called:
+        # Verify create call includes termination reason
+        create_call_args = mock_session_repo.create.call_args
+        metrics: SessionMetricsTable = create_call_args[0][0]
+        assert metrics.eos_reason == "client_disconnected"
+        assert metrics.eos_signal_type == "client_termination"
+
+    # Verify wire capture subscriber recorded the reason
+    mock_wire_capture.capture_stream_completion.assert_called_once()
+    capture_call_args = mock_wire_capture.capture_stream_completion.call_args
+    eos_metadata = capture_call_args.kwargs.get("eos_metadata", {})
+    assert eos_metadata.get("eos_reason") == "client_disconnected"
+    assert eos_metadata.get("eos_signal") == "client_termination"
+    assert eos_metadata.get("eos_termination_category") == "normal"

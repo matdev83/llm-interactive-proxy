@@ -217,6 +217,21 @@ class TestMemoryService:
         assert service.get_analysis_queue_size() == 1
 
     @pytest.mark.asyncio
+    async def test_mark_session_complete_with_termination_reason(
+        self, service: MemoryService
+    ) -> None:
+        """Test marking a session as complete with termination reason."""
+        await service.enable_for_session("sess-1", "user-1")
+
+        result = await service.mark_session_complete(
+            "sess-1",
+            backend_model="openai:gpt-4o",
+            termination_reason="client_disconnected",
+        )
+        assert result is True
+        assert service.get_analysis_queue_size() == 1
+
+    @pytest.mark.asyncio
     async def test_get_session_user_id(self, service: MemoryService) -> None:
         """Test getting user ID for a session."""
         await service.enable_for_session("sess-1", "user-123")

@@ -38,6 +38,9 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     # Register repositories
     _register_repositories(services)
 
+    # Register session metrics services
+    _register_session_metrics_services(services)
+
     # Register memory subsystem (config-gated)
     _register_memory_subsystem(services, app_config)
 
@@ -167,6 +170,45 @@ def _register_repositories(services: ServiceCollection) -> None:
         services,
         SQLModelRateLimitRepository,
         implementation_factory=rate_limit_repository_factory,
+    )
+
+
+def _register_session_metrics_services(services: ServiceCollection) -> None:
+    """Register session metrics initialization services."""
+    # Local imports to avoid import-time side effects
+    from typing import cast
+
+    from src.core.database.repositories.usage_repository import (
+        SessionMetricsRepository,
+    )
+    from src.core.interfaces.session_metrics_initializer_interface import (
+        ISessionMetricsInitializer,
+    )
+    from src.core.services.session_metrics_initializer import (
+        SessionMetricsInitializer,
+    )
+
+    def session_metrics_initializer_factory(
+        provider: IServiceProvider,
+    ) -> SessionMetricsInitializer:
+        """Factory to create SessionMetricsInitializer."""
+        session_repository = provider.get_required_service(SessionMetricsRepository)
+        return SessionMetricsInitializer(session_repository=session_repository)
+
+    # Register concrete implementation
+    register_singleton_if_absent(
+        services,
+        SessionMetricsInitializer,
+        implementation_factory=session_metrics_initializer_factory,
+    )
+
+    # Register interface bound to implementation
+    register_singleton_if_absent(
+        services,
+        cast(type, ISessionMetricsInitializer),
+        implementation_factory=lambda provider: provider.get_required_service(
+            SessionMetricsInitializer
+        ),  # type: ignore[type-abstract]
     )
 
 

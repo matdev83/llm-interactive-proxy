@@ -36,11 +36,17 @@ from src.core.interfaces.backend_request_manager_components import (
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
 )
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.services.backend_request_manager.context_translation import (
     build_middleware_context,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +90,7 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
         structured_output_enforcer: IStructuredOutputEnforcer,
         tool_call_retry_coordinator: IToolCallRetryCoordinator,
         backend_processor: IBackendProcessor,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the non-streaming response handler.
 
@@ -92,11 +99,13 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             structured_output_enforcer: Structured output validation enforcer
             tool_call_retry_coordinator: Tool-call retry coordinator
             backend_processor: Backend processor for retry requests
+            cancellation_coordinator: Optional cancellation coordinator for gating retries
         """
         self._response_processor = response_processor
         self._structured_output_enforcer = structured_output_enforcer
         self._tool_call_retry_coordinator = tool_call_retry_coordinator
         self._backend_processor = backend_processor
+        self._cancellation_coordinator = cancellation_coordinator
 
     async def _create_retry_request(
         self, original_request: ChatRequest, recovery_prompt: str
@@ -163,6 +172,11 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                     e.session_id,
                     exc_info=True,
                 )
+
+            # Cancellation gate: ensure session is not cancelled before empty response retry
+            session_key = resolve_session_key_from_request_context(context)
+            if self._cancellation_coordinator is not None and session_key is not None:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
             # Create retry request with recovery prompt
             retry_request = await self._create_retry_request(

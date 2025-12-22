@@ -174,6 +174,11 @@ class ThinkTagsFixFeature(IResponseFeature):
         if not content or not isinstance(content, str):
             return content, None
 
+        # Cleanup expired reasoning entries to prevent memory leaks
+        # NOTE: This must run BEFORE buffer initialization to avoid removing aliases
+        # for sessions that were just created but not yet added to buffers
+        self._cleanup_expired_reasoning()
+
         current_buffer = self._streaming_buffers.get(session_id, "")
         current_buffer += content
         self._streaming_buffers[session_id] = current_buffer
@@ -209,6 +214,9 @@ class ThinkTagsFixFeature(IResponseFeature):
                     "_created_at": time.time(),
                 }
                 self._reasoning_extracted[session_id] = reasoning_metadata
+
+                # Cleanup after adding to enforce max limit
+                self._cleanup_expired_reasoning()
 
                 return after_close.strip(), reasoning_metadata
 
@@ -355,6 +363,57 @@ class ThinkTagsFixFeature(IResponseFeature):
             return None
         result = {k: v for k, v in data.items() if not k.startswith("_")}
         return result if result else None
+
+    def _cleanup_expired_reasoning(self) -> None:
+        """Remove expired reasoning entries to prevent memory leaks.
+
+        This is called periodically during streaming processing to ensure
+        reasoning data from old sessions doesn't accumulate indefinitely.
+        Also cleans up associated streaming buffers and states.
+        """
+        now = time.time()
+
+        # Cleanup expired entries
+        expired = [
+            session_id
+            for session_id, data in self._reasoning_extracted.items()
+            if now - data.get("_created_at", 0) > self._reasoning_ttl_seconds
+        ]
+        for session_id in expired:
+            del self._reasoning_extracted[session_id]
+            # Also cleanup associated buffers and states
+            self._streaming_buffers.pop(session_id, None)
+            self._stream_states.pop(session_id, None)
+        if expired and self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Cleaned up %d expired reasoning entries", len(expired))
+
+        # Enforce max entries limit (remove oldest first)
+        if len(self._reasoning_extracted) > self._max_reasoning_entries:
+            sorted_entries = sorted(
+                self._reasoning_extracted.items(),
+                key=lambda x: x[1].get("_created_at", 0),
+            )
+            to_remove = len(self._reasoning_extracted) - self._max_reasoning_entries
+            for session_id, _ in sorted_entries[:to_remove]:
+                del self._reasoning_extracted[session_id]
+                # Also cleanup associated buffers and states
+                self._streaming_buffers.pop(session_id, None)
+                self._stream_states.pop(session_id, None)
+            if to_remove > 0 and self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Evicted %d oldest reasoning entries due to capacity limit",
+                    to_remove,
+                )
+
+        # Also cleanup stale session aliases
+        stale_aliases = [
+            alias
+            for alias, target in self._session_aliases.items()
+            if target not in self._streaming_buffers
+            and target not in self._reasoning_extracted
+        ]
+        for alias in stale_aliases:
+            del self._session_aliases[alias]
 
 
 # Legacy middleware kept for backward compatibility during transition

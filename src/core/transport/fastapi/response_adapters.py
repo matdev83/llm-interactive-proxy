@@ -129,9 +129,28 @@ def _get_content_converter() -> StreamingContentConverter:
     """Get or create streaming content converter singleton."""
     global _content_converter
     if _content_converter is None:
-        _content_converter = (
-            _resolve_service(StreamingContentConverter) or StreamingContentConverter()
-        )
+        # Try to resolve from DI first
+        converter = _resolve_service(StreamingContentConverter)
+
+        if converter is None:
+            # Manually create with dependencies from DI if available
+            # This ensures we share the StreamingContextRegistry singleton
+            # to prevent memory leaks from split registry instances
+            from src.core.services.streaming.stream_context_registry import (
+                StreamingContextRegistry,
+            )
+            from src.core.transport.fastapi.adapters.streaming.tool_block_buffer import (
+                ToolBlockBuffer,
+            )
+
+            registry = _resolve_service(StreamingContextRegistry)
+            tool_block_buffer = None
+            if registry:
+                tool_block_buffer = ToolBlockBuffer(registry=registry)
+
+            converter = StreamingContentConverter(tool_block_buffer=tool_block_buffer)
+
+        _content_converter = converter
     return _content_converter
 
 

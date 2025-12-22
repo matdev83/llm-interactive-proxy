@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.core.common.exceptions import (
@@ -12,6 +13,7 @@ from src.core.common.exceptions import (
     BackendError,
     LLMProxyError,
     RateLimitExceededError,
+    SessionCancelledError,
 )
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -30,7 +32,13 @@ from src.core.interfaces.backend_completion_flow_interface import (
 )
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 # Import EoS adapter (optional dependency)
 try:
@@ -91,6 +99,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         stream_formatting_service: IStreamFormattingService,
         resilience_coordinator: IResilienceCoordinator | None = None,
         eos_adapter: BackendCompletionFlowEosAdapter | None = None,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
@@ -106,6 +115,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._exception_normalizer = exception_normalizer
         self._stream_formatting_service = stream_formatting_service
         self._eos_adapter = eos_adapter
+        self._cancellation_coordinator = cancellation_coordinator
 
     def _normalize_backend_exception(
         self, exc: Exception, backend_type: str
@@ -240,6 +250,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     context=context,
                 )
 
+                # Resolve SessionKey for cancellation gating
+                session_key = resolve_session_key_from_request_context(context)
+
+                # Cancellation gate: ensure session is not cancelled before backend call
+                if (
+                    self._cancellation_coordinator is not None
+                    and session_key is not None
+                ):
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
                 # Prepare backend call kwargs
                 backend_call_kwargs = self._request_preparer.prepare_backend_kwargs(
                     session_id_for_backend=session_id_for_backend,
@@ -268,8 +288,55 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     processed_messages=canonical_request.messages,
                     effective_model=effective_model,
                     identity=identity,
+                    cancellation_token=session_key,
+                    cancellation_coordinator=self._cancellation_coordinator,
                     **backend_call_kwargs,
                 )
+
+                # Register cancellable work if coordinator and session_key are available
+                if (
+                    self._cancellation_coordinator is not None
+                    and session_key is not None
+                ):
+                    from src.core.interfaces.session_cancellation_coordinator_interface import (
+                        ICancellable,
+                    )
+
+                    # Create cancellable wrapper for streaming responses
+                    if isinstance(result, StreamingResponseEnvelope):
+                        if result.cancel_callback is not None:
+
+                            class StreamingCancellable:
+                                """Cancellable wrapper for streaming backend work."""
+
+                                def __init__(
+                                    self, cancel_callback: Callable[[], Awaitable[None]]
+                                ):
+                                    self._cancel_callback = cancel_callback
+                                    self._cancelled: bool = False
+
+                                def cancel(self) -> None:
+                                    """Cancel the streaming backend work."""
+                                    if not self._cancelled:
+                                        self._cancelled = True
+                                        # Schedule cancellation callback execution
+                                        try:
+                                            loop = asyncio.get_running_loop()
+                                            # Call cancel_callback to get coroutine, then create task
+                                            coro = self._cancel_callback()
+                                            loop.create_task(coro)
+                                        except RuntimeError:
+                                            # No event loop, skip cancellation
+                                            pass
+
+                            cancellable: ICancellable = StreamingCancellable(
+                                result.cancel_callback
+                            )
+                            self._cancellation_coordinator.register_cancellable(
+                                session_key, cancellable
+                            )
+                    # For non-streaming responses, HTTP calls are typically fast
+                    # and gating prevents new calls, so we skip registration
 
                 # Wrap result for usage tracking
                 assert result is not None, "Backend call must return a response"
@@ -337,6 +404,21 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     # handle_streaming_response's finally block, which executes
                     # when the stream completes (not here, before stream consumption)
 
+                    # Check cancellation status before returning streaming result
+                    # If cancelled, treat result as non-deliverable
+                    if (
+                        self._cancellation_coordinator is not None
+                        and session_key is not None
+                        and self._cancellation_coordinator.is_cancelled(session_key)
+                    ):
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Backend call completed but session was cancelled - "
+                                "treating streaming result as non-deliverable",
+                                extra={"session_key": session_key.primary_id},
+                            )
+                        raise SessionCancelledError(session_key=session_key)
+
                     return streaming_result
 
                 # Step 11: Handle non-streaming response
@@ -367,6 +449,21 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     canonical_usage=canonical_usage_for_capture,
                 )
 
+                # Check cancellation status before returning non-streaming result
+                # If cancelled, treat result as non-deliverable
+                if (
+                    self._cancellation_coordinator is not None
+                    and session_key is not None
+                    and self._cancellation_coordinator.is_cancelled(session_key)
+                ):
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Backend call completed but session was cancelled - "
+                            "treating non-streaming result as non-deliverable",
+                            extra={"session_key": session_key.primary_id},
+                        )
+                    raise SessionCancelledError(session_key=session_key)
+
                 return await self._usage_accounting.handle_non_streaming_response(
                     result=result,
                     backend_type=backend_type,
@@ -375,6 +472,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
             except asyncio.CancelledError:
+                raise
+            except SessionCancelledError:
+                # Preserve SessionCancelledError - do not normalize
                 raise
             except Exception as call_exc:
                 # Normalize the exception immediately for consistent handling
@@ -514,6 +614,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 raise normalized_exc
 
         except asyncio.CancelledError:
+            raise
+        except SessionCancelledError:
+            # Preserve SessionCancelledError - do not normalize
             raise
         except (
             BackendError,

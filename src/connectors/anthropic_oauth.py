@@ -41,6 +41,7 @@ from src.connectors.anthropic import (
 )
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
+from src.core.domain.session_key import SessionKey
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -537,8 +538,15 @@ class AnthropicOAuthBackend(AnthropicBackend):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ):
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         # Validate restricted access
         if not self._enable_anthropic_oauth_backend_debugging_override:
             if logger.isEnabledFor(logging.WARNING):

@@ -7,6 +7,7 @@ WebSocket server with all its dependencies.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -74,6 +75,22 @@ def create_codebuff_server(
     # Create message router
     message_router = MessageRouter()
 
+    # Get optional services for session metrics and termination reporting
+    from src.core.interfaces.client_end_of_session_service_interface import (
+        IClientEndOfSessionService,
+    )
+    from src.core.interfaces.session_metrics_initializer_interface import (
+        ISessionMetricsInitializer,
+    )
+
+    metrics_initializer = None
+    with contextlib.suppress(Exception):
+        metrics_initializer = service_provider.get_service(ISessionMetricsInitializer)
+
+    client_eos_service = None
+    with contextlib.suppress(Exception):
+        client_eos_service = service_provider.get_service(IClientEndOfSessionService)
+
     # Create WebSocket server
     server = CodebuffWebSocketServer(
         connection_manager=connection_manager,
@@ -81,6 +98,8 @@ def create_codebuff_server(
         prompt_handler=prompt_handler,
         init_handler=init_handler,
         subscription_handler=subscription_handler,
+        metrics_initializer=metrics_initializer,
+        client_eos_service=client_eos_service,
     )
 
     logger.info("Codebuff WebSocket server created successfully")

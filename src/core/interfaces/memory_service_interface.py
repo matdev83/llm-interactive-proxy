@@ -100,6 +100,7 @@ class IMemoryService(Protocol):
         backend_model: str | None = None,
         branch: str | None = None,
         head_sha: str | None = None,
+        termination_reason: str | None = None,
     ) -> bool:
         """Mark a session as complete and queue for summary generation.
 
@@ -108,6 +109,7 @@ class IMemoryService(Protocol):
             backend_model: The backend:model used for the session.
             branch: Optional git branch name.
             head_sha: Optional git HEAD SHA.
+            termination_reason: Optional termination reason (e.g., client termination reason).
 
         Returns:
             True if session was queued for summarization.

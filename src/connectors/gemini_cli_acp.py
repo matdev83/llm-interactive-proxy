@@ -79,6 +79,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.domain.usage_summary import UsageSummary
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -521,8 +522,15 @@ class GeminiCliAcpConnector(GeminiBackend):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Process chat completion request via gemini-cli ACP.
 
         Args:

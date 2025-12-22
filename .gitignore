@@ -52,6 +52,9 @@ tmp_*.txt
 
 # OS-specific files
 .DS_Store
+# Windows reserved device names (nul, con, prn, aux, etc.)
+nul
+g
 
 # Configuration and sensitive files
 .envrc

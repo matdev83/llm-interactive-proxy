@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from cachetools import TTLCache
+
 from src.core.common.exceptions import LoopDetectionError
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
@@ -196,7 +198,7 @@ class LoopDetectionFeature(IResponseFeature):
         """
         super().__init__(priority)
         self._loop_detector = loop_detector
-        self._accumulated_content: dict[str, str] = {}
+        self._accumulated_content: dict[str, str] = TTLCache(maxsize=1000, ttl=300)
 
     async def _check_and_accumulate(
         self,
@@ -389,7 +391,7 @@ class LoopDetectionMiddleware(IResponseMiddleware):
             "Use LoopDetectionFeature instead for proper streaming/non-streaming parity."
         )
         self._loop_detector = loop_detector
-        self._accumulated_content: dict[str, str] = {}
+        self._accumulated_content: dict[str, str] = TTLCache(maxsize=1000, ttl=300)
         self._priority = priority
 
     @property

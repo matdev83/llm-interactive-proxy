@@ -15,6 +15,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of timestamps to keep in memory to prevent unbounded growth
+# These limits ensure we can still calculate rates for reasonable time windows
+# (e.g., 10,000 activations at 1/sec = ~2.7 hours of history)
+_MAX_ACTIVATION_TIMESTAMPS = 10000
+_MAX_OPT_OUT_TIMESTAMPS = 1000
+
 
 @dataclass
 class ReplacementMetrics:
@@ -34,7 +40,6 @@ class ReplacementMetrics:
     activation_timestamps: list[float] = field(default_factory=list)
 
     # Turn count distribution tracking (Requirement 4.1)
-    turn_counts: list[int] = field(default_factory=list)
     total_turns_completed: int = 0
     turns_by_session: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
@@ -56,6 +61,11 @@ class ReplacementMetrics:
     # Metadata
     start_time: float = field(default_factory=time.time)
 
+    # Internal histograms (replacing unbounded lists)
+    _turn_count_histogram: dict[int, int] = field(
+        default_factory=lambda: defaultdict(int)
+    )
+
     def record_activation(self, session_id: str, turn_count: int) -> None:
         """Record a replacement activation.
 
@@ -66,7 +76,23 @@ class ReplacementMetrics:
         self.total_activations += 1
         self.activations_by_session[session_id] += 1
         self.activation_timestamps.append(time.time())
-        self.turn_counts.append(turn_count)
+
+        # Enforce size limit to prevent unbounded memory growth
+        # Keep only the most recent timestamps (they are appended in order)
+        if len(self.activation_timestamps) > _MAX_ACTIVATION_TIMESTAMPS:
+            # Remove oldest entries, keeping only the most recent ones
+            excess = len(self.activation_timestamps) - _MAX_ACTIVATION_TIMESTAMPS
+            self.activation_timestamps = self.activation_timestamps[excess:]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Pruned {excess} old activation timestamps to enforce size limit "
+                    f"({_MAX_ACTIVATION_TIMESTAMPS})"
+                )
+
+        # Track in histogram instead of unbounded list
+        self._turn_count_histogram[turn_count] += 1
+        # Maintain compatibility for turn_counts property if needed, but we remove the field
+        # self.turn_counts.append(turn_count) # Removed
 
         logger.debug(
             f"Metrics: Recorded activation for session {session_id}, "
@@ -97,6 +123,18 @@ class ReplacementMetrics:
         self.total_opt_outs += 1
         self.opt_outs_by_session[session_id] += 1
         self.opt_out_timestamps.append(time.time())
+
+        # Enforce size limit to prevent unbounded memory growth
+        # Keep only the most recent timestamps (they are appended in order)
+        if len(self.opt_out_timestamps) > _MAX_OPT_OUT_TIMESTAMPS:
+            # Remove oldest entries, keeping only the most recent ones
+            excess = len(self.opt_out_timestamps) - _MAX_OPT_OUT_TIMESTAMPS
+            self.opt_out_timestamps = self.opt_out_timestamps[excess:]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Pruned {excess} old opt-out timestamps to enforce size limit "
+                    f"({_MAX_OPT_OUT_TIMESTAMPS})"
+                )
 
         if opt_out_type == "header":
             self.header_opt_outs += 1
@@ -162,10 +200,7 @@ class ReplacementMetrics:
         Returns:
             Dictionary mapping turn count to frequency
         """
-        distribution: dict[int, int] = defaultdict(int)
-        for count in self.turn_counts:
-            distribution[count] += 1
-        return dict(distribution)
+        return dict(self._turn_count_histogram)
 
     def get_average_turn_count(self) -> float:
         """Calculate average turn count per activation.
@@ -173,9 +208,14 @@ class ReplacementMetrics:
         Returns:
             Average turn count (0.0 if no activations)
         """
-        if not self.turn_counts:
+        total_counts = sum(self._turn_count_histogram.values())
+        if total_counts == 0:
             return 0.0
-        return sum(self.turn_counts) / len(self.turn_counts)
+
+        weighted_sum = sum(
+            count * freq for count, freq in self._turn_count_histogram.items()
+        )
+        return weighted_sum / total_counts
 
     def get_opt_out_rate(self, time_window_seconds: float | None = None) -> float:
         """Calculate opt-out rate per time period.
@@ -213,6 +253,54 @@ class ReplacementMetrics:
 
         opt_outs = self.opt_outs_by_session.get(session_id, 0)
         return opt_outs / checks
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Remove metrics for a specific session to prevent memory leaks.
+
+        Args:
+            session_id: The session identifier to cleanup
+        """
+        self.activations_by_session.pop(session_id, None)
+        self.turns_by_session.pop(session_id, None)
+        self.opt_outs_by_session.pop(session_id, None)
+        self.probability_checks_by_session.pop(session_id, None)
+
+    def prune_history(self, max_age_seconds: float = 3600.0) -> None:
+        """Prune historical timestamps to prevent unbounded growth.
+
+        Args:
+            max_age_seconds: Keep timestamps newer than this age
+        """
+        cutoff_time = time.time() - max_age_seconds
+
+        # Prune activation timestamps
+        if self.activation_timestamps and self.activation_timestamps[0] < cutoff_time:
+            # Find index where timestamps become recent enough
+            # Timestamps are appended, so they are sorted
+            keep_idx = 0
+            for i, ts in enumerate(self.activation_timestamps):
+                if ts >= cutoff_time:
+                    keep_idx = i
+                    break
+            else:
+                # All are old
+                keep_idx = len(self.activation_timestamps)
+
+            if keep_idx > 0:
+                self.activation_timestamps = self.activation_timestamps[keep_idx:]
+
+        # Prune opt-out timestamps
+        if self.opt_out_timestamps and self.opt_out_timestamps[0] < cutoff_time:
+            keep_idx = 0
+            for i, ts in enumerate(self.opt_out_timestamps):
+                if ts >= cutoff_time:
+                    keep_idx = i
+                    break
+            else:
+                keep_idx = len(self.opt_out_timestamps)
+
+            if keep_idx > 0:
+                self.opt_out_timestamps = self.opt_out_timestamps[keep_idx:]
 
     def get_summary(self) -> dict[str, Any]:
         """Get a comprehensive metrics summary.
@@ -269,7 +357,7 @@ class ReplacementMetrics:
         )
 
         # Log turn count distribution if there are activations
-        if self.turn_counts:
+        if self._turn_count_histogram:
             distribution = summary["turn_count_metrics"]["turn_count_distribution"]
             dist_str = ", ".join(
                 f"{k}turns={v}x" for k, v in sorted(distribution.items())
@@ -282,7 +370,7 @@ class ReplacementMetrics:
         self.activations_by_session.clear()
         self.activation_timestamps.clear()
 
-        self.turn_counts.clear()
+        self._turn_count_histogram.clear()
         self.total_turns_completed = 0
         self.turns_by_session.clear()
 

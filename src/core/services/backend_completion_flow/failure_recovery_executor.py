@@ -27,7 +27,13 @@ from src.core.interfaces.failure_strategy_interface import (
     FailureDecision,
     IFailureHandlingStrategy,
 )
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.services.backend_routing_service import BackendRoutingService
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         routing_service: BackendRoutingService | None,
         config: IConfig,
         failover_routes: dict[str, dict[str, Any]] | None = None,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ):
         """Initialize the failure recovery executor."""
         self._failover_planner = failover_planner
@@ -49,6 +56,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         self._routing_service = routing_service
         self._config = config
         self._failover_routes = failover_routes or {}
+        self._cancellation_coordinator = cancellation_coordinator
 
     async def check_complex_failover(
         self,
@@ -82,6 +90,11 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy for models with configured routes."""
+        # Cancellation gate: ensure session is not cancelled before complex failover
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Using complex failover policy for model {effective_model}")
 
@@ -138,11 +151,19 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Attempt failover using the provided plan."""
+        # Cancellation gate: ensure session is not cancelled before failover plan execution
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         last_error: Exception | None = None
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
 
         for backend_attempt, model_attempt in plan:
+            # Cancellation gate: ensure session is not cancelled before each failover attempt
+            if self._cancellation_coordinator is not None and session_key is not None:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
             try:
                 attempt_extra_body: dict[str, Any] = (
                     request.extra_body.copy() if request.extra_body else {}
@@ -250,6 +271,11 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute retry of the same backend after waiting."""
+        # Cancellation gate: ensure session is not cancelled before retry
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         if wait_seconds is not None and wait_seconds > 0:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -382,6 +408,10 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute failover to an alternative backend."""
+        # Cancellation gate: ensure session is not cancelled before failover
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
         if logger.isEnabledFor(logging.INFO):
             logger.info(
                 "Failure strategy: failing over from %s to %s for model %s",

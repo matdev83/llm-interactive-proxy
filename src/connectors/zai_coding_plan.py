@@ -19,6 +19,7 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.responses import StreamingResponseHandle
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
@@ -265,8 +266,15 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         processed_messages: Any,
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> Any:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Route chat completions, retrying with legacy Claude when balance errors occur."""
         selected_model = self._select_model(
             effective_model or getattr(request_data, "model", None)

@@ -229,6 +229,48 @@ class AppLifecycle:
                     exc_info=True,
                 )
 
+        # Start SessionCancellationCleanupEosSubscriber
+        try:
+            from src.core.services.session_cancellation_cleanup_eos_subscriber import (
+                SessionCancellationCleanupEosSubscriber,
+            )
+
+            subscriber = provider.get_service(SessionCancellationCleanupEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("SessionCancellationCleanupEosSubscriber started")
+        except ImportError:
+            # SessionCancellationCleanupEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start SessionCancellationCleanupEosSubscriber: {e}",
+                    exc_info=True,
+                )
+
+        # Start ModelReplacementEosSubscriber
+        try:
+            from src.core.services.model_replacement_eos_subscriber import (
+                ModelReplacementEosSubscriber,
+            )
+
+            subscriber = provider.get_service(ModelReplacementEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ModelReplacementEosSubscriber started")
+        except ImportError:
+            # ModelReplacementEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start ModelReplacementEosSubscriber: {e}",
+                    exc_info=True,
+                )
+
     async def _stop_eos_subscribers(self) -> None:
         """Stop End-of-Session event subscribers.
 
@@ -322,6 +364,47 @@ class AppLifecycle:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Failed to stop TestExecutionReminderEosSubscriber: {e}",
+                    exc_info=True,
+                )
+
+        # Stop SessionCancellationCleanupEosSubscriber
+        try:
+            from src.core.services.session_cancellation_cleanup_eos_subscriber import (
+                SessionCancellationCleanupEosSubscriber,
+            )
+
+            subscriber = provider.get_service(SessionCancellationCleanupEosSubscriber)
+            if subscriber:
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("SessionCancellationCleanupEosSubscriber stopped")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to stop SessionCancellationCleanupEosSubscriber: {e}",
+                    exc_info=True,
+                )
+
+        # Stop ModelReplacementEosSubscriber
+        try:
+            from src.core.services.model_replacement_eos_subscriber import (
+                ModelReplacementEosSubscriber,
+            )
+
+            subscriber = provider.get_service(ModelReplacementEosSubscriber)
+            if subscriber:
+                await subscriber.stop()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("ModelReplacementEosSubscriber stopped")
+        except ImportError:
+            # ModelReplacementEosSubscriber not available
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to stop ModelReplacementEosSubscriber: {e}",
                     exc_info=True,
                 )
 

@@ -101,7 +101,8 @@ class TestReplacementMetricsIntegration:
         assert metrics.total_activations == 1
         assert metrics.activations_by_session["session1"] == 1
         assert len(metrics.activation_timestamps) == 1
-        assert metrics.turn_counts == [3]
+        # Turn counts are tracked in histogram, not as a list
+        assert metrics.get_turn_count_distribution()[3] == 1
 
     def test_turn_completion_metrics_tracked(
         self,

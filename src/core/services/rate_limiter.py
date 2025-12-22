@@ -33,11 +33,18 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         self._usage: dict[str, list[float]] = {}  # Dict[str, List[float]]
         self._limits: dict[str, tuple[int, int]] = {}  # Dict[str, (int, int)]
+        self._limits_last_access: dict[str, float] = (
+            {}
+        )  # Track last access time for cleanup
         self._cooldowns: dict[str, float] = {}
 
         # Default limits (operations per time window)
         self._default_limit = default_limit
         self._default_time_window = default_time_window
+        # Maximum number of custom limits to prevent unbounded growth
+        self._max_limits = 10000
+        # TTL for limits: remove if not accessed for 24 hours
+        self._limits_ttl_seconds = 24 * 3600
 
         logger.info(
             f"Initialized InMemoryRateLimiter with defaults: {default_limit}/{default_time_window}s"
@@ -65,7 +72,16 @@ class InMemoryRateLimiter(IRateLimiter):
         current = [ts for ts in timestamps if ts > cutoff]
 
         # Update timestamps list (removing expired ones)
-        self._usage[key] = current
+        # Remove key from dict if all timestamps expired to prevent memory leak
+        if current:
+            self._usage[key] = current
+        elif key in self._usage:
+            # All timestamps expired - remove key to prevent unbounded growth
+            del self._usage[key]
+            # Also clean up custom limits if no usage data exists
+            if key in self._limits:
+                del self._limits[key]
+                self._limits_last_access.pop(key, None)
 
         # Calculate remaining
         used = len(current)
@@ -79,6 +95,26 @@ class InMemoryRateLimiter(IRateLimiter):
         if current and is_limited:
             # Time when the oldest request falls out of the window
             reset_at = current[0] + time_window
+
+        # Clean up expired cooldowns periodically to prevent memory leak
+        # Cleanup when cooldowns dict grows large (every 100 entries) to avoid overhead
+        # This prevents unbounded growth while keeping cleanup overhead low
+        if len(self._cooldowns) > 100:
+            expired_cooldowns = [
+                k for k, expiry in self._cooldowns.items() if now >= expiry
+            ]
+            for expired_key in expired_cooldowns:
+                self._cooldowns.pop(expired_key, None)
+
+        # Clean up unused limits periodically to prevent memory leak
+        # Track access time when limits are retrieved (for cleanup)
+        if key in self._limits:
+            self._limits_last_access[key] = now
+
+        # Cleanup when limits dict grows large (every 1000 entries) to avoid overhead
+        # This prevents unbounded growth while keeping cleanup overhead low
+        if len(self._limits) > 1000:
+            await self._cleanup_unused_limits_locked(now)
 
         cooldown_until = self._cooldowns.get(key)
         if cooldown_until is not None:
@@ -131,11 +167,12 @@ class InMemoryRateLimiter(IRateLimiter):
             key: The key to reset
         """
         if key in self._usage:
-            self._usage[key] = []
+            del self._usage[key]
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Reset rate limit counters for {key}")
         if key in self._cooldowns:
             self._cooldowns.pop(key, None)
+        # Note: We don't remove custom limits on reset as they may be intentionally persistent
 
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
         """Set a custom rate limit for the given key.
@@ -145,7 +182,14 @@ class InMemoryRateLimiter(IRateLimiter):
             limit: The maximum number of operations
             time_window: The time window in seconds
         """
+        now = time.time()
+
+        # Enforce max limits with LRU eviction
+        if len(self._limits) >= self._max_limits and key not in self._limits:
+            await self._evict_oldest_limit_locked(now)
+
         self._limits[key] = (limit, time_window)
+        self._limits_last_access[key] = now
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
 
@@ -176,7 +220,57 @@ class InMemoryRateLimiter(IRateLimiter):
         Returns:
             A tuple of (limit, time_window)
         """
+        if key in self._limits:
+            # Track access time for cleanup
+            self._limits_last_access[key] = time.time()
         return self._limits.get(key, (self._default_limit, self._default_time_window))
+
+    async def _cleanup_unused_limits_locked(self, now: float) -> None:
+        """Remove unused limits that haven't been accessed recently.
+
+        This prevents unbounded growth of the _limits dictionary when limits
+        are set but never used, or when they become stale.
+
+        Args:
+            now: Current timestamp
+        """
+        cutoff = now - self._limits_ttl_seconds
+        expired_keys = []
+        for k, last_access in self._limits_last_access.items():
+            if last_access < cutoff:
+                expired_keys.append((k, last_access))
+
+        for expired_key, last_access in expired_keys:
+            self._limits.pop(expired_key, None)
+            self._limits_last_access.pop(expired_key, None)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Removed unused limit for key %s (last access: %.1fs ago)",
+                    expired_key,
+                    now - last_access,
+                )
+
+    async def _evict_oldest_limit_locked(self, now: float) -> None:
+        """Evict the oldest unused limit when max_limits is reached.
+
+        Uses LRU eviction based on last access time.
+
+        Args:
+            now: Current timestamp
+        """
+        if not self._limits:
+            return
+
+        # Find the key with oldest last access time
+        oldest_key = min(self._limits_last_access.items(), key=lambda x: x[1])[0]
+        self._limits.pop(oldest_key, None)
+        self._limits_last_access.pop(oldest_key, None)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Evicted oldest limit for key %s (max_limits=%d reached)",
+                oldest_key,
+                self._max_limits,
+            )
 
 
 class ConfigurableRateLimiter(IRateLimiter):

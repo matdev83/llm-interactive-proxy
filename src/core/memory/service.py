@@ -231,6 +231,7 @@ class MemoryService:
         backend_model: str | None = None,
         branch: str | None = None,
         head_sha: str | None = None,
+        termination_reason: str | None = None,
     ) -> bool:
         """Mark a session as complete and queue for summary generation after a configurable delay.
 
@@ -256,6 +257,18 @@ class MemoryService:
             # Update state with backend info
             if backend_model:
                 state.backend_model = backend_model
+
+            # Log termination reason if provided (Requirement 5.3, 5.4)
+            if termination_reason:
+                logger.info(
+                    "Session %s completed with termination reason: %s",
+                    session_id,
+                    termination_reason,
+                    extra={
+                        "session_id": session_id,
+                        "termination_reason": termination_reason,
+                    },
+                )
 
             state.queued_for_analysis = True
 
@@ -284,6 +297,18 @@ class MemoryService:
                 async with self._state_lock:
                     if session_id in self._session_states:
                         self._session_states[session_id].queued_for_analysis = False
+                        # Clean up session state to prevent memory leak when queue is persistently full.
+                        # The session cannot be processed, so we remove it to prevent unbounded growth.
+                        # Buffers are cleared to free memory immediately.
+                        state = self._session_states[session_id]
+                        # Cancel any pending summary task
+                        if state.summary_task and not state.summary_task.done():
+                            state.summary_task.cancel()
+                        # Remove from session states
+                        del self._session_states[session_id]
+                # Clear buffers to free memory
+                await self._capture_buffer.clear_session(session_id)
+                await self._tool_event_collector.clear_session(session_id)
                 return False
 
         return True

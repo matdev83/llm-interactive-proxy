@@ -24,10 +24,49 @@ class TestEndOfSessionSignalType:
         assert EndOfSessionSignalType.RESPONSE_COMPLETED == "response_completed"
         assert EndOfSessionSignalType.TOOL_COMPLETION == "tool_completion"
         assert EndOfSessionSignalType.ERROR_TERMINATION == "error_termination"
+        assert EndOfSessionSignalType.CLIENT_TERMINATION == "client_termination"
 
     def test_enum_is_string_based(self) -> None:
         """Test that enum values are strings."""
         assert isinstance(EndOfSessionSignalType.DONE_SENTINEL, str)
+
+    def test_client_termination_signal_type(self) -> None:
+        """Test that CLIENT_TERMINATION signal type can be used in signals."""
+        signal = EndOfSessionSignal(
+            session_id="session-123",
+            signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+            termination_category=EndOfSessionTerminationCategory.NORMAL,
+            observed_at=datetime.now(timezone.utc),
+            reason="client_disconnected",
+        )
+
+        assert signal.signal_type == EndOfSessionSignalType.CLIENT_TERMINATION
+        assert signal.termination_category == EndOfSessionTerminationCategory.NORMAL
+        assert signal.reason == "client_disconnected"
+
+    def test_client_termination_is_distinct_from_error_termination(self) -> None:
+        """Test that CLIENT_TERMINATION is distinct from ERROR_TERMINATION (requirement 3.7)."""
+        assert (
+            EndOfSessionSignalType.CLIENT_TERMINATION
+            != EndOfSessionSignalType.ERROR_TERMINATION
+        )
+        assert (
+            EndOfSessionSignalType.CLIENT_TERMINATION.value
+            != EndOfSessionSignalType.ERROR_TERMINATION.value
+        )
+
+    def test_client_termination_works_with_event(self) -> None:
+        """Test that CLIENT_TERMINATION can be used in RemoteBackendConnectionEndOfSessionEvent."""
+        event = RemoteBackendConnectionEndOfSessionEvent(
+            session_id="session-123",
+            signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+            termination_category=EndOfSessionTerminationCategory.NORMAL,
+            reason="client_disconnected",
+        )
+
+        assert event.signal_type == EndOfSessionSignalType.CLIENT_TERMINATION
+        assert event.termination_category == EndOfSessionTerminationCategory.NORMAL
+        assert event.reason == "client_disconnected"
 
 
 class TestEndOfSessionTerminationCategory:

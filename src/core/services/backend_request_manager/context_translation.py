@@ -125,6 +125,9 @@ def build_middleware_context(
                 if request_id is not None:
                     middleware_context["request_id"] = request_id
 
+    # Store RequestContext for cancellation gate resolution
+    middleware_context["request_context"] = request_context
+
     # Streaming-specific keys
     if is_streaming:
         # client_os: prefer processing_context, fallback to processing_context.values

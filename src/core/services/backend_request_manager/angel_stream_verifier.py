@@ -15,13 +15,20 @@ from typing import Any, cast
 
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_request_manager_components import (
     IAngelStreamVerifier,
 )
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.services.angel_service import AngelService
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +40,18 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         self,
         angel_service_factory: Any,  # IAngelServiceFactory
         provider: IServiceProvider,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the Angel stream verifier.
 
         Args:
             angel_service_factory: Factory for creating AngelService instances
             provider: Service provider for resolving IBackendService
+            cancellation_coordinator: Coordinator for session cancellation checks
         """
         self._angel_service_factory = angel_service_factory
         self._provider = provider
+        self._cancellation_coordinator = cancellation_coordinator
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
@@ -74,6 +84,7 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
         context: StreamingContext,
+        request_context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Return verified stream or original stream when no steering is needed.
 
@@ -167,11 +178,17 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 request, combined_text
             )
 
+            # Cancellation gate: ensure session is not cancelled before Angel verification backend call
+            if self._cancellation_coordinator and request_context:
+                session_key = resolve_session_key_from_request_context(request_context)
+                if session_key:
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
             angel_response = await backend_service.chat_completions(
                 verification_request,
                 stream=False,
                 allow_failover=True,
-                context=None,
+                context=request_context,
             )
             angel_text = self._extract_text_from_response(angel_response)
 
@@ -189,11 +206,17 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 request, combined_text, steering_msg
             )
 
+            # Cancellation gate: ensure session is not cancelled before Angel correction backend call
+            if self._cancellation_coordinator and request_context:
+                session_key = resolve_session_key_from_request_context(request_context)
+                if session_key:
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
             corrected_response = await backend_service.chat_completions(
                 correction_request,
                 stream=False,
                 allow_failover=True,
-                context=None,
+                context=request_context,
             )
             corrected_text = self._extract_text_from_response(corrected_response)
 

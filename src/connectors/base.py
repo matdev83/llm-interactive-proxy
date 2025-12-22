@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from src.core.config.app_config import AppConfig
 from src.core.domain.connection_activity import ConnectionType
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.health_aware_interface import IHealthAware
@@ -213,6 +214,10 @@ class LLMBackend(abc.ABC, IHealthAware):
         processed_messages: list,  # Messages after command processing
         effective_model: str,  # Model after considering override
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """
@@ -222,6 +227,12 @@ class LLMBackend(abc.ABC, IHealthAware):
             request_data: The request payload as a domain `ChatRequest`.
             processed_messages: The list of messages after command processing.
             effective_model: The model name to be used after considering any overrides.
+            identity: Application identity configuration for authentication.
+            cancellation_token: Optional session key for cancellation scoping.
+                If provided, enables cancellation gating and work registration.
+            cancellation_coordinator: Optional cancellation coordinator for structural enforcement.
+                If provided along with cancellation_token, enables connector-level cancellation checks
+                immediately before HTTP request transmission.
             **kwargs: Additional keyword arguments for the backend.
 
         Returns:

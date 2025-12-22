@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from threading import Lock
@@ -28,6 +29,11 @@ logger = logging.getLogger(__name__)
 # 100,000 UUIDs is roughly ~10-15 MB of memory, providing a large window
 # for dedupe without unbounded growth.
 MAX_CACHE_SIZE = 100_000
+
+# TTL for fail-open cache entries (~5 minutes as per design.md)
+# This ensures entries expire after approximately 5 minutes to prevent
+# unbounded growth when DB is unavailable.
+FAIL_OPEN_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 class EndOfSessionService(IEndOfSessionService):
@@ -57,7 +63,9 @@ class EndOfSessionService(IEndOfSessionService):
         self._config = config
         self._session_repository = session_repository
         # In-memory cache for hot-path dedupe (thread-safe LRU via OrderedDict)
-        self._ended_sessions: OrderedDict[str, None] = OrderedDict()
+        # Cache entries store timestamps for TTL expiration (design.md requires TTL ~5m)
+        # Format: {session_id: timestamp}
+        self._ended_sessions: OrderedDict[str, float] = OrderedDict()
         self._cache_lock = Lock()
 
     async def record_signal(self, signal: EndOfSessionSignal) -> None:
@@ -174,17 +182,63 @@ class EndOfSessionService(IEndOfSessionService):
             await self._emit_with_timeout(event)
 
         except Exception as e:
-            # Fail-open: log error but don't block processing
+            # Fail-open: if DB claim failed, still emit EoS using in-memory dedupe
+            # This ensures EoS events are emitted even when persistence is unavailable
+            # Check in-memory cache to preserve "at most once per session" behavior
+            if self.has_ended(signal.session_id):
+                # Already emitted in fail-open mode, skip
+                logger.debug(
+                    "EoS already emitted (fail-open cache) for session %s, skipping duplicate",
+                    signal.session_id,
+                    extra={
+                        "session_id": signal.session_id,
+                        "signal_type": signal_type_str,
+                        "error_code": "EOS_FAIL_OPEN_DEDUPE",
+                    },
+                )
+                return
+
+            # Log high-signal persistence-unavailable diagnostic
             logger.error(
-                "Failed to process EoS signal for session %s: %s",
+                "EoS persistence unavailable for session %s: %s, "
+                "emitting event in fail-open mode (in-process dedupe only)",
                 signal.session_id,
                 e,
                 exc_info=True,
                 extra={
                     "session_id": signal.session_id,
                     "signal_type": signal_type_str,
+                    "error_code": "EOS_PERSISTENCE_UNAVAILABLE",
                 },
             )
+
+            # Mark as ended in cache before emitting to prevent race conditions
+            self._mark_ended(signal.session_id)
+
+            # Determine error classification (default to unknown_error for error terminations)
+            error_classification = signal.error_classification
+            if (
+                signal.termination_category.value == "error"
+                and error_classification is None
+            ):
+                error_classification = EndOfSessionErrorClassification.UNKNOWN_ERROR
+
+            # Create and emit event directly (bypassing DB claim)
+            event = RemoteBackendConnectionEndOfSessionEvent(
+                session_id=signal.session_id,
+                signal_type=signal.signal_type,
+                termination_category=signal.termination_category,
+                reason=signal.reason,
+                error_classification=error_classification,
+                error_status_code=signal.error_status_code,
+                protocol=signal.protocol,
+                request_id=signal.request_id,
+                backend=signal.backend,
+                timestamp=emitted_at,
+            )
+
+            # Emit with bounded dispatch timeout
+            await self._emit_with_timeout(event)
 
     async def _emit_with_timeout(
         self, event: RemoteBackendConnectionEndOfSessionEvent
@@ -262,37 +316,66 @@ class EndOfSessionService(IEndOfSessionService):
     def has_ended(self, session_id: str) -> bool:
         """Return True if EoS event has been emitted for session.
 
-        This is a fast in-memory check for hot-path dedupe. The result may
-        be stale immediately after a concurrent emission, but provides a
-        quick filter before attempting the atomic DB claim.
+        This is a fast in-memory check for hot-path dedupe with TTL expiration.
+        The result may be stale immediately after a concurrent emission, but provides
+        a quick filter before attempting the atomic DB claim.
 
         Args:
             session_id: Session identifier to check
 
         Returns:
-            True if session has ended (EoS event emitted), False otherwise
+            True if session has ended (EoS event emitted) and cache entry is valid, False otherwise
         """
         with self._cache_lock:
-            return session_id in self._ended_sessions
+            if session_id not in self._ended_sessions:
+                return False
+
+            # Check TTL expiration (design.md requires TTL ~5m for fail-open dedupe)
+            timestamp = self._ended_sessions[session_id]
+            if time.monotonic() - timestamp > FAIL_OPEN_CACHE_TTL_SECONDS:
+                # Entry expired, remove it
+                self._ended_sessions.pop(session_id)
+                return False
+
+            return True
 
     def _mark_ended(self, session_id: str) -> None:
         """Mark session as ended in in-memory cache.
 
-        This updates the LRU cache, moving the session to the end (most recently used).
-        If cache size exceeds MAX_CACHE_SIZE, the oldest item is removed.
+        This updates the LRU cache with TTL tracking, moving the session to the end
+        (most recently used). If cache size exceeds MAX_CACHE_SIZE, the oldest item
+        is removed. Entries expire after TTL (~5m) as required by design.md.
 
         Args:
             session_id: Session identifier to mark
         """
         with self._cache_lock:
+            # Prune expired entries first
+            self._prune_expired_entries()
+
             # If session is already in cache, remove it first to update position (LRU)
             if session_id in self._ended_sessions:
                 self._ended_sessions.pop(session_id)
 
-            # Add to end (most recently used)
-            self._ended_sessions[session_id] = None
+            # Add to end (most recently used) with current timestamp for TTL
+            self._ended_sessions[session_id] = time.monotonic()
 
             # Evict oldest if limit exceeded
             if len(self._ended_sessions) > MAX_CACHE_SIZE:
                 # Pop first item (oldest)
                 self._ended_sessions.popitem(last=False)
+
+    def _prune_expired_entries(self) -> None:
+        """Remove expired entries from cache based on TTL.
+
+        This method is called during cache updates to ensure expired entries
+        are removed. Design.md requires TTL ~5m for fail-open dedupe.
+        """
+        current_time = time.monotonic()
+        expired_keys = [
+            session_id
+            for session_id, timestamp in self._ended_sessions.items()
+            if current_time - timestamp > FAIL_OPEN_CACHE_TTL_SECONDS
+        ]
+        for session_id in expired_keys:
+            self._ended_sessions.pop(session_id, None)

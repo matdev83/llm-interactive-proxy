@@ -12,6 +12,7 @@ import yaml
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
@@ -213,6 +214,10 @@ class ZAIConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         response_envelope = await super().chat_completions(
@@ -220,6 +225,8 @@ class ZAIConnector(OpenAIConnector):
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
             **kwargs,
         )
 

@@ -15,6 +15,7 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.security.loop_prevention import ensure_loop_guard_header
@@ -242,9 +243,16 @@ class OpenRouterBackend(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format

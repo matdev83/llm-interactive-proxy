@@ -81,7 +81,11 @@ class StreamContextState:
 
 
 class StreamingContextRegistry:
-    """Shared registry for per-stream buffering and metadata."""
+    """Shared registry for per-stream buffering and metadata.
+
+    Implements lazy TTL cleanup: expired states are removed automatically
+    when accessing the registry, preventing memory leaks when processing stops.
+    """
 
     def __init__(self, state_ttl_seconds: int = 300) -> None:
         self._ttl_seconds = state_ttl_seconds
@@ -90,6 +94,7 @@ class StreamingContextRegistry:
 
     def get_content_state(self, stream_id: str) -> StreamBufferState:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             now = time.time()
             state.last_accessed = now
@@ -98,12 +103,14 @@ class StreamingContextRegistry:
 
     def get_tool_call_buffer(self, stream_id: str) -> ToolCallBufferState:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             return state.tool_calls
 
     def get_json_repair_buffer(self, stream_id: str) -> JsonRepairBufferState:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             return state.json_repair
@@ -118,6 +125,7 @@ class StreamingContextRegistry:
             VTCBufferState for the stream.
         """
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             now = time.time()
             state.last_accessed = now
@@ -126,18 +134,21 @@ class StreamingContextRegistry:
 
     def get_stream_state(self, stream_id: str) -> StreamContextState:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             return state
 
     def get_fragment(self, stream_id: str, namespace: str) -> str:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             return state.execute_fragments.get(namespace, "")
 
     def set_fragment(self, stream_id: str, namespace: str, value: str) -> None:
         with self._lock:
+            self._maybe_cleanup_expired()
             state = self._get_state(stream_id)
             state.last_accessed = time.time()
             if value:
@@ -192,17 +203,33 @@ class StreamingContextRegistry:
                 del state.execute_fragments[namespace]
             self._maybe_drop_stream(stream_id, state)
 
-    def cleanup_expired(self) -> None:
-        """Remove stream states that exceeded the TTL."""
+    def _maybe_cleanup_expired(self) -> None:
+        """Lazy cleanup: remove expired states if any exist.
+
+        This is called automatically on every access to ensure expired states
+        are cleaned up even when processing stops, preventing memory leaks.
+        Must be called with lock held.
+        """
+        if not self._states:
+            return
+
         now = time.time()
+        expired = [
+            stream_id
+            for stream_id, state in self._states.items()
+            if now - state.last_accessed > self._ttl_seconds
+        ]
+        for stream_id in expired:
+            self._states.pop(stream_id, None)
+
+    def cleanup_expired(self) -> None:
+        """Remove stream states that exceeded the TTL.
+
+        This method is kept for explicit cleanup calls, but cleanup now
+        happens automatically via _maybe_cleanup_expired() on access.
+        """
         with self._lock:
-            expired = [
-                stream_id
-                for stream_id, state in self._states.items()
-                if now - state.last_accessed > self._ttl_seconds
-            ]
-            for stream_id in expired:
-                self._states.pop(stream_id, None)
+            self._maybe_cleanup_expired()
 
     def reset_content_states(self) -> None:
         """Reset only the content buffers (used by tests)."""

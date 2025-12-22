@@ -16,6 +16,7 @@ from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.registrations._shared import (
     register_singleton_if_absent,
+    register_transient_if_absent,
 )
 from src.core.interfaces.di_interface import IServiceProvider
 
@@ -172,6 +173,9 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         provider: IServiceProvider,
     ) -> ResponseProcessor:
         from src.core.interfaces.application_state_interface import IApplicationState
+        from src.core.interfaces.session_cancellation_coordinator_interface import (
+            ISessionCancellationCoordinator,
+        )
 
         response_parser: IResponseParser = provider.get_required_service(
             cast(type, IResponseParser)
@@ -182,11 +186,15 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
             cast(type[IStreamNormalizer], IStreamNormalizer)
         )
         memory_capture = provider.get_service(MemoryCaptureMiddleware)
+        cancellation_coordinator = provider.get_service(
+            cast(type, ISessionCancellationCoordinator)
+        )
         return ResponseProcessor(
             response_parser=response_parser,
             app_state=app_state,
             stream_normalizer=stream_normalizer,
             memory_capture=memory_capture,
+            cancellation_coordinator=cancellation_coordinator,
         )
 
     register_singleton_if_absent(
@@ -329,6 +337,9 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     from src.core.interfaces.backend_request_manager_components import (
         IToolCallRetryCoordinator,
     )
+    from src.core.interfaces.session_cancellation_coordinator_interface import (
+        ISessionCancellationCoordinator,
+    )
     from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
 
     def _tool_call_retry_coordinator_factory(
@@ -337,7 +348,13 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         backend_processor = provider.get_required_service(
             cast(type[IBackendProcessor], IBackendProcessor)
         )
-        return ToolCallRetryCoordinator(backend_processor=backend_processor)
+        cancellation_coordinator = provider.get_service(
+            cast(type, ISessionCancellationCoordinator)
+        )
+        return ToolCallRetryCoordinator(
+            backend_processor=backend_processor,
+            cancellation_coordinator=cancellation_coordinator,
+        )
 
     register_singleton_if_absent(
         services,
@@ -380,11 +397,27 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         backend_processor = provider.get_required_service(
             cast(type[IBackendProcessor], IBackendProcessor)
         )
+
+        # Get cancellation coordinator (optional, registered in streaming phase)
+        cancellation_coordinator = None
+        try:
+            from src.core.interfaces.session_cancellation_coordinator_interface import (
+                ISessionCancellationCoordinator,
+            )
+
+            cancellation_coordinator = provider.get_service(
+                cast(type, ISessionCancellationCoordinator)
+            )
+        except Exception:
+            # Cancellation coordinator not available (optional dependency)
+            pass
+
         return BackendNonStreamingResponseHandler(
             response_processor=response_processor,
             structured_output_enforcer=structured_output_enforcer,
             tool_call_retry_coordinator=tool_call_retry_coordinator,
             backend_processor=backend_processor,
+            cancellation_coordinator=cancellation_coordinator,
         )
 
     register_singleton_if_absent(
@@ -484,12 +517,20 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     def _angel_stream_verifier_factory(
         provider: IServiceProvider,
     ) -> AngelStreamVerifier:
+        from src.core.interfaces.session_cancellation_coordinator_interface import (
+            ISessionCancellationCoordinator,
+        )
+
         angel_service_factory: IAngelServiceFactory = provider.get_required_service(
             cast(type, IAngelServiceFactory)
+        )
+        cancellation_coordinator = provider.get_service(
+            cast(type, ISessionCancellationCoordinator)
         )
         return AngelStreamVerifier(
             angel_service_factory=angel_service_factory,
             provider=provider,
+            cancellation_coordinator=cancellation_coordinator,
         )
 
     register_singleton_if_absent(
@@ -518,6 +559,10 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
     def _backend_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendStreamingResponseHandler:
+        from src.core.interfaces.session_cancellation_coordinator_interface import (
+            ISessionCancellationCoordinator,
+        )
+
         response_processor: IResponseProcessor = provider.get_required_service(
             cast(type[IResponseProcessor], IResponseProcessor)
         )
@@ -533,12 +578,16 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
         backend_processor = provider.get_required_service(
             cast(type[IBackendProcessor], IBackendProcessor)
         )
+        cancellation_coordinator = provider.get_service(
+            cast(type, ISessionCancellationCoordinator)
+        )
         return BackendStreamingResponseHandler(
             response_processor=response_processor,
             loop_detector_factory=loop_detector_factory,
             angel_stream_verifier=angel_stream_verifier,
             tool_call_retry_coordinator=tool_call_retry_coordinator,
             backend_processor=backend_processor,
+            cancellation_coordinator=cancellation_coordinator,
         )
 
     register_singleton_if_absent(
@@ -601,11 +650,11 @@ def register_request_processing_orchestration(services: ServiceCollection) -> No
             long_detector_config=long_config,
         )
 
-    register_singleton_if_absent(
+    register_transient_if_absent(
         services, HybridLoopDetector, implementation_factory=_loop_detector_factory
     )
     try:
-        register_singleton_if_absent(
+        register_transient_if_absent(
             services,
             cast(type, ILoopDetector),
             implementation_factory=_loop_detector_factory,  # type: ignore[type-abstract]

@@ -42,10 +42,16 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.services.backend_request_manager.context_translation import (
     build_middleware_context,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         angel_stream_verifier: IAngelStreamVerifier,
         tool_call_retry_coordinator: IToolCallRetryCoordinator,
         backend_processor: IBackendProcessor,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the streaming response handler.
 
@@ -73,12 +80,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             angel_stream_verifier: Service for Angel verification
             tool_call_retry_coordinator: Coordinator for tool-call retries
             backend_processor: Backend processor for empty-stream retries
+            cancellation_coordinator: Coordinator for session cancellation checks
         """
         self._response_processor = response_processor
         self._loop_detector_factory = loop_detector_factory
         self._angel_stream_verifier = angel_stream_verifier
         self._tool_call_retry_coordinator = tool_call_retry_coordinator
         self._backend_processor = backend_processor
+        self._cancellation_coordinator = cancellation_coordinator
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
@@ -272,11 +281,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         }
 
         try:
+            # Extract RequestContext from middleware_context for cancellation gate
+            request_context: RequestContext | None = None
+            if middleware_context and isinstance(middleware_context, dict):
+                request_context = middleware_context.get("request_context")
+                if not isinstance(request_context, RequestContext):
+                    request_context = None
+
             # verify_or_passthrough is an async generator, returns AsyncIterator directly
             verified_stream = self._angel_stream_verifier.verify_or_passthrough(
                 request=request,
                 stream=processed_stream,
                 context=streaming_context,
+                request_context=request_context,
             )
             return verified_stream
         except Exception:
@@ -744,6 +761,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         processing_context.session_id,
                         exc_info=True,
                     )
+
+                # Cancellation gate: ensure session is not cancelled before empty stream retry
+                if self._cancellation_coordinator and context:
+                    session_key = resolve_session_key_from_request_context(context)
+                    if session_key:
+                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
                 retry_request = await self._create_retry_request(
                     request, exc.recovery_prompt

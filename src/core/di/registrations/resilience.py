@@ -453,12 +453,28 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 BackendRoutingService
             )
             config: IConfig = provider.get_required_service(cast(type, IConfig))
+
+            # Get cancellation coordinator (optional, registered in streaming phase)
+            cancellation_coordinator = None
+            try:
+                from src.core.interfaces.session_cancellation_coordinator_interface import (
+                    ISessionCancellationCoordinator,
+                )
+
+                cancellation_coordinator = provider.get_service(
+                    cast(type, ISessionCancellationCoordinator)
+                )
+            except Exception:
+                # Cancellation coordinator not available (optional dependency)
+                pass
+
             return FailureRecoveryExecutor(
                 failover_planner=failover_planner,
                 failure_handling_strategy=failure_strategy,
                 routing_service=routing_service,
                 config=config,
                 failover_routes=_get_failover_routes(provider),
+                cancellation_coordinator=cancellation_coordinator,
             )
 
         register_singleton_if_absent(
@@ -597,6 +613,20 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             )
             eos_adapter = _create_eos_adapter(provider)
 
+            # Get cancellation coordinator (optional, registered in streaming phase)
+            cancellation_coordinator = None
+            try:
+                from src.core.interfaces.session_cancellation_coordinator_interface import (
+                    ISessionCancellationCoordinator,
+                )
+
+                cancellation_coordinator = provider.get_service(
+                    cast(type, ISessionCancellationCoordinator)
+                )
+            except Exception:
+                # Cancellation coordinator not available (optional dependency)
+                pass
+
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
                 request_preparer=request_preparer,
@@ -609,6 +639,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 stream_formatting_service=stream_formatting_service,
                 resilience_coordinator=resilience_coordinator,
                 eos_adapter=eos_adapter,
+                cancellation_coordinator=cancellation_coordinator,
             )
 
         register_singleton_if_absent(

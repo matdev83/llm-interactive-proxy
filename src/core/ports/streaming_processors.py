@@ -639,7 +639,8 @@ class ThinkTagsProcessor(IStreamProcessor):
         """
         self._streaming_buffers.pop(session_id, None)
         self._stream_states.pop(session_id, None)
-        # Keep reasoning_extracted for potential later retrieval
+        # Clean up reasoning_extracted to prevent memory leaks
+        self._reasoning_extracted.pop(session_id, None)
 
     def _ensure_session_state(self, session_id: str) -> None:
         """Initialize state containers for a session if missing."""

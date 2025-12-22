@@ -1,13 +1,27 @@
-"""Telemetry and monitoring for OpenAI Codex compatibility layer."""
+"""Telemetry and monitoring for OpenAI Codex compatibility layer.
+
+Memory note:
+This module previously stored *all* duration samples in in-memory lists
+(`detection_durations`, `translation_durations`, and `durations_by_tool`). In a
+long-running proxy this grows without bound and becomes a memory leak.
+
+We cap the number of stored samples per series to a small rolling window.
+Counters (totals, per-tool counts, etc.) remain unbounded integers by design.
+"""
 
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of duration samples retained per series (rolling window).
+# This keeps memory bounded while still providing useful averages.
+DEFAULT_DURATION_SAMPLE_LIMIT = 1024
 
 
 class MetricType(Enum):
@@ -34,7 +48,11 @@ class DetectionMetrics:
     cache_hits: int = 0
     cache_misses: int = 0
     total_duration_ms: float = 0.0
-    detection_durations: list[float] = field(default_factory=list)
+
+    # Rolling window of recent detection durations (bounded).
+    detection_durations: deque[float] = field(
+        default_factory=lambda: deque(maxlen=DEFAULT_DURATION_SAMPLE_LIMIT)
+    )
 
     def record_detection(
         self, method: str, duration_ms: float, is_cached: bool = False
@@ -77,9 +95,16 @@ class TranslationMetrics:
     successful_translations: int = 0
     failed_translations: int = 0
     total_duration_ms: float = 0.0
-    translation_durations: list[float] = field(default_factory=list)
+
+    # Rolling window of recent translation durations (bounded).
+    translation_durations: deque[float] = field(
+        default_factory=lambda: deque(maxlen=DEFAULT_DURATION_SAMPLE_LIMIT)
+    )
+
     translations_by_tool: dict[str, int] = field(default_factory=dict)
-    durations_by_tool: dict[str, list[float]] = field(default_factory=dict)
+
+    # Rolling window of durations per tool (bounded per tool).
+    durations_by_tool: dict[str, deque[float]] = field(default_factory=dict)
 
     def record_translation(
         self, tool_name: str, duration_ms: float, success: bool = True
@@ -100,14 +125,16 @@ class TranslationMetrics:
         else:
             self.failed_translations += 1
 
-        # Track per-tool metrics
+        # Track per-tool counters
         self.translations_by_tool[tool_name] = (
             self.translations_by_tool.get(tool_name, 0) + 1
         )
 
-        if tool_name not in self.durations_by_tool:
-            self.durations_by_tool[tool_name] = []
-        self.durations_by_tool[tool_name].append(duration_ms)
+        durations = self.durations_by_tool.get(tool_name)
+        if durations is None:
+            durations = deque(maxlen=DEFAULT_DURATION_SAMPLE_LIMIT)
+            self.durations_by_tool[tool_name] = durations
+        durations.append(duration_ms)
 
     def get_average_duration(self, tool_name: str | None = None) -> float:
         """Get average translation duration in milliseconds.
@@ -119,14 +146,14 @@ class TranslationMetrics:
             Average duration in milliseconds
         """
         if tool_name:
-            durations = self.durations_by_tool.get(tool_name, [])
+            durations = self.durations_by_tool.get(tool_name)
             if not durations:
                 return 0.0
             return sum(durations) / len(durations)
-        else:
-            if not self.translation_durations:
-                return 0.0
-            return sum(self.translation_durations) / len(self.translation_durations)
+
+        if not self.translation_durations:
+            return 0.0
+        return sum(self.translation_durations) / len(self.translation_durations)
 
 
 @dataclass

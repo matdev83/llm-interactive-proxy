@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -41,21 +42,24 @@ class LoopDetectionProcessor(IStreamProcessor):
         cancel_callback: Callable[[], Awaitable[None]] | None = None,
         *,
         min_chunks_before_detection: int = 2,
+        max_active_sessions: int = 1000,
     ) -> None:
         """Initialize loop detection processor.
 
         Args:
             loop_detector_factory: Factory function to create new loop detector instances per session.
             cancel_callback: Optional callback to trigger API cancellation when loop is detected.
+            max_active_sessions: Maximum number of active sessions to track (LRU eviction).
         """
         self.loop_detector_factory = loop_detector_factory
         self.cancel_callback = cancel_callback
         # Per-session detector instances to ensure isolation
-        self._session_detectors: dict[str, ILoopDetector] = {}
+        self._session_detectors: OrderedDict[str, ILoopDetector] = OrderedDict()
         # Track sessions that have already triggered cancellation to suppress duplicates
         self._cancelled_sessions: set[str] = set()
         self._stream_chunk_counts: dict[str, int] = {}
         self._min_chunks_before_detection = max(1, min_chunks_before_detection)
+        self._max_active_sessions = max_active_sessions
 
     def _get_detector_for_session(self, session_id: str) -> ILoopDetector:
         """Get or create a loop detector for the given session.
@@ -66,11 +70,22 @@ class LoopDetectionProcessor(IStreamProcessor):
         Returns:
             A loop detector instance dedicated to this session
         """
-        if session_id not in self._session_detectors:
-            detector = self.loop_detector_factory()
-            self._session_detectors[session_id] = detector
-            logger.debug(f"Created new loop detector for session {session_id}")
-        return self._session_detectors[session_id]
+        if session_id in self._session_detectors:
+            self._session_detectors.move_to_end(session_id)
+            return self._session_detectors[session_id]
+
+        if len(self._session_detectors) >= self._max_active_sessions:
+            # Evict oldest session (FIFO from OrderedDict)
+            oldest_session = next(iter(self._session_detectors))
+            self.cleanup_session(oldest_session)
+            logger.warning(
+                f"Evicted stale loop detector for session {oldest_session} due to capacity limit"
+            )
+
+        detector = self.loop_detector_factory()
+        self._session_detectors[session_id] = detector
+        logger.debug(f"Created new loop detector for session {session_id}")
+        return detector
 
     def cleanup_session(self, session_id: str) -> None:
         """Clean up detector instance for a completed session.

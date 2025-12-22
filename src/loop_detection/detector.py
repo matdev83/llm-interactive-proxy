@@ -107,6 +107,8 @@ class LoopDetector(ILoopDetector):
             # Update state to avoid retriggering immediately
             self.last_detection_position = self.total_processed
             self._history.append(event)
+            # Truncate history if it exceeds maximum size to prevent memory leaks
+            self._truncate_history_if_needed()
             # Trigger callback if provided
             if self.on_loop_detected:
                 try:
@@ -136,6 +138,23 @@ class LoopDetector(ILoopDetector):
     def is_enabled(self) -> bool:
         """Check if loop detection is enabled."""
         return self.is_active
+
+    def _truncate_history_if_needed(self) -> None:
+        """Truncate history if it exceeds maximum configured size to prevent memory leaks."""
+        max_history = self.config.max_history_length
+        if len(self._history) <= max_history:
+            return
+
+        # Remove oldest entries to keep only the most recent ones
+        trunc_amount = len(self._history) - max_history
+        self._history = self._history[trunc_amount:]
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Truncated loop detection history: removed %d oldest entries, keeping %d",
+                trunc_amount,
+                max_history,
+            )
 
     def reset(self) -> None:
         """Reset the detector state."""
@@ -249,6 +268,8 @@ class LoopDetector(ILoopDetector):
 
         # Record detection without mutating the restored streaming analyzer state.
         self._history.append(event)
+        # Truncate history if it exceeds maximum size to prevent memory leaks
+        self._truncate_history_if_needed()
 
         pattern_length = 0
         if repetition_count > 0 and event.total_length > 0:

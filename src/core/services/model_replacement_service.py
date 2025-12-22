@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,15 @@ if TYPE_CHECKING:
     from src.core.services.backend_registry import BackendRegistry
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of session states to keep in memory to prevent unbounded growth.
+# 10,000 sessions is roughly ~2-3 MB of memory, providing a large window
+# for active sessions without unbounded growth. Eviction uses LRU policy.
+MAX_SESSION_STATES = 10_000
+
+# Maximum number of disabled session IDs to keep in memory.
+# 1,000 disabled sessions is roughly ~50-100 KB of memory.
+MAX_DISABLED_SESSIONS = 1_000
 
 
 class ModelReplacementService:
@@ -55,10 +65,11 @@ class ModelReplacementService:
         self._backend_registry = backend_registry
         self._random_generator = random_generator or random.random
 
-        # Performance optimization: Use dictionary for O(1) state lookup
+        # Performance optimization: Use OrderedDict for O(1) state lookup with LRU eviction
         # This provides constant-time access to session state regardless of
-        # the number of concurrent sessions
-        self._session_states: dict[str, ReplacementState] = {}
+        # the number of concurrent sessions, with automatic eviction of oldest entries
+        # to prevent unbounded memory growth
+        self._session_states: OrderedDict[str, ReplacementState] = OrderedDict()
         self._disabled_sessions: set[str] = set()
 
         # Performance optimization: Minimize lock contention by only locking
@@ -178,6 +189,13 @@ class ModelReplacementService:
         if state is None:
             state = ReplacementState()
             self._session_states[session_id] = state
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
+            # Evict oldest entries if over limit
+            self._evict_oldest_sessions_if_needed()
+        else:
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
 
         # If already active, continue replacement
         if state.active:
@@ -228,6 +246,9 @@ class ModelReplacementService:
         # If replacement is not active, use original
         if state is None or not state.active:
             return (original_backend, original_model)
+
+        # Move to end (most recently used) for LRU tracking
+        self._session_states.move_to_end(session_id)
 
         # Validate replacement backend is still available
         try:
@@ -291,6 +312,13 @@ class ModelReplacementService:
             if state is None:
                 state = ReplacementState()
                 self._session_states[session_id] = state
+                # Move to end (most recently used) for LRU tracking
+                self._session_states.move_to_end(session_id)
+                # Evict oldest entries if over limit
+                self._evict_oldest_sessions_if_needed()
+            else:
+                # Move to end (most recently used) for LRU tracking
+                self._session_states.move_to_end(session_id)
 
             # Performance optimization: Use cached turn_count value
             state.activate(
@@ -319,6 +347,8 @@ class ModelReplacementService:
         """
         state = self._session_states.get(session_id)
         if state is not None and state.active:
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
             # Track turn completion for metrics (Requirement 4.1)
             self._metrics.record_turn_completion(session_id)
 
@@ -343,7 +373,13 @@ class ModelReplacementService:
         if state is None:
             state = ReplacementState()
             self._session_states[session_id] = state
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
+            # Evict oldest entries if over limit
+            self._evict_oldest_sessions_if_needed()
         else:
+            # Move to end (most recently used) for LRU tracking
+            self._session_states.move_to_end(session_id)
             # Validate state integrity
             if not self._validate_state(state):
                 logger.error(
@@ -356,6 +392,7 @@ class ModelReplacementService:
                 # Reset to clean state
                 state = ReplacementState()
                 self._session_states[session_id] = state
+                self._session_states.move_to_end(session_id)
         return state
 
     def _validate_state(self, state: ReplacementState) -> bool:
@@ -395,6 +432,24 @@ class ModelReplacementService:
             session_id: The session identifier
         """
         self._disabled_sessions.add(session_id)
+        # Evict oldest disabled sessions if over limit
+        if len(self._disabled_sessions) > MAX_DISABLED_SESSIONS:
+            # Remove oldest entries (convert to list, take oldest, remove from set)
+            excess = len(self._disabled_sessions) - MAX_DISABLED_SESSIONS
+            # Since sets don't have order, we'll remove sessions that are not in _session_states
+            # (they're likely older/inactive)
+            to_remove = [
+                sid
+                for sid in self._disabled_sessions
+                if sid not in self._session_states
+            ][:excess]
+            for sid in to_remove:
+                self._disabled_sessions.discard(sid)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Evicted {len(to_remove)} old disabled sessions to enforce size limit "
+                    f"({MAX_DISABLED_SESSIONS})"
+                )
 
         # Deactivate any active replacement
         state = self._session_states.get(session_id)
@@ -413,6 +468,14 @@ class ModelReplacementService:
         self._session_states.pop(session_id, None)
         self._disabled_sessions.discard(session_id)
 
+        # Cleanup metrics to prevent memory leak
+        self._metrics.cleanup_session(session_id)
+
+        # Periodically prune historical timestamps (every ~100 cleanups to amortize cost)
+        # Using a simple counter approach or just random check
+        if random.random() < 0.01:
+            self._metrics.prune_history()
+
     def get_metrics(self) -> ReplacementMetrics:
         """Get current replacement metrics.
 
@@ -428,3 +491,57 @@ class ModelReplacementService:
     def reset_metrics(self) -> None:
         """Reset all metrics to initial state."""
         self._metrics.reset()
+
+    def _evict_oldest_sessions_if_needed(self) -> None:
+        """Evict oldest session states if over size limit (LRU eviction).
+
+        This method prevents unbounded memory growth by removing the least
+        recently used session states when the limit is exceeded. Eviction
+        only removes inactive sessions to avoid disrupting active replacements.
+        """
+        # Only evict if we're over the limit
+        if len(self._session_states) <= MAX_SESSION_STATES:
+            return
+
+        # Try to evict inactive sessions
+        max_iterations = len(self._session_states)  # Prevent infinite loop
+        iterations = 0
+        evicted_count = 0
+
+        while (
+            len(self._session_states) > MAX_SESSION_STATES
+            and iterations < max_iterations
+        ):
+            iterations += 1
+            # Get oldest entry (first in OrderedDict)
+            oldest_session_id, oldest_state = next(iter(self._session_states.items()))
+
+            # Only evict inactive sessions to avoid disrupting active replacements
+            if oldest_state.active:
+                # Skip active sessions - move to end and try next
+                self._session_states.move_to_end(oldest_session_id)
+                continue
+
+            # Evict inactive session
+            self._session_states.popitem(last=False)  # Remove oldest (first) item
+            # Also remove from disabled_sessions if present
+            self._disabled_sessions.discard(oldest_session_id)
+            evicted_count += 1
+
+        # If we still exceed the limit after trying to evict inactive sessions,
+        # it means all remaining sessions are active
+        if len(self._session_states) > MAX_SESSION_STATES:
+            active_count = sum(
+                1 for state in self._session_states.values() if state.active
+            )
+            logger.warning(
+                f"Session states limit exceeded ({len(self._session_states)} > {MAX_SESSION_STATES}). "
+                f"All {active_count} remaining sessions are active and cannot be evicted. "
+                f"Consider increasing MAX_SESSION_STATES or ensuring EoS events are emitted."
+            )
+
+        if evicted_count > 0 and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Evicted {evicted_count} inactive session(s) "
+                f"to enforce size limit ({MAX_SESSION_STATES})"
+            )

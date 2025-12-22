@@ -40,7 +40,8 @@ class TestReplacementMetrics:
         assert metrics.total_activations == 1
         assert metrics.activations_by_session["session1"] == 1
         assert len(metrics.activation_timestamps) == 1
-        assert metrics.turn_counts == [3]
+        # Turn counts are tracked in histogram, not as a list
+        assert metrics.get_turn_count_distribution() == {3: 1}
 
     def test_record_multiple_activations(self) -> None:
         """Test recording multiple activation events."""
@@ -54,7 +55,7 @@ class TestReplacementMetrics:
         assert metrics.activations_by_session["session1"] == 2
         assert metrics.activations_by_session["session2"] == 1
         assert len(metrics.activation_timestamps) == 3
-        assert metrics.turn_counts == [3, 5, 2]
+        assert metrics.get_turn_count_distribution() == {3: 1, 5: 1, 2: 1}
 
     def test_record_turn_completion(self) -> None:
         """Test recording turn completion events."""
@@ -326,7 +327,7 @@ class TestReplacementMetrics:
         assert len(metrics.activations_by_session) == 0
         assert len(metrics.turns_by_session) == 0
         assert len(metrics.opt_outs_by_session) == 0
-        assert len(metrics.turn_counts) == 0
+        assert len(metrics.get_turn_count_distribution()) == 0
         assert len(metrics.activation_timestamps) == 0
         assert len(metrics.opt_out_timestamps) == 0
 

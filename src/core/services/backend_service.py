@@ -51,6 +51,9 @@ from src.core.interfaces.reasoning_config_applicator_interface import (
 from src.core.interfaces.resilience_interface import (
     IResilienceCoordinator,
 )
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.interfaces.stream_session_id_resolver_interface import (
@@ -111,6 +114,7 @@ class BackendService(IBackendService):
         resilience_coordinator: IResilienceCoordinator | None = None,
         failure_handling_strategy: IFailureHandlingStrategy | None = None,
         usage_tracking_service: IUsageTrackingService | None = None,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ):
         """Initialize the backend service.
 
@@ -175,6 +179,9 @@ class BackendService(IBackendService):
 
         # Wire capture (optional service)
         self._wire_capture: IWireCapture | None = wire_capture
+
+        # Cancellation coordinator (optional service)
+        self._cancellation_coordinator = cancellation_coordinator
 
     def _resolve_per_session_backend_limit(self, config: IConfig) -> int:
         """Determine the cache size for per-session backends."""
@@ -429,6 +436,16 @@ class BackendService(IBackendService):
         context: RequestContext | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy for models with configured routes"""
+        # Cancellation gate: ensure session is not cancelled before complex failover
+        if self._cancellation_coordinator and context:
+            from src.core.transport.session_key_resolver import (
+                resolve_session_key_from_request_context,
+            )
+
+            session_key = resolve_session_key_from_request_context(context)
+            if session_key:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Using complex failover policy for model {effective_model}")
         try:
@@ -482,11 +499,31 @@ class BackendService(IBackendService):
         Raises:
             BackendError: If all attempts fail
         """
+        # Cancellation gate: ensure session is not cancelled before failover plan execution
+        if self._cancellation_coordinator and context:
+            from src.core.transport.session_key_resolver import (
+                resolve_session_key_from_request_context,
+            )
+
+            session_key = resolve_session_key_from_request_context(context)
+            if session_key:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         last_error: Exception | None = None
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
 
         for backend_attempt, model_attempt in plan:
+            # Cancellation gate: ensure session is not cancelled before each failover attempt
+            if self._cancellation_coordinator and context:
+                from src.core.transport.session_key_resolver import (
+                    resolve_session_key_from_request_context,
+                )
+
+                session_key = resolve_session_key_from_request_context(context)
+                if session_key:
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
             try:
                 attempt_extra_body: dict[str, Any] = (
                     request.extra_body.copy() if request.extra_body else {}

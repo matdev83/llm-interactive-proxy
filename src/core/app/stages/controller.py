@@ -176,6 +176,9 @@ class ControllerStage(InitializationStage):
             """Factory function for creating ResponsesController."""
             from typing import cast
 
+            from src.core.interfaces.client_end_of_session_service_interface import (
+                IClientEndOfSessionService,
+            )
             from src.core.interfaces.translation_service_interface import (
                 ITranslationService,
             )
@@ -194,9 +197,15 @@ class ControllerStage(InitializationStage):
                     "TranslationService is not registered in the service provider"
                 )
 
+            # Optional: client end-of-session service for termination reporting
+            client_eos_service = provider.get_service(
+                cast(type, IClientEndOfSessionService)
+            )
+
             return ResponsesController(
                 request_processor,
                 translation_service=translation_service,
+                client_eos_service=client_eos_service,
             )
 
         # Register as singleton

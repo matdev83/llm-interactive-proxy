@@ -231,6 +231,7 @@ class IAngelStreamVerifier(ABC):
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
         context: StreamingContext,
+        request_context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Return verified stream or original stream when no steering is needed.
 
@@ -238,6 +239,7 @@ class IAngelStreamVerifier(ABC):
             request: The original backend request
             stream: The streaming response chunks
             context: Streaming context with session_id, stream_id, etc.
+            request_context: Request context for cancellation gate resolution (optional)
 
         Returns:
             An async iterator of processed response chunks (verified or original)

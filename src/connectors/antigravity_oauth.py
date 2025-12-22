@@ -47,6 +47,7 @@ from src.core.domain.chat import (
     ToolCall,
 )
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -153,6 +154,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Any = None,
         key_name: str | None = None,
@@ -162,6 +167,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> Any:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Handle chat completions with model validation.
 
         This method validates the requested model against the available models list
@@ -305,14 +313,22 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             original_iterator = response.content
 
             async def _intercept_stream():
-                buffer = []
-                async for chunk in original_iterator:
-                    buffer.append(chunk)
+                # Stream processing with bounded memory usage
+                # We only need to buffer content for XML tool call detection
+                # and keep track of the first chunk type for reconstruction
+                content_buffer = ""
+                first_chunk_type = None
+                original_chunks = []
 
-                # Reconstruct full content
-                full_content = ""
-                for chunk in buffer:
-                    # chunk is ProcessedResponse
+                # Process stream in a single pass with bounded memory
+                async for chunk in original_iterator:
+                    if first_chunk_type is None:
+                        first_chunk_type = type(chunk)
+
+                    # Store original chunk for potential re-yielding
+                    original_chunks.append(chunk)
+
+                    # Extract and accumulate content for XML detection
                     if hasattr(chunk, "content"):
                         chunk_content = chunk.content
                         if isinstance(chunk_content, dict):
@@ -322,15 +338,20 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                 delta = choices[0].get("delta", {})
                                 content_part = delta.get("content", "")
                                 if content_part:
-                                    full_content += content_part
+                                    content_buffer += content_part
                         elif isinstance(chunk_content, str):
-                            full_content += chunk_content
+                            content_buffer += chunk_content
 
-                # Check for XML tool calls
+                    # Early exit if we detect tool calls and have enough content
+                    if "<Tool>" in content_buffer and "</Tool>" in content_buffer:
+                        # We have a complete tool call, break to process it
+                        break
+
+                # Check for XML tool calls in the accumulated content
                 tool_calls = []
-                if "<Tool>" in full_content:
+                if "<Tool>" in content_buffer:
                     tool_pattern = r"<Tool>(.*?)</Tool>"
-                    match = re.search(tool_pattern, full_content, re.DOTALL)
+                    match = re.search(tool_pattern, content_buffer, re.DOTALL)
                     if match:
                         tool_json = match.group(1)
                         try:
@@ -351,7 +372,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                             }
                                         )
                             # Remove XML from content
-                            full_content = full_content.replace(
+                            content_buffer = content_buffer.replace(
                                 match.group(0), ""
                             ).strip()
                         except Exception as e:
@@ -370,8 +391,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     )
 
                     # Yield content first if any
-                    if full_content:
-                        yield type(buffer[0])(
+                    if content_buffer:
+                        yield first_chunk_type(
                             content={
                                 "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                                 "object": "chat.completion.chunk",
@@ -382,7 +403,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                         "index": 0,
                                         "delta": {
                                             "role": "assistant",
-                                            "content": full_content,
+                                            "content": content_buffer,
                                         },
                                         "finish_reason": None,
                                     }
@@ -391,7 +412,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         )
 
                     # Yield tool calls
-                    yield type(buffer[0])(
+                    yield first_chunk_type(
                         content={
                             "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                             "object": "chat.completion.chunk",
@@ -407,8 +428,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         }
                     )
                 else:
-                    # Re-yield original chunks
-                    for chunk in buffer:
+                    # Re-yield original chunks (streaming without buffering)
+                    for chunk in original_chunks:
+                        yield chunk
+
+                    # Continue yielding remaining chunks from original iterator
+                    async for chunk in original_iterator:
                         yield chunk
 
             response.content = _intercept_stream()

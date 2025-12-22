@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from src.connectors.openai import OpenAIConnector
+from src.core.domain.session_key import SessionKey
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,15 @@ class OpenAIResponsesConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ) -> Any:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Override chat_completions to use the Responses API endpoint."""
         # For the Responses API backend, we should use the responses endpoint
         # Convert the chat completions request to a responses request

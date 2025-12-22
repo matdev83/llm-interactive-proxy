@@ -72,6 +72,7 @@ async def test_handle_eos_event_calls_mark_session_complete(
     mock_memory_service.mark_session_complete.assert_called_once_with(
         "test-session-123",
         backend_model="openai:gpt-4",
+        termination_reason=None,
     )
 
 
@@ -112,6 +113,7 @@ async def test_handle_eos_event_without_backend_model(
     mock_memory_service.mark_session_complete.assert_called_once_with(
         "test-session-123",
         backend_model=None,
+        termination_reason=None,
     )
 
 
@@ -132,6 +134,7 @@ async def test_handle_eos_event_extracts_backend_model_from_backend_field(
     mock_memory_service.mark_session_complete.assert_called_once_with(
         "test-session-123",
         backend_model="anthropic:claude-3-opus",
+        termination_reason=None,
     )
 
 
@@ -188,3 +191,25 @@ async def test_subscriber_unsubscribes_on_stop(
     call_args = mock_event_bus.unsubscribe.call_args
     assert call_args[0][0] == RemoteBackendConnectionEndOfSessionEvent
     assert call_args[0][1] == subscriber._handle_eos_event
+
+
+@pytest.mark.asyncio
+async def test_handle_eos_event_passes_termination_reason(
+    subscriber: ProxyMemEosSubscriber, mock_memory_service: IMemoryService
+) -> None:
+    """Test that handler passes termination reason from event to mark_session_complete."""
+    event = RemoteBackendConnectionEndOfSessionEvent(
+        session_id="test-session-123",
+        signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        backend="openai:gpt-4",
+        reason="client_disconnected",
+    )
+
+    await subscriber._handle_eos_event(event)
+
+    mock_memory_service.mark_session_complete.assert_called_once_with(
+        "test-session-123",
+        backend_model="openai:gpt-4",
+        termination_reason="client_disconnected",
+    )

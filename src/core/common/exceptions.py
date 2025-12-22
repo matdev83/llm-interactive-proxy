@@ -7,6 +7,12 @@ for better error handling and categorization.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.domain.client_termination import ClientTerminationReason
+    from src.core.domain.session_key import SessionKey
+
 
 class LLMProxyError(Exception):
     """Base exception class for all LLM proxy errors."""
@@ -307,6 +313,52 @@ class RoutingError(LLMProxyError):
         **kwargs,
     ):
         super().__init__(message, details, status_code=403, **kwargs)
+
+
+class SessionCancelledError(LLMProxyError):
+    """Raised when attempting to initiate work for a cancelled session.
+
+    This exception is raised by the cancellation gate when a component attempts
+    to initiate backend work (initial call, retry, failover, recovery, follow-up)
+    for a session that has been cancelled due to client termination.
+
+    Status code 499 (Client Closed Request) indicates the client terminated
+    the connection before the server could complete the request.
+    """
+
+    def __init__(
+        self,
+        session_key: SessionKey | None = None,
+        reason: ClientTerminationReason | None = None,
+        message: str | None = None,
+        details: dict | None = None,
+        **kwargs,
+    ):
+        """Initialize the exception.
+
+        Args:
+            session_key: The cancelled session identifier.
+            reason: The client termination reason.
+            message: Optional custom error message.
+            details: Optional additional error details.
+        """
+        if message is None:
+            if session_key:
+                message = f"Session cancelled: {session_key.primary_id}"
+            else:
+                message = "Session cancelled"
+        det = details.copy() if details else {}
+        if session_key:
+            det["session_key"] = {
+                "protocol": session_key.protocol,
+                "primary_id": session_key.primary_id,
+                "group_id": session_key.group_id,
+            }
+        if reason:
+            det["reason"] = reason.value
+        super().__init__(message, det, status_code=499, **kwargs)
+        self.session_key = session_key
+        self.reason = reason
 
 
 class DuplicateRequestError(BackendError):

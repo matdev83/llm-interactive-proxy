@@ -6,6 +6,8 @@ for clients (like Droid) that don't preserve extra_content.
 """
 
 import logging
+import time
+from collections import OrderedDict
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
@@ -17,21 +19,40 @@ class ThoughtSignatureManager:
     """Manages thought signatures for tool calls.
 
     Droid and similar clients don't preserve extra_content, so we store
-    the mapping of tool_call_id -> thought_signature server-side and
+    mapping of tool_call_id -> thought_signature server-side and
     inject it when processing subsequent requests.
 
     Key format: "session_id:tool_call_id" -> thought_signature
     """
 
-    def __init__(self) -> None:
-        self._cache: dict[str, str] = {}
+    def __init__(self, max_cache_size: int = 10000, ttl_seconds: int = 3600) -> None:
+        self._max_cache_size = max_cache_size
+        self._ttl_seconds = ttl_seconds
+
+        # OrderedDict for LRU eviction with timestamps
+        self._cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
         # Secondary index by tool_call_id to survive session-id changes
         self._by_tool_call: dict[str, str] = {}
 
     @property
     def cache(self) -> dict[str, str]:
-        """Access the cache for backward compatibility."""
-        return self._cache
+        """Access to cache for backward compatibility."""
+        # Convert from (sig, timestamp) tuples back to just signatures
+        return {key: value for key, (value, _) in self._cache.items()}
+    
+    @cache.setter
+    def cache(self, value: dict[str, str]) -> None:
+        """Set cache for backward compatibility (stores with current timestamp)."""
+        # Convert from just signatures to (sig, timestamp) tuples
+        current_time = time.time()
+        self._cache = OrderedDict((key, (sig, current_time)) for key, sig in value.items())
+    
+    def update(self, updates: dict[str, str]) -> None:
+        """Update cache with new values (for backward compatibility)."""
+        current_time = time.time()
+        for key, sig in updates.items():
+            self._cache[key] = (sig, current_time)
+            self._cache.move_to_end(key)
 
     def inject_signatures(self, canonical_request: Any, session_id: str) -> None:
         """Inject stored thought_signatures into tool_calls that are missing them.
@@ -81,12 +102,35 @@ class ThoughtSignatureManager:
             if google_extra.get("thought_signature"):
                 return  # Already has signature
 
-        # Look up in cache
+        # Look up in cache with TTL check
+        current_time = time.time()
         cache_key = f"{session_id}:{tc_id}"
-        sig = self._cache.get(cache_key)
+
+        cache_entry = self._cache.get(cache_key)
+        sig: str | None = None
+        
+        if cache_entry:
+            cached_sig, timestamp = cache_entry
+            if current_time - timestamp > self._ttl_seconds:
+                # Expired, remove it
+                del self._cache[cache_key]
+                self._by_tool_call.pop(tc_id, None)
+                sig = None
+            else:
+                sig = cached_sig
+
         if not sig:
             # Try anonymous cache if session_id was missing at store time
-            sig = self._cache.get(f"anon:{tc_id}")
+            anon_entry = self._cache.get(f"anon:{tc_id}")
+            if anon_entry:
+                anon_sig, anon_timestamp = anon_entry
+                if current_time - anon_timestamp > self._ttl_seconds:
+                    del self._cache[f"anon:{tc_id}"]
+                    self._by_tool_call.pop(tc_id, None)
+                    sig = None
+                else:
+                    sig = anon_sig
+
         if not sig:
             # Fallback to global index by tool_call_id (handles session re-keying)
             sig = self._by_tool_call.get(tc_id)
@@ -121,6 +165,10 @@ class ThoughtSignatureManager:
             session_id: The session ID for cache key construction
         """
         anonymous_key = None if session_id else "anon"
+        current_time = time.time()
+
+        # Clean expired entries first
+        self._clean_expired_entries(current_time)
 
         for tc in tool_calls:
             if not isinstance(tc, dict):
@@ -140,13 +188,31 @@ class ThoughtSignatureManager:
                 f"{session_id}:{tc_id}" if session_id else f"{anonymous_key}:{tc_id}"
             )
             if cache_key:
-                self._cache[cache_key] = sig
+                # Store with timestamp for TTL
+                self._cache[cache_key] = (sig, current_time)
                 self._by_tool_call[tc_id] = sig
+
+                # Move to end for LRU
+                self._cache.move_to_end(cache_key)
+
+                # Enforce size limit
+                if len(self._cache) > self._max_cache_size:
+                    oldest_key, oldest_value = self._cache.popitem(last=False)
+                    oldest_sig, _ = oldest_value
+                    # Remove from secondary index too
+                    self._by_tool_call = {
+                        k: v
+                        for k, v in self._by_tool_call.items()
+                        if v != oldest_sig
+                        or any(k2.endswith(f":{k}") for k2 in self._cache)
+                    }
+
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Stored thought_signature for tool_call_id=%s (key=%s)",
+                        "Stored thought_signature for tool_call_id=%s (key=%s, cache_size=%d)",
                         tc_id,
                         cache_key[:16],
+                        len(self._cache),
                     )
 
     def log_signature_state(
@@ -202,17 +268,77 @@ class ThoughtSignatureManager:
         except Exception:
             logger.debug("Failed to log tool call signature state", exc_info=True)
 
+    def _clean_expired_entries(self, current_time: float | None = None) -> int:
+        """Remove expired entries from cache.
+
+        Args:
+            current_time: Current timestamp (defaults to time.time())
+
+        Returns:
+            Number of entries removed
+        """
+        if current_time is None:
+            current_time = time.time()
+
+        expired_keys = [
+            key
+            for key, (_, timestamp) in self._cache.items()
+            if current_time - timestamp > self._ttl_seconds
+        ]
+
+        for key in expired_keys:
+            # Get signature before removing to clean up secondary index
+            entry = self._cache.get(key)
+            if entry:
+                sig, _ = entry
+                # Remove from secondary index
+                self._by_tool_call = {
+                    k: v
+                    for k, v in self._by_tool_call.items()
+                    if v != sig or any(k2.endswith(f":{k}") for k2 in self._cache)
+                }
+            del self._cache[key]
+
+        return len(expired_keys)
+
+    def clear_all_anonymous(self) -> int:
+        """Clear all anonymous cached signatures (session_id was None).
+
+        Returns:
+            Number of entries cleared from cache
+        """
+        keys_to_remove = [key for key in self._cache if key.startswith("anon:")]
+
+        for key in keys_to_remove:
+            entry = self._cache.pop(key)
+            if entry:
+                sig, _ = entry
+                # Remove from secondary index
+                self._by_tool_call = {
+                    k: v
+                    for k, v in self._by_tool_call.items()
+                    if v != sig or any(k2.endswith(f":{k}") for k2 in self._cache)
+                }
+
+        if keys_to_remove and logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Cleared %d anonymous thought_signature(s)",
+                len(keys_to_remove),
+            )
+
+        return len(keys_to_remove)
+
     def clear_session_cache(self, session_id: str) -> int:
         """Clear all cached signatures for a session.
 
         Used when switching backends mid-session to prevent incompatible
-        thought signatures from being injected into requests to the new backend.
+        thought signatures from being injected into requests to be new backend.
 
         Args:
             session_id: The session ID prefix to match and clear
 
         Returns:
-            Number of entries cleared from the cache
+            Number of entries cleared from cache
         """
         if not session_id:
             return 0

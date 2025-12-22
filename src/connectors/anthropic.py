@@ -26,6 +26,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -140,6 +141,10 @@ class AnthropicBackend(LLMBackend):
         processed_messages: list,
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
         key_name: str | None = None,
@@ -149,6 +154,9 @@ class AnthropicBackend(LLMBackend):
         headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Send request to Anthropic Messages endpoint and return domain response envelope."""
         # Strip vendor prefix (e.g., "anthropic/") for unified model naming
         effective_model = strip_vendor_prefix(effective_model, ANTHROPIC_VENDOR_PREFIX)

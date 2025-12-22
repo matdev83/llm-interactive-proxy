@@ -176,6 +176,150 @@ async def test_subscriber_failures_are_isolated(
     mock_wire_capture: IWireCapture,
     mock_reminder_handler: TestExecutionReminderHandler,
 ) -> None:
+    """Test that one subscriber failure does not block other subscribers.
+
+    Requirement 5.4: Failures in one subsystem finalizer should not prevent
+    other finalizers from running.
+    """
+    # Create subscribers
+    proxymem = ProxyMemEosSubscriber(
+        event_bus=event_bus, memory_service=mock_memory_service
+    )
+    usage = UsageTrackingEosSubscriber(
+        event_bus=event_bus, session_repository=mock_session_repo
+    )
+    wire_capture = WireCaptureEosSubscriber(
+        event_bus=event_bus, wire_capture=mock_wire_capture
+    )
+    reminder = TestExecutionReminderEosSubscriber(
+        event_bus=event_bus, reminder_handler=mock_reminder_handler
+    )
+
+    await proxymem.start()
+    await usage.start()
+    await wire_capture.start()
+    await reminder.start()
+
+    # Make one subscriber fail
+    mock_memory_service.mark_session_complete.side_effect = Exception(
+        "ProxyMem failure"
+    )
+    mock_memory_service.is_enabled_for_session.return_value = True
+
+    event = RemoteBackendConnectionEndOfSessionEvent(
+        session_id="test-session-failure",
+        signal_type=EndOfSessionSignalType.DONE_SENTINEL,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        backend="openai:gpt-4",
+    )
+
+    # Publish event - should not raise exception even if one subscriber fails
+    await event_bus.publish(event)
+
+    # Give subscribers time to process
+    import asyncio
+
+    await asyncio.sleep(0.1)
+
+    # Verify other subscribers still processed the event
+    # UsageTracking should have been called
+    assert mock_session_repo.create.called or mock_session_repo.update.called
+
+    # WireCapture should have been called
+    mock_wire_capture.capture_stream_completion.assert_called_once()
+
+    # Reminder should have been called
+    mock_reminder_handler._get_session_state.assert_called_once_with(
+        "test-session-failure"
+    )
+
+
+@pytest.mark.asyncio
+async def test_eos_emission_when_client_terminates_before_backend_response(
+    event_bus: EventBus,
+    mock_session_repo: SessionMetricsRepository,
+    mock_wire_capture: IWireCapture,
+) -> None:
+    """Test that EoS is emitted even when client terminates before backend response.
+
+    Requirement 5.5: EoS should be emitted even when client terminates before
+    any backend response is received.
+    """
+    from datetime import datetime, timezone
+
+    from src.core.config.models.end_of_session import EndOfSessionConfig
+    from src.core.domain.events.end_of_session_events import (
+        EndOfSessionSignal,
+        EndOfSessionSignalType,
+        EndOfSessionTerminationCategory,
+    )
+    from src.core.services.end_of_session_service import EndOfSessionService
+
+    eos_config = EndOfSessionConfig(
+        enabled=True,
+        emit_events=True,
+        detect_stream_signals=True,
+        detect_tool_completion=True,
+        dispatch_timeout_seconds=5.0,
+    )
+
+    eos_service = EndOfSessionService(
+        event_bus=event_bus,
+        config=eos_config,
+        session_repository=mock_session_repo,
+    )
+
+    # Create usage tracking subscriber
+    usage = UsageTrackingEosSubscriber(
+        event_bus=event_bus, session_repository=mock_session_repo
+    )
+    await usage.start()
+
+    # Create wire capture subscriber
+    wire_capture = WireCaptureEosSubscriber(
+        event_bus=event_bus, wire_capture=mock_wire_capture
+    )
+    await wire_capture.start()
+
+    events_received: list = []
+
+    async def event_handler(event) -> None:
+        events_received.append(event)
+
+    event_bus.subscribe(RemoteBackendConnectionEndOfSessionEvent, event_handler)
+
+    # Simulate client termination before backend response
+    # No backend field since no backend response was received
+    signal = EndOfSessionSignal(
+        session_id="early-termination-session",
+        signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        observed_at=datetime.now(timezone.utc),
+        reason="client_disconnected",
+        backend=None,  # No backend response yet
+    )
+
+    await eos_service.record_signal(signal)
+
+    # Give time for event processing
+    import asyncio
+
+    await asyncio.sleep(0.1)
+
+    # Verify EoS event was emitted
+    assert len(events_received) == 1
+    event = events_received[0]
+    assert event.session_id == "early-termination-session"
+    assert event.signal_type == EndOfSessionSignalType.CLIENT_TERMINATION
+    assert event.termination_category == EndOfSessionTerminationCategory.NORMAL
+    assert event.reason == "client_disconnected"
+    assert event.backend is None  # No backend response
+
+    # Verify usage tracking subscriber processed the event
+    assert mock_session_repo.create.called or mock_session_repo.update.called
+
+    # Verify wire capture subscriber processed the event
+    mock_wire_capture.capture_stream_completion.assert_called_once()
     """Test that one subscriber failure doesn't block others."""
     # Create subscribers
     proxymem_subscriber = ProxyMemEosSubscriber(
@@ -353,6 +497,7 @@ async def test_subscriber_payload_preserved_on_failure(
     assert metrics.eos_reason == "Test reason"
 
 
+@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_subscriber_non_blocking_under_load(
     event_bus: EventBus,

@@ -64,7 +64,12 @@ class StreamNormalizer(IProcessingStreamNormalizer):
         """
         # Reset all processors before processing a new stream to ensure
         # per-stream state isolation (Requirement 7.5)
-        self.reset()
+        #
+        # FIX: Removed self.reset() call because StreamNormalizer is registered as a Singleton.
+        # Calling reset() here wipes state for ALL concurrent streams in shared processors
+        # (like ToolCallRepairProcessor -> StreamingContextRegistry).
+        # Processors must be session-aware and manage state per-stream instead of relying on reset.
+        # self.reset()
 
         stream_id = uuid4().hex
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, MutableMapping
 
-_codex_tool_call_index_base: dict[str, int] = {}
-_codex_tool_call_item_index: dict[str, dict[str, int]] = {}
-_codex_function_name_cache: dict[str, str] = {}
+from cachetools import TTLCache
+
+_codex_tool_call_index_base: MutableMapping[str, int] = TTLCache(maxsize=1000, ttl=600)
+_codex_tool_call_item_index: MutableMapping[str, dict[str, int]] = TTLCache(maxsize=1000, ttl=600)
+_codex_function_name_cache: MutableMapping[str, str] = TTLCache(maxsize=1000, ttl=600)
 
 
 def reset_tool_call_state(response_id: str | None) -> None:

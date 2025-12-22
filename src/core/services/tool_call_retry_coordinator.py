@@ -25,6 +25,12 @@ from src.core.interfaces.backend_request_manager_components import (
     IToolCallRetryCoordinator,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +87,19 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         "Please start a new session to continue."
     )
 
-    def __init__(self, backend_processor: IBackendProcessor) -> None:
+    def __init__(
+        self,
+        backend_processor: IBackendProcessor,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+    ) -> None:
         """Initialize the tool-call retry coordinator.
 
         Args:
             backend_processor: Backend processor for executing retry requests
+            cancellation_coordinator: Optional cancellation coordinator for checking session cancellation
         """
         self._backend_processor = backend_processor
+        self._cancellation_coordinator = cancellation_coordinator
 
     def _extract_session_id(self, context: RequestContext) -> str:
         """Extract session ID from request context.
@@ -411,6 +423,11 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
                 self._MAX_DANGEROUS_COMMAND_RETRIES,
             )
 
+        # Cancellation gate: ensure session is not cancelled before tool call retry
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
         # Execute retry request
         try:
             retry_response = await self._backend_processor.process_backend_request(
@@ -573,6 +590,11 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
                 new_retry_count,
                 self._MAX_DANGEROUS_COMMAND_RETRIES,
             )
+
+        # Cancellation gate: ensure session is not cancelled before tool call retry
+        session_key = resolve_session_key_from_request_context(context)
+        if self._cancellation_coordinator is not None and session_key is not None:
+            self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
         # Execute retry request
         try:

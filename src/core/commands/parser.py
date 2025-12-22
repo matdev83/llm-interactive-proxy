@@ -57,11 +57,26 @@ class CommandParser:
             pass
 
     def _compile_pattern(self, prefix: str | None = None) -> re.Pattern:
-        """Compile the regex pattern for command parsing using the given prefix."""
-        escaped_prefix = re.escape(
-            prefix if prefix is not None else self.command_prefix
+        """Compile regex pattern for command parsing using given prefix."""
+        prefix_str = prefix if prefix is not None else self.command_prefix
+
+        # Check cache first to avoid recompiling same patterns
+        if prefix_str in self._pattern_cache:
+            return self._pattern_cache[prefix_str]
+
+        escaped_prefix = re.escape(prefix_str)
+        pattern = re.compile(
+            rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?"
         )
-        return re.compile(rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?")
+
+        # Cache the compiled pattern (with size limit to prevent memory leaks)
+        if len(self._pattern_cache) >= 100:  # Reasonable limit
+            # Remove oldest entry (simple FIFO)
+            oldest_key = next(iter(self._pattern_cache))
+            del self._pattern_cache[oldest_key]
+
+        self._pattern_cache[prefix_str] = pattern
+        return pattern
 
     def parse(
         self, content: str, command_prefix: str | None = None

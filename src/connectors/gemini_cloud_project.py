@@ -78,6 +78,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -1067,6 +1068,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         openrouter_api_base_url: str | None = None,
         openrouter_headers_provider: Any = None,
         key_name: str | None = None,
@@ -1076,6 +1081,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         """Handle chat completions using Google Code Assist API with user's GCP project."""
         # Runtime validation with descriptive errors
         if not await self._refresh_token_if_needed():

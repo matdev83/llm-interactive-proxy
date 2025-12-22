@@ -14,10 +14,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.domain.client_termination import (
+    ClientEndOfSessionSignal,
+    ClientTerminationReason,
+)
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.responses_api import (
     ResponsesRequest,
     enforce_json_schema_limits,
+)
+from src.core.interfaces.client_end_of_session_service_interface import (
+    IClientEndOfSessionService,
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -34,6 +41,9 @@ from src.core.transport.fastapi.request_adapters import (
     fastapi_to_domain_request_context,
 )
 from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +58,15 @@ class ResponsesController:
         request_processor: IRequestProcessor,
         translation_service: ITranslationService | None = None,
         wire_capture: IWireCapture | None = None,
+        client_eos_service: IClientEndOfSessionService | None = None,
     ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
+            translation_service: Translation service for request conversion
+            wire_capture: Optional wire capture service
+            client_eos_service: Optional client end-of-session service for termination reporting
         """
         self._processor = request_processor
         if translation_service is None:
@@ -62,6 +76,7 @@ class ResponsesController:
 
         self._translation_service = translation_service
         self._wire_capture = wire_capture
+        self._client_eos_service = client_eos_service
 
     async def handle_responses_request(
         self,
@@ -490,6 +505,9 @@ class ResponsesController:
             domain_request=cast(CanonicalChatRequest, domain_request),
         )
 
+        # Set request_id on context for SessionKey resolution (Requirement 1.6)
+        ctx.request_id = request_id
+
         # Set protocol identifier for normalization (Requirement 1.10)
         if ctx.extensions is None:
             ctx.extensions = {}
@@ -600,6 +618,7 @@ class ResponsesController:
             import contextlib
             import json
             import time
+            from datetime import datetime, timezone
 
             response_id = f"resp_{int(time.time())}_{id(response)}"
             created_timestamp = int(time.time())
@@ -608,6 +627,65 @@ class ResponsesController:
 
             cancel_lock = asyncio.Lock()
             cancel_state = {"called": False}
+            termination_reported = {"reported": False}
+
+            async def report_client_termination(
+                termination_reason: ClientTerminationReason,
+            ) -> None:
+                """Report client termination in shielded context.
+
+                This function ensures termination reporting executes even if
+                the request task is cancelled (Requirement 3.6, 3.8).
+                """
+                # Requirement 1.6: Only report if session context is available
+                if context is None:
+                    return
+
+                session_key = resolve_session_key_from_request_context(context)
+                if session_key is None:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Cannot report client termination: session_key cannot be resolved",
+                            extra={"request_id": request_id},
+                        )
+                    return
+
+                # Deduplicate: only report once per stream
+                async with cancel_lock:
+                    if termination_reported["reported"]:
+                        return
+                    termination_reported["reported"] = True
+
+                # Shield termination reporting to ensure it executes even if task is cancelled
+                if self._client_eos_service is not None:
+                    try:
+                        signal = ClientEndOfSessionSignal(
+                            session_key=session_key,
+                            observed_at=datetime.now(timezone.utc),
+                            reason=termination_reason,
+                            details=f"HTTP streaming disconnect detected - request_id={request_id}",
+                        )
+                        # Use asyncio.shield to ensure this executes even if generator is cancelled
+                        await asyncio.shield(
+                            self._client_eos_service.report_client_termination(signal)
+                        )
+                    except Exception as exc:
+                        # Fail-open: log but don't raise - termination reporting is best-effort
+                        # Design.md line 445: Log with high-visibility error code
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to report client termination for streaming disconnect: %s",
+                                exc,
+                                exc_info=True,
+                                extra={
+                                    "request_id": request_id,
+                                    "session_key": {
+                                        "protocol": session_key.protocol,
+                                        "primary_id": session_key.primary_id,
+                                    },
+                                    "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                                },
+                            )
 
             async def trigger_cancel(reason: str) -> None:
                 # Set cancel_reason in RequestContext for normalization (Requirement 3.5, 3.6)
@@ -684,6 +762,11 @@ class ResponsesController:
                 async for chunk in chunk_iterator:
                     if await is_disconnected():
                         stream_terminated = True
+                        # Report client termination before triggering cancellation
+                        # (Requirement 1.1, 3.6: detect and report disconnect)
+                        await report_client_termination(
+                            ClientTerminationReason.CLIENT_DISCONNECTED
+                        )
                         await trigger_cancel("client_disconnect")
                         break
 
@@ -845,8 +928,53 @@ class ResponsesController:
                     yield f"data: {json.dumps(final_chunk)}\n\n"
                     yield "data: [DONE]\n\n"
 
+            except GeneratorExit:
+                # Client disconnected during streaming (Requirement 1.1, 3.6)
+                stream_terminated = True
+                # Report termination in shielded context (Requirement 3.8)
+                try:
+                    await asyncio.shield(
+                        report_client_termination(
+                            ClientTerminationReason.CLIENT_DISCONNECTED
+                        )
+                    )
+                except Exception as exc:
+                    # Fail-open: log but continue with cleanup
+                    # Design.md line 445: Log with high-visibility error code
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to report client termination in GeneratorExit handler: %s",
+                            exc,
+                            exc_info=True,
+                            extra={
+                                "request_id": request_id,
+                                "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                            },
+                        )
+                await trigger_cancel("client_disconnect")
+                raise
             except asyncio.CancelledError:
                 stream_terminated = True
+                # Report cancellation as client termination (Requirement 1.2, 3.8)
+                try:
+                    await asyncio.shield(
+                        report_client_termination(
+                            ClientTerminationReason.CLIENT_CANCELLED
+                        )
+                    )
+                except Exception as exc:
+                    # Fail-open: log but continue with cleanup
+                    # Design.md line 445: Log with high-visibility error code
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to report client termination in CancelledError handler: %s",
+                            exc,
+                            exc_info=True,
+                            extra={
+                                "request_id": request_id,
+                                "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                            },
+                        )
                 await trigger_cancel("stream_cancelled")
                 raise
             except Exception:
@@ -854,6 +982,29 @@ class ResponsesController:
                     await trigger_cancel("stream_error")
                 raise
             finally:
+                # Ensure termination is reported even if stream ends abnormally
+                # (defensive fallback for edge cases)
+                if stream_terminated and not termination_reported["reported"]:
+                    try:
+                        await asyncio.shield(
+                            report_client_termination(
+                                ClientTerminationReason.CLIENT_DISCONNECTED
+                            )
+                        )
+                    except Exception as exc:
+                        # Fail-open: best-effort reporting
+                        # Design.md line 445: Log with high-visibility error code
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to report client termination in finally block: %s",
+                                exc,
+                                exc_info=True,
+                                extra={
+                                    "request_id": request_id,
+                                    "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                                },
+                            )
+
                 if cancel_state["called"]:
                     close_method = getattr(response.content, "aclose", None)
                     if callable(close_method):
@@ -1177,10 +1328,22 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         with contextlib.suppress(Exception):
             wire_capture = service_provider.get_service(cast(type, IWireCapture))
 
+        # Optional: client end-of-session service for termination reporting
+        client_eos_service = None
+        with contextlib.suppress(Exception):
+            from src.core.interfaces.client_end_of_session_service_interface import (
+                IClientEndOfSessionService,
+            )
+
+            client_eos_service = service_provider.get_service(
+                cast(type, IClientEndOfSessionService)
+            )
+
         return ResponsesController(
             request_processor,
             translation_service=translation_service,
             wire_capture=wire_capture,
+            client_eos_service=client_eos_service,
         )
     except Exception as e:
         raise InitializationError(f"Failed to create ResponsesController: {e}") from e

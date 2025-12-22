@@ -41,18 +41,23 @@ class ToolCallReactorService(IToolCallReactor):
     _SNAPSHOT_REASON_DEPTH = "depth_exceeded"
     _SNAPSHOT_REASON_ERROR = "snapshot_failed"
 
-    def __init__(self, history_tracker: IToolCallHistoryTracker | None = None) -> None:
+    def __init__(
+        self,
+        history_tracker: IToolCallHistoryTracker | None = None,
+        session_alias_ttl_seconds: int = 3600,
+        max_session_aliases: int = 10000,
+    ) -> None:
         """Initialize the tool call reactor service.
 
         Args:
             history_tracker: Optional history tracker for tracking tool calls.
+            session_alias_ttl_seconds: TTL for session aliases (default: 1 hour)
+            max_session_aliases: Maximum number of session aliases to track (default: 10000)
         """
         self._handlers: dict[str, IToolCallHandler] = {}
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
         self._sorted_handlers: tuple[IToolCallHandler, ...] | None = None
-        self._session_aliases: dict[str, str] = {}
-
         # Telemetry counters for tool access control
         self._tool_definitions_filtered_count: int = 0
         self._tool_calls_blocked_count: int = 0
@@ -62,6 +67,11 @@ class ToolCallReactorService(IToolCallReactor):
             "recovered": 0,
             "failed": 0,
         }
+        # Session alias tracking with TTL-based cleanup to prevent memory leaks
+        self._session_aliases: dict[str, str] = {}
+        self._session_aliases_last_access: dict[str, datetime] = {}
+        self._session_alias_ttl_seconds = session_alias_ttl_seconds
+        self._max_session_aliases = max_session_aliases
 
     def _invalidate_sorted_handlers(self) -> None:
         """Invalidate cached handler ordering."""
@@ -161,9 +171,19 @@ class ToolCallReactorService(IToolCallReactor):
         if raw_session_id:
             # If session ID is provided, use it directly (or alias it if needed)
             alias_key = raw_session_id
-            if alias_key not in self._session_aliases:
-                self._session_aliases[alias_key] = str(raw_session_id)
-            resolved_session_id = self._session_aliases[alias_key]
+            async with self._lock:
+                # Cleanup expired session aliases periodically (before adding new entry)
+                await self._cleanup_expired_session_aliases_locked()
+
+                if alias_key not in self._session_aliases:
+                    self._session_aliases[alias_key] = str(raw_session_id)
+                self._session_aliases_last_access[alias_key] = datetime.now(
+                    timezone.utc
+                )
+                resolved_session_id = self._session_aliases[alias_key]
+
+                # Cleanup again after adding to ensure we don't exceed max limit
+                await self._cleanup_expired_session_aliases_locked()
         else:
             # If no session ID, generate a unique one for this specific call context
             # This prevents history mixing between unrelated session-less calls
@@ -403,6 +423,35 @@ class ToolCallReactorService(IToolCallReactor):
 
         # If we get here, the arguments are safe and within size limits
         return deep_copied
+
+    async def _cleanup_expired_session_aliases_locked(self) -> None:
+        """Remove expired session aliases to prevent unbounded memory growth.
+
+        Must be called while holding self._lock.
+        """
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self._session_alias_ttl_seconds)
+
+        # Find and remove expired session aliases
+        expired = [
+            alias_key
+            for alias_key, last_access in self._session_aliases_last_access.items()
+            if last_access < cutoff
+        ]
+        for alias_key in expired:
+            self._session_aliases.pop(alias_key, None)
+            self._session_aliases_last_access.pop(alias_key, None)
+
+        # Enforce max session aliases limit (remove oldest first)
+        if len(self._session_aliases) > self._max_session_aliases:
+            sorted_aliases = sorted(
+                self._session_aliases_last_access.items(),
+                key=lambda x: x[1],
+            )
+            to_remove = len(self._session_aliases) - self._max_session_aliases
+            for alias_key, _ in sorted_aliases[:to_remove]:
+                self._session_aliases.pop(alias_key, None)
+                self._session_aliases_last_access.pop(alias_key, None)
 
     @classmethod
     def _detect_excessive_depth(cls, value: Any, limit: int = 512) -> bool:

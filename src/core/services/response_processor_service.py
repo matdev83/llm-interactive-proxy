@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -11,6 +12,7 @@ from src.core.common.exceptions import (
     ParsingError,
 )
 from src.core.domain.chat import StreamingChatResponse
+from src.core.domain.request_context import RequestContext
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -23,6 +25,9 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.interfaces.session_cancellation_coordinator_interface import (
+    ISessionCancellationCoordinator,
+)
 from src.core.interfaces.streaming_response_processor_interface import (
     IStreamNormalizer as IProcessingStreamNormalizer,
 )
@@ -30,6 +35,9 @@ from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 from src.core.services.response_pipeline import UnifiedResponsePipeline
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +70,7 @@ class ResponseProcessor(IResponseProcessor):
         middleware_application_processor: IStreamProcessor | None = None,
         middleware_list: list[IResponseMiddleware] | None = None,
         memory_capture: MemoryCaptureMiddleware | None = None,
+        cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         self._app_state = app_state
         self._background_tasks: list[asyncio.Task[Any]] = []
@@ -69,6 +78,7 @@ class ResponseProcessor(IResponseProcessor):
         self._response_parser = response_parser
         self._middleware_list = middleware_list or []
         self._memory_capture = memory_capture
+        self._cancellation_coordinator = cancellation_coordinator
 
         # Angel feature wiring
         self._angel_service: Any | None = None
@@ -149,7 +159,7 @@ class ResponseProcessor(IResponseProcessor):
         self._unified_pipeline = UnifiedResponsePipeline(self._stream_normalizer)
 
     async def _apply_angel_verification(
-        self, original_request: Any, content: Any
+        self, original_request: Any, content: Any, context: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
         """Apply Angel verification and optionally correction.
 
@@ -204,6 +214,19 @@ class ResponseProcessor(IResponseProcessor):
                 original_request, content
             )
 
+            # Resolve RequestContext from context dict for cancellation gate
+            request_context: RequestContext | None = None
+            if context and isinstance(context, dict):
+                request_context = context.get("request_context")
+                if not isinstance(request_context, RequestContext):
+                    request_context = None
+
+            # Cancellation gate: ensure session is not cancelled before Angel verification backend call
+            if self._cancellation_coordinator and request_context:
+                session_key = resolve_session_key_from_request_context(request_context)
+                if session_key:
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
             provider = get_service_provider()
             backend_service: IBackendService = provider.get_required_service(
                 cast(type, IBackendService)
@@ -223,7 +246,10 @@ class ResponseProcessor(IResponseProcessor):
                 return str(value)
 
             angel_response = await backend_service.chat_completions(
-                verification_request, stream=False, allow_failover=True, context=None
+                verification_request,
+                stream=False,
+                allow_failover=True,
+                context=request_context,
             )
             angel_text = _extract_text(angel_response)
 
@@ -239,8 +265,17 @@ class ResponseProcessor(IResponseProcessor):
                 original_request, content, steering_msg
             )
 
+            # Cancellation gate: ensure session is not cancelled before Angel correction backend call
+            if self._cancellation_coordinator and request_context:
+                session_key = resolve_session_key_from_request_context(request_context)
+                if session_key:
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
             corrected_response = await backend_service.chat_completions(
-                correction_request, stream=False, allow_failover=True, context=None
+                correction_request,
+                stream=False,
+                allow_failover=True,
+                context=request_context,
             )
             corrected_text = _extract_text(corrected_response)
 
@@ -255,8 +290,35 @@ class ResponseProcessor(IResponseProcessor):
             return None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
-        """Add a background task to be managed by the processor."""
+        """Add a background task to be managed by the processor.
+
+        Completed tasks are automatically removed to prevent memory leaks.
+        """
+        # Clean up completed tasks before adding new one (lazy cleanup)
+        self._cleanup_completed_tasks()
+
+        # Add task and register callback to remove it when done
         self._background_tasks.append(task)
+        task.add_done_callback(self._remove_completed_task)
+
+    def _remove_completed_task(self, task: asyncio.Task[Any]) -> None:
+        """Remove a completed task from the background tasks list.
+
+        This callback is registered on each task to prevent memory leaks.
+        """
+        with contextlib.suppress(ValueError):
+            # Task already removed (shouldn't happen, but safe to ignore)
+            self._background_tasks.remove(task)
+
+    def _cleanup_completed_tasks(self) -> None:
+        """Remove all completed tasks from the background tasks list.
+
+        This prevents unbounded memory growth from accumulating completed tasks.
+        """
+        # Remove completed tasks in reverse order to avoid index shifting issues
+        for i in range(len(self._background_tasks) - 1, -1, -1):
+            if self._background_tasks[i].done():
+                self._background_tasks.pop(i)
 
     async def register_middleware(
         self, middleware: IResponseMiddleware, priority: int = 0
@@ -338,7 +400,7 @@ class ResponseProcessor(IResponseProcessor):
                 # Only run when angel is configured in session
                 if original_request is not None:
                     decision = await self._apply_angel_verification(
-                        original_request, processed_response.content or ""
+                        original_request, processed_response.content or "", context
                     )
                     if decision and decision.get("action") == "steer":
                         corrected = decision.get("corrected_content", "")

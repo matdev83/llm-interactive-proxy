@@ -1,6 +1,7 @@
 """Unit tests for OpenAI Codex compatibility layer telemetry."""
 
 from src.connectors._openai_codex_telemetry import (
+    DEFAULT_DURATION_SAMPLE_LIMIT,
     CompatibilityTelemetry,
     DetectionMetrics,
     ErrorMetrics,
@@ -26,6 +27,14 @@ class TestDetectionMetrics:
         assert metrics.cache_misses == 1
         assert metrics.total_duration_ms == 2.5
         assert len(metrics.detection_durations) == 1
+
+    def test_detection_durations_are_bounded(self):
+        """Duration samples should be bounded to prevent unbounded memory growth."""
+        metrics = DetectionMetrics()
+        for _ in range(DEFAULT_DURATION_SAMPLE_LIMIT + 10):
+            metrics.record_detection("metadata", 1.0, is_cached=False)
+
+        assert len(metrics.detection_durations) == DEFAULT_DURATION_SAMPLE_LIMIT
 
     def test_record_detection_header(self):
         """Test recording a header-based detection."""
@@ -105,6 +114,17 @@ class TestTranslationMetrics:
         assert metrics.total_duration_ms == 1.5
         assert metrics.translations_by_tool["read_file"] == 1
         assert len(metrics.durations_by_tool["read_file"]) == 1
+
+    def test_translation_durations_are_bounded(self):
+        """Duration samples should be bounded to prevent unbounded memory growth."""
+        metrics = TranslationMetrics()
+        for _ in range(DEFAULT_DURATION_SAMPLE_LIMIT + 10):
+            metrics.record_translation("read_file", 1.0, success=True)
+
+        assert len(metrics.translation_durations) == DEFAULT_DURATION_SAMPLE_LIMIT
+        assert (
+            len(metrics.durations_by_tool["read_file"]) == DEFAULT_DURATION_SAMPLE_LIMIT
+        )
 
     def test_record_translation_failure(self):
         """Test recording a failed translation."""

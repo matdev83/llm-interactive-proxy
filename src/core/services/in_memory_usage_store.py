@@ -67,8 +67,15 @@ class InMemoryUsageStore:
             record: Usage record to add
         """
         with self._lock:
-            self._records[record.id] = record
-            self._dirty = True
+            # Enforce max records limit (FIFO eviction)
+            while len(self._records) >= self._max_records and self._records:
+                # Remove oldest inserted item
+                oldest_id = next(iter(self._records))
+                del self._records[oldest_id]
+
+            if len(self._records) < self._max_records:
+                self._records[record.id] = record
+                self._dirty = True
 
     def get_records(self, filters: StatisticsFilter | None = None) -> list[UsageRecord]:
         """Get usage records matching the filter (thread-safe).
@@ -228,6 +235,14 @@ class InMemoryUsageStore:
 
                 # Load records
                 records_data = persistence_data.get("records", [])
+
+                # Respect memory limit by taking only the most recent records
+                if len(records_data) > self._max_records:
+                    logger.info(
+                        f"Truncating loaded records from {len(records_data)} to {self._max_records} limit"
+                    )
+                    records_data = records_data[-self._max_records :]
+
                 loaded_count = 0
 
                 for record_data in records_data:

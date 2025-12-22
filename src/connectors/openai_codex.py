@@ -75,6 +75,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 from src.core.services.tool_text_renderer import OverrideRenderer
@@ -1674,8 +1675,15 @@ class OpenAICodexConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: (
+            Any | None
+        ) = None,  # ISessionCancellationCoordinator | None
         **kwargs: Any,
     ):
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
         uri_params: dict[str, Any] = {}
         model_for_parsing = effective_model
         if ":" in model_for_parsing and not model_for_parsing.startswith("openai/"):
