@@ -149,6 +149,11 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--strict-command-detection` | `STRICT_COMMAND_DETECTION` | Require commands to be at the start of messages. |
 | `--enable-sandboxing` | `ENABLE_SANDBOXING=true` | Restrict file operations to the project directory. |
 | `--daemon` | N/A | Run server as a daemon (background process). |
+| `--enable-end-of-session` | N/A | Enable end-of-session detection and event emission. |
+| `--disable-end-of-session` | N/A | Disable end-of-session detection and event emission. |
+| `--end-of-session-emit-events` | N/A | Enable event emission (default when EoS is enabled). |
+| `--end-of-session-detect-only` | N/A | Enable detect-only mode (no events emitted). |
+| `--end-of-session-dispatch-timeout SECONDS` | N/A | Maximum time to wait for event dispatch (default: 5.0, 0 for fire-and-forget). |
 | N/A | `SESSION_CLEANUP_ENABLED` | Enable session cleanup (boolean). |
 | N/A | `SESSION_CLEANUP_INTERVAL` | Cleanup interval in seconds. |
 | N/A | `SESSION_MAX_AGE` | Max session age in seconds. |

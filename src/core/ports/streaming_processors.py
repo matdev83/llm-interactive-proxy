@@ -106,14 +106,15 @@ class LoopDetectionProcessor(IStreamProcessor):
         # Check for loops
         loop_event = self._detector.process_chunk(text_content)
         if loop_event:
-            self._logger.warning(
-                "Content loop detected in stream",
-                extra={
-                    "stream_id": content.stream_id,
-                    "pattern_length": loop_event.pattern_length,
-                    "repetitions": loop_event.repetition_count,
-                },
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Content loop detected in stream",
+                    extra={
+                        "stream_id": content.stream_id,
+                        "pattern_length": loop_event.pattern_length,
+                        "repetitions": loop_event.repetition_count,
+                    },
+                )
             # Add loop detection metadata to the chunk
             content.metadata["loop_detected"] = True
             content.metadata["loop_pattern_length"] = loop_event.pattern_length
@@ -128,7 +129,8 @@ class LoopDetectionProcessor(IStreamProcessor):
     def reset(self) -> None:
         """Reset loop detection state for new stream."""
         self._detector.reset()
-        self._logger.debug("Loop detection processor state reset")
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Loop detection processor state reset")
 
     def _extract_text_content(self, content: str | dict | bytes) -> str:
         """Extract text content for loop detection.
@@ -240,12 +242,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
             )
 
             if should_block:
-                self._logger.warning(
-                    f"Tool call loop detected in session {session_id}: "
-                    f"tool={tool_name}, repeats={repeat_count}/{tracker.config.max_repeats}, "
-                    f"window={tracker.config.ttl_seconds}s, "
-                    f"mode={tracker.config.mode.value}"
-                )
+                if self._logger.isEnabledFor(logging.WARNING):
+                    self._logger.warning(
+                        f"Tool call loop detected in session {session_id}: "
+                        f"tool={tool_name}, repeats={repeat_count}/{tracker.config.max_repeats}, "
+                        f"window={tracker.config.ttl_seconds}s, "
+                        f"mode={tracker.config.mode.value}"
+                    )
 
                 # Raise an error to stop the response
                 raise ToolCallLoopError(
@@ -266,7 +269,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
         """Reset tool call tracking state for new stream."""
         self._session_trackers.clear()
         self._session_order.clear()
-        self._logger.debug("Tool call repair processor state reset")
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Tool call repair processor state reset")
 
     def _get_config_from_metadata(
         self, metadata: dict[str, Any]
@@ -291,9 +295,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
             try:
                 return LoopDetectionConfiguration(**config_data)
             except Exception as e:
-                self._logger.warning(
-                    f"Failed to construct LoopDetectionConfiguration: {e}"
-                )
+                if self._logger.isEnabledFor(logging.WARNING):
+                    self._logger.warning(
+                        f"Failed to construct LoopDetectionConfiguration: {e}"
+                    )
                 return None
 
         return None
@@ -354,10 +359,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
             try:
                 return ToolLoopMode(normalized)
             except ValueError:
-                self._logger.warning(
-                    "Invalid tool loop mode '%s' provided; falling back to break mode.",
-                    mode_value,
-                )
+                if self._logger.isEnabledFor(logging.WARNING):
+                    self._logger.warning(
+                        "Invalid tool loop mode '%s' provided; falling back to break mode.",
+                        mode_value,
+                    )
 
         return ToolLoopMode.BREAK
 
@@ -390,10 +396,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
             if self._session_order:
                 evicted_session_id = self._session_order.pop(0)
                 self._session_trackers.pop(evicted_session_id, None)
-                self._logger.debug(
-                    "Evicted tool call tracker for session %s due to cache limit",
-                    evicted_session_id,
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Evicted tool call tracker for session %s due to cache limit",
+                        evicted_session_id,
+                    )
 
 
 class ThinkTagsProcessor(IStreamProcessor):
@@ -500,7 +507,8 @@ class ThinkTagsProcessor(IStreamProcessor):
         self._reasoning_extracted.clear()
         self._stream_states.clear()
         self._last_access.clear()
-        self._logger.debug("Think tags processor state reset")
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Think tags processor state reset")
 
     def _extract_text_content(self, content: str | dict | bytes) -> str:
         """Extract text content for processing.
@@ -551,9 +559,11 @@ class ThinkTagsProcessor(IStreamProcessor):
 
         # Check for buffer overflow before processing
         if len(new_buffer) > self._streaming_buffer_size:
-            self._logger.warning(
-                "Streaming buffer overflow for session %s, processing as-is", session_id
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Streaming buffer overflow for session %s, processing as-is",
+                    session_id,
+                )
             result = self._fix_think_tags(new_buffer)
             self._cleanup_session_state(session_id)
             return result
@@ -563,9 +573,10 @@ class ThinkTagsProcessor(IStreamProcessor):
             if _THINK_OPENING_PATTERN.search(new_buffer):
                 self._stream_states[session_id] = "in_think"
                 self._streaming_buffers[session_id] = new_buffer
-                self._logger.debug(
-                    "Started think tag detection for session %s", session_id
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Started think tag detection for session %s", session_id
+                    )
                 if _THINK_CLOSING_PATTERN.search(new_buffer):
                     result_content, reasoning_content = self._fix_think_tags(new_buffer)
                     self._stream_states[session_id] = "post_think"
@@ -626,9 +637,10 @@ class ThinkTagsProcessor(IStreamProcessor):
                 if reasoning_content.endswith("</think>"):
                     reasoning_content = reasoning_content[:-8].strip()
 
-                self._logger.info(
-                    "Fixed incomplete think tags - treating as pure reasoning"
-                )
+                if self._logger.isEnabledFor(logging.INFO):
+                    self._logger.info(
+                        "Fixed incomplete think tags - treating as pure reasoning"
+                    )
                 # Return empty content since this was all reasoning
                 return "", reasoning_content
             return content, None
@@ -645,11 +657,12 @@ class ThinkTagsProcessor(IStreamProcessor):
             else f"{leading_space}{middle_space}"
         )
 
-        self._logger.info(
-            "Fixed improperly formatted think tags - extracted %d chars of reasoning, %d chars of content",
-            len(reasoning_content),
-            len(response_content),
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(
+                "Fixed improperly formatted think tags - extracted %d chars of reasoning, %d chars of content",
+                len(reasoning_content),
+                len(response_content),
+            )
 
         return response_content, reasoning_content
 

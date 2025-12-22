@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of active requests to prevent unbounded memory growth
+# This prevents memory leaks when requests complete but aren't cleaned up
+_MAX_ACTIVE_REQUESTS = 1000
+
 
 class PromptHandler:
     """Handles prompt actions (LLM requests) from Codebuff clients.
@@ -54,6 +58,7 @@ class PromptHandler:
         self._format_converter = format_converter
         self._connection_manager = connection_manager
         self._active_requests: dict[str, asyncio.Task] = {}
+        self._lock = asyncio.Lock()
         logger.info("PromptHandler initialized")
 
     async def handle_prompt(
@@ -119,7 +124,8 @@ class PromptHandler:
             model = action.model or "gpt-4"
 
             # Route to backend and stream response
-            await self._stream_response(
+            # Wrap in task for cancellation support and proper cleanup
+            await self._stream_response_with_tracking(
                 websocket=websocket,
                 prompt_id=action.promptId,
                 messages=openai_messages,
@@ -181,6 +187,76 @@ class PromptHandler:
             action.promptId,
         )
         return messages
+
+    async def _stream_response_with_tracking(
+        self,
+        websocket: WebSocket,
+        prompt_id: str,
+        messages: list[dict[str, Any]],
+        model: str,
+        session_state: dict[str, Any],
+    ) -> None:
+        """Stream LLM response with task tracking for cancellation support.
+
+        This method wraps _stream_response in a task and ensures proper cleanup
+        to prevent memory leaks from accumulating completed tasks.
+
+        Args:
+            websocket: The WebSocket connection to send responses to
+            prompt_id: ID of the prompt being responded to
+            messages: OpenAI-formatted messages
+            model: Model name to use
+            session_state: Current session state
+
+        Raises:
+            CodebuffError: If streaming fails
+        """
+
+        async def _stream_task() -> None:
+            """Wrapper task that ensures cleanup on completion."""
+            try:
+                await self._stream_response(
+                    websocket=websocket,
+                    prompt_id=prompt_id,
+                    messages=messages,
+                    model=model,
+                    session_state=session_state,
+                )
+            finally:
+                # Always cleanup on completion (success or failure)
+                async with self._lock:
+                    self._active_requests.pop(prompt_id, None)
+                    # Cleanup completed tasks periodically
+                    await self._cleanup_completed_requests_locked()
+
+        # Create and track task
+        task = asyncio.create_task(_stream_task())
+
+        async with self._lock:
+            # Check if we need to cleanup before adding new task
+            if len(self._active_requests) >= _MAX_ACTIVE_REQUESTS:
+                await self._cleanup_completed_requests_locked()
+                # If still at limit, cancel oldest request
+                if len(self._active_requests) >= _MAX_ACTIVE_REQUESTS:
+                    oldest_id = next(iter(self._active_requests))
+                    oldest_task = self._active_requests.get(oldest_id)
+                    if oldest_task:
+                        logger.warning(
+                            "Max active requests (%d) reached, cancelling oldest request %s",
+                            _MAX_ACTIVE_REQUESTS,
+                            oldest_id,
+                        )
+                        oldest_task.cancel()
+                        # Don't delete here - let the task's finally block handle cleanup
+                        # This ensures consistent cleanup path
+
+            self._active_requests[prompt_id] = task
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            # Task was cancelled - cleanup already handled in finally block
+            raise
 
     async def _stream_response(
         self,
@@ -414,10 +490,34 @@ class PromptHandler:
         Args:
             prompt_id: ID of the prompt to cancel
         """
-        task = self._active_requests.get(prompt_id)
-        if task:
-            logger.info("Cancelling request for prompt %s", prompt_id)
-            task.cancel()
-            del self._active_requests[prompt_id]
-        else:
-            logger.warning("Attempted to cancel unknown request: %s", prompt_id)
+        async with self._lock:
+            task = self._active_requests.get(prompt_id)
+            if task:
+                logger.info("Cancelling request for prompt %s", prompt_id)
+                task.cancel()
+                # Remove immediately on cancellation
+                # The task's finally block will handle cleanup gracefully (no-op if already removed)
+                self._active_requests.pop(prompt_id, None)
+            else:
+                logger.warning("Attempted to cancel unknown request: %s", prompt_id)
+
+    async def _cleanup_completed_requests_locked(self) -> None:
+        """Remove completed tasks from active requests to prevent memory leaks.
+
+        Must be called with lock held.
+        """
+        completed = [
+            prompt_id
+            for prompt_id, task in self._active_requests.items()
+            if task.done()
+        ]
+
+        for prompt_id in completed:
+            self._active_requests.pop(prompt_id, None)
+
+        if completed and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cleaned up %d completed requests (remaining: %d)",
+                len(completed),
+                len(self._active_requests),
+            )

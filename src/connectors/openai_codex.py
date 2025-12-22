@@ -1795,6 +1795,100 @@ class OpenAICodexConnector(OpenAIConnector):
                 self._degrade([f"Authentication failed: {exc!s}"])
             raise
 
+    async def _handle_non_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        """Override to ensure compatibility state cleanup for non-streaming responses."""
+        compatibility_state = None
+
+        # Extract compatibility state from payload's executor metadata
+        # This was added in _call_codex_responses_api before calling this method
+        if isinstance(payload, dict):
+            metadata = payload.get("metadata", {})
+            if isinstance(metadata, dict):
+                compatibility_state = metadata.get("compatibility_state")
+
+        try:
+            # Call parent implementation
+            result = await super()._handle_non_streaming_response(
+                url, payload, headers, session_id
+            )
+
+            # Clean up compatibility state to prevent memory leaks
+            if self._compatibility_layer and compatibility_state:
+                try:
+                    await self._compatibility_layer.cleanup_state(compatibility_state)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to cleanup compatibility state for non-streaming response: %s",
+                        exc,
+                    )
+
+            return result
+
+        except Exception:
+            # Ensure cleanup even if parent fails
+            if self._compatibility_layer and compatibility_state:
+                try:
+                    await self._compatibility_layer.cleanup_state(compatibility_state)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to cleanup compatibility state during error handling: %s",
+                        exc,
+                    )
+            raise
+
+    async def _handle_non_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        """Override to ensure compatibility state cleanup for non-streaming responses."""
+        compatibility_state = None
+
+        # Extract compatibility state from payload's executor metadata
+        # This was added in _call_codex_responses_api before calling this method
+        if isinstance(payload, dict):
+            metadata = payload.get("metadata", {})
+            if isinstance(metadata, dict):
+                compatibility_state = metadata.get("compatibility_state")
+
+        try:
+            # Call parent implementation
+            result = await super()._handle_non_streaming_response(
+                url, payload, headers, session_id
+            )
+
+            # Clean up compatibility state to prevent memory leaks
+            if self._compatibility_layer and compatibility_state:
+                try:
+                    await self._compatibility_layer.cleanup_state(compatibility_state)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to cleanup compatibility state for non-streaming response: %s",
+                        exc,
+                    )
+
+            return result
+
+        except Exception:
+            # Ensure cleanup even if parent fails
+            if self._compatibility_layer and compatibility_state:
+                try:
+                    await self._compatibility_layer.cleanup_state(compatibility_state)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to cleanup compatibility state during error handling: %s",
+                        exc,
+                    )
+            raise
+
     def get_available_models(self) -> list[str]:
         return [
             add_vendor_prefix(m, OPENAI_VENDOR_PREFIX)

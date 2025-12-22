@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from cachetools import TTLCache
+
 from src.core.interfaces.tool_call_reactor_interface import (
     IToolCallHandler,
     ToolCallContext,
@@ -41,7 +43,11 @@ class ToolAccessControlHandler(IToolCallHandler):
         self._reactor_service = reactor_service
 
         # Track sessions that have seen their first blocked tool call
-        self._sessions_with_blocked_tools: set[str] = set()
+        # Use TTLCache to prevent unbounded memory growth when sessions never cleanup
+        # TTL: 1 hour, Max size: 10,000 sessions
+        self._sessions_with_blocked_tools: TTLCache[str, bool] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     @property
     def name(self) -> str:
@@ -121,7 +127,7 @@ class ToolAccessControlHandler(IToolCallHandler):
             # Check if this is the first blocked tool call in this session
             is_first_block = context.session_id not in self._sessions_with_blocked_tools
             if is_first_block:
-                self._sessions_with_blocked_tools.add(context.session_id)
+                self._sessions_with_blocked_tools[context.session_id] = True
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         f"First blocked tool call in session {context.session_id}: '{tool_name}' "

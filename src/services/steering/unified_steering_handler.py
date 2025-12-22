@@ -212,7 +212,12 @@ class UnifiedSteeringHandler(IToolCallHandler):
             log_data["severity"] = result.severity
             log_data["should_block"] = result.should_block
 
-            if emit_legacy_log and result.should_block and matched_policy:
+            if (
+                emit_legacy_log
+                and result.should_block
+                and matched_policy
+                and logger.isEnabledFor(logging.INFO)
+            ):
                 # Emit legacy-formatted log for compatibility
                 logger.info(
                     "Steering via rule '%s' for tool '%s' in session %s",
@@ -221,7 +226,8 @@ class UnifiedSteeringHandler(IToolCallHandler):
                     context.session_id,
                 )
 
-        logger.info("Unified steering evaluation: %s", log_data)
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Unified steering evaluation: %s", log_data)
 
 
 __all__ = ["UnifiedSteeringHandler"]

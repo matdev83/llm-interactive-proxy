@@ -159,7 +159,7 @@ class LLMBackend(abc.ABC, IHealthAware):
         self._endpoint_healthy = True
         self._last_health_change_reason = None
 
-        if not previous_state:
+        if not previous_state and logger.isEnabledFor(logging.WARNING):
             # State transition: unhealthy -> healthy
             logger.warning(
                 "Backend %s: endpoint %s health recovered",
@@ -198,7 +198,7 @@ class LLMBackend(abc.ABC, IHealthAware):
         self._endpoint_healthy = False
         self._last_health_change_reason = reason
 
-        if previous_state:
+        if previous_state and logger.isEnabledFor(logging.WARNING):
             # State transition: healthy -> unhealthy
             logger.warning(
                 "Backend %s: endpoint %s health degraded: %s",

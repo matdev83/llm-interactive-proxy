@@ -53,9 +53,10 @@ class InMemoryRateLimiter(IRateLimiter):
         # TTL for limits: remove if not accessed for 24 hours
         self._limits_ttl_seconds = 24 * 3600
 
-        logger.info(
-            f"Initialized InMemoryRateLimiter with defaults: {default_limit}/{default_time_window}s"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Initialized InMemoryRateLimiter with defaults: {default_limit}/{default_time_window}s"
+            )
 
     async def check_limit(self, key: str) -> RateLimitInfo:
         """Check if the given key is rate limited.
@@ -176,15 +177,32 @@ class InMemoryRateLimiter(IRateLimiter):
         # This prevents unbounded list growth when record_usage() is called frequently
         # without check_limit() being called to clean up expired timestamps
         timestamps = self._usage.get(key, [])
+        limit, time_window = self._get_limits(key)
+
         if timestamps:
-            # Get the limits for this key to determine time window
-            limit, time_window = self._get_limits(key)
             cutoff = now - time_window
             # Filter out expired timestamps to prevent unbounded growth
             timestamps = [ts for ts in timestamps if ts > cutoff]
 
-        # Add new timestamps (one for each cost unit)
-        for _ in range(cost):
+        # Cap cost to prevent unbounded timestamp list growth
+        # We should never add more timestamps than the limit allows
+        # This prevents memory leaks when cost parameter is very large
+        max_new_timestamps = max(0, limit - len(timestamps))
+        effective_cost = min(cost, max_new_timestamps)
+
+        if effective_cost < cost and logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Capped cost from %d to %d for key %s to prevent memory leak "
+                "(limit=%d, existing_timestamps=%d)",
+                cost,
+                effective_cost,
+                key,
+                limit,
+                len(timestamps),
+            )
+
+        # Add new timestamps (one for each cost unit, capped to prevent unbounded growth)
+        for _ in range(effective_cost):
             timestamps.append(now)
 
         # Update usage data (remove key if all timestamps expired)
@@ -443,7 +461,10 @@ class ConfigurableRateLimiter(IRateLimiter):
         """Apply configuration to the rate limiter."""
         rate_limits = self._config.get("rate_limits", {})
         if not isinstance(rate_limits, dict):
-            logger.warning("Rate limit configuration is not a mapping: %r", rate_limits)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Rate limit configuration is not a mapping: %r", rate_limits
+                )
             return
 
         default_limit = getattr(self._limiter, "_default_limit", 60)
@@ -452,11 +473,12 @@ class ConfigurableRateLimiter(IRateLimiter):
         applied = 0
         for key, settings in rate_limits.items():
             if not isinstance(settings, dict):
-                logger.warning(
-                    "Skipping rate limit for %s because settings are not a mapping: %r",
-                    key,
-                    settings,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Skipping rate limit for %s because settings are not a mapping: %r",
+                        key,
+                        settings,
+                    )
                 continue
 
             limit_raw = settings.get("limit", default_limit)
@@ -466,32 +488,35 @@ class ConfigurableRateLimiter(IRateLimiter):
                 limit = int(limit_raw)
                 time_window = int(window_raw)
             except (TypeError, ValueError):
-                logger.warning(
-                    "Skipping rate limit for %s due to invalid values limit=%r, time_window=%r",
-                    key,
-                    limit_raw,
-                    window_raw,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Skipping rate limit for %s due to invalid values limit=%r, time_window=%r",
+                        key,
+                        limit_raw,
+                        window_raw,
+                    )
                 continue
 
             if limit <= 0 or time_window <= 0:
-                logger.warning(
-                    "Skipping rate limit for %s because values must be positive: %s/%s",
-                    key,
-                    limit,
-                    time_window,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Skipping rate limit for %s because values must be positive: %s/%s",
+                        key,
+                        limit,
+                        time_window,
+                    )
                 continue
 
             try:
                 await self._limiter.set_limit(key, limit, time_window)
                 applied += 1
-                logger.info(
-                    "Applied configured rate limit for %s: %s requests per %ss",
-                    key,
-                    limit,
-                    time_window,
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Applied configured rate limit for %s: %s requests per %ss",
+                        key,
+                        limit,
+                        time_window,
+                    )
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.exception(
                     "Failed to apply configured rate limit for %s: %s", key, exc

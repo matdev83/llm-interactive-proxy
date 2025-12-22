@@ -12,6 +12,11 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of background tasks to prevent unbounded memory growth
+# If tasks are created faster than they complete, this limit prevents memory leaks
+# 1,000 tasks is roughly ~50-100 KB of memory (assuming ~50-100 bytes per task reference)
+_MAX_BACKGROUND_TASKS = 1_000
+
 
 class AppLifecycle:
     """Handles application lifecycle events.
@@ -48,6 +53,23 @@ class AppLifecycle:
         for i in range(len(self._background_tasks) - 1, -1, -1):
             if self._background_tasks[i].done():
                 self._background_tasks.pop(i)
+
+        # Enforce max limit to prevent unbounded growth
+        # If we're at the limit, cancel oldest tasks (FIFO eviction)
+        if len(self._background_tasks) >= _MAX_BACKGROUND_TASKS:
+            excess_count = len(self._background_tasks) - _MAX_BACKGROUND_TASKS + 1
+            for i in range(excess_count):
+                if i < len(self._background_tasks):
+                    task = self._background_tasks[i]
+                    if not task.done():
+                        task.cancel()
+                    self._background_tasks.pop(i)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Evicted %d oldest background tasks (max=%d reached)",
+                    excess_count,
+                    _MAX_BACKGROUND_TASKS,
+                )
 
     async def startup(self) -> None:
         """Perform startup tasks.
@@ -552,6 +574,28 @@ class AppLifecycle:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Health check services started")
 
+            # Start connection tracker cleanup scheduler
+            try:
+                from src.core.services.connection_tracker_cleanup_scheduler import (
+                    ConnectionTrackerCleanupScheduler,
+                )
+
+                cleanup_scheduler = provider.get_service(
+                    ConnectionTrackerCleanupScheduler
+                )
+                if cleanup_scheduler:
+                    await cleanup_scheduler.start()
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Connection tracker cleanup scheduler started")
+            except ImportError:
+                # Connection tracker cleanup not available
+                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error starting connection tracker cleanup scheduler: %s", e
+                    )
+
         except ImportError:
             # Health check services not available
             pass
@@ -627,6 +671,26 @@ class AppLifecycle:
             scheduler = provider.get_service(HealthCheckScheduler)
             if scheduler:
                 await scheduler.shutdown()
+
+            # Stop connection tracker cleanup scheduler
+            try:
+                from src.core.services.connection_tracker_cleanup_scheduler import (
+                    ConnectionTrackerCleanupScheduler,
+                )
+
+                cleanup_scheduler = provider.get_service(
+                    ConnectionTrackerCleanupScheduler
+                )
+                if cleanup_scheduler:
+                    await cleanup_scheduler.stop()
+            except ImportError:
+                # Connection tracker cleanup not available
+                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error stopping connection tracker cleanup scheduler: %s", e
+                    )
 
             # Stop backend notifier
             backend_notifier = provider.get_service(BackendHealthNotifier)

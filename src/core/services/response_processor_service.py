@@ -41,6 +41,11 @@ from src.core.transport.session_key_resolver import (
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of background tasks to prevent unbounded memory growth
+# If tasks are created faster than they complete, this limit prevents memory leaks
+# 1,000 tasks is roughly ~50-100 KB of memory (assuming ~50-100 bytes per task reference)
+_MAX_BACKGROUND_TASKS = 1_000
+
 
 class ResponseProcessor(IResponseProcessor):
     """Unified response processor for both streaming and non-streaming responses.
@@ -319,6 +324,23 @@ class ResponseProcessor(IResponseProcessor):
         for i in range(len(self._background_tasks) - 1, -1, -1):
             if self._background_tasks[i].done():
                 self._background_tasks.pop(i)
+
+        # Enforce max limit to prevent unbounded growth
+        # If we're at the limit, cancel oldest tasks (FIFO eviction)
+        if len(self._background_tasks) >= _MAX_BACKGROUND_TASKS:
+            excess_count = len(self._background_tasks) - _MAX_BACKGROUND_TASKS + 1
+            for i in range(excess_count):
+                if i < len(self._background_tasks):
+                    task = self._background_tasks[i]
+                    if not task.done():
+                        task.cancel()
+                    self._background_tasks.pop(i)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Evicted %d oldest background tasks (max=%d reached)",
+                    excess_count,
+                    _MAX_BACKGROUND_TASKS,
+                )
 
     async def register_middleware(
         self, middleware: IResponseMiddleware, priority: int = 0

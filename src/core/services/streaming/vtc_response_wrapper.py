@@ -190,10 +190,11 @@ class VTCResponseStreamWrapper:
 
         # Check buffer size limit
         if len(self._buffer.encode("utf-8")) > self._config.max_buffer_bytes:
-            logger.warning(
-                "VTC wrapper buffer exceeded max size (%d bytes), forcing flush",
-                self._config.max_buffer_bytes,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "VTC wrapper buffer exceeded max size (%d bytes), forcing flush",
+                    self._config.max_buffer_bytes,
+                )
             return await self._flush_buffer_async()
 
         # Check for complete XML tool call pattern
@@ -242,10 +243,11 @@ class VTCResponseStreamWrapper:
 
         # Check buffer size limit
         if len(self._buffer.encode("utf-8")) > self._config.max_buffer_bytes:
-            logger.warning(
-                "VTC wrapper buffer exceeded max size (%d bytes), forcing flush",
-                self._config.max_buffer_bytes,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "VTC wrapper buffer exceeded max size (%d bytes), forcing flush",
+                    self._config.max_buffer_bytes,
+                )
             return self._flush_buffer()
 
         # Check for complete XML tool call pattern
@@ -443,22 +445,24 @@ class VTCResponseStreamWrapper:
                     calling_agent=self._context.get("calling_agent"),
                 )
 
-                logger.debug(
-                    "VTC wrapper invoking reactor for tool call: %s (session: %s)",
-                    tool_name,
-                    self._session_id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "VTC wrapper invoking reactor for tool call: %s (session: %s)",
+                        tool_name,
+                        self._session_id,
+                    )
 
                 # Invoke reactor and handle the result
                 result = await self._tool_call_reactor.process_tool_call(context)
 
                 if result and result.should_swallow:
                     # Tool call was swallowed by a handler
-                    logger.info(
-                        "VTC tool call '%s' swallowed by reactor (session: %s)",
-                        tool_name,
-                        self._session_id,
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "VTC tool call '%s' swallowed by reactor (session: %s)",
+                            tool_name,
+                            self._session_id,
+                        )
                     swallowed_any = True
                     if (
                         isinstance(result.replacement_response, str)
@@ -470,11 +474,12 @@ class VTCResponseStreamWrapper:
                     non_swallowed.append(tool_call)
 
         except Exception as e:
-            logger.warning(
-                "VTC wrapper failed to invoke reactor: %s",
-                e,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "VTC wrapper failed to invoke reactor: %s",
+                    e,
+                    exc_info=True,
+                )
             # On error, return original tool calls unchanged
             return tool_calls, None, False
 

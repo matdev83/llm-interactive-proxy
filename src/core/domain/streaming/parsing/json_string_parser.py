@@ -7,10 +7,17 @@ This parser handles strings containing JSON format.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
+from src.core.common.json_validation import JSONValidationError, validate_json_structure
 from src.core.domain.streaming.parsing.parser_strategy import IParserStrategy
 from src.core.domain.streaming.streaming_content import StreamingContent
+
+logger = logging.getLogger(__name__)
+
+# DoS protection limits
+MAX_JSON_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10MB maximum JSON payload
 
 
 class JSONStringParser(IParserStrategy):
@@ -44,13 +51,33 @@ class JSONStringParser(IParserStrategy):
             StreamingContent with parsed content
 
         Raises:
-            ValueError: If raw_data is not a string or JSON parsing fails
+            ValueError: If raw_data is not a string, exceeds size limits,
+                       or JSON parsing fails
         """
         if not isinstance(raw_data, str):
             raise ValueError(f"Expected str, got {type(raw_data).__name__}")
 
+        # DoS protection: Check payload size before parsing
+        payload_size = len(raw_data.encode("utf-8"))
+        if payload_size > MAX_JSON_PAYLOAD_SIZE:
+            logger.warning(
+                "JSON payload too large: %d bytes (limit: %d bytes)",
+                payload_size,
+                MAX_JSON_PAYLOAD_SIZE,
+            )
+            raise ValueError(
+                f"JSON payload too large: {payload_size} bytes (limit: {MAX_JSON_PAYLOAD_SIZE} bytes)"
+            )
+
         try:
             parsed_json = json.loads(raw_data)
+            # DoS protection: Validate JSON structure (depth and array size)
+            try:
+                validate_json_structure(parsed_json)
+            except JSONValidationError as e:
+                logger.warning("JSON structure validation failed: %s", e)
+                raise ValueError(f"JSON structure validation failed: {e}") from e
+
             # Recursively parse the JSON using StreamingContent.from_raw
             return StreamingContent.from_raw(parsed_json)
         except json.JSONDecodeError:

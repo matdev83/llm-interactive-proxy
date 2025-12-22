@@ -45,7 +45,7 @@ class APIKeyRedactor:
         return result
 
     def redact(self, text: str) -> str:
-        """Replace any occurrences of known API keys in *text*. """
+        """Replace any occurrences of known API keys in *text*."""
         if not text:
             return text
 
@@ -109,7 +109,7 @@ class ProxyCommandFilter:
 
         # Use hash of text + function name as key
         cache_key = hashlib.sha256(
-            f"{text}:{filter_func.__name__}".encode("utf-8")
+            f"{text}:{filter_func.__name__}".encode()
         ).hexdigest()
 
         if cache_key in self._filter_cache:
@@ -199,7 +199,9 @@ class ProxyCommandFilter:
         """
         # For short texts, use cached version
         if text and len(text) < 1000:
-            return self._filter_cached(text, self._filter_end_of_message_commands_only_internal)
+            return self._filter_cached(
+                text, self._filter_end_of_message_commands_only_internal
+            )
         return self._filter_end_of_message_commands_only_internal(text)
 
     def _filter_end_of_message_commands_only_internal(self, text: str) -> str:
@@ -255,7 +257,9 @@ class ProxyCommandFilter:
         """
         # For short texts, use cached version
         if text and len(text) < 1000:
-            return self._filter_cached(text, self._filter_commands_with_strict_mode_internal)
+            return self._filter_cached(
+                text, self._filter_commands_with_strict_mode_internal
+            )
         return self._filter_commands_with_strict_mode_internal(text)
 
     def _filter_commands_with_strict_mode_internal(self, text: str) -> str:

@@ -244,9 +244,8 @@ class BufferedWireCapture(IWireCapture):
         # when many unique session_ids are created but flushes don't occur frequently
         self._max_buffer_keys: int = 1000  # Maximum number of unique session buffers
 
-        # PERFORMANCE OPTIMIZATION: Cache JSON serialization to avoid repeated encoding
+        # PERFORMANCE OPTIMIZATION: Cache content length to avoid repeated JSON serialization
         self._content_length_cache: dict[int, int] = {}
-        self._json_cache: dict[int, str] = {}
         self._cache_max_size: int = 1000  # Limit cache size to prevent memory leaks
 
         # Initialize redaction for wire capture data
@@ -346,9 +345,9 @@ class BufferedWireCapture(IWireCapture):
         else:
             content_length = len(str(payload).encode("utf-8"))
 
-        # Maintain cache size limit
-        if len(self._content_length_cache) >= self._cache_max_size:
-            # Remove oldest entries (simple FIFO)
+        # Maintain cache size limit - evict BEFORE adding to prevent temporary overflow
+        # Remove oldest entries if at capacity (evict enough to make room for new entry)
+        while len(self._content_length_cache) >= self._cache_max_size:
             oldest_key = next(iter(self._content_length_cache))
             del self._content_length_cache[oldest_key]
 
@@ -1083,9 +1082,8 @@ class BufferedWireCapture(IWireCapture):
             if any(self._buffers.values()):
                 await self._flush_buffer()
 
-        # PERFORMANCE OPTIMIZATION: Clean up caches to prevent memory leaks
+        # PERFORMANCE OPTIMIZATION: Clean up cache to prevent memory leaks
         self._content_length_cache.clear()
-        self._json_cache.clear()
 
     def force_shutdown_sync(self) -> None:
         """Synchronous best-effort shutdown. Deprecated and unsafe from __del__."""

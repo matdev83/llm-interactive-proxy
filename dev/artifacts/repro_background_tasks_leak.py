@@ -1,100 +1,150 @@
-"""
-Repro script to confirm memory leak in ResponseProcessor._background_tasks.
+"""Repro script for background tasks memory leak.
 
-The issue: Background tasks are appended to a list but never removed,
-even after they complete. This causes unbounded memory growth.
+This script demonstrates that completed background tasks accumulate
+in AppLifecycle and ResponseProcessor when no new tasks are added.
 """
 
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.services.response_processor_service import ResponseProcessor
-from src.core.services.streaming.stream_normalizer import StreamNormalizer
+from fastapi import FastAPI
+from src.core.app.lifecycle import AppLifecycle
 
 
-async def create_and_complete_task(task_id: int) -> asyncio.Task:
-    """Create a simple background task that completes quickly."""
+async def test_app_lifecycle_background_tasks_leak():
+    """Test that completed background tasks accumulate in AppLifecycle."""
+    app = FastAPI()
+    lifecycle = AppLifecycle(app, {})
 
-    async def dummy_task():
-        await asyncio.sleep(0.01)  # Very short task
-        return f"task_{task_id}"
+    initial_count = len(lifecycle._background_tasks)
+    print(f"Initial background tasks count: {initial_count}")
 
-    return asyncio.create_task(dummy_task())
-
-
-async def main():
-    """Demonstrate unbounded growth of _background_tasks list."""
-    print("Creating ResponseProcessor instance...")
-
-    # Create minimal mocks for required dependencies
-    mock_parser = MagicMock()
-    mock_stream_normalizer = MagicMock(spec=StreamNormalizer)
-
-    # Create ResponseProcessor with minimal dependencies
-    processor = ResponseProcessor(  # noqa: DI-bypass - Dev artifact repro script needs direct instantiation
-        response_parser=mock_parser,
-        app_state=None,
-        stream_normalizer=mock_stream_normalizer,
-    )
-
-    print(f"Initial _background_tasks size: {len(processor._background_tasks)}")
-
-    # Add many tasks that complete quickly
+    # Create and complete many tasks
     num_tasks = 1000
-    print(f"\nAdding {num_tasks} background tasks...")
-
     for i in range(num_tasks):
-        task = await create_and_complete_task(i)
-        processor.add_background_task(task)
 
-        # Wait a bit for tasks to complete
-        if i % 100 == 0:
-            await asyncio.sleep(0.1)
-            completed = sum(1 for t in processor._background_tasks if t.done())
-            print(
-                f"  Added {i+1} tasks, {completed} completed, "
-                f"list size: {len(processor._background_tasks)}"
-            )
+        async def dummy_task(task_id=i):
+            await asyncio.sleep(0.001)
+            return task_id
+
+        task = asyncio.create_task(dummy_task())
+        lifecycle._background_tasks.append(task)
+        task.add_done_callback(lifecycle._remove_completed_task)
 
     # Wait for all tasks to complete
-    print("\nWaiting for all tasks to complete...")
-    await asyncio.sleep(2)
+    await asyncio.sleep(0.1)
 
-    # Check final state
-    completed_count = sum(1 for t in processor._background_tasks if t.done())
-    print("\nFinal state:")
-    print(f"  Total tasks in list: {len(processor._background_tasks)}")
-    print(f"  Completed tasks: {completed_count}")
-    print(f"  Pending tasks: {len(processor._background_tasks) - completed_count}")
+    # Check if tasks are cleaned up
+    final_count = len(lifecycle._background_tasks)
+    print(f"Final background tasks count: {final_count}")
+    print(f"Expected: ~{initial_count}, Actual: {final_count}")
 
-    # Check if leak is fixed: tasks should be removed when they complete
-    if len(processor._background_tasks) == 0:
-        print("\n[FIXED] Memory leak resolved!")
-        print("  - All completed tasks were automatically removed")
-        print("  - List size is 0 (all tasks completed and cleaned up)")
-        return True
-    elif len(processor._background_tasks) < num_tasks:
-        print("\n[PARTIAL] Some cleanup occurred")
-        print(f"  - {len(processor._background_tasks)} tasks remain out of {num_tasks}")
-        print(f"  - {completed_count} tasks completed")
-        # Check if remaining tasks are pending
-        pending = sum(1 for t in processor._background_tasks if not t.done())
-        if pending > 0:
-            print(f"  - {pending} tasks still pending (expected)")
+    if final_count > initial_count + 10:  # Allow some margin
+        print("❌ MEMORY LEAK CONFIRMED: Completed tasks are accumulating!")
+        print(f"   {final_count - initial_count} completed tasks not cleaned up")
         return True
     else:
-        print("\n[LEAK CONFIRMED] Memory leak still present!")
-        print("  - All tasks completed but remain in _background_tasks list")
-        print("  - List grows unbounded without cleanup")
+        print("✓ No leak detected (tasks cleaned up properly)")
         return False
 
 
+async def test_response_processor_background_tasks_leak():
+    """Test that completed background tasks accumulate in ResponseProcessor."""
+    # Create a minimal ResponseProcessor via DI with mock parser
+    from src.core.config.app_config import AppConfig
+    from src.core.di.container import ServiceCollection
+    from src.core.di.registration_helpers.core_foundational import (
+        register_application_state_services,
+    )
+    from src.core.di.registrations import streaming, tooling
+    from src.core.di.registrations.core import register
+    from src.core.interfaces.response_parser_interface import IResponseParser
+    from src.core.interfaces.response_processor_interface import IResponseProcessor
+
+    class MockParser(IResponseParser):
+        def parse_response(self, response):
+            return {}
+
+        def extract_content(self, parsed):
+            return ""
+
+        def extract_usage(self, parsed):
+            return {}
+
+        def extract_metadata(self, parsed):
+            return {}
+
+    # Create DI container with mock parser
+    services = ServiceCollection()
+    config = AppConfig()
+    services.add_instance(AppConfig, config)
+
+    # Register mock parser
+    parser = MockParser()
+    services.add_instance(IResponseParser, parser)  # type: ignore[type-abstract]
+
+    # Register core services
+    register_application_state_services(services)
+    streaming.register(services, config)
+    tooling.register(services, config)
+    register(services, config)
+
+    # Get ResponseProcessor from DI
+    provider = services.build_service_provider()
+    processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+
+    initial_count = len(processor._background_tasks)
+    print(f"\nInitial background tasks count: {initial_count}")
+
+    # Create and complete many tasks
+    num_tasks = 1000
+    for i in range(num_tasks):
+
+        async def dummy_task(task_id=i):
+            await asyncio.sleep(0.001)
+            return task_id
+
+        task = asyncio.create_task(dummy_task())
+        processor.add_background_task(task)
+
+    # Wait for all tasks to complete
+    await asyncio.sleep(0.1)
+
+    # Check if tasks are cleaned up
+    final_count = len(processor._background_tasks)
+    print(f"Final background tasks count: {final_count}")
+    print(f"Expected: ~{initial_count}, Actual: {final_count}")
+
+    if final_count > initial_count + 10:  # Allow some margin
+        print("❌ MEMORY LEAK CONFIRMED: Completed tasks are accumulating!")
+        print(f"   {final_count - initial_count} completed tasks not cleaned up")
+        return True
+    else:
+        print("✓ No leak detected (tasks cleaned up properly)")
+        return False
+
+
+async def main():
+    """Run all leak tests."""
+    print("=" * 60)
+    print("Testing Background Tasks Memory Leaks")
+    print("=" * 60)
+
+    leak1 = await test_app_lifecycle_background_tasks_leak()
+    leak2 = await test_response_processor_background_tasks_leak()
+
+    print("\n" + "=" * 60)
+    if leak1 or leak2:
+        print("RESULT: Memory leaks confirmed!")
+        sys.exit(1)
+    else:
+        print("RESULT: No leaks detected")
+        sys.exit(0)
+
+
 if __name__ == "__main__":
-    result = asyncio.run(main())
-    sys.exit(0 if result else 1)
+    asyncio.run(main())

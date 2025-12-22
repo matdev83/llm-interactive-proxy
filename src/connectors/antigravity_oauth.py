@@ -108,6 +108,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         )
         self.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
         self._enable_antigravity_backend_debugging_override = _DEBUG_OVERRIDE_DEFAULT
+        self._owns_custom_client = False  # Track if we created a custom client
 
     # NOTE: _get_api_headers and _get_session_headers are now handled by
     # AntigravitySandboxEndpoint strategy injected in __init__
@@ -130,12 +131,17 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
         kwargs.setdefault("gemini_api_base_url", ANTIGRAVITY_SANDBOX_ENDPOINT)
 
+        # Store reference to original client before replacing
+        original_client = getattr(self, "client", None)
+
         # Create a custom client with Antigravity-specific User-Agent
         # This ensures all requests use the correct User-Agent regardless of settings
-        self.client = httpx.AsyncClient(
+        custom_client = httpx.AsyncClient(
             headers={"User-Agent": ANTIGRAVITY_USER_AGENT},
             timeout=httpx.Timeout(60.0, connect=30.0),
         )
+        self.client = custom_client
+        self._owns_custom_client = True
 
         try:
             await super().initialize(**kwargs)
@@ -146,7 +152,23 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 exc,
                 exc_info=True,
             )
+            # Close custom client if initialization fails
+            if self._owns_custom_client and custom_client is not None:
+                try:
+                    if not custom_client.is_closed:
+                        await custom_client.aclose()
+                except Exception:
+                    pass
+                self._owns_custom_client = False
             self._fail_init([f"Initialization failed: {exc}"])
+        finally:
+            # Close original client if we replaced it and it's different
+            if original_client is not None and original_client is not custom_client:
+                try:
+                    if not original_client.is_closed:
+                        await original_client.aclose()
+                except Exception:
+                    pass
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -1187,6 +1209,73 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     f"Failed to load Antigravity credentials. Errors: {errors}"
                 )
         return False
+
+    async def _cleanup_custom_client(self) -> None:
+        """Explicitly cleanup custom HTTP client."""
+        if (
+            hasattr(self, "_owns_custom_client")
+            and self._owns_custom_client
+            and hasattr(self, "client")
+            and self.client is not None
+            and not self.client.is_closed
+        ):
+            try:
+                await self.client.aclose()
+                self._owns_custom_client = False
+            except Exception:
+                # Suppress errors during cleanup
+                pass
+
+    def __del__(self):
+        """Cleanup HTTP client on destruction."""
+        # Close custom HTTP client if we own it
+        # Note: We can't await in __del__, so we try best-effort cleanup
+        if (
+            hasattr(self, "_owns_custom_client")
+            and self._owns_custom_client
+            and hasattr(self, "client")
+            and self.client is not None
+            and not self.client.is_closed
+        ):
+            try:
+                import asyncio
+                import contextlib
+
+                # Try to close the client if event loop is available
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Event loop exists - schedule cleanup (fire and forget)
+                    with contextlib.suppress(RuntimeError):
+                        # Loop might be closing - ignore
+                        task = loop.create_task(self.client.aclose())
+                        # Store reference to prevent garbage collection
+                        _ = task
+                except RuntimeError:
+                    # No running event loop - try to get existing one
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if not loop.is_closed():
+                            if loop.is_running():
+                                # Loop is running - schedule cleanup
+                                with contextlib.suppress(RuntimeError):
+                                    task = loop.create_task(self.client.aclose())
+                                    # Store reference to prevent garbage collection
+                                    _ = task
+                            else:
+                                # Loop exists but not running - run cleanup synchronously
+                                with contextlib.suppress(Exception):
+                                    loop.run_until_complete(self.client.aclose())
+                    except (RuntimeError, AttributeError):
+                        # No event loop available - can't close async client
+                        # This is acceptable during interpreter shutdown
+                        pass
+            except Exception:
+                # Suppress all exceptions during cleanup
+                # The logging system may already be torn down
+                pass
+
+        # Call parent cleanup
+        super().__del__()
 
 
 backend_registry.register_backend("antigravity-oauth", AntigravityOAuthConnector)

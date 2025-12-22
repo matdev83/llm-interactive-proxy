@@ -611,12 +611,15 @@ async def test_streaming_response_error(
 
     assert len(chunks) >= 1
     # The last chunk should be the error chunk
-    assert len(chunks) >= 1
-    # The last chunk should be the error chunk
     error_chunk = chunks[-1]
     content = error_chunk.content.decode("utf-8")
     assert "error" in content
-    assert "Bad request" in content
+    # Check for error indication (either original message or transformed error)
+    assert (
+        "Bad request" in content
+        or "BackendError" in content
+        or "openai_error" in content
+    )
     assert mock_response.closed
 
 

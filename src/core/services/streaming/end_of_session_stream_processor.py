@@ -91,15 +91,16 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
         try:
             await self._eos_service.record_signal(signal)
         except Exception as e:
-            logger.warning(
-                "Failed to record EoS signal from stream processor: %s",
-                e,
-                exc_info=True,
-                extra={
-                    "session_id": session_id,
-                    "signal_type": signal.signal_type.value,
-                },
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to record EoS signal from stream processor: %s",
+                    e,
+                    exc_info=True,
+                    extra={
+                        "session_id": session_id,
+                        "signal_type": signal.signal_type.value,
+                    },
+                )
 
         return content
 

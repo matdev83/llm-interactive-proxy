@@ -182,16 +182,17 @@ def log_performance_stats() -> None:
 
     skip_percentage = (messages_skipped / total_messages) * 100
 
-    logger.info(
-        f"Tool call processing stats: "
-        f"processed={messages_processed}, "
-        f"skipped={messages_skipped}, "
-        f"skip_rate={skip_percentage:.1f}%"
-    )
+    if logger.isEnabledFor(logging.INFO):
+        logger.info(
+            f"Tool call processing stats: "
+            f"processed={messages_processed}, "
+            f"skipped={messages_skipped}, "
+            f"skip_rate={skip_percentage:.1f}%"
+        )
 
     # Log timing stats if available
     processing_stats = get_timer_stats("tool_call.processing.duration")
-    if processing_stats.count > 0:
+    if processing_stats.count > 0 and logger.isEnabledFor(logging.INFO):
         logger.info(
             f"Tool call processing timing: "
             f"count={processing_stats.count}, "

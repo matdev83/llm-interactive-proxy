@@ -960,6 +960,16 @@ class BackendStage(InitializationStage):
 
     def _register_validation_http_client(self, services: ServiceCollection) -> None:
         """Register an HTTP client when infrastructure stage has not run yet."""
+        # Check if client already exists to avoid replacing and leaking
+        provider = services.build_service_provider()
+        existing_client = provider.get_service(httpx.AsyncClient)
+        if existing_client is not None:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "HTTP client already registered; reusing existing instance"
+                )
+            return
+
         try:
             client = httpx.AsyncClient(
                 http2=True,
@@ -975,11 +985,18 @@ class BackendStage(InitializationStage):
                 trust_env=False,
             )
 
+        # Register client in DI - it will be cleaned up during app shutdown
+        # The DI container handles httpx.AsyncClient cleanup automatically
         services.add_instance(httpx.AsyncClient, client)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Registered temporary HTTP client for backend validation before infrastructure stage"
             )
+        
+        # Note: The client is registered in DI and will be cleaned up by the application
+        # shutdown handler (see application_builder.py lifespan handler). If the app
+        # crashes before shutdown handlers run, the client will be cleaned up by Python's
+        # garbage collector when the process exits.
 
     def _validate_static_route_backend(self, config: AppConfig) -> None:
         """Validate that static_route backend exists and is registered.

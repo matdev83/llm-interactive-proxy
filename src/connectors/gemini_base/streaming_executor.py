@@ -251,6 +251,8 @@ class StreamingExecutor:
     - Calculating usage metrics
     """
 
+    MAX_ERROR_JSON_SIZE = 32 * 1024  # 32KB limit for error JSON detection
+
     def __init__(
         self,
         translation_service: "TranslationService",
@@ -538,8 +540,11 @@ class StreamingExecutor:
                                 stripped_piece = text_piece.lstrip()
                                 if stripped_piece.startswith("{"):
                                     error_json_buffer = stripped_piece
-                            else:
+                            elif len(error_json_buffer) < self.MAX_ERROR_JSON_SIZE:
                                 error_json_buffer += text_piece
+                            else:
+                                # Stop buffering if too large - likely valid content, not an error
+                                error_json_buffer = None
 
                             # Try to parse accumulated error JSON
                             if error_json_buffer:

@@ -198,11 +198,21 @@ class HTTPHealthChecker:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def shutdown(self) -> None:
-        """Shutdown the HTTP checker and clean up resources."""
+        """Shutdown the HTTP checker and clean up resources.
+
+        This method is idempotent and can be called multiple times safely.
+        """
         self._enabled = False
         if self._owns_client and self._client is not None:
-            await self._client.aclose()
-            self._client = None
+            try:
+                if not self._client.is_closed:
+                    await self._client.aclose()
+            except Exception as e:
+                # Log but don't fail - client might already be closed
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Error closing HTTP client during shutdown: %s", e)
+            finally:
+                self._client = None
         logger.info("HTTP health checker shutdown complete")
 
 

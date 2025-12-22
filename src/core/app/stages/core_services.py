@@ -373,6 +373,45 @@ class CoreServicesStage(InitializationStage):
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Activity tracking enabled - connection monitoring active")
+
+            # Register the cleanup scheduler for the activity tracker
+            try:
+                from src.core.interfaces.activity_tracker_interface import (
+                    IConnectionActivityTracker,
+                )
+                from src.core.services.connection_tracker_cleanup_scheduler import (
+                    ConnectionTrackerCleanupScheduler,
+                )
+
+                def cleanup_scheduler_factory(
+                    provider: IServiceProvider,
+                ) -> ConnectionTrackerCleanupScheduler:
+                    from src.core.services.connection_activity_tracker import (
+                        ConnectionActivityTracker,
+                    )
+
+                    activity_tracker = provider.get_required_service(
+                        ConnectionActivityTracker
+                    )
+                    # Use 5-minute interval by default (matches stale timeout)
+                    return ConnectionTrackerCleanupScheduler(
+                        activity_tracker=activity_tracker,
+                        cleanup_interval_seconds=300,
+                    )
+
+                services.add_singleton(
+                    ConnectionTrackerCleanupScheduler,
+                    implementation_factory=cleanup_scheduler_factory,
+                )
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Connection tracker cleanup scheduler registered")
+            except ImportError as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Could not register connection tracker cleanup scheduler: {e}"
+                    )
+
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register activity tracker service: {e}")

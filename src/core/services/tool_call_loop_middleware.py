@@ -10,7 +10,7 @@ from __future__ import annotations
 # type: ignore[unreachable]
 import json
 import logging
-from collections import OrderedDict
+from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -59,7 +59,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
-        self._session_trackers: dict[str, ToolCallTracker] = TTLCache(
+        self._session_trackers: MutableMapping[str, ToolCallTracker] = TTLCache(
             maxsize=max_cached_sessions, ttl=3600
         )
         self._max_cached_sessions = max_cached_sessions
@@ -133,7 +133,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             self._session_trackers[resolved_session_id] = tracker
             self._enforce_cache_limit()
         else:
-            self._session_trackers.move_to_end(resolved_session_id)
+            # TTLCache automatically updates access time on get(), so no need for move_to_end
+            # Refresh the item in cache to update its TTL
+            self._session_trackers[resolved_session_id] = tracker
             if tracker.config != tracker_config:
                 tracker.config = tracker_config
 
@@ -271,7 +273,8 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
     def _enforce_cache_limit(self) -> None:
         """Ensure the session tracker cache does not grow without bound."""
         while len(self._session_trackers) > self._max_cached_sessions:
-            evicted_session_id, _ = self._session_trackers.popitem(last=False)
+            # TTLCache.popitem() removes the least recently used item (oldest)
+            evicted_session_id, _ = self._session_trackers.popitem()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicted tool call tracker for session %s due to cache limit",
@@ -410,7 +413,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
-        self._session_trackers: dict[str, ToolCallTracker] = TTLCache(
+        self._session_trackers: MutableMapping[str, ToolCallTracker] = TTLCache(
             maxsize=max_cached_sessions, ttl=3600
         )
         self._max_cached_sessions = max_cached_sessions
@@ -500,7 +503,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             self._session_trackers[resolved_session_id] = tracker
             self._enforce_cache_limit()
         else:
-            self._session_trackers.move_to_end(resolved_session_id)
+            # TTLCache automatically updates access time on get(), so no need for move_to_end
+            # Refresh the item in cache to update its TTL
+            self._session_trackers[resolved_session_id] = tracker
             if tracker.config != tracker_config:
                 tracker.config = tracker_config
 
@@ -635,7 +640,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
     def _enforce_cache_limit(self) -> None:
         """Ensure the session tracker cache does not grow without bound."""
         while len(self._session_trackers) > self._max_cached_sessions:
-            evicted_session_id, _ = self._session_trackers.popitem(last=False)
+            # TTLCache.popitem() removes the least recently used item (oldest)
+            evicted_session_id, _ = self._session_trackers.popitem()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicted tool call tracker for session %s due to cache limit",

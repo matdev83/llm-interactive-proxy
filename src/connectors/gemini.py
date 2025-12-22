@@ -101,7 +101,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     m.get("name") for m in data.get("models", []) if m.get("name")
                 ]
             except Exception as e:
-                logger.warning("Failed to fetch Gemini models: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to fetch Gemini models: %s", e, exc_info=True
+                    )
                 # Return empty list on failure, don't crash
                 self.available_models = []
 
@@ -329,13 +332,15 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
                         body_bytes += chunk
-                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                        if (
+                            len(body_bytes) > 10 * 1024 * 1024
+                        ):  # 10MB limit (consistent with other middleware)
                             break
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
                     body_bytes = b""
-                
+
                 body_text = body_bytes.decode("utf-8", errors="ignore")
             except Exception:
                 body_text = ""
@@ -592,7 +597,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # Normalize model id and construct URL
         model_name = self._normalize_model_name(effective_model)
-        logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
         model_url = f"{base_api_url}/v1beta/models/{model_name}"
 
         # Streaming vs non-streaming
@@ -631,7 +637,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
                 except Exception:
-                    logger.warning("Failed to calculate prompt tokens", exc_info=True)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to calculate prompt tokens", exc_info=True
+                        )
 
                 # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
@@ -804,9 +813,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if temperature is not None:
             # Clamp temperature to [0,1] range for Gemini
             if float(temperature) > 1.0:
-                logger.warning(
-                    f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
+                    )
                 temperature = 1.0
             generation_config["temperature"] = float(temperature)
 
@@ -1033,13 +1043,15 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
                         body_bytes += chunk
-                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                        if (
+                            len(body_bytes) > 10 * 1024 * 1024
+                        ):  # 10MB limit (consistent with other middleware)
                             break
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
                     body_bytes = b""
-                
+
                 body_text = body_bytes.decode("utf-8", errors="ignore")
             except Exception:
                 body_text = ""

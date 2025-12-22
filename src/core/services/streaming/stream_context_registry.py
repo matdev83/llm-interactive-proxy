@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 # 1000 chunks at ~100 bytes each = ~100KB per stream
 _MAX_REASONING_CHUNKS = 1000
 
+# Maximum number of content chunks to prevent unbounded memory growth
+# 10000 chunks at ~100 bytes each = ~1MB per stream
+# This is higher than reasoning chunks because content chunks are the main payload
+_MAX_CONTENT_CHUNKS = 10000
+
 # Maximum number of detected tool calls to prevent unbounded memory growth
 # 1000 tool calls at ~200 bytes each = ~200KB per stream
 _MAX_DETECTED_TOOL_CALLS = 1000
@@ -39,7 +44,7 @@ class StreamBufferState:
 
     def append_reasoning_chunk(self, chunk: str) -> None:
         """Append a reasoning chunk with size limit enforcement.
-        
+
         Args:
             chunk: Reasoning chunk text to append
         """
@@ -51,6 +56,39 @@ class StreamBufferState:
                 logger.debug(
                     "Evicted oldest reasoning chunk (max_chunks=%d reached)",
                     _MAX_REASONING_CHUNKS,
+                )
+
+    def append_content_chunk(
+        self, chunk_text: str, encoded_chunk: bytes, content_length: int
+    ) -> None:
+        """Append a content chunk with size limit enforcement.
+
+        This method enforces size limits on chunks, encoded_chunks, and chunk_lengths
+        deques to prevent unbounded memory growth when streams never complete.
+
+        Args:
+            chunk_text: The text content chunk
+            encoded_chunk: The encoded bytes chunk
+            content_length: The length of the encoded chunk
+        """
+        self.chunks.append(chunk_text)
+        self.encoded_chunks.append(encoded_chunk)
+        self.chunk_lengths.append(content_length)
+        self.byte_length += content_length
+
+        # Enforce size limit to prevent unbounded memory growth
+        # Remove oldest chunks when limit is exceeded
+        while len(self.chunks) > _MAX_CONTENT_CHUNKS:
+            self.chunks.popleft()
+            self.encoded_chunks.popleft()
+            old_length = self.chunk_lengths.popleft()
+            self.byte_length -= old_length
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted oldest content chunk (max_chunks=%d reached, "
+                    "removed %d bytes)",
+                    _MAX_CONTENT_CHUNKS,
+                    old_length,
                 )
 
 
@@ -73,14 +111,14 @@ class ToolCallBufferState:
 
     def append_detected_call(self, tool_call: dict[str, Any]) -> None:
         """Append a detected tool call with size limit enforcement.
-        
+
         Args:
             tool_call: Tool call dictionary to append
         """
         self.detected_calls.append(tool_call)
         # Enforce size limit to prevent unbounded memory growth
         while len(self.detected_calls) > _MAX_DETECTED_TOOL_CALLS:
-            removed = self.detected_calls.pop(0)
+            self.detected_calls.pop(0)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicted oldest detected tool call (max_calls=%d reached)",
@@ -116,14 +154,14 @@ class VTCBufferState:
 
     def append_extracted_call(self, tool_call: dict[str, Any]) -> None:
         """Append an extracted tool call with size limit enforcement.
-        
+
         Args:
             tool_call: Tool call dictionary to append
         """
         self.extracted_tool_calls.append(tool_call)
         # Enforce size limit to prevent unbounded memory growth
         while len(self.extracted_tool_calls) > _MAX_EXTRACTED_TOOL_CALLS:
-            removed = self.extracted_tool_calls.pop(0)
+            self.extracted_tool_calls.pop(0)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicted oldest extracted tool call (max_calls=%d reached)",
@@ -148,7 +186,13 @@ class StreamingContextRegistry:
 
     Implements lazy TTL cleanup: expired states are removed automatically
     when accessing the registry, preventing memory leaks when processing stops.
+    Also enforces a maximum number of states to prevent unbounded growth even
+    if cleanup doesn't run frequently.
     """
+
+    # Maximum number of stream states to prevent unbounded memory growth
+    # This prevents accumulation when many streams are created but never accessed again
+    _MAX_STREAM_STATES = 10000
 
     def __init__(self, state_ttl_seconds: int = 300) -> None:
         self._ttl_seconds = state_ttl_seconds
@@ -309,6 +353,22 @@ class StreamingContextRegistry:
         key = stream_id or "anonymous-stream"
         state = self._states.get(key)
         if state is None:
+            # Enforce max states limit before adding new state
+            if len(self._states) >= self._MAX_STREAM_STATES:
+                # Evict oldest expired states first
+                self._maybe_cleanup_expired()
+                # If still at limit, evict oldest by last_accessed
+                if len(self._states) >= self._MAX_STREAM_STATES:
+                    oldest_key = min(
+                        self._states.items(), key=lambda x: x[1].last_accessed
+                    )[0]
+                    self._states.pop(oldest_key, None)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Evicted oldest stream state %s (max_stream_states=%d reached)",
+                            oldest_key,
+                            self._MAX_STREAM_STATES,
+                        )
             state = StreamContextState()
             self._states[key] = state
         return state

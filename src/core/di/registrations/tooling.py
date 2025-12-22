@@ -86,6 +86,7 @@ def _register_tool_call_reactor_core(
             config = provider.get_service(AppConfig)
             session_ttl = 3600
             max_sessions = 10000
+            max_entries_per_session = 100
 
             if config is not None and hasattr(config.session, "tool_call_reactor"):
                 reactor_config = config.session.tool_call_reactor
@@ -93,11 +94,14 @@ def _register_tool_call_reactor_core(
                     reactor_config, "session_ttl_seconds", session_ttl
                 )
                 max_sessions = getattr(reactor_config, "max_sessions", max_sessions)
+                max_entries_per_session = getattr(
+                    reactor_config, "max_entries_per_session", max_entries_per_session
+                )
 
             return InMemoryToolCallHistoryTracker(
-                session_ttl_seconds=session_ttl, 
+                session_ttl_seconds=session_ttl,
                 max_sessions=max_sessions,
-                max_entries_per_session=getattr(reactor_config, "max_entries_per_session", 100)
+                max_entries_per_session=max_entries_per_session,
             )
 
         register_singleton_if_absent(

@@ -106,7 +106,10 @@ class AnthropicBackend(LLMBackend):
                     if isinstance(m, dict) and m.get("name", m.get("id")) is not None
                 ]
             except Exception as e:
-                logger.warning("Failed to fetch Anthropic models: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to fetch Anthropic models: %s", e, exc_info=True
+                    )
                 # Return empty list on failure, don't crash
                 self.available_models = []
 
@@ -229,12 +232,16 @@ class AnthropicBackend(LLMBackend):
 
         request_headers = ensure_loop_guard_header(request_headers)
 
-        logger.info(
-            "Forwarding to Anthropic. Model: %s Stream: %s",
-            effective_model,
-            domain_request.stream,
-        )
-        logger.debug("Anthropic payload: %s", json.dumps(anthropic_payload, indent=2))
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Forwarding to Anthropic. Model: %s Stream: %s",
+                effective_model,
+                domain_request.stream,
+            )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Anthropic payload: %s", json.dumps(anthropic_payload, indent=2)
+            )
 
         if domain_request.stream:
             # Use the new streaming pipeline orchestrator
@@ -254,7 +261,10 @@ class AnthropicBackend(LLMBackend):
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
                 except Exception:
-                    logger.warning("Failed to calculate prompt tokens", exc_info=True)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to calculate prompt tokens", exc_info=True
+                        )
 
                 # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
@@ -317,7 +327,8 @@ class AnthropicBackend(LLMBackend):
                 content = getattr(msg, "content", None)
 
             if not role:
-                logger.debug("Skipping message without role: %r", msg)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Skipping message without role: %r", msg)
                 continue
 
             if role == "system":
@@ -558,22 +569,26 @@ class AnthropicBackend(LLMBackend):
             from src.core.common.exceptions import BackendError
 
             try:
-                # Read only first 1MB of error body to prevent DoS
+                # Read only first 10MB of error body to prevent DoS (consistent with other middleware)
                 body_bytes = b""
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
                         body_bytes += chunk
-                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                        if (
+                            len(body_bytes) > 10 * 1024 * 1024
+                        ):  # 10MB limit (consistent with other middleware)
                             break
                 elif hasattr(response, "aread"):
                     # Fallback
                     body_bytes = await response.aread()
                 else:
                     body_bytes = b""
-                
+
                 body_text = body_bytes.decode("utf-8", errors="ignore")
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Anthropic API error {response.status_code}: {body_text}")
+                    logger.error(
+                        f"Anthropic API error {response.status_code}: {body_text}"
+                    )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
@@ -922,21 +937,23 @@ class AnthropicBackend(LLMBackend):
             from src.core.common.exceptions import BackendError
 
             try:
-                # Read only first 1MB of error body to prevent DoS
+                # Read only first 10MB of error body to prevent DoS (consistent with other middleware)
                 body_bytes = b""
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
                         body_bytes += chunk
-                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                        if (
+                            len(body_bytes) > 10 * 1024 * 1024
+                        ):  # 10MB limit (consistent with other middleware)
                             break
                 elif hasattr(response, "aread"):
                     # Fallback
                     body_bytes = await response.aread()
                 else:
                     body_bytes = b""
-                
+
                 body_text = body_bytes.decode("utf-8", errors="ignore")
-                
+
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Anthropic API error {response.status_code}: {body_text}"

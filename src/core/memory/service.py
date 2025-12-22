@@ -38,6 +38,11 @@ _SESSION_STATE_TTL_SECONDS = 3600
 # This prevents accumulation of sessions stuck in analysis if worker crashes
 _ANALYSIS_IN_PROGRESS_TTL_SECONDS = 1800
 
+# Maximum number of analysis_in_progress entries to prevent unbounded growth
+# If entries are added faster than they expire, this limit prevents memory leaks
+# 5,000 entries is roughly ~200 KB of memory (assuming ~40 bytes per entry)
+_MAX_ANALYSIS_IN_PROGRESS = 5_000
+
 
 @dataclass
 class SessionMemoryState:
@@ -408,6 +413,27 @@ class MemoryService:
         try:
             session_id = self._analysis_queue.get_nowait()
             # Track when session entered analysis_in_progress for TTL cleanup
+            # Enforce max limit to prevent unbounded growth
+            if len(self._analysis_in_progress) >= _MAX_ANALYSIS_IN_PROGRESS:
+                # Clean up stale entries first
+                await self._cleanup_stale_analysis_in_progress()
+                # If still at limit, evict oldest entries (by timestamp)
+                if len(self._analysis_in_progress) >= _MAX_ANALYSIS_IN_PROGRESS:
+                    # Evict oldest entries (sorted by timestamp)
+                    sorted_entries = sorted(
+                        self._analysis_in_progress.items(), key=lambda x: x[1]
+                    )
+                    excess_count = (
+                        len(self._analysis_in_progress) - _MAX_ANALYSIS_IN_PROGRESS + 1
+                    )
+                    for sid, _ in sorted_entries[:excess_count]:
+                        self._analysis_in_progress.pop(sid, None)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Evicted %d oldest analysis_in_progress entries (max=%d reached)",
+                            excess_count,
+                            _MAX_ANALYSIS_IN_PROGRESS,
+                        )
             self._analysis_in_progress[session_id] = time.time()
             # Clean up stale analysis_in_progress entries
             await self._cleanup_stale_analysis_in_progress()

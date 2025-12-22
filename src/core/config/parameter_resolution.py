@@ -43,6 +43,9 @@ class ParameterResolution:
     """Track configuration values and the source that supplied them."""
 
     _history: dict[str, _ParameterRecord]
+    # Maximum number of parameter records to prevent unbounded memory growth
+    # 10,000 parameters is far more than any reasonable config would have
+    _MAX_HISTORY_SIZE = 10000
 
     def __init__(self) -> None:
         self._history = {}
@@ -64,7 +67,27 @@ class ParameterResolution:
         Replaces any previous record for the same parameter name to prevent
         unbounded memory growth. Only the latest record is kept since that's
         what build_report() and latest_by_source() use.
+
+        Enforces maximum history size to prevent memory leaks when many unique
+        parameter names are encountered (e.g., from dynamic config loading).
         """
+
+        # Enforce maximum size limit to prevent unbounded memory growth
+        # If we're at the limit and this is a new parameter (not replacing existing),
+        # evict oldest entries
+        if len(self._history) >= self._MAX_HISTORY_SIZE and name not in self._history:
+            # Remove oldest entries (dict maintains insertion order in Python 3.7+)
+            excess = len(self._history) - self._MAX_HISTORY_SIZE + 1
+            oldest_keys = list(self._history.keys())[:excess]
+            for key in oldest_keys:
+                del self._history[key]
+            _logger = logging.getLogger(__name__)
+            if _logger.isEnabledFor(logging.DEBUG):
+                _logger.debug(
+                    "Evicted %d oldest parameter records to enforce size limit (%d)",
+                    excess,
+                    self._MAX_HISTORY_SIZE,
+                )
 
         self._history[name] = _ParameterRecord(
             value=value, source=source, origin=origin

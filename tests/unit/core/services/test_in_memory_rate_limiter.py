@@ -356,7 +356,7 @@ class TestInMemoryRateLimiter:
     async def test_edge_case_large_cost(
         self, rate_limiter: InMemoryRateLimiter
     ) -> None:
-        """Test recording very large cost."""
+        """Test recording very large cost - should be capped to prevent memory leak."""
         key = "test-key"
 
         await rate_limiter.record_usage(key, cost=1000)
@@ -365,7 +365,9 @@ class TestInMemoryRateLimiter:
 
         assert info.is_limited is True
         assert info.remaining == 0
-        assert len(rate_limiter._usage[key]) == 1000
+        # Large costs are capped to the limit to prevent memory leaks
+        # Default limit is 10, so cost=1000 should be capped to 10
+        assert len(rate_limiter._usage[key]) == 10
 
     @pytest.mark.asyncio
     async def test_get_limits_helper(self, rate_limiter: InMemoryRateLimiter) -> None:

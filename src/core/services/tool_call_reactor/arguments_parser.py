@@ -22,6 +22,9 @@ from src.core.interfaces.tool_call_reactor_internal import (
 
 logger = get_logger(__name__)
 
+# Maximum JSON repair input size to prevent DoS attacks (1MB)
+MAX_JSON_REPAIR_INPUT_SIZE = 1 * 1024 * 1024  # 1MB in bytes
+
 
 class TelemetryRecorder(Protocol):
     """Protocol for recording tool argument repair outcomes.
@@ -113,13 +116,23 @@ class ToolArgumentsParser(IToolArgumentsParser):
         candidates: list[str] = []
         last_error: Exception | None = None
 
-        # Attempt repair first
-        try:
-            repaired = repair_json(raw_arguments)
-            if isinstance(repaired, str):
-                candidates.append(repaired)
-        except Exception:
-            pass
+        # DoS protection: Check input size before repair
+        input_size = len(raw_arguments.encode("utf-8"))
+        if input_size > MAX_JSON_REPAIR_INPUT_SIZE:
+            logger.warning(
+                "Tool arguments input too large for JSON repair (%d bytes, limit: %d bytes). "
+                "Skipping repair to prevent DoS attack.",
+                input_size,
+                MAX_JSON_REPAIR_INPUT_SIZE,
+            )
+        else:
+            # Attempt repair first
+            try:
+                repaired = repair_json(raw_arguments)
+                if isinstance(repaired, str):
+                    candidates.append(repaired)
+            except Exception:
+                pass
 
         # Always include original as a candidate
         if raw_arguments not in candidates:

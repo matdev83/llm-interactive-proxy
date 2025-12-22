@@ -202,6 +202,9 @@ class PatternAnalyzer:
     def _truncate_and_update_indices(self) -> None:
         max_history = self.config.max_history_length
         if len(self._stream_history) <= max_history:
+            # Even if stream_history is within limits, check if _content_stats needs cleanup
+            # to prevent unbounded growth when many unique patterns are seen
+            self._maybe_cleanup_content_stats()
             return
 
         trunc_amount = len(self._stream_history) - max_history
@@ -222,11 +225,62 @@ class PatternAnalyzer:
             self._stream_history
         )
 
+    def _maybe_cleanup_content_stats(self) -> None:
+        """Clean up _content_stats if it grows too large to prevent memory leaks.
+
+        This prevents unbounded growth when many unique patterns are encountered
+        even if stream_history stays within limits.
+
+        Cleanup is called:
+        - Periodically when adding new entries (every 1000 entries)
+        - When stream history is truncated
+        - When checking for loops (if dict exceeds threshold)
+        """
+        # Maximum number of unique hash entries to keep
+        # This is separate from max_history_length and prevents dict growth
+        max_content_stats_entries = 10000
+
+        # Early return if within limits to avoid unnecessary work
+        if len(self._content_stats) <= max_content_stats_entries:
+            return
+
+        # Remove entries with empty or invalid indices (they're no longer useful)
+        # This happens when indices become negative after truncation
+        cleaned_stats: dict[str, list[int]] = {}
+        for h, indices in self._content_stats.items():
+            valid_indices = [
+                idx for idx in indices if idx >= 0 and idx < len(self._stream_history)
+            ]
+            if valid_indices:
+                cleaned_stats[h] = valid_indices
+
+        # If still too large, remove oldest entries (keep most recent)
+        if len(cleaned_stats) > max_content_stats_entries:
+            # Sort by highest index (most recent) and keep top N
+            sorted_entries = sorted(
+                cleaned_stats.items(),
+                key=lambda x: max(x[1]) if x[1] else -1,
+                reverse=True,
+            )
+            cleaned_stats = dict(sorted_entries[:max_content_stats_entries])
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Cleaned up _content_stats: removed %d oldest entries, keeping %d",
+                    len(self._content_stats) - len(cleaned_stats),
+                    len(cleaned_stats),
+                )
+
+        self._content_stats = cleaned_stats
+
     def _is_loop_detected_for_chunk(self, chunk: str, hash_hex: str) -> bool:
         existing_indices = self._content_stats.get(hash_hex)
 
         if not existing_indices:
             self._content_stats[hash_hex] = [self._last_chunk_index]
+            # Clean up periodically when adding new entries to prevent unbounded growth
+            # Check every 1000 new entries to balance performance and memory safety
+            if len(self._content_stats) % 1000 == 0:
+                self._maybe_cleanup_content_stats()
             return False
 
         first_index = existing_indices[0]

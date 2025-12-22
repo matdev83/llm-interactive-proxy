@@ -8,6 +8,7 @@ and automatically retries with a recovery prompt to prevent agent loop breakage.
 from __future__ import annotations
 
 import logging
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -56,10 +57,10 @@ class EmptyResponseFeature(IResponseFeature):
         super().__init__(priority)
         self._enabled = enabled
         self._max_retries = max_retries
-        self._retry_counts: dict[str, int] = TTLCache(maxsize=10000, ttl=3600)
+        self._retry_counts: MutableMapping[str, int] = TTLCache(maxsize=10000, ttl=3600)
         self._recovery_prompt: str | None = None
         # Streaming state: track activity per stream
-        self._stream_activity: dict[str, dict[str, bool]] = TTLCache(
+        self._stream_activity: MutableMapping[str, dict[str, bool]] = TTLCache(
             maxsize=10000, ttl=3600
         )
 
@@ -420,9 +421,9 @@ class EmptyResponseMiddleware(IResponseMiddleware):
         )
         self._enabled = enabled
         self._max_retries = max_retries
-        self._retry_counts: dict[str, int] = TTLCache(maxsize=10000, ttl=3600)
+        self._retry_counts: MutableMapping[str, int] = TTLCache(maxsize=10000, ttl=3600)
         self._recovery_prompt: str | None = None
-        self._stream_activity: dict[str, dict[str, bool]] = TTLCache(
+        self._stream_activity: MutableMapping[str, dict[str, bool]] = TTLCache(
             maxsize=10000, ttl=3600
         )
 

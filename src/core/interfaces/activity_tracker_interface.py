@@ -88,3 +88,14 @@ class IConnectionActivityTracker(ABC):
         Returns:
             Snapshot of current activity across all backends.
         """
+
+    @abstractmethod
+    def cleanup_stale_connections(self) -> int:
+        """Remove connections that have exceeded the stale timeout.
+
+        This can be called periodically to clean up orphaned connections
+        that were not properly closed (e.g., due to crashes).
+
+        Returns:
+            Number of connections removed.
+        """

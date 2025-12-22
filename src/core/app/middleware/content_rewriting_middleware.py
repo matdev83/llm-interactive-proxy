@@ -11,6 +11,9 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
     # Maximum request body size (10 MB) to prevent DoS attacks
     MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 
+    # Maximum response body size (50 MB) to prevent DoS attacks on streaming responses
+    MAX_RESPONSE_BODY_SIZE = 50 * 1024 * 1024  # 50MB in bytes
+
     # Maximum JSON nesting depth to prevent stack overflow attacks
     MAX_NESTING_DEPTH = 100
 
@@ -443,14 +446,37 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         if isinstance(response, StreamingResponse):
 
             async def new_iterator():
+                import logging
+
+                logger = logging.getLogger(__name__)
                 response_body = b""
                 async for chunk in response.body_iterator:
+                    chunk_bytes: bytes
                     if isinstance(chunk, str):
-                        response_body += chunk.encode("utf-8")
+                        chunk_bytes = chunk.encode("utf-8")
                     elif isinstance(chunk, memoryview):
-                        response_body += chunk.tobytes()
+                        chunk_bytes = chunk.tobytes()
                     else:
-                        response_body += chunk
+                        chunk_bytes = chunk
+
+                    # DoS protection: Check accumulated size before adding chunk
+                    if (
+                        len(response_body) + len(chunk_bytes)
+                        > self.MAX_RESPONSE_BODY_SIZE
+                    ):
+                        logger.warning(
+                            "Response body size limit exceeded (%d bytes). "
+                            "Truncating to prevent DoS attack.",
+                            len(response_body) + len(chunk_bytes),
+                        )
+                        # Truncate to stay within limit
+                        remaining = self.MAX_RESPONSE_BODY_SIZE - len(response_body)
+                        if remaining > 0:
+                            response_body += chunk_bytes[:remaining]
+                        break
+
+                    response_body += chunk_bytes
+
                 rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
                 yield rewritten_body.encode("utf-8")
 

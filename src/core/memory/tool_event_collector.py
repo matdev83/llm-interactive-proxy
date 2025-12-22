@@ -15,6 +15,18 @@ from src.core.memory.models import FileEditEvent, GitCommitEvent, ToolEvent
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of git commits to track per session to prevent unbounded growth
+# This prevents memory leaks when sessions accumulate many unique commits
+_MAX_GIT_COMMITS_PER_SESSION = 1000
+
+# Maximum number of sessions to track to prevent unbounded growth
+# This prevents memory leaks when many sessions never call get_and_clear()
+_MAX_SESSIONS = 10000
+
+# Maximum number of file edits to track per session to prevent unbounded growth
+# This prevents memory leaks when a single session accumulates many file edits
+_MAX_FILE_EDITS_PER_SESSION = 10000
+
 
 class DeterministicToolEventCollector:
     """Tracks deterministic file edits and git commits per session.
@@ -31,6 +43,8 @@ class DeterministicToolEventCollector:
         self._git_commits: dict[str, list[GitCommitEvent]] = defaultdict(list)
         # session_id -> set of commit hashes (for dedup)
         self._commit_hashes: dict[str, set[str]] = defaultdict(set)
+        # Track session access order for LRU eviction
+        self._session_access_order: list[str] = []
         self._lock = asyncio.Lock()
 
     async def record_file_edit(
@@ -52,7 +66,15 @@ class DeterministicToolEventCollector:
         normalized_path = self._normalize_path(event.path, project_root)
 
         async with self._lock:
+            # Enforce session limit to prevent unbounded growth
+            await self._enforce_session_limit()
+
             session_edits = self._file_edits[session_id]
+
+            # Track session access for LRU eviction
+            if session_id in self._session_access_order:
+                self._session_access_order.remove(session_id)
+            self._session_access_order.append(session_id)
 
             # Create normalized event
             normalized_event = FileEditEvent(
@@ -66,6 +88,27 @@ class DeterministicToolEventCollector:
             existing = session_edits.get(normalized_path)
             if existing is None or event.timestamp > existing.timestamp:
                 session_edits[normalized_path] = normalized_event
+
+                # Enforce per-session file edit limit to prevent unbounded growth
+                if len(session_edits) > _MAX_FILE_EDITS_PER_SESSION:
+                    # Remove oldest entries (by timestamp) to keep most recent
+                    sorted_edits = sorted(
+                        session_edits.items(),
+                        key=lambda x: x[1].timestamp,
+                        reverse=True,
+                    )
+                    # Keep only the most recent entries
+                    session_edits.clear()
+                    session_edits.update(
+                        dict(sorted_edits[:_MAX_FILE_EDITS_PER_SESSION])
+                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Evicted oldest file edits for session %s (max_file_edits_per_session=%d reached)",
+                            session_id,
+                            _MAX_FILE_EDITS_PER_SESSION,
+                        )
+
                 logger.debug(
                     "Recorded file edit for session %s: %s (%s)",
                     session_id,
@@ -87,6 +130,14 @@ class DeterministicToolEventCollector:
             event: The git commit event to record.
         """
         async with self._lock:
+            # Enforce session limit to prevent unbounded growth
+            await self._enforce_session_limit()
+
+            # Track session access for LRU eviction
+            if session_id in self._session_access_order:
+                self._session_access_order.remove(session_id)
+            self._session_access_order.append(session_id)
+
             # Check for duplicate by hash
             if event.commit_hash in self._commit_hashes[session_id]:
                 logger.debug(
@@ -96,8 +147,27 @@ class DeterministicToolEventCollector:
                 )
                 return
 
-            self._git_commits[session_id].append(event)
+            commit_list = self._git_commits[session_id]
+            commit_list.append(event)
             self._commit_hashes[session_id].add(event.commit_hash)
+
+            # Enforce per-session limit to prevent unbounded growth
+            if len(commit_list) > _MAX_GIT_COMMITS_PER_SESSION:
+                # Remove oldest commits (FIFO eviction)
+                excess_count = len(commit_list) - _MAX_GIT_COMMITS_PER_SESSION
+                removed_commits = commit_list[:excess_count]
+                self._git_commits[session_id] = commit_list[excess_count:]
+                # Remove hashes for evicted commits
+                for removed_commit in removed_commits:
+                    self._commit_hashes[session_id].discard(removed_commit.commit_hash)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted %d oldest git commits for session %s (max_commits_per_session=%d reached)",
+                        excess_count,
+                        session_id,
+                        _MAX_GIT_COMMITS_PER_SESSION,
+                    )
+
             logger.debug(
                 "Recorded git commit for session %s: %s",
                 session_id,
@@ -176,6 +246,36 @@ class DeterministicToolEventCollector:
             self._file_edits.pop(session_id, None)
             self._git_commits.pop(session_id, None)
             self._commit_hashes.pop(session_id, None)
+            if session_id in self._session_access_order:
+                self._session_access_order.remove(session_id)
+
+    async def _enforce_session_limit(self) -> None:
+        """Enforce maximum number of sessions to prevent unbounded growth.
+
+        Uses LRU eviction to remove least recently used sessions when limit is exceeded.
+        Ensures we stay at or below _MAX_SESSIONS by evicting before adding new sessions.
+        """
+        total_sessions = len(self._file_edits)
+
+        # Evict if we're at or above the limit (evict before adding new session)
+        if total_sessions >= _MAX_SESSIONS:
+            # Evict least recently used sessions (oldest in access order)
+            # Evict enough to make room for one new session
+            excess_count = total_sessions - _MAX_SESSIONS + 1
+            sessions_to_evict = self._session_access_order[:excess_count]
+
+            for session_id in sessions_to_evict:
+                self._file_edits.pop(session_id, None)
+                self._git_commits.pop(session_id, None)
+                self._commit_hashes.pop(session_id, None)
+                self._session_access_order.remove(session_id)
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted %d oldest sessions (max_sessions=%d reached)",
+                    excess_count,
+                    _MAX_SESSIONS,
+                )
 
     def _normalize_path(self, path: str, project_root: str | None) -> str:
         """Normalize a file path.

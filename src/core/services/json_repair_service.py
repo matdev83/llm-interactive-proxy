@@ -31,6 +31,9 @@ MAX_SCHEMA_NODES = 5000
 MAX_SCHEMA_COLLECTION_ITEMS = 1024
 MAX_SCHEMA_PROPERTIES = 512
 
+# Maximum JSON repair input size to prevent DoS attacks (1MB)
+MAX_JSON_REPAIR_INPUT_SIZE = 1 * 1024 * 1024  # 1MB in bytes
+
 
 def enforce_schema_size_limits(
     schema: dict[str, Any],
@@ -175,7 +178,21 @@ class JsonRepairService:
 
         Returns:
             The repaired JSON object.
+
+        Raises:
+            JSONParsingError: If input size exceeds limit or repair fails.
         """
+        # DoS protection: Check input size before repair
+        input_size = len(json_string.encode("utf-8"))
+        if input_size > MAX_JSON_REPAIR_INPUT_SIZE:
+            raise JSONParsingError(
+                message=f"JSON string too large for repair ({input_size} bytes, limit: {MAX_JSON_REPAIR_INPUT_SIZE} bytes)",
+                details={
+                    "input_size": input_size,
+                    "max_size": MAX_JSON_REPAIR_INPUT_SIZE,
+                },
+            )
+
         repaired_string = repair_json(json_string)
         return json.loads(repaired_string)
 
@@ -227,13 +244,17 @@ class JsonRepairService:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Successfully parsed JSON for session {session_id}")
             except json.JSONDecodeError as e:
-                logger.info(
-                    f"Initial JSON parsing failed for session {session_id}, attempting repair: {e}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Initial JSON parsing failed for session {session_id}, attempting repair: {e}"
+                    )
                 # Attempt to repair the JSON
                 try:
                     parsed_json = self.repair_json(content)
-                    logger.info(f"Successfully repaired JSON for session {session_id}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Successfully repaired JSON for session {session_id}"
+                        )
                 except Exception as repair_error:
                     logger.error(
                         f"JSON repair failed for session {session_id}: {repair_error}"

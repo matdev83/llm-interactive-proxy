@@ -26,6 +26,11 @@ EventHandler = Callable[[T], Coroutine[Any, Any, None]]
 # Sentinel for broadcast topic (handlers that receive all events)
 _BROADCAST_TOPIC = None
 
+# Maximum number of handlers to prevent unbounded memory growth
+# This limit prevents memory leaks when handlers are dynamically subscribed
+# but never unsubscribed (e.g., per-request handlers)
+_MAX_TOTAL_HANDLERS = 10000
+
 
 class EventBus(IEventBus):
     """Asynchronous event bus implementation with topic support.
@@ -44,8 +49,15 @@ class EventBus(IEventBus):
     - publish(event, topic=None) - goes to ALL handlers
     """
 
-    def __init__(self) -> None:
-        """Initialize the event bus."""
+    def __init__(self, max_total_handlers: int = _MAX_TOTAL_HANDLERS) -> None:
+        """Initialize the event bus.
+
+        Args:
+            max_total_handlers: Maximum total number of handlers across all event types
+                               and topics. Prevents unbounded memory growth when handlers
+                               are dynamically subscribed but never unsubscribed.
+                               Default: 10000
+        """
         # Structure: event_type -> topic -> list of handlers
         # topic=None is used for broadcast handlers
         self._handlers: dict[type, dict[str | None, list[EventHandler[Any]]]] = (
@@ -54,6 +66,7 @@ class EventBus(IEventBus):
         self._pending_tasks: WeakSet[asyncio.Task[Any]] = WeakSet()
         self._lock = asyncio.Lock()
         self._shutting_down = False
+        self._max_total_handlers = max_total_handlers
 
     def subscribe(
         self,
@@ -70,11 +83,23 @@ class EventBus(IEventBus):
             topic: Optional topic filter. If None, handler receives all events.
         """
         if self._shutting_down:
-            logger.warning(
-                "Attempted to subscribe handler during shutdown: %s for %s",
-                handler,
-                event_type.__name__,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Attempted to subscribe handler during shutdown: %s for %s",
+                    handler,
+                    event_type.__name__,
+                )
+            return
+
+        # Check total handler count before adding
+        total_handlers = self._count_total_handlers()
+        if total_handlers >= self._max_total_handlers:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot subscribe handler: max_total_handlers (%d) reached. "
+                    "Handler accumulation detected - consider unsubscribing unused handlers.",
+                    self._max_total_handlers,
+                )
             return
 
         topic_handlers = self._handlers[event_type][topic]
@@ -85,12 +110,13 @@ class EventBus(IEventBus):
                     handler.__name__ if hasattr(handler, "__name__") else handler
                 )
                 topic_str = f"topic={topic}" if topic else "broadcast"
-                logger.debug(
-                    "Subscribed handler %s to event type %s (%s)",
-                    handler_name,
-                    event_type.__name__,
-                    topic_str,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Subscribed handler %s to event type %s (%s)",
+                        handler_name,
+                        event_type.__name__,
+                        topic_str,
+                    )
 
     def unsubscribe(
         self,
@@ -112,24 +138,26 @@ class EventBus(IEventBus):
                     handler.__name__ if hasattr(handler, "__name__") else handler
                 )
                 topic_str = f"topic={topic}" if topic else "broadcast"
-                logger.debug(
-                    "Unsubscribed handler %s from event type %s (%s)",
-                    handler_name,
-                    event_type.__name__,
-                    topic_str,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unsubscribed handler %s from event type %s (%s)",
+                        handler_name,
+                        event_type.__name__,
+                        topic_str,
+                    )
         except ValueError:
             if logger.isEnabledFor(logging.DEBUG):
                 handler_name = (
                     handler.__name__ if hasattr(handler, "__name__") else handler
                 )
                 topic_str = f"topic={topic}" if topic else "broadcast"
-                logger.debug(
-                    "Handler %s was not subscribed to %s (%s)",
-                    handler_name,
-                    event_type.__name__,
-                    topic_str,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Handler %s was not subscribed to %s (%s)",
+                        handler_name,
+                        event_type.__name__,
+                        topic_str,
+                    )
 
     async def publish(self, event: T, topic: str | None = None) -> None:
         """Publish an event to all subscribed handlers.
@@ -142,10 +170,11 @@ class EventBus(IEventBus):
             topic: Optional topic for targeted delivery.
         """
         if self._shutting_down:
-            logger.warning(
-                "Attempted to publish event during shutdown: %s",
-                type(event).__name__,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Attempted to publish event during shutdown: %s",
+                    type(event).__name__,
+                )
             return
 
         event_type = type(event)
@@ -181,10 +210,11 @@ class EventBus(IEventBus):
             topic: Optional topic for targeted delivery.
         """
         if self._shutting_down:
-            logger.warning(
-                "Attempted to publish_nowait during shutdown: %s",
-                type(event).__name__,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Attempted to publish_nowait during shutdown: %s",
+                    type(event).__name__,
+                )
             return
 
         event_type = type(event)
@@ -278,6 +308,18 @@ class EventBus(IEventBus):
                 extra=log_extra if log_extra else None,
             )
 
+    def _count_total_handlers(self) -> int:
+        """Count total number of handlers across all event types and topics.
+
+        Returns:
+            Total number of handlers registered.
+        """
+        return sum(
+            len(handlers)
+            for topic_map in self._handlers.values()
+            for handlers in topic_map.values()
+        )
+
     def has_subscribers(self, event_type: type[T], topic: str | None = None) -> bool:
         """Check if there are any subscribers for an event type.
 
@@ -309,16 +351,18 @@ class EventBus(IEventBus):
         # Wait for any pending tasks with timeout
         pending = [t for t in self._pending_tasks if not t.done()]
         if pending:
-            logger.info(
-                "Waiting for %d pending event handlers to complete", len(pending)
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Waiting for %d pending event handlers to complete", len(pending)
+                )
             try:
                 await asyncio.wait_for(
                     asyncio.gather(*pending, return_exceptions=True),
                     timeout=5.0,
                 )
             except asyncio.TimeoutError:
-                logger.warning("Timeout waiting for event handlers, cancelling")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Timeout waiting for event handlers, cancelling")
                 for task in pending:
                     if not task.done():
                         task.cancel()
@@ -327,4 +371,5 @@ class EventBus(IEventBus):
         self._handlers.clear()
         self._pending_tasks.clear()
 
-        logger.info("Event bus shutdown complete")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Event bus shutdown complete")

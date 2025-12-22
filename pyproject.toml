@@ -284,6 +284,7 @@ max-complexity = 50
 "src/anthropic_converters.py" = ["C901"]  # openai_stream_to_anthropic_stream (58)
 "src/connectors/gemini_base/streaming_executor.py" = ["C901"]  # _stream_generator (65)
 "src/connectors/openai_codex.py" = ["C901"]  # _call_codex_responses_api (72)
+"src/connectors/openai.py" = ["C901"]  # _handle_streaming_response (51)
 "src/core/app/controllers/chat_controller.py" = ["C901"]  # handle_chat_completion (72)
 "src/core/auth/sso/web_interface.py" = ["C901"]  # create_sso_router (66)
 "src/core/domain/translators/gemini/request.py" = ["C901"]  # from_domain_to_gemini_request (79)

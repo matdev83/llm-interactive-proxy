@@ -22,6 +22,9 @@ from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
+# Maximum JSON repair input size to prevent DoS attacks (1MB)
+MAX_JSON_REPAIR_INPUT_SIZE = 1 * 1024 * 1024  # 1MB in bytes
+
 
 @dataclass
 class ToolCallSignature(InternalDTO):
@@ -98,6 +101,17 @@ class ToolCallSignature(InternalDTO):
         """Produce a stable string signature for tool call arguments."""
         MAX_ARG_LENGTH = 1024
         if isinstance(arguments, str):
+            # DoS protection: Check input size before repair
+            input_size = len(arguments.encode("utf-8"))
+            if input_size > MAX_JSON_REPAIR_INPUT_SIZE:
+                logger.warning(
+                    "Tool arguments too large for JSON repair (%d bytes, limit: %d bytes). "
+                    "Using hash fallback to prevent DoS attack.",
+                    input_size,
+                    MAX_JSON_REPAIR_INPUT_SIZE,
+                )
+                return cls._hash_fallback(arguments)
+
             try:
                 repaired_arguments = repair_json(arguments)
             except (TypeError, ValueError, RecursionError):

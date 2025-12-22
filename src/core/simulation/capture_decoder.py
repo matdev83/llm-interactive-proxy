@@ -15,6 +15,7 @@ from typing import Generic, TypeVar, cast
 
 from pydantic import ValidationError
 
+from src.core.common.json_validation import JSONValidationError, validate_json_structure
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureMetadata
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -225,6 +226,18 @@ class CaptureDecoder:
                 diagnostics={"raw_bytes": data, "attempted_format": "json"},
             )
 
+        # DoS protection: Validate JSON structure (depth and array size)
+        try:
+            validate_json_structure(request_dict)
+        except JSONValidationError as e:
+            return DecodeResult.failure(
+                DecodeError(
+                    f"JSON structure validation failed: {e}",
+                    details={"validation_error": str(e)},
+                ),
+                diagnostics={"raw_bytes": data, "attempted_format": "json"},
+            )
+
         # Validate and construct CanonicalChatRequest
         try:
             request = CanonicalChatRequest.model_validate(request_dict)
@@ -265,6 +278,18 @@ class CaptureDecoder:
                 DecodeError(
                     f"Failed to parse JSON: {e}",
                     details={"json_error": str(e)},
+                ),
+                diagnostics={"raw_bytes": entry.data, "attempted_format": "json"},
+            )
+
+        # DoS protection: Validate JSON structure (depth and array size)
+        try:
+            validate_json_structure(response_dict)
+        except JSONValidationError as e:
+            return DecodeResult.failure(
+                DecodeError(
+                    f"JSON structure validation failed: {e}",
+                    details={"validation_error": str(e)},
                 ),
                 diagnostics={"raw_bytes": entry.data, "attempted_format": "json"},
             )

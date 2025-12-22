@@ -18,6 +18,9 @@ from src.core.utils.message_processing_utils import (
 
 logger = logging.getLogger(__name__)
 
+# Maximum JSON parse size to prevent DoS attacks (10MB)
+MAX_JSON_PARSE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+
 
 class ToolCallRepairService(IToolCallRepairService):
     """
@@ -41,7 +44,6 @@ class ToolCallRepairService(IToolCallRepairService):
     )
 
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
-        self._tool_call_buffers: dict[str, str] = {}
         # Cap per-session buffer to guard against pathological streams
         self._max_buffer_bytes: int = max_buffer_bytes or (64 * 1024)  # default 64 KB
 
@@ -269,6 +271,17 @@ class ToolCallRepairService(IToolCallRepairService):
     ) -> ToolCallRepairResult | None:
         """Helper to process a detected JSON string."""
         try:
+            # DoS protection: Check JSON size before parsing
+            json_size = len(json_string.encode("utf-8"))
+            if json_size > MAX_JSON_PARSE_SIZE:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Tool call JSON too large for repair (%d bytes, limit: %d bytes)",
+                        json_size,
+                        MAX_JSON_PARSE_SIZE,
+                    )
+                return None
+
             data = json.loads(json_string)
             if "function_call" in data and isinstance(data["function_call"], dict):
                 return self._format_openai_tool_call(
@@ -315,8 +328,19 @@ class ToolCallRepairService(IToolCallRepairService):
             # Attempt to parse arguments as JSON, fallback to string if not
             stripped_args = args_string.strip()
             try:
-                # Parse JSON to validate it, then use original string to avoid round-trip
-                json.loads(stripped_args)
+                # DoS protection: Check JSON size before parsing
+                args_size = len(stripped_args.encode("utf-8"))
+                if args_size > MAX_JSON_PARSE_SIZE:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Tool call arguments too large for repair (%d bytes, limit: %d bytes)",
+                            args_size,
+                            MAX_JSON_PARSE_SIZE,
+                        )
+                    arguments = json.dumps({"args": stripped_args})
+                else:
+                    # Parse JSON to validate it, then use original string to avoid round-trip
+                    json.loads(stripped_args)
                 arguments = (
                     stripped_args
                     if stripped_args.startswith(("{", "["))
@@ -532,7 +556,19 @@ class ToolCallRepairService(IToolCallRepairService):
                 if not isinstance(arguments_raw, dict):
                     if isinstance(arguments_raw, str) and arguments_raw.strip():
                         try:
-                            parsed = json.loads(arguments_raw.strip())
+                            # DoS protection: Check JSON size before parsing
+                            arg_str = arguments_raw.strip()
+                            arg_size = len(arg_str.encode("utf-8"))
+                            if arg_size > MAX_JSON_PARSE_SIZE:
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        "Tool call arguments too large for repair (%d bytes, limit: %d bytes)",
+                                        arg_size,
+                                        MAX_JSON_PARSE_SIZE,
+                                    )
+                                arguments_raw = {"content": arguments_raw}
+                            else:
+                                parsed = json.loads(arg_str)
                             if isinstance(parsed, dict):
                                 arguments_raw = parsed
                             else:
@@ -833,8 +869,19 @@ class ToolCallRepairService(IToolCallRepairService):
             args_content = args_match.group(1).strip()
             if args_content:
                 try:
-                    # Try to parse as JSON first
-                    parsed = json.loads(args_content)
+                    # DoS protection: Check JSON size before parsing
+                    args_size = len(args_content.encode("utf-8"))
+                    if args_size > MAX_JSON_PARSE_SIZE:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Tool call arguments too large for repair (%d bytes, limit: %d bytes)",
+                                args_size,
+                                MAX_JSON_PARSE_SIZE,
+                            )
+                        arguments = {"content": args_content}
+                    else:
+                        # Try to parse as JSON first
+                        parsed = json.loads(args_content)
                     if isinstance(parsed, dict):
                         arguments = parsed
                     else:
@@ -1013,7 +1060,17 @@ class ToolCallRepairService(IToolCallRepairService):
                     stripped = value.strip()
                     if stripped.startswith("{") and stripped.endswith("}"):
                         try:
-                            parsed = json.loads(stripped)
+                            # DoS protection: Check JSON size before parsing
+                            stripped_size = len(stripped.encode("utf-8"))
+                            if stripped_size > MAX_JSON_PARSE_SIZE:
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        "Content string too large for JSON parsing (%d bytes, limit: %d bytes)",
+                                        stripped_size,
+                                        MAX_JSON_PARSE_SIZE,
+                                    )
+                            else:
+                                parsed = json.loads(stripped)
                             if isinstance(parsed, dict) and parsed:
                                 # Unwrap the nested JSON and add its keys directly
                                 for inner_key, inner_value in parsed.items():
@@ -1082,7 +1139,29 @@ class ToolCallRepairService(IToolCallRepairService):
             content_str = arguments["content"].strip()
             # Only try to parse if it looks like a JSON object
             if content_str.startswith("{") and content_str.endswith("}"):
+                # DoS protection: Check input size before parsing
+                content_size = len(content_str.encode("utf-8"))
+                if content_size > MAX_JSON_PARSE_SIZE:
+                    logger.warning(
+                        "Content string too large for JSON parsing (%d bytes, limit: %d bytes). "
+                        "Skipping unwrap to prevent DoS attack.",
+                        content_size,
+                        MAX_JSON_PARSE_SIZE,
+                    )
+                    return arguments
+
                 try:
+                    # DoS protection: Check JSON size before parsing
+                    content_size = len(content_str.encode("utf-8"))
+                    if content_size > MAX_JSON_PARSE_SIZE:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Content string too large for JSON parsing (%d bytes, limit: %d bytes)",
+                                content_size,
+                                MAX_JSON_PARSE_SIZE,
+                            )
+                        return arguments
+
                     parsed = json.loads(content_str)
                     if isinstance(parsed, dict) and parsed:
                         # Successfully unwrapped - log for debugging

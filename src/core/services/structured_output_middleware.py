@@ -8,6 +8,7 @@ to handle JSON schema validation and repair for structured outputs.
 from __future__ import annotations
 
 import logging
+from collections.abc import MutableMapping
 from typing import Any
 
 from cachetools import TTLCache
@@ -54,8 +55,12 @@ class StructuredOutputFeature(IResponseFeature):
         super().__init__(priority)
         self._json_repair_service = json_repair_service
         # Streaming state: accumulate content per stream for validation
-        self._stream_content: dict[str, str] = TTLCache(maxsize=10000, ttl=3600)
-        self._stream_schemas: dict[str, Any] = TTLCache(maxsize=10000, ttl=3600)
+        self._stream_content: MutableMapping[str, str] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
+        self._stream_schemas: MutableMapping[str, Any] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     def _get_stream_key(self, session_id: str, context: dict[str, Any]) -> str:
         """Get unique key for tracking stream content."""

@@ -93,6 +93,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROCESS_TIMEOUT = 300.0  # 5 minutes for complex operations
 DEFAULT_CONNECTION_TIMEOUT = 60.0
 DEFAULT_IDLE_TIMEOUT = 30.0  # Kill process if idle for this long
+MAX_RESPONSE_LINE_SIZE = 10 * 1024 * 1024  # 10MB limit for JSON-RPC lines
 
 
 class GeminiCliAcpConnector(GeminiBackend):
@@ -381,12 +382,35 @@ class GeminiCliAcpConnector(GeminiBackend):
             raise BackendError(message="gemini-cli process not running")
 
         try:
-            # Read line from stdout
+            # Read line from stdout with size limit
+            # Note: loop.run_in_executor with a simple file read doesn't support a limit argument directly
+            # on the readline call in all executor contexts, but file.readline(limit) does.
+            # However, run_in_executor runs a function.
+            # We need to wrap the readline call to pass the limit.
+
+            def _read_limited() -> bytes:
+                if self._process and self._process.stdout:
+                    # Use the module-level MAX_RESPONSE_LINE_SIZE
+                    # Reading a single line larger than this will return a truncated line
+                    # which will likely fail JSON parsing, safely rejecting the oversized payload.
+                    return self._process.stdout.readline(MAX_RESPONSE_LINE_SIZE + 1)
+                return b""
+
             loop = asyncio.get_event_loop()
-            line = await loop.run_in_executor(None, self._process.stdout.readline)
+            line = await loop.run_in_executor(None, _read_limited)
 
             if not line:
                 return None  # Stream ended
+
+            if len(line) > MAX_RESPONSE_LINE_SIZE:
+                logger.warning(
+                    f"Received oversize response line from gemini-cli ({len(line)} bytes). "
+                    f"Limit is {MAX_RESPONSE_LINE_SIZE} bytes."
+                )
+                # Consume the rest of the line to resync?
+                # Actually, for security, better to terminate connection/process than consume unbounded data.
+                # But here we just reject this message.
+                raise BackendError(message="Response too large from gemini-cli")
 
             self._last_activity = loop.time()
 

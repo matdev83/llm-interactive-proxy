@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,7 +52,7 @@ class ToolCallLifecycleRegistry:
     def __init__(self, max_streams: int = 1024) -> None:
         self._lock = threading.Lock()
         self._max_streams = max_streams
-        self._states: dict[str, ToolCallStreamState] = TTLCache(
+        self._states: MutableMapping[str, ToolCallStreamState] = TTLCache(
             maxsize=max_streams, ttl=3600
         )
 

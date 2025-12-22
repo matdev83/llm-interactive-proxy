@@ -10,6 +10,8 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, cast
 
+from cachetools import TTLCache
+
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import CapturedInteraction, FileEditEvent, GitCommitEvent
 from src.core.memory.tool_event_collector import (
@@ -41,7 +43,11 @@ class MemoryCaptureMiddleware:
         """
         self._memory_service = memory_service
         self._config = config
-        self._auto_enabled_sessions: set[str] = set()
+        # Use TTLCache to prevent unbounded memory growth when sessions never cleanup
+        # TTL: 1 hour, Max size: 10,000 sessions
+        self._auto_enabled_sessions: TTLCache[str, bool] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     async def capture_request(
         self,
@@ -81,7 +87,7 @@ class MemoryCaptureMiddleware:
             and user_id
         )
         if should_auto_enable:
-            self._auto_enabled_sessions.add(session_id)
+            self._auto_enabled_sessions[session_id] = True
             enabled = await self._memory_service.enable_for_session(
                 session_id,
                 cast(str, user_id),

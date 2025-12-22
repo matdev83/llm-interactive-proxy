@@ -21,19 +21,31 @@ _MAX_SESSIONS = 50_000
 # This prevents accumulation of stale sessions when cleanup_expired is never called
 _DEFAULT_SESSION_TTL_SECONDS = 24 * 3600
 
+# Maximum number of session IDs to track per user to prevent unbounded growth
+# This prevents memory leaks when a single user creates many sessions
+_MAX_SESSIONS_PER_USER = 1000
+
+# Maximum number of session IDs to track per client to prevent unbounded growth
+# This prevents memory leaks when a single client creates many sessions
+_MAX_SESSIONS_PER_CLIENT = 1000
+
 
 class InMemorySessionRepository(ISessionRepository):
     """In-memory implementation of session repository.
 
     This repository keeps sessions in memory and does not persist them.
     It is suitable for development and testing.
-    
+
     Automatically cleans up stale sessions to prevent unbounded memory growth.
     """
 
-    def __init__(self, max_sessions: int = _MAX_SESSIONS, default_ttl_seconds: int = _DEFAULT_SESSION_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        max_sessions: int = _MAX_SESSIONS,
+        default_ttl_seconds: int = _DEFAULT_SESSION_TTL_SECONDS,
+    ) -> None:
         """Initialize the in-memory session repository.
-        
+
         Args:
             max_sessions: Maximum number of sessions to keep in memory
             default_ttl_seconds: Default TTL in seconds for stale sessions
@@ -47,6 +59,8 @@ class InMemorySessionRepository(ISessionRepository):
         self._fingerprint_bundles: dict[str, ConversationFingerprintBundle] = {}
         self._max_sessions = max_sessions
         self._default_ttl_seconds = default_ttl_seconds
+        self._max_sessions_per_user = _MAX_SESSIONS_PER_USER
+        self._max_sessions_per_client = _MAX_SESSIONS_PER_CLIENT
 
     async def _maybe_cleanup_stale_sessions(self) -> None:
         """Clean up stale sessions based on TTL.
@@ -108,14 +122,14 @@ class InMemorySessionRepository(ISessionRepository):
             logger.debug(
                 f"InMemorySessionRepository.add: session_id={entity.id}, history_size={len(entity.history)}"
             )
-        
+
         # Check if we need to evict old sessions before adding new one
         if entity.id not in self._sessions:
             await self._maybe_cleanup_stale_sessions()
             # Enforce max limit by evicting oldest sessions if needed
             while len(self._sessions) >= self._max_sessions:
                 await self._evict_oldest_session()
-        
+
         self._sessions[entity.id] = entity
         self._last_accessed[entity.id] = time.time()
 
@@ -123,7 +137,23 @@ class InMemorySessionRepository(ISessionRepository):
         if hasattr(entity, "user_id") and entity.user_id:
             if entity.user_id not in self._user_sessions:
                 self._user_sessions[entity.user_id] = []
-            self._user_sessions[entity.user_id].append(entity.id)
+            user_session_list = self._user_sessions[entity.user_id]
+            # Add new session ID
+            if entity.id not in user_session_list:
+                user_session_list.append(entity.id)
+            # Enforce per-user limit to prevent unbounded growth
+            if len(user_session_list) > self._max_sessions_per_user:
+                # Remove oldest session IDs (FIFO eviction)
+                excess_count = len(user_session_list) - self._max_sessions_per_user
+                # Remove oldest entries
+                self._user_sessions[entity.user_id] = user_session_list[excess_count:]
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted %d oldest session IDs for user %s (max_sessions_per_user=%d reached)",
+                        excess_count,
+                        entity.user_id,
+                        self._max_sessions_per_user,
+                    )
 
         return entity
 
@@ -161,6 +191,18 @@ class InMemorySessionRepository(ISessionRepository):
             tracked_sessions = self._user_sessions.setdefault(new_user_id, [])
             if entity.id not in tracked_sessions:
                 tracked_sessions.append(entity.id)
+            # Enforce per-user limit to prevent unbounded growth
+            if len(tracked_sessions) > self._max_sessions_per_user:
+                # Remove oldest session IDs (FIFO eviction)
+                excess_count = len(tracked_sessions) - self._max_sessions_per_user
+                self._user_sessions[new_user_id] = tracked_sessions[excess_count:]
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted %d oldest session IDs for user %s (max_sessions_per_user=%d reached)",
+                        excess_count,
+                        new_user_id,
+                        self._max_sessions_per_user,
+                    )
 
         return entity
 
@@ -278,8 +320,21 @@ class InMemorySessionRepository(ISessionRepository):
         """
         if client_key not in self._client_sessions:
             self._client_sessions[client_key] = []
-        if session_id not in self._client_sessions[client_key]:
-            self._client_sessions[client_key].append(session_id)
+        client_session_list = self._client_sessions[client_key]
+        if session_id not in client_session_list:
+            client_session_list.append(session_id)
+        # Enforce per-client limit to prevent unbounded growth
+        if len(client_session_list) > self._max_sessions_per_client:
+            # Remove oldest session IDs (FIFO eviction)
+            excess_count = len(client_session_list) - self._max_sessions_per_client
+            self._client_sessions[client_key] = client_session_list[excess_count:]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted %d oldest session IDs for client %s (max_sessions_per_client=%d reached)",
+                    excess_count,
+                    client_key,
+                    self._max_sessions_per_client,
+                )
 
     async def find_by_client_and_fingerprint(
         self, client_key: str, fingerprint: str

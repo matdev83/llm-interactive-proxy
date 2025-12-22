@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from src.core.auth.sso.middleware import AuthMiddleware
+from src.core.common.json_validation import JSONValidationError, validate_json_structure
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 class SSOMiddlewareAdapter(BaseHTTPMiddleware):
     """Adapter that integrates SSO AuthMiddleware with FastAPI."""
+
+    # Security limits
+    MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
 
     def __init__(self, app: Any, sso_middleware: AuthMiddleware):
         """
@@ -102,8 +106,25 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
 
                     request._receive = receive  # type: ignore
 
-                    body_dict = json.loads(body)
-                    messages = body_dict.get("messages", [])
+                    # Security: Check body size before parsing
+                    if len(body) <= self.MAX_BODY_SIZE:
+                        body_dict = json.loads(body)
+                        # DoS protection: Validate JSON structure (depth and array size)
+                        try:
+                            validate_json_structure(body_dict)
+                            messages = body_dict.get("messages", [])
+                        except JSONValidationError as e:
+                            logger.warning(
+                                "JSON structure validation failed for SSO inspection: %s",
+                                e,
+                            )
+                            # Continue without messages to prevent DoS
+                    else:
+                        logger.warning(
+                            "Request body too large for SSO inspection: %d bytes (limit: %d)",
+                            len(body),
+                            self.MAX_BODY_SIZE,
+                        )
             except Exception:
                 # If we can't parse body, continue without messages
                 pass

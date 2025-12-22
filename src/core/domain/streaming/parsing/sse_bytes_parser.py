@@ -95,13 +95,13 @@ class SSEBytesParser(IParserStrategy):
 
     def _parse_json_safely(self, json_str: str) -> Any:
         """Parse JSON with depth limits to prevent stack overflow.
-        
+
         Args:
             json_str: JSON string to parse
-            
+
         Returns:
             Parsed JSON object
-            
+
         Raises:
             ValueError: If JSON is too deeply nested
             json.JSONDecodeError: If JSON is invalid
@@ -118,17 +118,19 @@ class SSEBytesParser(IParserStrategy):
 
     def _validate_json_depth(self, obj: Any, current_depth: int) -> None:
         """Validate JSON object doesn't exceed maximum nesting depth.
-        
+
         Args:
             obj: JSON object to validate
             current_depth: Current nesting depth
-            
+
         Raises:
             ValueError: If maximum depth exceeded
         """
         if current_depth >= MAX_JSON_DEPTH:
-            raise ValueError(f"JSON depth {current_depth} exceeds maximum {MAX_JSON_DEPTH}")
-        
+            raise ValueError(
+                f"JSON depth {current_depth} exceeds maximum {MAX_JSON_DEPTH}"
+            )
+
         if isinstance(obj, dict):
             for value in obj.values():
                 self._validate_json_depth(value, current_depth + 1)
@@ -136,18 +138,20 @@ class SSEBytesParser(IParserStrategy):
             for item in obj:
                 self._validate_json_depth(item, current_depth + 1)
 
-    def _parse_as_string_safely(self, decoded_str: str, raw_data: bytes | bytearray) -> StreamingContent:
+    def _parse_as_string_safely(
+        self, decoded_str: str, raw_data: bytes | bytearray
+    ) -> StreamingContent:
         """Parse decoded string safely with size and depth checks.
-        
+
         Args:
             decoded_str: Decoded string from bytes
             raw_data: Original raw bytes for raw_data field
-            
+
         Returns:
             StreamingContent result
         """
         # Additional size check for string representation
-        string_size = len(decoded_str.encode('utf-8'))
+        string_size = len(decoded_str.encode("utf-8"))
         if string_size > MAX_SSE_PAYLOAD_SIZE:
             logger.warning(
                 "Decoded string too large: %d bytes (limit: %d bytes)",
@@ -157,7 +161,7 @@ class SSEBytesParser(IParserStrategy):
             raise ValueError(
                 f"Decoded string too large: {string_size} bytes (limit: {MAX_SSE_PAYLOAD_SIZE} bytes)"
             )
-        
+
         # Try parsing as JSON first with safety checks
         stripped = decoded_str.strip()
         if stripped.startswith(("{", "[")):
@@ -172,8 +176,7 @@ class SSEBytesParser(IParserStrategy):
                     # Reject deeply nested JSON completely for security
                     raise ValueError(f"JSON payload too deeply nested: {e}")
                 # Fall back to string content for other validation errors
-                pass
-        
+
         # Treat as plain string
         return StreamingContent(content=decoded_str, raw_data=raw_data)
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,20 +37,20 @@ class ReplacementMetrics:
 
     # Activation tracking (Requirement 3.2)
     total_activations: int = 0
-    activations_by_session: dict[str, int] = field(
+    activations_by_session: MutableMapping[str, int] = field(
         default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
     activation_timestamps: list[float] = field(default_factory=list)
 
     # Turn count distribution tracking (Requirement 4.1)
     total_turns_completed: int = 0
-    turns_by_session: dict[str, int] = field(
+    turns_by_session: MutableMapping[str, int] = field(
         default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
     # Opt-out tracking (Requirements 9.1, 9.2)
     total_opt_outs: int = 0
-    opt_outs_by_session: dict[str, int] = field(
+    opt_outs_by_session: MutableMapping[str, int] = field(
         default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
     opt_out_timestamps: list[float] = field(default_factory=list)
@@ -58,7 +59,7 @@ class ReplacementMetrics:
 
     # Probability check tracking
     total_probability_checks: int = 0
-    probability_checks_by_session: dict[str, int] = field(
+    probability_checks_by_session: MutableMapping[str, int] = field(
         default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
@@ -344,7 +345,9 @@ class ReplacementMetrics:
             },
             "probability_check_metrics": {
                 "total_probability_checks": self.total_probability_checks,
-                "unique_sessions_checked": len(dict(self.probability_checks_by_session)),
+                "unique_sessions_checked": len(
+                    dict(self.probability_checks_by_session)
+                ),
             },
         }
 

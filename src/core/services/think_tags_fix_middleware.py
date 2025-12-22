@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import MutableMapping
 from typing import Any, cast
 from uuid import uuid4
 
@@ -57,12 +58,18 @@ class ThinkTagsFixFeature(IResponseFeature):
         self._max_reasoning_entries = max_reasoning_entries
 
         # State management
-        self._streaming_buffers: dict[str, str] = TTLCache(maxsize=10000, ttl=3600)
-        self._reasoning_extracted: dict[str, dict[str, Any]] = TTLCache(
+        self._streaming_buffers: MutableMapping[str, str] = TTLCache(
             maxsize=10000, ttl=3600
         )
-        self._stream_states: dict[str, str] = TTLCache(maxsize=10000, ttl=3600)
-        self._session_aliases: dict[str, str] = TTLCache(maxsize=10000, ttl=3600)
+        self._reasoning_extracted: MutableMapping[str, dict[str, Any]] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
+        self._stream_states: MutableMapping[str, str] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
+        self._session_aliases: MutableMapping[str, str] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     def _should_process_for_model(self, backend: str | None, model: str | None) -> bool:
         """Determine if think tags fix should be enabled for a specific model."""
@@ -470,16 +477,18 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         self._max_reasoning_entries = max_reasoning_entries
 
         # Streaming state management
-        self._streaming_buffers: dict[str, str] = TTLCache(
+        self._streaming_buffers: MutableMapping[str, str] = TTLCache(
             maxsize=10000, ttl=3600
         )  # Buffer accumulated chunks per session
-        self._reasoning_extracted: dict[str, dict[str, Any]] = TTLCache(
+        self._reasoning_extracted: MutableMapping[str, dict[str, Any]] = TTLCache(
             maxsize=10000, ttl=3600
         )  # Track extracted reasoning per session (with _created_at timestamp)
-        self._stream_states: dict[str, str] = TTLCache(
+        self._stream_states: MutableMapping[str, str] = TTLCache(
             maxsize=10000, ttl=3600
         )  # Track streaming state per session
-        self._session_aliases: dict[str, str] = TTLCache(maxsize=10000, ttl=3600)
+        self._session_aliases: MutableMapping[str, str] = TTLCache(
+            maxsize=10000, ttl=3600
+        )
 
     def _should_process_for_model(self, backend: str | None, model: str | None) -> bool:
         """Determine if think tags fix should be enabled for a specific backend/model.

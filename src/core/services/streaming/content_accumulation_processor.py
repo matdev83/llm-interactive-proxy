@@ -95,12 +95,13 @@ class ContentAccumulationProcessor(IStreamProcessor):
         ):
             return
 
-        logger.debug(
-            "ContentAccumulationProcessor: Clearing %d accumulated chunks "
-            "for steering replacement, stream_id=%s",
-            len(state.chunks),
-            stream_id,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "ContentAccumulationProcessor: Clearing %d accumulated chunks "
+                "for steering replacement, stream_id=%s",
+                len(state.chunks),
+                stream_id,
+            )
         state.chunks.clear()
         state.encoded_chunks.clear()
         state.chunk_lengths.clear()
@@ -130,12 +131,13 @@ class ContentAccumulationProcessor(IStreamProcessor):
         if state.chunks and not state.has_sent_content:
             final_content = "".join(state.chunks)
             if final_content:
-                logger.debug(
-                    "ContentAccumulationProcessor: Merging %d bytes of buffered content "
-                    "into StopChunkWithUsage, stream_id=%s",
-                    len(final_content),
-                    stream_id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "ContentAccumulationProcessor: Merging %d bytes of buffered content "
+                        "into StopChunkWithUsage, stream_id=%s",
+                        len(final_content),
+                        stream_id,
+                    )
                 if "choices" not in openai_chunk:
                     openai_chunk["choices"] = [
                         {"index": 0, "delta": {}, "finish_reason": "stop"}
@@ -165,13 +167,14 @@ class ContentAccumulationProcessor(IStreamProcessor):
             state.completed = True
             self._registry.clear_content_state(stream_id)
 
-        logger.debug(
-            "ContentAccumulationProcessor: Passing through StopChunkWithUsage unchanged, "
-            "chunk_id=%s, has_usage=%s, stream_id=%s",
-            openai_chunk.get("id", "unknown"),
-            usage_info is not None,
-            stream_id,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "ContentAccumulationProcessor: Passing through StopChunkWithUsage unchanged, "
+                "chunk_id=%s, has_usage=%s, stream_id=%s",
+                openai_chunk.get("id", "unknown"),
+                usage_info is not None,
+                stream_id,
+            )
 
         usage_summary = None
         if isinstance(usage_info, UsageSummary):
@@ -222,18 +225,18 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     extracted_content += delta_content
 
         if extracted_content:
-            logger.debug(
-                "ContentAccumulationProcessor: Extracted text content, len=%d, stream_id=%s",
-                len(extracted_content),
-                stream_id,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ContentAccumulationProcessor: Extracted text content, len=%d, stream_id=%s",
+                    len(extracted_content),
+                    stream_id,
+                )
 
             encoded_content = extracted_content.encode("utf-8")
             content_length = len(encoded_content)
-            state.chunks.append(extracted_content)
-            state.encoded_chunks.append(encoded_content)
-            state.chunk_lengths.append(content_length)
-            state.byte_length += content_length
+            state.append_content_chunk(
+                extracted_content, encoded_content, content_length
+            )
 
         if content.metadata:
             merged_metadata = dict(state.metadata_snapshot)
@@ -248,13 +251,14 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 output_metadata["accumulated_reasoning"] = "".join(
                     state.reasoning_chunks
                 )
-            logger.debug(
-                "ContentAccumulationProcessor: Final accumulated content, "
-                "len=%d, stream_id=%s, has_reasoning=%s",
-                len(final_content),
-                stream_id,
-                bool(state.reasoning_chunks),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ContentAccumulationProcessor: Final accumulated content, "
+                    "len=%d, stream_id=%s, has_reasoning=%s",
+                    len(final_content),
+                    stream_id,
+                    bool(state.reasoning_chunks),
+                )
             state.chunks.clear()
             state.encoded_chunks.clear()
             state.chunk_lengths.clear()
@@ -358,19 +362,17 @@ class ContentAccumulationProcessor(IStreamProcessor):
             if chunk_text:
                 encoded_content = chunk_text.encode("utf-8")
                 content_length = len(encoded_content)
-                state.chunks.append(chunk_text)
-                state.encoded_chunks.append(encoded_content)
-                state.chunk_lengths.append(content_length)
-                state.byte_length += content_length
+                state.append_content_chunk(chunk_text, encoded_content, content_length)
 
         if state.byte_length > self._max_buffer_bytes:
             if not state.truncation_logged:
-                logger.warning(
-                    "ContentAccumulationProcessor buffer exceeded %d bytes (current: %d bytes). "
-                    "Truncating to most recent content to prevent memory leak.",
-                    self._max_buffer_bytes,
-                    state.byte_length,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "ContentAccumulationProcessor buffer exceeded %d bytes (current: %d bytes). "
+                        "Truncating to most recent content to prevent memory leak.",
+                        self._max_buffer_bytes,
+                        state.byte_length,
+                    )
                 state.truncation_logged = True
 
             while state.chunks and state.byte_length > self._max_buffer_bytes:

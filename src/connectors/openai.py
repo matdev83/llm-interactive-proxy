@@ -154,10 +154,11 @@ class OpenAIConnector(LLMBackend):
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
-        logger.info(
-            "OpenAIConnector initialize called. api_key_provided=%s",
-            "yes" if self.api_key else "no",
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "OpenAIConnector initialize called. api_key_provided=%s",
+                "yes" if self.api_key else "no",
+            )
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
@@ -188,7 +189,8 @@ class OpenAIConnector(LLMBackend):
                         )
                     self.available_models = []
             except Exception as e:
-                logger.warning("Failed to fetch models: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to fetch models: %s", e, exc_info=True)
                 # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
@@ -203,29 +205,36 @@ class OpenAIConnector(LLMBackend):
         try:
             # Test API connectivity with a simple models endpoint request
             if not self.api_key:
-                logger.warning("Health check failed - no API key available")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Health check failed - no API key available")
                 return False
 
             headers = self.get_headers()
             if not headers.get("Authorization"):
-                logger.warning("Health check failed - no authorization header")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Health check failed - no authorization header")
                 return False
 
             url = f"{self.api_base_url}/models"
             response = await self.client.get(url, headers=headers)
 
             if response.status_code == 200:
-                logger.info("Health check passed - API connectivity verified")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Health check passed - API connectivity verified")
                 self._health_checked = True
                 return True
             else:
-                logger.warning(
-                    f"Health check failed - API returned status {response.status_code}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Health check failed - API returned status {response.status_code}"
+                    )
                 return False
 
         except Exception as e:
-            logger.error("Health check failed - unexpected error: %s", e, exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Health check failed - unexpected error: %s", e, exc_info=True
+                )
             return False
 
     async def _ensure_healthy(self) -> None:
@@ -856,15 +865,16 @@ class OpenAIConnector(LLMBackend):
                                 and logger.isEnabledFor(logging.DEBUG)
                             ):
                                 try:
-                                    logger.debug(
-                                        "Streaming chunk translation returned error=%s raw=%s",
-                                        domain_chunk.get("error"),
-                                        (
-                                            message[:500]
-                                            if isinstance(message, str)
-                                            else str(message)
-                                        ),
-                                    )
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Streaming chunk translation returned error=%s raw=%s",
+                                            domain_chunk.get("error"),
+                                            (
+                                                message[:500]
+                                                if isinstance(message, str)
+                                                else str(message)
+                                            ),
+                                        )
                                 except Exception:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
@@ -890,9 +900,10 @@ class OpenAIConnector(LLMBackend):
                                         chunk[:500],
                                     )
                                 except Exception:
-                                    logger.debug(
-                                        "Streaming chunk translation returned error but raw chunk not serializable"
-                                    )
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Streaming chunk translation returned error but raw chunk not serializable"
+                                        )
                             yield domain_chunk
                 except httpx.RequestError as exc:
                     raise ServiceUnavailableError(
@@ -1235,7 +1246,9 @@ class OpenAIConnector(LLMBackend):
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
                         body_bytes += chunk
-                        if len(body_bytes) > 1024 * 1024:  # 1MB limit
+                        if (
+                            len(body_bytes) > 10 * 1024 * 1024
+                        ):  # 10MB limit (consistent with other middleware)
                             break
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()

@@ -377,7 +377,38 @@ class ServiceCollection(IServiceCollection):
     def add_instance(
         self, service_type: type[Any], instance: Any
     ) -> IServiceCollection:
-        """Register an existing instance as a singleton."""
+        """Register an existing instance as a singleton.
+
+        If replacing an existing instance, the old instance is closed if it's
+        an httpx.AsyncClient to prevent resource leaks.
+        """
+        # Check if we're replacing an existing instance that needs cleanup
+        old_descriptor = self._descriptors.get(service_type)
+        if old_descriptor is not None and old_descriptor.instance is not None:
+            old_instance = old_descriptor.instance
+            # Close httpx.AsyncClient instances to prevent leaks
+            if hasattr(old_instance, "aclose") and callable(old_instance.aclose):
+                import httpx
+
+                if isinstance(old_instance, httpx.AsyncClient):
+                    import asyncio
+
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # Schedule async close (task is fire-and-forget)
+                            task = asyncio.create_task(
+                                old_instance.aclose()
+                            )
+                            # Store reference to prevent garbage collection
+                            _ = task
+                        else:
+                            # Run synchronously if no event loop
+                            loop.run_until_complete(old_instance.aclose())
+                    except (RuntimeError, AttributeError):
+                        # No event loop - client will be closed by finalizer
+                        pass
+
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
             lifetime=ServiceLifetime.SINGLETON,

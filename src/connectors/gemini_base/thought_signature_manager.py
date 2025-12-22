@@ -202,12 +202,18 @@ class ThoughtSignatureManager:
                     oldest_key, oldest_value = self._cache.popitem(last=False)
                     oldest_sig, _ = oldest_value
                     # Remove from secondary index too
-                    self._by_tool_call = {
-                        k: v
-                        for k, v in self._by_tool_call.items()
-                        if v != oldest_sig
-                        or any(k2.endswith(f":{k}") for k2 in self._cache)
-                    }
+                    # Build fresh index from remaining cache entries
+                    # This fixes memory leak where stale entries accumulated
+                    new_by_tool_call = {}
+                    for cache_key, (sig, _) in self._cache.items():
+                        # Extract tc_id from cache_key (format: "session_id:tc_id")
+                        tc_id = (
+                            cache_key.split(":", 1)[1]
+                            if ":" in cache_key
+                            else cache_key
+                        )
+                        new_by_tool_call[tc_id] = sig
+                    self._by_tool_call = new_by_tool_call
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -288,18 +294,16 @@ class ThoughtSignatureManager:
             if current_time - timestamp > self._ttl_seconds
         ]
 
+        # Remove all expired keys first
         for key in expired_keys:
-            # Get signature before removing to clean up secondary index
-            entry = self._cache.get(key)
-            if entry:
-                sig, _ = entry
-                # Remove from secondary index
-                self._by_tool_call = {
-                    k: v
-                    for k, v in self._by_tool_call.items()
-                    if v != sig or any(k2.endswith(f":{k}") for k2 in self._cache)
-                }
             del self._cache[key]
+
+        # Rebuild secondary index from remaining cache to fix memory leak
+        new_by_tool_call = {}
+        for cache_key, (sig, _) in self._cache.items():
+            tc_id = cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
+            new_by_tool_call[tc_id] = sig
+        self._by_tool_call = new_by_tool_call
 
         return len(expired_keys)
 
@@ -311,16 +315,18 @@ class ThoughtSignatureManager:
         """
         keys_to_remove = [key for key in self._cache if key.startswith("anon:")]
 
+        # Remove all keys first
         for key in keys_to_remove:
-            entry = self._cache.pop(key)
-            if entry:
-                sig, _ = entry
-                # Remove from secondary index
-                self._by_tool_call = {
-                    k: v
-                    for k, v in self._by_tool_call.items()
-                    if v != sig or any(k2.endswith(f":{k}") for k2 in self._cache)
-                }
+            self._cache.pop(key, None)
+
+        # Rebuild secondary index from remaining cache to fix memory leak
+        new_by_tool_call = {}
+        for cache_key, (sig, _) in self._cache.items():
+            # Skip anonymous entries since we're clearing those
+            if not cache_key.startswith("anon:"):
+                tc_id = cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
+                new_by_tool_call[tc_id] = sig
+        self._by_tool_call = new_by_tool_call
 
         if keys_to_remove and logger.isEnabledFor(logging.INFO):
             logger.info(

@@ -192,7 +192,7 @@ class XmlToolCallPostProcessor:
                     # Buffer exceeded limit, stop buffering and yield everything
                     logger.warning(
                         "Response exceeded %s bytes during XML tool detection; skipping tool parsing to prevent OOM/DoS.",
-                        MAX_BUFFER_SIZE
+                        MAX_BUFFER_SIZE,
                     )
                     for buffered_chunk in buffer:
                         yield buffered_chunk

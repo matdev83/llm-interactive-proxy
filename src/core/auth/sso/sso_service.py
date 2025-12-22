@@ -10,6 +10,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET  # noqa: N817
 import zlib
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -25,6 +26,122 @@ from src.core.auth.sso.models import SSOResult
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of SAML metadata cache entries to prevent unbounded memory growth.
+# 100 entries is sufficient for most deployments (typically 1-10 providers).
+# Each entry is roughly 1-5 KB, so 100 entries = ~100-500 KB total.
+MAX_SAML_METADATA_CACHE_SIZE = 100
+
+
+def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
+    """
+    Safely parse XML data with protection against DoS attacks.
+
+    Protects against:
+    - XML bomb attacks (Billion Laughs) - exponential entity expansion
+    - Deeply nested XML - stack overflow
+    - Large XML content - memory exhaustion
+
+    Args:
+        xml_data: XML string or bytes to parse
+
+    Returns:
+        Parsed XML element
+
+    Raises:
+        AuthenticationError: If XML is unsafe or malformed
+    """
+    # Import sys inside function to avoid circular import issues
+    import sys
+
+    # Convert bytes to string if needed
+    if isinstance(xml_data, bytes):
+        try:
+            xml_str = xml_data.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise AuthenticationError(
+                f"XML data contains invalid UTF-8: {e!s}",
+                details={"error": "invalid_encoding"},
+                original_error=e,
+            ) from e
+    else:
+        xml_str = xml_data
+
+    # Check size limits (prevent memory exhaustion)
+    MAX_XML_SIZE = 10 * 1024 * 1024  # 10MB
+    if len(xml_str) > MAX_XML_SIZE:
+        raise AuthenticationError(
+            f"XML data too large: {len(xml_str)} bytes (limit: {MAX_XML_SIZE} bytes)",
+            details={
+                "error": "xml_too_large",
+                "actual_size": len(xml_str),
+                "max_size": MAX_XML_SIZE,
+            },
+        )
+
+    # Check for XML bomb patterns (entity expansion attacks)
+    if "<!DOCTYPE" in xml_str and ("<!ENTITY" in xml_str):
+        # Look for entity expansion patterns typical in XML bombs
+        import re
+
+        entity_pattern = r'<!ENTITY\s+\w+\s+"&\w+;'
+        if re.search(entity_pattern, xml_str, re.IGNORECASE):
+            raise AuthenticationError(
+                "XML contains potentially malicious entity expansion",
+                details={"error": "xml_entity_expansion"},
+            )
+
+    # Limit nesting depth to prevent stack overflow
+    max_depth = 100
+
+    # Count nested tags to estimate depth
+    open_tags = 0
+    for char in xml_str:
+        if char == "<":
+            open_tags += 1
+            if open_tags > max_depth:
+                raise AuthenticationError(
+                    f"XML nesting depth exceeds limit: {open_tags} (limit: {max_depth})",
+                    details={
+                        "error": "xml_depth_exceeded",
+                        "actual_depth": open_tags,
+                        "max_depth": max_depth,
+                    },
+                )
+
+    # Parse with safety measures
+    try:
+        original_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(min(max_depth * 2, original_limit))
+
+        try:
+            # Create safe parser (basic XMLParser without external entity support)
+            parser = ET.XMLParser()
+
+            root = ET.fromstring(xml_str, parser)
+            return root
+
+        finally:
+            sys.setrecursionlimit(original_limit)
+
+    except ET.ParseError as e:
+        raise AuthenticationError(
+            f"XML parsing failed: {e!s}",
+            details={"error": "xml_parse_error", "parse_error": str(e)},
+            original_error=e,
+        ) from e
+    except RecursionError as e:
+        raise AuthenticationError(
+            "XML nesting depth caused stack overflow",
+            details={"error": "xml_stack_overflow"},
+            original_error=e,
+        ) from e
+    except Exception as e:
+        raise AuthenticationError(
+            f"Unexpected error parsing XML: {e!s}",
+            details={"error": "xml_unexpected_error"},
+            original_error=e,
+        ) from e
+
 
 class JWKSCache:
     """
@@ -32,19 +149,23 @@ class JWKSCache:
 
     Caches JWKS for each provider to avoid fetching on every request.
     Keys are automatically refreshed after TTL expires.
+    Uses LRU eviction to prevent unbounded memory growth.
     """
 
     DEFAULT_TTL = 3600  # 1 hour
+    DEFAULT_MAX_SIZE = 1000  # Maximum number of cached JWKS entries
 
-    def __init__(self, ttl: int = DEFAULT_TTL):
+    def __init__(self, ttl: int = DEFAULT_TTL, max_size: int = DEFAULT_MAX_SIZE):
         """
         Initialize JWKS cache.
 
         Args:
             ttl: Time-to-live for cached keys in seconds (default: 1 hour)
+            max_size: Maximum number of cached entries (default: 1000)
         """
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._ttl = ttl
+        self._max_size = max_size
 
     def get(self, jwks_uri: str) -> dict[str, Any] | None:
         """
@@ -65,6 +186,8 @@ class JWKSCache:
             del self._cache[jwks_uri]
             return None
 
+        # Move to end for LRU eviction
+        self._cache.move_to_end(jwks_uri)
         return entry.get("jwks")
 
     def set(self, jwks_uri: str, jwks: dict[str, Any]) -> None:
@@ -75,10 +198,25 @@ class JWKSCache:
             jwks_uri: The JWKS endpoint URI
             jwks: The JWKS data to cache
         """
+        # Remove existing entry if present (will be re-added at end)
+        if jwks_uri in self._cache:
+            del self._cache[jwks_uri]
+
+        # Add new entry at end (most recently used)
         self._cache[jwks_uri] = {
             "jwks": jwks,
             "expires_at": time.time() + self._ttl,
         }
+
+        # Enforce size limit using LRU eviction
+        while len(self._cache) > self._max_size:
+            oldest_uri, _ = self._cache.popitem(last=False)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted JWKS cache entry for %s (max_size=%d reached)",
+                    oldest_uri,
+                    self._max_size,
+                )
 
     def clear(self) -> None:
         """Clear all cached JWKS."""
@@ -125,8 +263,11 @@ class SSOService:
         """
         self.config = config
         self._jwt = JsonWebToken(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"])
-        self._jwks_cache = jwks_cache or JWKSCache()
-        self._saml_metadata_cache: dict[str, dict[str, str | None]] = {}
+        self._jwks_cache = jwks_cache or JWKSCache(max_size=JWKSCache.DEFAULT_MAX_SIZE)
+        # Use OrderedDict for LRU eviction to prevent unbounded memory growth
+        self._saml_metadata_cache: OrderedDict[str, dict[str, str | None]] = (
+            OrderedDict()
+        )
 
     def get_supported_providers(self) -> list[str]:
         """
@@ -760,9 +901,13 @@ class SSOService:
     async def _load_saml_metadata(self, metadata_url: str) -> dict[str, str | None]:
         """
         Fetch and parse SAML IdP metadata to extract endpoints and certificate.
+
+        Uses LRU cache with size limit to prevent unbounded memory growth.
         """
-        # Use cache if available
+        # Use cache if available (move to end for LRU)
         if metadata_url in self._saml_metadata_cache:
+            # Move to end to mark as recently used
+            self._saml_metadata_cache.move_to_end(metadata_url)
             return self._saml_metadata_cache[metadata_url]
 
         try:
@@ -778,7 +923,7 @@ class SSOService:
             ) from e
 
         try:
-            root = ET.fromstring(xml)
+            root = safe_xml_parse(xml)
             ns = {
                 "md": "urn:oasis:names:tc:SAML:2.0:metadata",
                 "ds": "http://www.w3.org/2000/09/xmldsig#",
@@ -811,7 +956,23 @@ class SSOService:
                 "signing_cert": cert,
                 "entity_id": root.attrib.get("entityID"),
             }
-            self._saml_metadata_cache[metadata_url] = parsed
+            # Add to cache with LRU eviction if size limit exceeded
+            if metadata_url in self._saml_metadata_cache:
+                # Update existing entry and move to end
+                self._saml_metadata_cache[metadata_url] = parsed
+                self._saml_metadata_cache.move_to_end(metadata_url)
+            else:
+                # Add new entry
+                self._saml_metadata_cache[metadata_url] = parsed
+                # Evict oldest entries if cache exceeds size limit
+                while len(self._saml_metadata_cache) > MAX_SAML_METADATA_CACHE_SIZE:
+                    oldest_url, _ = self._saml_metadata_cache.popitem(last=False)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Evicted SAML metadata cache entry for %s (cache size limit: %d)",
+                            oldest_url,
+                            MAX_SAML_METADATA_CACHE_SIZE,
+                        )
             return parsed
         except Exception as e:
             raise AuthenticationError(
@@ -839,7 +1000,7 @@ class SSOService:
 
         try:
             xml_bytes = base64.b64decode(saml_response)
-            root = ET.fromstring(xml_bytes)
+            root = safe_xml_parse(xml_bytes)
         except Exception as e:
             raise AuthenticationError(
                 f"Failed to decode SAMLResponse: {e!s}",

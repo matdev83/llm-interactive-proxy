@@ -125,6 +125,10 @@ def _as_dict(detail: object) -> dict[str, Any] | None:
     if isinstance(detail, dict):
         return detail
     if isinstance(detail, str):
+        # DoS protection: Check string size before parsing
+        if len(detail.encode("utf-8")) > 10 * 1024 * 1024:  # 10MB limit
+            return None
+
         try:
             loaded = json.loads(detail)
             return loaded if isinstance(loaded, dict) else None
@@ -132,9 +136,16 @@ def _as_dict(detail: object) -> dict[str, Any] | None:
             start = detail.find("{")
             end = detail.rfind("}")
             if start != -1 and end != -1 and end > start:
+                # DoS protection: Check extracted JSON size
+                json_part = detail[start : end + 1]
+                if len(json_part.encode("utf-8")) > 10 * 1024 * 1024:  # 10MB limit
+                    return None
                 try:
-                    loaded = json.loads(detail[start : end + 1])
+                    loaded = json.loads(json_part)
                     return loaded if isinstance(loaded, dict) else None
                 except json.JSONDecodeError:
                     return None
+    # Handle None and other non-string, non-dict types
+    if detail is None:
+        return None
     return None
