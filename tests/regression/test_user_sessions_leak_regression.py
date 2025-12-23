@@ -6,10 +6,7 @@ unbounded when a single user or client creates many sessions.
 Fixed: Sessions should be bounded or cleaned up to prevent unbounded memory growth.
 """
 
-import asyncio
-
 import pytest
-
 from src.core.domain.session import Session, SessionState
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 
@@ -47,9 +44,9 @@ class TestUserSessionsLeakRegression:
         # Sessions should be tracked, but growth should be bounded or cleaned up
         # The exact behavior depends on the fix implementation
         # This test verifies that the list doesn't grow unbounded
-        assert session_count <= num_sessions, (
-            f"User session list grew beyond expected: {session_count} > {num_sessions}"
-        )
+        assert (
+            session_count <= num_sessions
+        ), f"User session list grew beyond expected: {session_count} > {num_sessions}"
 
         # If sessions are being cleaned up, the count should be less than created
         # If sessions are bounded, the count should be capped
@@ -77,9 +74,9 @@ class TestUserSessionsLeakRegression:
         session_count = len(client_session_list)
 
         # Sessions should be tracked, but growth should be bounded
-        assert session_count <= num_sessions, (
-            f"Client session list grew beyond expected: {session_count} > {num_sessions}"
-        )
+        assert (
+            session_count <= num_sessions
+        ), f"Client session list grew beyond expected: {session_count} > {num_sessions}"
 
     @pytest.mark.asyncio
     async def test_session_history_bounded_growth(
@@ -118,9 +115,9 @@ class TestUserSessionsLeakRegression:
         history_size = len(retrieved.history)
 
         # History should be tracked, but growth should be bounded or cleaned up
-        assert history_size <= num_interactions, (
-            f"Session history grew beyond expected: {history_size} > {num_interactions}"
-        )
+        assert (
+            history_size <= num_interactions
+        ), f"Session history grew beyond expected: {history_size} > {num_interactions}"
 
     @pytest.mark.asyncio
     async def test_multiple_users_dont_interfere(

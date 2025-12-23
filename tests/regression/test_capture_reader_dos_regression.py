@@ -11,7 +11,6 @@ from pathlib import Path
 
 import cbor2
 import pytest
-
 from src.core.domain.cbor_capture import (
     CaptureDirection,
     CaptureEntry,
@@ -33,9 +32,7 @@ class TestCaptureReaderDoSRegression:
         with tempfile.TemporaryDirectory() as tmpdir:
             yield Path(tmpdir)
 
-    def create_capture_file_with_entries(
-        self, path: Path, num_entries: int
-    ) -> None:
+    def create_capture_file_with_entries(self, path: Path, num_entries: int) -> None:
         """Helper to create a capture file with specified number of entries."""
         header = CaptureFileHeader(session_id="test-session")
         with open(path, "wb") as f:
@@ -45,7 +42,7 @@ class TestCaptureReaderDoSRegression:
                     timestamp=float(i),
                     direction=CaptureDirection.CLIENT_TO_PROXY,
                     sequence=i,
-                    data=f"data_{i}".encode("utf-8"),
+                    data=f"data_{i}".encode(),
                     metadata=CaptureMetadata(session_id="test"),
                 )
                 cbor2.dump(entry.to_dict(), f)
@@ -53,14 +50,12 @@ class TestCaptureReaderDoSRegression:
     def test_max_capture_entries_constant(self) -> None:
         """Test that MAX_CAPTURE_ENTRIES constant is defined correctly."""
         # Verify the constant exists and has reasonable value
-        assert MAX_CAPTURE_ENTRIES == 10000, (
-            f"MAX_CAPTURE_ENTRIES ({MAX_CAPTURE_ENTRIES}) should be 10,000"
-        )
+        assert (
+            MAX_CAPTURE_ENTRIES == 10000
+        ), f"MAX_CAPTURE_ENTRIES ({MAX_CAPTURE_ENTRIES}) should be 10,000"
         assert MAX_CAPTURE_ENTRIES > 0, "MAX_CAPTURE_ENTRIES should be positive"
 
-    def test_capture_file_within_limit_loaded(
-        self, temp_capture_dir: Path
-    ) -> None:
+    def test_capture_file_within_limit_loaded(self, temp_capture_dir: Path) -> None:
         """Test that capture files within limit are fully loaded."""
         # Create file with entries just under limit
         capture_file = temp_capture_dir / "normal.cbor"
@@ -70,13 +65,11 @@ class TestCaptureReaderDoSRegression:
         reader = CaptureReader()
         session = reader.load(capture_file)
 
-        assert len(session.entries) == num_entries, (
-            f"Should load all {num_entries} entries when under limit"
-        )
+        assert (
+            len(session.entries) == num_entries
+        ), f"Should load all {num_entries} entries when under limit"
 
-    def test_capture_file_at_limit_loaded(
-        self, temp_capture_dir: Path
-    ) -> None:
+    def test_capture_file_at_limit_loaded(self, temp_capture_dir: Path) -> None:
         """Test that capture files exactly at limit are fully loaded."""
         # Create file with entries exactly at limit
         capture_file = temp_capture_dir / "at_limit.cbor"
@@ -86,13 +79,11 @@ class TestCaptureReaderDoSRegression:
         reader = CaptureReader()
         session = reader.load(capture_file)
 
-        assert len(session.entries) == MAX_CAPTURE_ENTRIES, (
-            f"Should load exactly {MAX_CAPTURE_ENTRIES} entries at limit"
-        )
+        assert (
+            len(session.entries) == MAX_CAPTURE_ENTRIES
+        ), f"Should load exactly {MAX_CAPTURE_ENTRIES} entries at limit"
 
-    def test_capture_file_over_limit_truncated(
-        self, temp_capture_dir: Path
-    ) -> None:
+    def test_capture_file_over_limit_truncated(self, temp_capture_dir: Path) -> None:
         """Test that capture files over limit are truncated to prevent DoS."""
         # Create file with entries over limit
         capture_file = temp_capture_dir / "oversized.cbor"
@@ -126,9 +117,7 @@ class TestCaptureReaderDoSRegression:
             f"Got {len(session.entries)} entries"
         )
 
-    def test_normal_capture_file_still_works(
-        self, temp_capture_dir: Path
-    ) -> None:
+    def test_normal_capture_file_still_works(self, temp_capture_dir: Path) -> None:
         """Test that normal capture files still work correctly."""
         # Create normal-sized capture file
         capture_file = temp_capture_dir / "normal.cbor"

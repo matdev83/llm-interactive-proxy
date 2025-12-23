@@ -5,9 +5,9 @@ to prevent unbounded memory growth.
 """
 
 import pytest
-from uuid import uuid4
-
-from src.core.domain.configuration.loop_detection_config import LoopDetectionConfiguration
+from src.core.domain.configuration.loop_detection_config import (
+    LoopDetectionConfiguration,
+)
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.ports.streaming_processors import ToolCallRepairProcessor
 
@@ -62,7 +62,9 @@ class TestToolCallRepairProcessorSessionOrderLeakRegression:
 
     @pytest.mark.asyncio
     async def test_session_order_cleaned_up_on_done(
-        self, processor: ToolCallRepairProcessor, loop_config: LoopDetectionConfiguration
+        self,
+        processor: ToolCallRepairProcessor,
+        loop_config: LoopDetectionConfiguration,
     ) -> None:
         """Test that session order is cleaned up when stream ends with [DONE]."""
         session_id = "test-session"
@@ -87,16 +89,18 @@ class TestToolCallRepairProcessorSessionOrderLeakRegression:
         processor.reset()
 
         # Verify cleanup after reset
-        assert session_id not in processor._session_trackers, (
-            "Session should be removed after reset"
-        )
-        assert session_id not in processor._session_order, (
-            "Session should be removed from order list after reset"
-        )
+        assert (
+            session_id not in processor._session_trackers
+        ), "Session should be removed after reset"
+        assert (
+            session_id not in processor._session_order
+        ), "Session should be removed from order list after reset"
 
     @pytest.mark.asyncio
     async def test_multiple_sessions_order_cleaned_up(
-        self, processor: ToolCallRepairProcessor, loop_config: LoopDetectionConfiguration
+        self,
+        processor: ToolCallRepairProcessor,
+        loop_config: LoopDetectionConfiguration,
     ) -> None:
         """Test that multiple sessions are cleaned up."""
         num_sessions = 200
@@ -138,7 +142,9 @@ class TestToolCallRepairProcessorSessionOrderLeakRegression:
 
     @pytest.mark.asyncio
     async def test_session_order_bounded_by_cache_limit(
-        self, processor: ToolCallRepairProcessor, loop_config: LoopDetectionConfiguration
+        self,
+        processor: ToolCallRepairProcessor,
+        loop_config: LoopDetectionConfiguration,
     ) -> None:
         """Test that session order is bounded by cache limit."""
         processor = ToolCallRepairProcessor(max_cached_sessions=10)

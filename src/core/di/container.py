@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
 from collections.abc import Callable
 from typing import Any, TypeVar
-from weakref import WeakSet
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.diagnostics import (
@@ -432,19 +432,19 @@ class ServiceCollection(IServiceCollection):
 
     async def dispose(self) -> None:
         """Dispose of the service collection and await pending cleanup tasks.
-        
+
         This method ensures that all cleanup tasks created when replacing
         httpx.AsyncClient instances are properly awaited before the collection
         is destroyed, preventing resource leaks.
-        
+
         Should be called when ServiceCollection is about to be destroyed,
         e.g., during application shutdown or stage failure.
         """
         if self._disposed:
             return
-        
+
         self._disposed = True
-        
+
         # Await all pending cleanup tasks to prevent resource leaks
         pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
         if pending_tasks:
@@ -459,20 +459,16 @@ class ServiceCollection(IServiceCollection):
                     if not task.done():
                         task.cancel()
                 # Await cancelled tasks to ensure they complete
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
-                    pass  # Suppress errors during final cleanup
             except Exception:
                 # If gather fails, cancel all tasks
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
-                    pass
-        
+
         # Clear the cleanup tasks set to prevent memory leaks
         self._cleanup_tasks.clear()
 

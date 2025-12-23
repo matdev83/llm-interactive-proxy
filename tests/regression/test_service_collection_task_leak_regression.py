@@ -11,7 +11,6 @@ import asyncio
 
 import httpx
 import pytest
-
 from src.core.di.container import ServiceCollection
 
 
@@ -31,9 +30,9 @@ class TestServiceCollectionTaskLeakRegression:
         services.add_instance(httpx.AsyncClient, client1)
 
         # Verify no cleanup tasks initially
-        assert len(services._cleanup_tasks) == 0, (
-            "No cleanup tasks should exist before replacement"
-        )
+        assert (
+            len(services._cleanup_tasks) == 0
+        ), "No cleanup tasks should exist before replacement"
 
         # Replace with second client (should create cleanup task)
         client2 = httpx.AsyncClient(
@@ -43,9 +42,9 @@ class TestServiceCollectionTaskLeakRegression:
         services.add_instance(httpx.AsyncClient, client2)
 
         # Verify cleanup task was created and tracked
-        assert len(services._cleanup_tasks) > 0, (
-            "Cleanup task should be tracked when replacing client"
-        )
+        assert (
+            len(services._cleanup_tasks) > 0
+        ), "Cleanup task should be tracked when replacing client"
 
         # Clean up
         await services.dispose()
@@ -57,7 +56,7 @@ class TestServiceCollectionTaskLeakRegression:
         services = ServiceCollection()
 
         clients = []
-        for i in range(10):
+        for _i in range(10):
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0),
                 limits=httpx.Limits(max_connections=10),
@@ -107,17 +106,15 @@ class TestServiceCollectionTaskLeakRegression:
         services.add_instance(httpx.AsyncClient, client2)
 
         # Verify cleanup task exists
-        assert len(services._cleanup_tasks) > 0, (
-            "Cleanup task should be created"
-        )
+        assert len(services._cleanup_tasks) > 0, "Cleanup task should be created"
 
         # Call dispose() - should await cleanup tasks
         await services.dispose()
 
         # Verify cleanup tasks were cleared
-        assert len(services._cleanup_tasks) == 0, (
-            "Cleanup tasks should be cleared after dispose()"
-        )
+        assert (
+            len(services._cleanup_tasks) == 0
+        ), "Cleanup tasks should be cleared after dispose()"
 
         # Verify client1 was closed
         assert client1.is_closed, "Replaced client should be closed after dispose()"
@@ -131,7 +128,7 @@ class TestServiceCollectionTaskLeakRegression:
         services = ServiceCollection()
 
         # Create and replace clients multiple times
-        for i in range(5):
+        for _i in range(5):
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0),
                 limits=httpx.Limits(max_connections=10),
@@ -165,7 +162,7 @@ class TestServiceCollectionTaskLeakRegression:
         initial_task_count = len(asyncio.all_tasks())
 
         # Rapidly replace clients
-        for i in range(20):
+        for _i in range(20):
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0),
                 limits=httpx.Limits(max_connections=10),

@@ -4,8 +4,6 @@ This test verifies that _content_length_cache doesn't grow unbounded
 when entries are added rapidly and that cache eviction works correctly.
 """
 
-import pytest
-
 from src.core.config.app_config import AppConfig
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections import OrderedDict
@@ -100,9 +101,10 @@ class MemoryService:
         # Track when sessions entered analysis_in_progress for TTL cleanup
         self._analysis_in_progress: dict[str, float] = {}
         # Track cleanup tasks to prevent resource leaks
-        # Use regular set instead of WeakSet to prevent premature GC before tasks complete
-        # Tasks will be explicitly awaited during cleanup()
-        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        # Use WeakSet to allow garbage collection of completed tasks
+        from weakref import WeakSet
+
+        self._cleanup_tasks: WeakSet[asyncio.Task[None]] = WeakSet()
 
     def is_available(self) -> bool:
         """Check if memory feature is globally available."""
@@ -525,10 +527,8 @@ class MemoryService:
                     if not task.done():
                         task.cancel()
                 # Await cancelled tasks to ensure they complete
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
-                    pass  # Suppress errors during final cleanup
             except Exception:
                 # If gather fails, cancel all tasks
                 if logger.isEnabledFor(logging.DEBUG):
@@ -538,10 +538,8 @@ class MemoryService:
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()
-                try:
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
-                    pass  # Suppress errors during final cleanup
+                with contextlib.suppress(Exception):
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)  # Suppress errors during final cleanup
 
         # Clear the cleanup tasks set to prevent memory leaks
         self._cleanup_tasks.clear()

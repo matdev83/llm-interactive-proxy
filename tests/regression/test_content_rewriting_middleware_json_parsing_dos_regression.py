@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
-
 from src.core.app.middleware.content_rewriting_middleware import (
     ContentRewritingMiddleware,
 )
@@ -31,7 +30,9 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
         rewriter = MagicMock(spec=ContentRewriterService)
         return ContentRewritingMiddleware(app=None, rewriter=rewriter)
 
-    def test_massive_array_rejected(self, middleware: ContentRewritingMiddleware) -> None:
+    def test_massive_array_rejected(
+        self, middleware: ContentRewritingMiddleware
+    ) -> None:
         """Test that massive arrays exceeding MAX_ARRAY_ELEMENTS are rejected."""
         # Create payload with array exceeding 1M elements
         massive_array_payload = {
@@ -52,7 +53,10 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
                 middleware._validate_json_structure(parsed)
 
             assert exc_info.value.status_code == 422
-            assert "array size" in exc_info.value.detail.lower() or "elements" in exc_info.value.detail.lower()
+            assert (
+                "array size" in exc_info.value.detail.lower()
+                or "elements" in exc_info.value.detail.lower()
+            )
 
     def test_deeply_nested_structure_rejected(
         self, middleware: ContentRewritingMiddleware
@@ -60,7 +64,7 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
         """Test that deeply nested structures exceeding MAX_NESTING_DEPTH are rejected."""
         # Create payload with nesting exceeding 100 levels
         nested_data = {"value": "root"}
-        for i in range(150):  # Exceeds MAX_NESTING_DEPTH (100)
+        for _i in range(150):  # Exceeds MAX_NESTING_DEPTH (100)
             nested_data = {"nested": nested_data}
 
         deep_payload = {
@@ -80,7 +84,10 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
                 middleware._validate_json_structure(parsed)
 
             assert exc_info.value.status_code == 422
-            assert "nesting depth" in exc_info.value.detail.lower() or "depth" in exc_info.value.detail.lower()
+            assert (
+                "nesting depth" in exc_info.value.detail.lower()
+                or "depth" in exc_info.value.detail.lower()
+            )
 
     def test_oversized_request_body_rejected(
         self, middleware: ContentRewritingMiddleware
@@ -100,15 +107,22 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
             middleware._validate_json_size(json_bytes)
 
         assert exc_info.value.status_code == 413
-        assert "too large" in exc_info.value.detail.lower() or "size" in exc_info.value.detail.lower()
+        assert (
+            "too large" in exc_info.value.detail.lower()
+            or "size" in exc_info.value.detail.lower()
+        )
 
-    def test_valid_payload_accepted(self, middleware: ContentRewritingMiddleware) -> None:
+    def test_valid_payload_accepted(
+        self, middleware: ContentRewritingMiddleware
+    ) -> None:
         """Test that valid payloads within limits are accepted."""
         # Create a normal payload
         normal_payload = {
             "messages": [{"role": "user", "content": "test"}],
             "normal_array": list(range(1000)),  # Small array
-            "normal_nested": {"level1": {"level2": {"level3": "value"}}},  # Shallow nesting
+            "normal_nested": {
+                "level1": {"level2": {"level3": "value"}}
+            },  # Shallow nesting
         }
 
         json_str = json.dumps(normal_payload)
@@ -122,7 +136,9 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
         # If we get here, validation passed
         assert parsed["messages"][0]["content"] == "test"
 
-    def test_array_at_limit_accepted(self, middleware: ContentRewritingMiddleware) -> None:
+    def test_array_at_limit_accepted(
+        self, middleware: ContentRewritingMiddleware
+    ) -> None:
         """Test that arrays at the MAX_ARRAY_ELEMENTS limit are accepted."""
         # Create payload with array exactly at 1M elements
         array_payload = {
@@ -142,7 +158,6 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
 
             # Verify array size
             assert len(parsed["large_array"]) == middleware.MAX_ARRAY_ELEMENTS
-
 
     def test_many_small_nested_objects_accepted(
         self, middleware: ContentRewritingMiddleware

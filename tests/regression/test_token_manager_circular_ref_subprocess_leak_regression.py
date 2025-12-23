@@ -13,7 +13,6 @@ import subprocess
 import sys
 
 import pytest
-
 from src.connectors.gemini_base.token_manager import TokenManager
 
 
@@ -118,8 +117,12 @@ async def test_cleanup_explicitly_prevents_leak_with_circular_ref() -> None:
         await token_manager.cleanup()
 
         # Verify process was terminated
-        assert process.poll() is not None, "Process should be terminated after cleanup()"
-        assert token_manager._cli_refresh_process is None, "Process reference should be cleared"
+        assert (
+            process.poll() is not None
+        ), "Process should be terminated after cleanup()"
+        assert (
+            token_manager._cli_refresh_process is None
+        ), "Process reference should be cleared"
 
         # Now delete references - cleanup already happened
         del token_manager
@@ -140,7 +143,7 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     # Each creates a subprocess that may leak if __del__ is not called
     processes = []
 
-    for i in range(5):
+    for _i in range(5):
         provider = MockCredentialProvider()
         token_manager = TokenManager()
 
@@ -178,7 +181,7 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     await asyncio.sleep(0.5)
 
     # Check how many processes are still running
-    running = [p for _, p in processes if p.poll() is None]
+    [p for _, p in processes if p.poll() is None]
 
     # Clean up all processes
     for token_manager, process in processes:

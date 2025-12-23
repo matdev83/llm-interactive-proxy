@@ -98,6 +98,7 @@ def create_codebuff_server(
         prompt_handler=prompt_handler,
         init_handler=init_handler,
         subscription_handler=subscription_handler,
+        config=config.codebuff,
         metrics_initializer=metrics_initializer,
         client_eos_service=client_eos_service,
     )

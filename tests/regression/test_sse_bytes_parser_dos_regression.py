@@ -9,7 +9,6 @@ Fixed: Added MAX_SSE_PAYLOAD_SIZE (10MB) and MAX_JSON_DEPTH (100) limits.
 import json
 
 import pytest
-
 from src.core.domain.streaming.parsing.sse_bytes_parser import (
     MAX_JSON_DEPTH,
     MAX_SSE_PAYLOAD_SIZE,
@@ -46,13 +45,13 @@ class TestSSEBytesParserDoSRegression:
     def test_large_payloads_rejected(self, parser: SSEBytesParser) -> None:
         """Test that large payloads (>10MB) are rejected."""
         # Test payload just under limit (should work)
-        normal_payload = '{"message": "hello"}'.encode("utf-8")
+        normal_payload = b'{"message": "hello"}'
         result = parser.parse(normal_payload)
         assert result is not None, "Normal payload should be accepted"
 
         # Test payload over limit (should be rejected)
         large_json = self.create_large_json(15)  # 15MB > 10MB limit
-        large_payload = f"data: {large_json}".encode("utf-8")
+        large_payload = f"data: {large_json}".encode()
 
         with pytest.raises(ValueError, match="too large"):
             parser.parse(large_payload)
@@ -61,14 +60,14 @@ class TestSSEBytesParserDoSRegression:
         """Test that deeply nested JSON (>100 levels) is rejected."""
         # Test normal depth (should work)
         normal_json = self.create_deeply_nested_json(10)
-        normal_payload = f"data: {normal_json}".encode("utf-8")
+        normal_payload = f"data: {normal_json}".encode()
 
         result = parser.parse(normal_payload)
         assert result is not None, "Normal depth JSON should be accepted"
 
         # Test excessive depth (should be rejected)
         deep_json = self.create_deeply_nested_json(150)  # > 100 limit
-        deep_payload = f"data: {deep_json}".encode("utf-8")
+        deep_payload = f"data: {deep_json}".encode()
 
         with pytest.raises(ValueError, match="too deeply nested|depth"):
             parser.parse(deep_payload)
@@ -81,7 +80,7 @@ class TestSSEBytesParserDoSRegression:
 
         # Test SSE with JSON
         test_json = '{"choices": [{"delta": {"content": "hello"}}]}'
-        result = parser.parse(f"data: {test_json}".encode("utf-8"))
+        result = parser.parse(f"data: {test_json}".encode())
         assert result.content is not None, "SSE JSON parsing should work"
         assert "hello" in str(result.content), "Content should contain 'hello'"
 
@@ -102,9 +101,9 @@ class TestSSEBytesParserDoSRegression:
         # Test malformed JSON
         result = parser.parse(b"data: {invalid json}")
         # Should fall back to plain string
-        assert "{invalid json}" in str(result.content), (
-            "Malformed JSON should fall back to string"
-        )
+        assert "{invalid json}" in str(
+            result.content
+        ), "Malformed JSON should fall back to string"
 
     def test_max_constants_defined(self) -> None:
         """Test that DoS protection constants are defined correctly."""
@@ -113,9 +112,7 @@ class TestSSEBytesParserDoSRegression:
             f"MAX_SSE_PAYLOAD_SIZE ({MAX_SSE_PAYLOAD_SIZE}) should be 10MB "
             "(10485760 bytes)"
         )
-        assert MAX_JSON_DEPTH == 100, (
-            f"MAX_JSON_DEPTH ({MAX_JSON_DEPTH}) should be 100"
-        )
+        assert MAX_JSON_DEPTH == 100, f"MAX_JSON_DEPTH ({MAX_JSON_DEPTH}) should be 100"
         assert MAX_SSE_PAYLOAD_SIZE > 0, "MAX_SSE_PAYLOAD_SIZE should be positive"
         assert MAX_JSON_DEPTH > 0, "MAX_JSON_DEPTH should be positive"
 
@@ -127,7 +124,7 @@ class TestSSEBytesParserDoSRegression:
         json_size = limit_bytes - 20  # Leave room for "data: " and JSON structure
         large_content = "x" * json_size
         json_payload = json.dumps({"data": large_content})
-        payload = f"data: {json_payload}".encode("utf-8")
+        payload = f"data: {json_payload}".encode()
 
         # Should be rejected if exceeds limit
         if len(payload) > MAX_SSE_PAYLOAD_SIZE:
@@ -144,7 +141,7 @@ class TestSSEBytesParserDoSRegression:
         # The validation itself recurses, so we need a safe margin
         safe_depth = MAX_JSON_DEPTH - 5
         safe_depth_json = self.create_deeply_nested_json(safe_depth)
-        safe_payload = f"data: {safe_depth_json}".encode("utf-8")
+        safe_payload = f"data: {safe_depth_json}".encode()
 
         result = parser.parse(safe_payload)
         assert result is not None, "JSON at safe depth should be processed"
@@ -154,8 +151,10 @@ class TestSSEBytesParserDoSRegression:
         # by using a depth that's clearly over the limit
         excess_depth = MAX_JSON_DEPTH + 10
         excess_depth_json = self.create_deeply_nested_json(excess_depth)
-        excess_payload = f"data: {excess_depth_json}".encode("utf-8")
+        excess_payload = f"data: {excess_depth_json}".encode()
 
         # Should be rejected - may raise ValueError or RecursionError
-        with pytest.raises((ValueError, RecursionError), match="too deeply nested|depth|maximum"):
+        with pytest.raises(
+            (ValueError, RecursionError), match="too deeply nested|depth|maximum"
+        ):
             parser.parse(excess_payload)

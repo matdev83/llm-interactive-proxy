@@ -5,7 +5,6 @@ when using append_extracted_call method, preventing unbounded memory growth.
 """
 
 import pytest
-
 from src.core.services.streaming.stream_context_registry import (
     StreamingContextRegistry,
 )
@@ -62,9 +61,7 @@ class TestVTCExtractedToolCallsLeakRegression:
             "Oldest entries should be evicted."
         )
 
-    def test_extracted_tool_calls_evicts_oldest_first(
-        self, vtc_buffer
-    ) -> None:
+    def test_extracted_tool_calls_evicts_oldest_first(self, vtc_buffer) -> None:
         """Test that oldest tool calls are evicted first (FIFO eviction)."""
         from src.core.services.streaming.stream_context_registry import (
             _MAX_EXTRACTED_TOOL_CALLS,
@@ -84,7 +81,7 @@ class TestVTCExtractedToolCallsLeakRegression:
 
         # Record first and last IDs before adding more
         first_id_before = vtc_buffer.extracted_tool_calls[0]["id"]
-        last_id_before = vtc_buffer.extracted_tool_calls[-1]["id"]
+        vtc_buffer.extracted_tool_calls[-1]["id"]
 
         # Add more tool calls - should evict oldest
         for i in range(_MAX_EXTRACTED_TOOL_CALLS, _MAX_EXTRACTED_TOOL_CALLS + 100):
@@ -104,9 +101,9 @@ class TestVTCExtractedToolCallsLeakRegression:
 
         # Verify last ID is the newest
         last_id_after = vtc_buffer.extracted_tool_calls[-1]["id"]
-        assert last_id_after == f"call_{_MAX_EXTRACTED_TOOL_CALLS + 99}", (
-            "Last tool call should be the most recently added one."
-        )
+        assert (
+            last_id_after == f"call_{_MAX_EXTRACTED_TOOL_CALLS + 99}"
+        ), "Last tool call should be the most recently added one."
 
     def test_extracted_tool_calls_rapid_addition_maintains_limit(
         self, vtc_buffer

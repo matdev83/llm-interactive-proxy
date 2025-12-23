@@ -341,11 +341,12 @@ class TokenManager:
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            try:
+                            import contextlib
+
+                            with contextlib.suppress(
+                                subprocess.TimeoutExpired, Exception
+                            ):
                                 process.wait(timeout=5)
-                            except (subprocess.TimeoutExpired, Exception):
-                                # Suppress all exceptions during cleanup
-                                pass
                 except Exception:
                     # Suppress all exceptions during cleanup
                     pass
@@ -372,12 +373,12 @@ class TokenManager:
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            try:
+                            import contextlib
+
+                            with contextlib.suppress(
+                                subprocess.TimeoutExpired, Exception
+                            ):
                                 process.wait(timeout=5)
-                            except (subprocess.TimeoutExpired, Exception):
-                                # Suppress all exceptions during interpreter shutdown
-                                # The logging system may already be torn down
-                                pass
                 except Exception:
                     # Suppress all exceptions during interpreter shutdown
                     # The logging system may already be torn down

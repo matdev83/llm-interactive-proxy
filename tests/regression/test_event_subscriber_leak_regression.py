@@ -5,11 +5,9 @@ during shutdown to prevent memory leaks from strong references.
 """
 
 import asyncio
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.core.services.event_bus import EventBus
 
 
@@ -28,7 +26,7 @@ class TestEventSubscriberLeakRegression:
         """Test that all subscribers are unsubscribed during shutdown."""
         # Create mock event handlers
         handlers = []
-        for i in range(5):
+        for _i in range(5):
             handler = MagicMock()
             handlers.append(handler)
             event_bus.subscribe(str, handler)
@@ -66,7 +64,7 @@ class TestEventSubscriberLeakRegression:
         """Test that partial shutdown doesn't leak subscribers."""
         # Create subscribers
         handlers = []
-        for i in range(3):
+        for _i in range(3):
             handler = MagicMock()
             handlers.append(handler)
             event_bus.subscribe(str, handler)
@@ -83,7 +81,7 @@ class TestEventSubscriberLeakRegression:
         await event_bus.publish("test_event")
         await asyncio.sleep(0.1)
 
-        for handler in handlers + [additional_handler]:
+        for handler in [*handlers, additional_handler]:
             handler.assert_not_called()
 
     @pytest.mark.asyncio
@@ -127,6 +125,7 @@ class TestEventSubscriberLeakRegression:
         self, event_bus: EventBus
     ) -> None:
         """Test that subscribers for multiple event types are cleaned up."""
+
         # Create event classes
         class EventType1:
             pass

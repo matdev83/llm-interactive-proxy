@@ -9,7 +9,6 @@ Fixed: Added MAX_PAYLOAD_SIZE (10MB) and MAX_JSON_DEPTH (100) limits.
 import json
 
 import pytest
-
 from src.core.transport.fastapi.adapters.sse.decoder import SSEDecoder
 
 
@@ -47,9 +46,9 @@ class TestSSEDecoderDoSRegression:
 
         content, metadata, is_done = decoder.decode_payload(large_payload)
         assert "error" in metadata, "Large payload should be rejected"
-        assert metadata.get("error") == "payload_too_large", (
-            "Should return payload_too_large error"
-        )
+        assert (
+            metadata.get("error") == "payload_too_large"
+        ), "Should return payload_too_large error"
 
     def test_deep_nesting_rejected(self, decoder: SSEDecoder) -> None:
         """Test that deeply nested JSON (>100 levels) is rejected."""
@@ -81,33 +80,33 @@ class TestSSEDecoderDoSRegression:
         if len(breadth_payload.encode("utf-8")) <= decoder.MAX_PAYLOAD_SIZE:
             content, metadata, is_done = decoder.decode_payload(breadth_payload)
             # Should either succeed or reject with appropriate error
-            assert isinstance(content, (dict, str)) or "error" in metadata
+            assert isinstance(content, dict | str) or "error" in metadata
 
     def test_malformed_json_handled(self, decoder: SSEDecoder) -> None:
         """Test that malformed JSON is handled gracefully."""
         malformed_payloads = [
-            'data: {' + 'a' * 10000 + ':',  # Incomplete JSON
-            'data: [' + '{"a":' * 1000,  # Many incomplete nested objects
+            "data: {" + "a" * 10000 + ":",  # Incomplete JSON
+            "data: [" + '{"a":' * 1000,  # Many incomplete nested objects
             'data: {"a":' + '"' + '\\"' * 10000,  # Massive escaped string
         ]
 
         for payload in malformed_payloads:
             # Should not crash, may return error or fallback to string
             content, metadata, is_done = decoder.decode_payload(payload)
-            assert isinstance(content, (dict, str, bytes)) or "error" in metadata
+            assert isinstance(content, dict | str | bytes) or "error" in metadata
 
     def test_max_constants_defined(self) -> None:
         """Test that DoS protection constants are defined correctly."""
         decoder = SSEDecoder()
-        assert decoder.MAX_PAYLOAD_SIZE == 10 * 1024 * 1024, (
-            f"MAX_PAYLOAD_SIZE ({decoder.MAX_PAYLOAD_SIZE}) should be 10MB"
-        )
-        assert decoder.MAX_JSON_DEPTH == 100, (
-            f"MAX_JSON_DEPTH ({decoder.MAX_JSON_DEPTH}) should be 100"
-        )
-        assert decoder.MAX_DATA_LINES == 1000, (
-            f"MAX_DATA_LINES ({decoder.MAX_DATA_LINES}) should be 1000"
-        )
+        assert (
+            decoder.MAX_PAYLOAD_SIZE == 10 * 1024 * 1024
+        ), f"MAX_PAYLOAD_SIZE ({decoder.MAX_PAYLOAD_SIZE}) should be 10MB"
+        assert (
+            decoder.MAX_JSON_DEPTH == 100
+        ), f"MAX_JSON_DEPTH ({decoder.MAX_JSON_DEPTH}) should be 100"
+        assert (
+            decoder.MAX_DATA_LINES == 1000
+        ), f"MAX_DATA_LINES ({decoder.MAX_DATA_LINES}) should be 1000"
 
     def test_normal_functionality_works(self, decoder: SSEDecoder) -> None:
         """Test that normal functionality still works."""
@@ -137,4 +136,4 @@ class TestSSEDecoderDoSRegression:
         else:
             # Should work if under limit
             content, metadata, is_done = decoder.decode_payload(payload)
-            assert isinstance(content, (dict, str)) or "error" in metadata
+            assert isinstance(content, dict | str) or "error" in metadata

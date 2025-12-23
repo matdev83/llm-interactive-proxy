@@ -6,7 +6,6 @@ accumulating them.
 """
 
 import pytest
-
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
@@ -72,7 +71,9 @@ class TestParameterResolutionLeakRegression:
             "Oldest entries should be evicted."
         )
 
-    def test_build_report_uses_latest_entry(self, resolution: ParameterResolution) -> None:
+    def test_build_report_uses_latest_entry(
+        self, resolution: ParameterResolution
+    ) -> None:
         """Test that build_report() uses the latest entry."""
         parameter_name = "test.parameter.temperature"
 
@@ -103,7 +104,9 @@ class TestParameterResolutionLeakRegression:
             "build_report() should use the latest entry."
         )
 
-    def test_history_evicts_oldest_when_full(self, resolution: ParameterResolution) -> None:
+    def test_history_evicts_oldest_when_full(
+        self, resolution: ParameterResolution
+    ) -> None:
         """Test that oldest entries are evicted when history is full."""
         from src.core.config.parameter_resolution import ParameterResolution
 
@@ -123,7 +126,9 @@ class TestParameterResolutionLeakRegression:
 
         # Add more parameters - should evict oldest
         oldest_param = "old.parameter.0"
-        assert oldest_param in resolution._history, "Oldest parameter should be in history"
+        assert (
+            oldest_param in resolution._history
+        ), "Oldest parameter should be in history"
 
         # Add new parameter beyond max size
         resolution.record(
@@ -133,14 +138,16 @@ class TestParameterResolutionLeakRegression:
         )
 
         # Oldest parameter should be evicted
-        assert oldest_param not in resolution._history, (
-            "Oldest parameter should be evicted when history exceeds max size."
-        )
-        assert len(resolution._history) <= max_size, (
-            f"History size ({len(resolution._history)}) should not exceed max size ({max_size})"
-        )
+        assert (
+            oldest_param not in resolution._history
+        ), "Oldest parameter should be evicted when history exceeds max size."
+        assert (
+            len(resolution._history) <= max_size
+        ), f"History size ({len(resolution._history)}) should not exceed max size ({max_size})"
 
-    def test_same_parameter_multiple_sources(self, resolution: ParameterResolution) -> None:
+    def test_same_parameter_multiple_sources(
+        self, resolution: ParameterResolution
+    ) -> None:
         """Test that recording same parameter from different sources replaces entry."""
         parameter_name = "test.parameter.temperature"
 
@@ -175,4 +182,6 @@ class TestParameterResolutionLeakRegression:
         record = resolution._history.get(parameter_name)
         assert record is not None
         assert record.value == 0.7, "Latest value should be 0.7"
-        assert record.source == ParameterSource.CONFIG_FILE, "Latest source should be CONFIG_FILE"
+        assert (
+            record.source == ParameterSource.CONFIG_FILE
+        ), "Latest source should be CONFIG_FILE"

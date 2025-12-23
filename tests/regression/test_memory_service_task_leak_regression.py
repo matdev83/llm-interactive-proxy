@@ -8,7 +8,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
@@ -33,9 +32,7 @@ class TestMemoryServiceTaskLeakRegression:
         mock_repo.save_session_summary = AsyncMock()
         mock_repo.get_recent_sessions = AsyncMock(return_value=[])
         mock_repo.delete_old_sessions = AsyncMock(return_value=0)
-        mock_repo.get_or_create_project_id = AsyncMock(
-            return_value="project-test"
-        )
+        mock_repo.get_or_create_project_id = AsyncMock(return_value="project-test")
         return mock_repo
 
     @pytest.fixture
@@ -60,12 +57,12 @@ class TestMemoryServiceTaskLeakRegression:
         # Verify _cleanup_tasks exists and is a WeakSet
         from weakref import WeakSet
 
-        assert hasattr(memory_service, "_cleanup_tasks"), (
-            "MemoryService should have _cleanup_tasks attribute"
-        )
-        assert isinstance(memory_service._cleanup_tasks, WeakSet), (
-            "_cleanup_tasks should be a WeakSet"
-        )
+        assert hasattr(
+            memory_service, "_cleanup_tasks"
+        ), "MemoryService should have _cleanup_tasks attribute"
+        assert isinstance(
+            memory_service._cleanup_tasks, WeakSet
+        ), "_cleanup_tasks should be a WeakSet"
 
         # Simulate session eviction which creates cleanup tasks
         session_id = "test_session"
@@ -132,9 +129,9 @@ class TestMemoryServiceTaskLeakRegression:
         from weakref import WeakSet
 
         tracked_count = len(memory_service._cleanup_tasks)
-        assert isinstance(memory_service._cleanup_tasks, WeakSet), (
-            "_cleanup_tasks should be a WeakSet"
-        )
+        assert isinstance(
+            memory_service._cleanup_tasks, WeakSet
+        ), "_cleanup_tasks should be a WeakSet"
         # WeakSet size can vary, but shouldn't exceed reasonable limit
         # (allowing for some tasks that haven't completed yet)
         assert tracked_count <= num_sessions * 2, (

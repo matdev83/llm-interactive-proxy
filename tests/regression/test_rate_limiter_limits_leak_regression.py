@@ -7,7 +7,6 @@ when limits are set but never used, preventing unbounded memory growth.
 import time
 
 import pytest
-
 from src.core.services.rate_limiter import InMemoryRateLimiter
 
 
@@ -95,9 +94,9 @@ class TestRateLimiterLimitsLeakRegression:
                 await limiter.set_limit(key, limit=20, time_window=60)
 
         # Verify eviction mechanism exists and works
-        assert hasattr(limiter, "_evict_oldest_limit_locked"), (
-            "Eviction mechanism should exist"
-        )
+        assert hasattr(
+            limiter, "_evict_oldest_limit_locked"
+        ), "Eviction mechanism should exist"
 
     @pytest.mark.asyncio
     async def test_limits_tracked_in_last_access_dict(self) -> None:
@@ -118,9 +117,9 @@ class TestRateLimiterLimitsLeakRegression:
         await limiter.check_limit(key)
         updated_access = limiter._limits_last_access[key]
 
-        assert updated_access > initial_access, (
-            "Last access time should be updated when limit is checked."
-        )
+        assert (
+            updated_access > initial_access
+        ), "Last access time should be updated when limit is checked."
 
     @pytest.mark.asyncio
     async def test_limits_cleaned_up_when_usage_expires(self) -> None:
@@ -146,9 +145,9 @@ class TestRateLimiterLimitsLeakRegression:
         # Usage should be cleaned up (key removed from _usage when all timestamps expire)
         # The limit may remain if it's a custom limit, which is expected behavior
         # The important thing is that the cleanup mechanism exists
-        assert hasattr(limiter, "_cleanup_unused_limits_locked"), (
-            "Cleanup mechanism should exist"
-        )
+        assert hasattr(
+            limiter, "_cleanup_unused_limits_locked"
+        ), "Cleanup mechanism should exist"
 
     @pytest.mark.asyncio
     async def test_limits_eviction_during_rapid_addition(self) -> None:

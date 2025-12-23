@@ -7,8 +7,6 @@ and cache eviction occurs.
 
 import time
 
-import pytest
-
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
 
 
@@ -27,8 +25,7 @@ class TestThoughtSignatureManagerMemoryLeakRegression:
 
             # Store with multiple sessions (same tc_id, different sessions)
             for session_id in ["session1", "session2"]:
-                cache_key = f"{session_id}:{tc_id}"
-                current_time = time.time()
+                time.time()
 
                 # Use the public API method to store signatures
                 tool_call = {
@@ -48,8 +45,7 @@ class TestThoughtSignatureManagerMemoryLeakRegression:
         for tc_id in manager._by_tool_call:
             # Check if this tc_id is referenced in any cache key
             referenced = any(
-                key.endswith(f":{tc_id}") or key == tc_id
-                for key in manager._cache.keys()
+                key.endswith(f":{tc_id}") or key == tc_id for key in manager._cache
             )
             if not referenced:
                 orphaned_count += 1
@@ -78,7 +74,9 @@ class TestThoughtSignatureManagerMemoryLeakRegression:
                 "id": tc_id,
                 "extra_content": {"google": {"thought_signature": sig}},
             }
-            manager.store_signatures_from_tool_calls([tool_call], session_id=f"session_{i}")
+            manager.store_signatures_from_tool_calls(
+                [tool_call], session_id=f"session_{i}"
+            )
 
         # Cache should be at max size
         assert len(manager._cache) <= manager._max_cache_size
@@ -86,8 +84,7 @@ class TestThoughtSignatureManagerMemoryLeakRegression:
         # All entries in secondary index should be referenced in cache
         for tc_id in manager._by_tool_call:
             referenced = any(
-                key.endswith(f":{tc_id}") or key == tc_id
-                for key in manager._cache.keys()
+                key.endswith(f":{tc_id}") or key == tc_id for key in manager._cache
             )
             assert referenced, (
                 f"Tool call ID {tc_id} in secondary index is not referenced in cache. "

@@ -9,14 +9,11 @@ import asyncio
 import gc
 
 import pytest
-
 from src.core.services.event_bus import EventBus
 
 
 class TestEvent:
     """Test event class."""
-
-    pass
 
 
 class TestEventBusPendingTasksLeakRegression:
@@ -39,15 +36,15 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus.subscribe(TestEvent, quick_handler)
 
         # Publish many events without waiting (using publish_nowait)
-        for i in range(num_events):
+        for _i in range(num_events):
             event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start
         await asyncio.sleep(0.05)
 
         # Check pending tasks count
-        pending_count = len([t for t in event_bus._pending_tasks if not t.done()])
-        total_count = len(event_bus._pending_tasks)
+        len([t for t in event_bus._pending_tasks if not t.done()])
+        len(event_bus._pending_tasks)
 
         # Wait for all tasks to complete
         await asyncio.sleep(0.2)
@@ -65,9 +62,9 @@ class TestEventBusPendingTasksLeakRegression:
             f"Tasks accumulating in WeakSet: {final_total - initial_pending_count} "
             f"tasks still present (expected <= 100). WeakSet cleanup may not be working."
         )
-        assert final_pending == 0, (
-            f"All tasks should be completed. Found {final_pending} pending tasks."
-        )
+        assert (
+            final_pending == 0
+        ), f"All tasks should be completed. Found {final_pending} pending tasks."
 
     @pytest.mark.asyncio
     async def test_pending_tasks_with_external_references(self) -> None:
@@ -84,7 +81,7 @@ class TestEventBusPendingTasksLeakRegression:
 
         # Publish events and keep references
         num_events = 100
-        for i in range(num_events):
+        for _i in range(num_events):
             event_bus.publish_nowait(TestEvent())
 
         # Get all tasks from WeakSet immediately (this creates references!)
@@ -134,14 +131,14 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus.subscribe(TestEvent, slow_handler)
 
         # Publish events without waiting
-        for i in range(10):
+        for _i in range(10):
             event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start (but not complete)
         await asyncio.sleep(0.01)  # Very short delay to let tasks start
 
         # Verify tasks are pending (may be 0 if they completed very quickly)
-        pending_before = [t for t in event_bus._pending_tasks if not t.done()]
+        [t for t in event_bus._pending_tasks if not t.done()]
         # If no pending tasks, they completed too quickly - test is still valid
         # as shutdown() should handle empty pending tasks gracefully
 
@@ -151,16 +148,16 @@ class TestEventBusPendingTasksLeakRegression:
         # Verify all tasks completed
         await asyncio.sleep(0.1)
         pending_after = [t for t in event_bus._pending_tasks if not t.done()]
-        assert len(pending_after) == 0, (
-            f"All tasks should be completed after shutdown. Found {len(pending_after)} pending."
-        )
+        assert (
+            len(pending_after) == 0
+        ), f"All tasks should be completed after shutdown. Found {len(pending_after)} pending."
 
         # Verify WeakSet is cleared (shutdown() calls clear())
         # Note: WeakSet may still have entries if tasks are referenced elsewhere,
         # but shutdown() explicitly clears it
-        assert len(event_bus._pending_tasks) == 0, (
-            "WeakSet should be cleared after shutdown"
-        )
+        assert (
+            len(event_bus._pending_tasks) == 0
+        ), "WeakSet should be cleared after shutdown"
 
     @pytest.mark.asyncio
     async def test_pending_tasks_bounded_growth(self) -> None:
@@ -173,7 +170,7 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus.subscribe(TestEvent, handler)
 
         # Publish many events rapidly
-        for i in range(5000):
+        for _i in range(5000):
             event_bus.publish_nowait(TestEvent())
 
         # Wait for tasks to complete
@@ -192,6 +189,6 @@ class TestEventBusPendingTasksLeakRegression:
             f"Too many tasks remaining in WeakSet: {final_total}. "
             f"Expected < 1000 under normal conditions."
         )
-        assert final_pending == 0, (
-            f"All tasks should be completed. Found {final_pending} pending tasks."
-        )
+        assert (
+            final_pending == 0
+        ), f"All tasks should be completed. Found {final_pending} pending tasks."

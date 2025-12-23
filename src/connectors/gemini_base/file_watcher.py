@@ -79,10 +79,14 @@ class FileWatcher:
         def _on_file_changed(event) -> None:
             if hasattr(event, "src_path") and event.src_path == str(credentials_path):
                 logger.debug("Credentials file changed, triggering reload")
-                FileWatcher.schedule_credentials_reload(state, reload_callback, connector.stop_file_watching)
+                FileWatcher.schedule_credentials_reload(
+                    state, reload_callback, connector.stop_file_watching
+                )
 
         observer = Observer()
-        observer.schedule(_on_file_changed, str(credentials_path.parent), recursive=False)
+        observer.schedule(
+            _on_file_changed, str(credentials_path.parent), recursive=False
+        )
         observer.start()
         state.file_observer = observer
         logger.debug("Started watching credentials file: %s", credentials_path)

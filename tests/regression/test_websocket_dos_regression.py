@@ -6,13 +6,11 @@ size to prevent DoS attacks through maliciously large JSON payloads.
 Fixed: Should enforce max_message_size_bytes limit to prevent memory exhaustion.
 """
 
-import asyncio
 import json
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from src.codebuff.factory import create_codebuff_server
 from src.core.config.app_config import AppConfig
 
@@ -35,13 +33,16 @@ def app() -> FastAPI:
     }
     config = AppConfig(**config_dict)
 
-    # Create mock backend factory
+    # Create mock service provider
     from unittest.mock import MagicMock
 
     mock_backend_factory = MagicMock()
+    mock_service_provider = MagicMock()
+    mock_service_provider.get_required_service.return_value = mock_backend_factory
+    mock_service_provider.get_service.return_value = None
 
     # Create server
-    server = create_codebuff_server(config, mock_backend_factory)
+    server = create_codebuff_server(config, mock_service_provider)
     server.register_endpoint(app)
 
     # Store server in app state for access in tests
@@ -75,9 +76,7 @@ class TestWebSocketDoSRegression:
             },
         }
 
-    def test_large_payload_rejected(
-        self, client: TestClient, app: FastAPI
-    ) -> None:
+    def test_large_payload_rejected(self, client: TestClient, app: FastAPI) -> None:
         """Test that large payloads (>1MB) are rejected."""
         max_message_size = app.state.codebuff_server.config.max_message_size_bytes
 
@@ -121,13 +120,11 @@ class TestWebSocketDoSRegression:
                     pass
             except Exception as e:
                 # Exception during send is acceptable if it's due to size limit
-                assert "size" in str(e).lower() or "too large" in str(e).lower(), (
-                    f"Exception should be related to size limit, got: {e}"
-                )
+                assert (
+                    "size" in str(e).lower() or "too large" in str(e).lower()
+                ), f"Exception should be related to size limit, got: {e}"
 
-    def test_normal_payload_works(
-        self, client: TestClient, app: FastAPI
-    ) -> None:
+    def test_normal_payload_works(self, client: TestClient, app: FastAPI) -> None:
         """Test that normal payloads (<1MB) work correctly."""
         max_message_size = app.state.codebuff_server.config.max_message_size_bytes
 

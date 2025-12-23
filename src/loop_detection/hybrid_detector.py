@@ -277,6 +277,8 @@ class HybridLoopDetector(ILoopDetector):
         # State tracking
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
+        # Maximum number of loop events to keep (prevents memory leaks)
+        self._max_event_history = 100
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -302,6 +304,7 @@ class HybridLoopDetector(ILoopDetector):
         short_event = self.short_detector.process_chunk(chunk)
         if short_event:
             self._loop_events.append(short_event)
+            self._truncate_event_history_if_needed()
             return short_event
 
         # Check long patterns (only if short patterns didn't trigger)
@@ -324,6 +327,8 @@ class HybridLoopDetector(ILoopDetector):
                 timestamp=time.time(),
             )
             self._loop_events.append(event)
+            self._truncate_event_history_if_needed()
+            return event
 
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -335,6 +340,31 @@ class HybridLoopDetector(ILoopDetector):
             return event
 
         return None
+
+    def _truncate_event_history_if_needed(self) -> None:
+        """Truncate event history if it exceeds maximum size to prevent memory leaks.
+
+        Uses a reasonable default limit for event history (100 events) to prevent
+        unbounded growth in long-running sessions. Each event can contain large
+        buffer_content strings, so limiting the number of events is important.
+        """
+        # Use a reasonable default limit for event history
+        # This is separate from max_history_length which is for stream characters
+        max_event_history = self._max_event_history
+
+        if len(self._loop_events) <= max_event_history:
+            return
+
+        # Remove oldest entries to keep only the most recent ones
+        trunc_amount = len(self._loop_events) - max_event_history
+        self._loop_events = self._loop_events[trunc_amount:]
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Truncated hybrid detector event history: removed %d oldest entries, keeping %d",
+                trunc_amount,
+                max_event_history,
+            )
 
     # ILoopDetector interface implementation
 
@@ -423,6 +453,7 @@ class HybridLoopDetector(ILoopDetector):
                     timestamp=time.time(),
                 )
                 self._loop_events.append(event)
+                self._truncate_event_history_if_needed()
                 return event
 
         return None

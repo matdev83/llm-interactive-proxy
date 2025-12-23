@@ -8,11 +8,9 @@ _last_accessed timestamp when session.last_active_at is None or not set.
 """
 
 import asyncio
-import time
 from datetime import datetime, timezone
 
 import pytest
-
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 
 
@@ -69,9 +67,7 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
             year=2020, month=1, day=1
         )  # Very old
         for i in range(50):
-            session = MockSession(
-                f"old_session_{i}", last_active_at=old_time
-            )
+            session = MockSession(f"old_session_{i}", last_active_at=old_time)
             await repo.add(session)
 
         # Add sessions without last_active_at
@@ -112,14 +108,14 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
             "test_session" in repo._last_accessed
         ), "_last_accessed should be set when adding session"
 
-        initial_timestamp = repo._last_accessed["test_session"]
+        repo._last_accessed["test_session"]
 
         # Wait a bit
         await asyncio.sleep(0.1)
 
         # Run cleanup with TTL that should clean based on _last_accessed
         # Since we just added it, it should not be cleaned
-        cleaned = await repo.cleanup_expired(max_age_seconds=0.05)
+        await repo.cleanup_expired(max_age_seconds=0.05)
 
         # Session should be cleaned because TTL is very short
         remaining = len(await repo.get_all())
@@ -134,9 +130,7 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
     ) -> None:
         """Test that cleanup properly handles sessions with last_active_at set."""
         # Add session with last_active_at
-        old_time = datetime.now(timezone.utc).replace(
-            year=2020, month=1, day=1
-        )
+        old_time = datetime.now(timezone.utc).replace(year=2020, month=1, day=1)
         session = MockSession("old_session", last_active_at=old_time)
         await repo.add(session)
 
@@ -158,9 +152,7 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
         await repo.add(session)
 
         # Verify _last_accessed was set
-        assert (
-            "none_session" in repo._last_accessed
-        ), "_last_accessed should be set"
+        assert "none_session" in repo._last_accessed, "_last_accessed should be set"
 
         # Wait a bit to ensure timestamp is set
         await asyncio.sleep(0.1)

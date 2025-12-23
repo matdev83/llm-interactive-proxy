@@ -5,8 +5,6 @@ AppLifecycle configuration, preventing unbounded memory growth in
 InMemorySessionRepository.
 """
 
-import pytest
-
 from src.core.app.lifecycle import AppLifecycle
 
 
@@ -20,7 +18,7 @@ class TestSessionCleanupEnabledDefaultRegression:
         app = MagicMock()
         config = {}  # Empty config - should default to True
 
-        lifecycle = AppLifecycle(app, config)
+        AppLifecycle(app, config)
 
         # Check that the default value is True by reading the source code pattern
         # The fix ensures: config.get("session_cleanup_enabled", True)
@@ -37,7 +35,7 @@ class TestSessionCleanupEnabledDefaultRegression:
             "lifecycle.py",
         )
 
-        with open(lifecycle_file, "r") as f:
+        with open(lifecycle_file) as f:
             content = f.read()
 
         # Verify the fix is in place: default should be True

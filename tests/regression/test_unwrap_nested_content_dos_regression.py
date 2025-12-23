@@ -9,7 +9,6 @@ Fixed: Added MAX_JSON_PARSE_SIZE limit (1MB) before json.loads() call.
 import json
 
 import pytest
-
 from src.core.services.tool_call_repair_service import (
     MAX_JSON_PARSE_SIZE,
     ToolCallRepairService,
@@ -29,7 +28,9 @@ class TestUnwrapNestedContentDoSRegression:
         large_json_string = json.dumps(large_data)
         return {"content": large_json_string}
 
-    def test_large_content_rejected(self, repair_service: ToolCallRepairService) -> None:
+    def test_large_content_rejected(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
         """Test that large content strings (>10MB) are rejected."""
         # Test normal content (should work)
         normal_content = {"content": json.dumps({"key": "value"})}
@@ -37,13 +38,15 @@ class TestUnwrapNestedContentDoSRegression:
         assert result == {"key": "value"}, "Normal content should be unwrapped"
 
         # Test large content (should be rejected)
-        large_content = self.create_large_nested_content(size_mb=12)  # 12MB > 10MB limit
+        large_content = self.create_large_nested_content(
+            size_mb=12
+        )  # 12MB > 10MB limit
         result = repair_service._unwrap_nested_content(large_content)
 
         # Should return original arguments without unwrapping
-        assert result == large_content, (
-            "Large content should be rejected and original returned"
-        )
+        assert (
+            result == large_content
+        ), "Large content should be rejected and original returned"
 
     def test_content_at_limit_boundary(
         self, repair_service: ToolCallRepairService
@@ -90,9 +93,9 @@ class TestUnwrapNestedContentDoSRegression:
 
     def test_max_constant_defined(self) -> None:
         """Test that MAX_JSON_PARSE_SIZE constant is defined correctly."""
-        assert MAX_JSON_PARSE_SIZE == 10 * 1024 * 1024, (
-            f"MAX_JSON_PARSE_SIZE ({MAX_JSON_PARSE_SIZE}) should be 10MB"
-        )
+        assert (
+            MAX_JSON_PARSE_SIZE == 10 * 1024 * 1024
+        ), f"MAX_JSON_PARSE_SIZE ({MAX_JSON_PARSE_SIZE}) should be 10MB"
         assert MAX_JSON_PARSE_SIZE > 0, "MAX_JSON_PARSE_SIZE should be positive"
 
     def test_normal_unwrapping_works(
@@ -100,9 +103,12 @@ class TestUnwrapNestedContentDoSRegression:
     ) -> None:
         """Test that normal unwrapping still works."""
         # Test valid nested content
-        nested_content = {"content": json.dumps({"file_path": "/tmp/test", "data": "content"})}
+        nested_content = {
+            "content": json.dumps({"file_path": "/tmp/test", "data": "content"})
+        }
         result = repair_service._unwrap_nested_content(nested_content)
 
-        assert result == {"file_path": "/tmp/test", "data": "content"}, (
-            "Valid nested content should be unwrapped correctly"
-        )
+        assert result == {
+            "file_path": "/tmp/test",
+            "data": "content",
+        }, "Valid nested content should be unwrapped correctly"

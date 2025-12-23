@@ -7,8 +7,6 @@ streams are created but processing stops.
 
 import time
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 
@@ -17,7 +15,9 @@ class TestStreamingRegistryCleanupNotCalledRegression:
 
     def test_expired_states_cleaned_up_on_access(self) -> None:
         """Test that expired states are cleaned up when streams are accessed."""
-        registry = StreamingContextRegistry(state_ttl_seconds=1)  # Very short TTL for testing
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=1
+        )  # Very short TTL for testing
 
         # Create many stream states
         num_streams = 50
@@ -44,7 +44,9 @@ class TestStreamingRegistryCleanupNotCalledRegression:
 
     def test_orphaned_streams_cleaned_up_when_accessed(self) -> None:
         """Test that orphaned streams are cleaned up when any stream is accessed."""
-        registry = StreamingContextRegistry(state_ttl_seconds=1)  # Short TTL for testing
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=1
+        )  # Short TTL for testing
 
         # Create many streams but never access them again
         num_streams = 100
@@ -72,7 +74,9 @@ class TestStreamingRegistryCleanupNotCalledRegression:
 
     def test_manual_cleanup_expired_works(self) -> None:
         """Test that manual cleanup_expired() call works correctly."""
-        registry = StreamingContextRegistry(state_ttl_seconds=1)  # Very short TTL for testing
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=1
+        )  # Very short TTL for testing
 
         # Create stream states
         num_streams = 50

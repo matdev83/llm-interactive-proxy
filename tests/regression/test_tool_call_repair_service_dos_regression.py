@@ -10,7 +10,6 @@ import json
 import time
 
 import pytest
-
 from src.core.services.tool_call_repair_service import (
     MAX_JSON_PARSE_SIZE,
     ToolCallRepairService,
@@ -28,7 +27,9 @@ class TestToolCallRepairServiceDoSRegression:
         """Create a large JSON payload to test DoS protection."""
         # Create payload that exceeds MAX_JSON_PARSE_SIZE (10MB)
         # Use a simpler structure to avoid excessive creation time
-        target_size_bytes = (MAX_JSON_PARSE_SIZE + 1024 * 1024) * multiplier  # Just over limit
+        target_size_bytes = (
+            MAX_JSON_PARSE_SIZE + 1024 * 1024
+        ) * multiplier  # Just over limit
         # Create a large string payload
         large_data = "x" * target_size_bytes
 
@@ -157,8 +158,7 @@ class TestToolCallRepairServiceDoSRegression:
         # Should either process successfully or reject gracefully
         # (depending on implementation, but should not crash)
         assert result is None or (
-            result is not None
-            and result.tool_call["function"]["name"] == "test_tool"
+            result is not None and result.tool_call["function"]["name"] == "test_tool"
         ), "Deeply nested JSON should be handled gracefully"
 
     def test_max_json_parse_size_constant(self) -> None:

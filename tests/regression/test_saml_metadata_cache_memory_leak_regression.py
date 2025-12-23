@@ -4,15 +4,16 @@ This test verifies that the SAML metadata cache uses LRU eviction
 and doesn't grow unbounded when many different metadata URLs are accessed.
 """
 
+import httpx
 import pytest
 import respx
-import httpx
-
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
-from src.core.auth.sso.sso_service import SSOService, MAX_SAML_METADATA_CACHE_SIZE
+from src.core.auth.sso.sso_service import MAX_SAML_METADATA_CACHE_SIZE, SSOService
 
 
-def _create_saml_metadata_xml(entity_id: str, sso_url: str, cert: str = "ABC123") -> str:
+def _create_saml_metadata_xml(
+    entity_id: str, sso_url: str, cert: str = "ABC123"
+) -> str:
     """Create a SAML metadata XML for testing."""
     return f"""
 <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="{entity_id}">
@@ -58,9 +59,13 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
                 metadata_url = f"https://example.com/metadata/{i}"
                 entity_id = f"https://idp{i}.example.com/metadata"
                 sso_url = f"https://idp{i}.example.com/sso"
-                metadata_xml = _create_saml_metadata_xml(entity_id, sso_url, f"cert-{i}")
+                metadata_xml = _create_saml_metadata_xml(
+                    entity_id, sso_url, f"cert-{i}"
+                )
 
-                respx.get(metadata_url).mock(return_value=httpx.Response(200, text=metadata_xml))
+                respx.get(metadata_url).mock(
+                    return_value=httpx.Response(200, text=metadata_xml)
+                )
 
             # Load metadata for all URLs
             for i in range(num_urls):
@@ -96,9 +101,13 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
                 metadata_url = f"https://example.com/metadata/{i}"
                 entity_id = f"https://idp{i}.example.com/metadata"
                 sso_url = f"https://idp{i}.example.com/sso"
-                metadata_xml = _create_saml_metadata_xml(entity_id, sso_url, f"cert-{i}")
+                metadata_xml = _create_saml_metadata_xml(
+                    entity_id, sso_url, f"cert-{i}"
+                )
 
-                respx.get(metadata_url).mock(return_value=httpx.Response(200, text=metadata_xml))
+                respx.get(metadata_url).mock(
+                    return_value=httpx.Response(200, text=metadata_xml)
+                )
 
             # Load metadata to fill cache
             for i in range(num_urls):
@@ -109,7 +118,7 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
             assert len(service._saml_metadata_cache) == MAX_SAML_METADATA_CACHE_SIZE
 
             # Access first entry to move it to end (LRU)
-            first_url = f"https://example.com/metadata/0"
+            first_url = "https://example.com/metadata/0"
             await service._load_saml_metadata(first_url)
 
             # Add more entries - should evict oldest ones (not the recently accessed first_url)
@@ -118,14 +127,14 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
                 await service._load_saml_metadata(metadata_url)
 
             # Cache should still be bounded
-            assert len(service._saml_metadata_cache) <= MAX_SAML_METADATA_CACHE_SIZE, (
-                "Cache exceeded max size after LRU operations."
-            )
+            assert (
+                len(service._saml_metadata_cache) <= MAX_SAML_METADATA_CACHE_SIZE
+            ), "Cache exceeded max size after LRU operations."
 
             # First URL should still be in cache (was accessed recently)
-            assert first_url in service._saml_metadata_cache, (
-                "Recently accessed URL was evicted incorrectly."
-            )
+            assert (
+                first_url in service._saml_metadata_cache
+            ), "Recently accessed URL was evicted incorrectly."
 
     @pytest.mark.asyncio
     async def test_cache_reuses_existing_entries(self) -> None:
@@ -148,24 +157,28 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
         )
 
         with respx.mock:
-            respx.get(metadata_url).mock(return_value=httpx.Response(200, text=metadata_xml))
+            respx.get(metadata_url).mock(
+                return_value=httpx.Response(200, text=metadata_xml)
+            )
 
             # Access same URL multiple times
             for _ in range(100):
                 await service._load_saml_metadata(metadata_url)
 
             # Cache should only have one entry
-            assert len(service._saml_metadata_cache) == 1, (
-                "Cache grew when accessing same URL multiple times."
-            )
-            assert metadata_url in service._saml_metadata_cache, (
-                "Cached URL should still be in cache."
-            )
+            assert (
+                len(service._saml_metadata_cache) == 1
+            ), "Cache grew when accessing same URL multiple times."
+            assert (
+                metadata_url in service._saml_metadata_cache
+            ), "Cached URL should still be in cache."
 
     def test_max_cache_size_constant_defined(self) -> None:
         """Test that MAX_SAML_METADATA_CACHE_SIZE constant is defined correctly."""
         # Verify constant exists and has reasonable value
-        assert MAX_SAML_METADATA_CACHE_SIZE == 100, (
-            f"MAX_SAML_METADATA_CACHE_SIZE ({MAX_SAML_METADATA_CACHE_SIZE}) should be 100"
-        )
-        assert MAX_SAML_METADATA_CACHE_SIZE > 0, "MAX_SAML_METADATA_CACHE_SIZE should be positive"
+        assert (
+            MAX_SAML_METADATA_CACHE_SIZE == 100
+        ), f"MAX_SAML_METADATA_CACHE_SIZE ({MAX_SAML_METADATA_CACHE_SIZE}) should be 100"
+        assert (
+            MAX_SAML_METADATA_CACHE_SIZE > 0
+        ), "MAX_SAML_METADATA_CACHE_SIZE should be positive"

@@ -49,6 +49,7 @@ enabling advanced features like multi-file editing, tool usage, and streaming.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -816,11 +817,11 @@ class GeminiCliAcpConnector(GeminiBackend):
 
     def __del__(self) -> None:
         """Cleanup subprocess on destruction.
-        
+
         This ensures that if GeminiCliAcpConnector is destroyed without
         shutdown() being called (e.g., during application crash or abrupt exit),
         the subprocess is still terminated to prevent resource leaks.
-        
+
         Note: This is a best-effort cleanup since __del__ cannot be async.
         The proper cleanup path is via shutdown() which should be called
         by BackendLifecycleManager during application shutdown.
@@ -842,16 +843,13 @@ class GeminiCliAcpConnector(GeminiBackend):
                             except subprocess.TimeoutExpired:
                                 # Process didn't terminate, force kill
                                 process.kill()
-                                try:
+                                with contextlib.suppress(subprocess.TimeoutExpired, Exception):
                                     process.wait(timeout=5)
-                                except (subprocess.TimeoutExpired, Exception):
-                                    # Suppress all exceptions during interpreter shutdown
-                                    pass
                         except Exception:
                             # Suppress all exceptions during interpreter shutdown
                             # The logging system may already be torn down
                             pass
-                    
+
                     # Clean up process pipes
                     self._cleanup_process(process)
                 except Exception:

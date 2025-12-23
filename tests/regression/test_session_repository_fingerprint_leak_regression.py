@@ -8,7 +8,6 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-
 from src.core.domain.session import Session
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.conversation_fingerprint_service import (
@@ -48,17 +47,17 @@ class TestSessionRepositoryFingerprintLeakRegression:
         await repo.update_fingerprint_bundle("test_session", bundle)
 
         # Verify bundle exists
-        assert "test_session" in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be tracked"
-        )
+        assert (
+            "test_session" in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be tracked"
 
         # Delete session
         await repo.delete("test_session")
 
         # Verify bundle is cleaned up
-        assert "test_session" not in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be removed on delete"
-        )
+        assert (
+            "test_session" not in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be removed on delete"
 
     @pytest.mark.asyncio
     async def test_fingerprint_bundles_cleaned_up_on_expiration(
@@ -80,32 +79,34 @@ class TestSessionRepositoryFingerprintLeakRegression:
         await repo.update_fingerprint_bundle("test_session", bundle)
 
         # Verify bundle exists
-        assert "test_session" in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be tracked"
-        )
+        assert (
+            "test_session" in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be tracked"
 
         # Wait a bit, then manually set last_access to be old (expired)
         # Note: update_fingerprint_bundle updates _last_accessed, so we set it after
         import time
+
         await asyncio.sleep(0.1)  # Small delay
         repo._last_accessed["test_session"] = time.time() - 2  # 2 seconds ago
-        
+
         # Also set session's last_active_at if it exists (cleanup_expired checks this first)
         session = repo._sessions.get("test_session")
         if session and hasattr(session, "last_active_at"):
             from datetime import timedelta
+
             session.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=2)
 
         # Clean up expired sessions (everything older than 1 second)
         await repo.cleanup_expired(max_age_seconds=1)
 
         # Verify bundle is cleaned up (cleanup_expired calls delete which removes bundles)
-        assert "test_session" not in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be removed when session expires"
-        )
-        assert "test_session" not in repo._sessions, (
-            "Session should be removed when expired"
-        )
+        assert (
+            "test_session" not in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be removed when session expires"
+        assert (
+            "test_session" not in repo._sessions
+        ), "Session should be removed when expired"
 
     @pytest.mark.asyncio
     async def test_fingerprint_bundles_dont_grow_unbounded(
@@ -144,7 +145,9 @@ class TestSessionRepositoryFingerprintLeakRegression:
     ) -> None:
         """Test that fingerprint bundles are cleaned up when sessions are evicted."""
         # Create repository with smaller limit
-        small_repo = InMemorySessionRepository(max_sessions=100, default_ttl_seconds=3600)
+        small_repo = InMemorySessionRepository(
+            max_sessions=100, default_ttl_seconds=3600
+        )
 
         # Fill repository to capacity
         for i in range(small_repo._max_sessions):
@@ -163,9 +166,9 @@ class TestSessionRepositoryFingerprintLeakRegression:
             await small_repo.update_fingerprint_bundle(session_id, bundle)
 
         initial_bundles = len(small_repo._fingerprint_bundles)
-        assert initial_bundles == small_repo._max_sessions, (
-            f"Should have {small_repo._max_sessions} bundles initially"
-        )
+        assert (
+            initial_bundles == small_repo._max_sessions
+        ), f"Should have {small_repo._max_sessions} bundles initially"
 
         # Add one more session to trigger eviction
         new_session = Session(
@@ -186,9 +189,9 @@ class TestSessionRepositoryFingerprintLeakRegression:
             f"Fingerprint bundles ({len(small_repo._fingerprint_bundles)}) should not exceed "
             f"sessions ({len(small_repo._sessions)}). Bundles not cleaned up on eviction."
         )
-        assert len(small_repo._fingerprint_bundles) <= small_repo._max_sessions, (
-            f"Fingerprint bundles should be <= {small_repo._max_sessions} after eviction"
-        )
+        assert (
+            len(small_repo._fingerprint_bundles) <= small_repo._max_sessions
+        ), f"Fingerprint bundles should be <= {small_repo._max_sessions} after eviction"
 
     @pytest.mark.asyncio
     async def test_fingerprint_bundles_consistent_with_sessions(
@@ -212,10 +215,10 @@ class TestSessionRepositoryFingerprintLeakRegression:
             await repo.update_fingerprint_bundle(session_id, bundle)
 
         # Verify all bundles correspond to existing sessions
-        for session_id in repo._fingerprint_bundles.keys():
-            assert session_id in repo._sessions, (
-                f"Fingerprint bundle for {session_id} should correspond to existing session"
-            )
+        for session_id in repo._fingerprint_bundles:
+            assert (
+                session_id in repo._sessions
+            ), f"Fingerprint bundle for {session_id} should correspond to existing session"
 
         # Delete some sessions
         for i in range(50):
@@ -223,12 +226,12 @@ class TestSessionRepositoryFingerprintLeakRegression:
 
         # Verify bundles for deleted sessions are removed
         for i in range(50):
-            assert f"session_{i}" not in repo._fingerprint_bundles, (
-                f"Fingerprint bundle for deleted session_{i} should be removed"
-            )
+            assert (
+                f"session_{i}" not in repo._fingerprint_bundles
+            ), f"Fingerprint bundle for deleted session_{i} should be removed"
 
         # Verify remaining bundles correspond to existing sessions
-        for session_id in repo._fingerprint_bundles.keys():
-            assert session_id in repo._sessions, (
-                f"Fingerprint bundle for {session_id} should correspond to existing session"
-            )
+        for session_id in repo._fingerprint_bundles:
+            assert (
+                session_id in repo._sessions
+            ), f"Fingerprint bundle for {session_id} should correspond to existing session"

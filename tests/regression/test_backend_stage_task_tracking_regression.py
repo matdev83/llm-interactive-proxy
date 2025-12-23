@@ -8,7 +8,6 @@ import asyncio
 
 import httpx
 import pytest
-
 from src.core.app.stages.backend import BackendStage
 from src.core.config.app_config import AppConfig
 from src.core.config.models import BackendSettings
@@ -20,7 +19,7 @@ class TestBackendStageTaskTrackingRegression:
     @pytest.mark.asyncio
     async def test_cleanup_tasks_tracked_in_weakset(self) -> None:
         """Test that cleanup tasks are tracked in _cleanup_tasks WeakSet."""
-        app_config = AppConfig(backends=BackendSettings(default_backend=""))
+        AppConfig(backends=BackendSettings(default_backend=""))
         stage = BackendStage()
 
         # Create a client
@@ -55,7 +54,7 @@ class TestBackendStageTaskTrackingRegression:
     @pytest.mark.asyncio
     async def test_multiple_cleanup_tasks_tracked(self) -> None:
         """Test that multiple cleanup tasks can be tracked."""
-        app_config = AppConfig(backends=BackendSettings(default_backend=""))
+        AppConfig(backends=BackendSettings(default_backend=""))
         stage = BackendStage()
 
         clients = []
@@ -63,7 +62,7 @@ class TestBackendStageTaskTrackingRegression:
 
         try:
             # Create multiple clients and cleanup tasks
-            for i in range(3):
+            for _i in range(3):
                 client = httpx.AsyncClient()
                 clients.append(client)
 
@@ -96,13 +95,13 @@ class TestBackendStageTaskTrackingRegression:
     @pytest.mark.asyncio
     async def test_cleanup_tasks_dont_leak(self) -> None:
         """Test that cleanup tasks don't accumulate and cause memory leaks."""
-        app_config = AppConfig(backends=BackendSettings(default_backend=""))
+        AppConfig(backends=BackendSettings(default_backend=""))
         stage = BackendStage()
 
         initial_task_count = len(asyncio.all_tasks())
 
         # Create and track multiple cleanup tasks
-        for i in range(5):
+        for _i in range(5):
             client = httpx.AsyncClient()
 
             try:

@@ -4,15 +4,11 @@ This test verifies that EventBus enforces handler limits to prevent
 unbounded memory growth when handlers are subscribed but never unsubscribed.
 """
 
-import pytest
-
 from src.core.services.event_bus import EventBus
 
 
 class TestEvent:
     """Test event class."""
-
-    pass
 
 
 class TestEventBusHandlerAccumulationRegression:
@@ -27,7 +23,8 @@ class TestEventBusHandlerAccumulationRegression:
         num_handlers = 1500  # More than max to test limit
         subscribed_count = 0
 
-        for i in range(num_handlers):
+        for _i in range(num_handlers):
+
             async def handler(event: TestEvent) -> None:
                 pass
 
@@ -74,7 +71,8 @@ class TestEventBusHandlerAccumulationRegression:
             pass
 
         # Subscribe handlers for different event types
-        for i in range(300):
+        for _i in range(300):
+
             async def handler1(event: EventType1) -> None:
                 pass
 
@@ -93,9 +91,9 @@ class TestEventBusHandlerAccumulationRegression:
 
         # Final verification
         final_total = bus._count_total_handlers()
-        assert final_total <= max_handlers, (
-            f"Final total handler count ({final_total}) exceeded max limit ({max_handlers})."
-        )
+        assert (
+            final_total <= max_handlers
+        ), f"Final total handler count ({final_total}) exceeded max limit ({max_handlers})."
 
     def test_handler_limit_with_topics(self) -> None:
         """Test that handler limit applies across all topics."""
@@ -104,8 +102,9 @@ class TestEventBusHandlerAccumulationRegression:
 
         # Subscribe handlers with different topics
         topics = ["topic1", "topic2", "topic3"]
-        for i in range(200):
+        for _i in range(200):
             for topic in topics:
+
                 async def handler(event: TestEvent) -> None:
                     pass
 
@@ -120,16 +119,17 @@ class TestEventBusHandlerAccumulationRegression:
 
         # Final verification
         final_total = bus._count_total_handlers()
-        assert final_total <= max_handlers, (
-            f"Final total handler count ({final_total}) exceeded max limit ({max_handlers})."
-        )
+        assert (
+            final_total <= max_handlers
+        ), f"Final total handler count ({final_total}) exceeded max limit ({max_handlers})."
 
     def test_count_total_handlers_accuracy(self) -> None:
         """Test that _count_total_handlers returns accurate count."""
         bus = EventBus(max_total_handlers=100)
 
         # Subscribe some handlers
-        for i in range(10):
+        for _i in range(10):
+
             async def handler(event: TestEvent) -> None:
                 pass
 

@@ -8,12 +8,10 @@ Fixed: Should add size validation before json.loads() to prevent CPU spikes
 and memory exhaustion.
 """
 
-import asyncio
 import json
 import time
 
 import pytest
-
 from src.connectors.gemini_base.response_accumulator import StreamingResponseAccumulator
 from src.core.domain.responses import StreamingResponseEnvelope
 
@@ -120,10 +118,8 @@ class TestStreamingResponseAccumulatorDoSRegression:
 
         start_time = time.time()
         try:
-            result = await accumulator.accumulate(
-                StreamingResponseEnvelope(
-                    content=response, headers={}, status_code=200
-                )
+            await accumulator.accumulate(
+                StreamingResponseEnvelope(content=response, headers={}, status_code=200)
             )
             duration = time.time() - start_time
 
@@ -134,7 +130,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                 "Should complete within reasonable time to prevent DoS."
             )
 
-        except Exception as e:
+        except Exception:
             duration = time.time() - start_time
             # Errors are acceptable if they occur quickly (protection working)
             # but not if they occur after long processing (DoS vulnerability)
@@ -157,7 +153,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
 
             start_time = time.time()
             try:
-                result = await accumulator.accumulate(
+                await accumulator.accumulate(
                     StreamingResponseEnvelope(
                         content=response, headers={}, status_code=200
                     )
@@ -173,7 +169,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                     f"Should complete within {max_expected_time:.2f} seconds."
                 )
 
-            except Exception as e:
+            except Exception:
                 duration = time.time() - start_time
                 # Errors should occur quickly if protection is in place
                 assert duration < 2.0, (
@@ -192,10 +188,8 @@ class TestStreamingResponseAccumulatorDoSRegression:
 
         start_time = time.time()
         try:
-            result = await accumulator.accumulate(
-                StreamingResponseEnvelope(
-                    content=response, headers={}, status_code=200
-                )
+            await accumulator.accumulate(
+                StreamingResponseEnvelope(content=response, headers={}, status_code=200)
             )
             duration = time.time() - start_time
 
@@ -212,7 +206,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                 f"RecursionError with deeply nested JSON after {duration:.2f} seconds. "
                 "This indicates a DoS vulnerability."
             )
-        except Exception as e:
+        except Exception:
             duration = time.time() - start_time
             # Other errors are acceptable if they occur quickly
             assert duration < 1.0, (
@@ -251,11 +245,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                             "c": {
                                 "d": {
                                     "e": {
-                                        "f": {
-                                            "g": {
-                                                "h": {"i": {"j": {"k": "deep"}}}
-                                            }
-                                        }
+                                        "f": {"g": {"h": {"i": {"j": {"k": "deep"}}}}}
                                     }
                                 }
                             }
@@ -266,7 +256,9 @@ class TestStreamingResponseAccumulatorDoSRegression:
             # Massive array
             json.dumps({"large_array": list(range(50000))}),
             # Many small objects
-            json.dumps({"objects": [{"id": i, "data": f"item_{i}"} for i in range(10000)]}),
+            json.dumps(
+                {"objects": [{"id": i, "data": f"item_{i}"} for i in range(10000)]}
+            ),
             # Wide object with many keys
             json.dumps({f"key_{i}": f"value_{i}" for i in range(1000)}),
         ]
@@ -277,7 +269,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
 
             start_time = time.time()
             try:
-                result = await accumulator.accumulate(
+                await accumulator.accumulate(
                     StreamingResponseEnvelope(
                         content=response, headers={}, status_code=200
                     )
@@ -290,7 +282,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                     "Should process within reasonable time."
                 )
 
-            except Exception as e:
+            except Exception:
                 duration = time.time() - start_time
                 # Errors should occur quickly
                 assert duration < 0.5, (

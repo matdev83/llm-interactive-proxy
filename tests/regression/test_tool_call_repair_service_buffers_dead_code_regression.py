@@ -4,8 +4,6 @@ This test verifies that _tool_call_buffers attribute doesn't exist or is never u
 confirming it's dead code that was removed or never implemented.
 """
 
-import pytest
-
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 
@@ -36,9 +34,9 @@ class TestToolCallRepairServiceBuffersDeadCodeRegression:
         )
 
         # Verify operations completed
-        assert result1 is not None or result2 is not None or len(result3) > 0, (
-            "Repair operations should complete"
-        )
+        assert (
+            result1 is not None or result2 is not None or len(result3) > 0
+        ), "Repair operations should complete"
 
         # Verify _tool_call_buffers still doesn't exist
         assert not hasattr(service, "_tool_call_buffers"), (

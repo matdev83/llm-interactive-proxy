@@ -8,9 +8,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
-
 from fastapi import FastAPI
-
 from src.core.app.lifecycle import AppLifecycle
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.response_processor_service import ResponseProcessor

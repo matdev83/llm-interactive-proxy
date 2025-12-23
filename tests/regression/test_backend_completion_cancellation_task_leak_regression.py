@@ -8,13 +8,13 @@ unbounded accumulation when many cancellations occur.
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.session_key import SessionKey
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
 from src.core.services.session_cancellation_coordinator import (
@@ -76,8 +76,12 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             IUsageAccountingOrchestrator,
             IWireCaptureOrchestrator,
         )
-        from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
-        from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+        from src.core.interfaces.exception_normalizer_interface import (
+            IExceptionNormalizer,
+        )
+        from src.core.interfaces.stream_formatting_interface import (
+            IStreamFormattingService,
+        )
 
         # Track tasks created during cancellation callbacks
         created_tasks: list[asyncio.Task] = []
@@ -137,6 +141,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         mock_wire_capture.detect_key_name = MagicMock(return_value="test-key")
         mock_wire_capture.prepare_wire_capture_context = AsyncMock(return_value=None)
         mock_wire_capture.capture_inbound_response = AsyncMock()
+
         # Mock wrap_inbound_stream to return the stream immediately without processing
         async def passthrough_stream(stream, **kwargs):
             async for item in stream:
@@ -159,6 +164,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         mock_usage_accounting.wrap_response_for_usage = AsyncMock(
             side_effect=lambda result, **kwargs: result
         )
+
         # Mock handle_streaming_response to return immediately without processing stream
         async def mock_handle_streaming_response(*args, **kwargs):
             result = args[0] if args else kwargs.get("result")
@@ -170,6 +176,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
 
         mock_exception_normalizer = MagicMock(spec=IExceptionNormalizer)
         mock_stream_formatting = MagicMock(spec=IStreamFormattingService)
+
         # Mock stream_as_sse_bytes to return an empty async generator immediately
         async def empty_sse_stream():
             if False:  # Make it an async generator
@@ -201,7 +208,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             m.setattr(asyncio, "create_task", tracked_create_task)
 
             # Create multiple streaming requests that get cancelled
-            for i in range(10):
+            for _i in range(10):
                 # Start completion call with timeout to prevent hanging
                 try:
                     completion_task = asyncio.create_task(
@@ -226,10 +233,10 @@ class TestBackendCompletionCancellationTaskLeakRegression:
 
                     # Cancel the completion task
                     completion_task.cancel()
-                    try:
+                    with contextlib.suppress(
+                        asyncio.CancelledError, asyncio.TimeoutError, Exception
+                    ):
                         await completion_task
-                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                        pass
                 except Exception:
                     # Ignore any exceptions during task creation/cancellation
                     pass
@@ -273,8 +280,12 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             IUsageAccountingOrchestrator,
             IWireCaptureOrchestrator,
         )
-        from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
-        from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+        from src.core.interfaces.exception_normalizer_interface import (
+            IExceptionNormalizer,
+        )
+        from src.core.interfaces.stream_formatting_interface import (
+            IStreamFormattingService,
+        )
 
         # Create mock backend with failing cancel callback
         async def failing_cancel_callback():
@@ -325,6 +336,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         mock_wire_capture.detect_key_name = MagicMock(return_value="test-key")
         mock_wire_capture.prepare_wire_capture_context = AsyncMock(return_value=None)
         mock_wire_capture.capture_inbound_response = AsyncMock()
+
         # Mock wrap_inbound_stream to return the stream immediately without processing
         async def passthrough_stream(stream, **kwargs):
             async for item in stream:
@@ -347,6 +359,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         mock_usage_accounting.wrap_response_for_usage = AsyncMock(
             side_effect=lambda result, **kwargs: result
         )
+
         # Mock handle_streaming_response to return immediately without processing stream
         async def mock_handle_streaming_response(*args, **kwargs):
             result = args[0] if args else kwargs.get("result")
@@ -358,6 +371,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
 
         mock_exception_normalizer = MagicMock(spec=IExceptionNormalizer)
         mock_stream_formatting = MagicMock(spec=IStreamFormattingService)
+
         # Mock stream_as_sse_bytes to return an empty async generator immediately
         async def empty_sse_stream():
             if False:  # Make it an async generator
@@ -383,7 +397,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         initial_tasks = len(asyncio.all_tasks())
 
         # Trigger multiple cancellations with failing callbacks
-        for i in range(5):
+        for _i in range(5):
             try:
                 completion_task = asyncio.create_task(
                     asyncio.wait_for(
@@ -404,10 +418,10 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                 await asyncio.sleep(0.01)
 
                 completion_task.cancel()
-                try:
+                with contextlib.suppress(
+                    asyncio.CancelledError, asyncio.TimeoutError, Exception
+                ):
                     await completion_task
-                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                    pass
             except Exception:
                 # Ignore any exceptions during task creation/cancellation
                 pass

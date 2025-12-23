@@ -9,8 +9,6 @@ Fixed: Added MAX_PARAMETER_JSON_SIZE (1MB) and MAX_PARAMETER_JSON_DEPTH (50) lim
 import json
 import time
 
-import pytest
-
 from src.core.commands.tool_call_text_parser import (
     MAX_PARAMETER_JSON_DEPTH,
     MAX_PARAMETER_JSON_SIZE,
@@ -45,9 +43,9 @@ class TestToolCallTextParserDoSRegression:
         large_json = self.create_large_json(size_mb=12)  # 12MB > 10MB limit
         payload_size = len(large_json.encode("utf-8"))
 
-        assert payload_size > MAX_PARAMETER_JSON_SIZE, (
-            "Test payload should exceed MAX_PARAMETER_JSON_SIZE"
-        )
+        assert (
+            payload_size > MAX_PARAMETER_JSON_SIZE
+        ), "Test payload should exceed MAX_PARAMETER_JSON_SIZE"
 
         start_time = time.time()
         result = _parse_tool_call_parameter_value(large_json)
@@ -60,12 +58,12 @@ class TestToolCallTextParserDoSRegression:
         )
 
         # Should return as string (not parsed JSON) to prevent DoS
-        assert isinstance(result, str), (
-            f"Large payload should be returned as string, got {type(result).__name__}"
-        )
-        assert result == large_json.strip(), (
-            "Returned string should match original (trimmed) payload"
-        )
+        assert isinstance(
+            result, str
+        ), f"Large payload should be returned as string, got {type(result).__name__}"
+        assert (
+            result == large_json.strip()
+        ), "Returned string should match original (trimmed) payload"
 
     def test_deep_json_rejected_as_string(self) -> None:
         """Test that deeply nested JSON (>50 levels) is rejected and returned as string."""
@@ -74,9 +72,9 @@ class TestToolCallTextParserDoSRegression:
         payload_size = len(deep_json.encode("utf-8"))
 
         # Should be within size limit but exceed depth limit
-        assert payload_size < MAX_PARAMETER_JSON_SIZE, (
-            "Test payload should be within size limit but exceed depth limit"
-        )
+        assert (
+            payload_size < MAX_PARAMETER_JSON_SIZE
+        ), "Test payload should be within size limit but exceed depth limit"
 
         start_time = time.time()
         result = _parse_tool_call_parameter_value(deep_json)
@@ -89,31 +87,32 @@ class TestToolCallTextParserDoSRegression:
         )
 
         # Should return as string (not parsed JSON) due to depth validation failure
-        assert isinstance(result, str), (
-            f"Deep JSON should be returned as string, got {type(result).__name__}"
-        )
-        assert result == deep_json.strip(), (
-            "Returned string should match original (trimmed) payload"
-        )
+        assert isinstance(
+            result, str
+        ), f"Deep JSON should be returned as string, got {type(result).__name__}"
+        assert (
+            result == deep_json.strip()
+        ), "Returned string should match original (trimmed) payload"
 
     def test_normal_json_parsed_correctly(self) -> None:
         """Test that normal JSON payloads are parsed correctly."""
         normal_json = json.dumps({"command": "ls", "args": ["-la", "/home"]})
         payload_size = len(normal_json.encode("utf-8"))
 
-        assert payload_size < MAX_PARAMETER_JSON_SIZE, (
-            "Test payload should be within size limit"
-        )
+        assert (
+            payload_size < MAX_PARAMETER_JSON_SIZE
+        ), "Test payload should be within size limit"
 
         result = _parse_tool_call_parameter_value(normal_json)
 
         # Should parse successfully
-        assert isinstance(result, dict), (
-            f"Normal JSON should be parsed as dict, got {type(result).__name__}"
-        )
-        assert result == {"command": "ls", "args": ["-la", "/home"]}, (
-            "Parsed result should match expected dict"
-        )
+        assert isinstance(
+            result, dict
+        ), f"Normal JSON should be parsed as dict, got {type(result).__name__}"
+        assert result == {
+            "command": "ls",
+            "args": ["-la", "/home"],
+        }, "Parsed result should match expected dict"
 
     def test_simple_string_passed_through(self) -> None:
         """Test that simple strings are passed through unchanged."""
@@ -122,9 +121,9 @@ class TestToolCallTextParserDoSRegression:
         result = _parse_tool_call_parameter_value(simple_string)
 
         # Should return as string
-        assert isinstance(result, str), (
-            f"Simple string should be returned as string, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, str
+        ), f"Simple string should be returned as string, got {type(result).__name__}"
         assert result == simple_string, "Returned string should match original"
 
     def test_medium_json_parsed_correctly(self) -> None:
@@ -133,16 +132,16 @@ class TestToolCallTextParserDoSRegression:
         medium_json = json.dumps({"data": "x" * 500000})  # ~500KB
         payload_size = len(medium_json.encode("utf-8"))
 
-        assert payload_size < MAX_PARAMETER_JSON_SIZE, (
-            "Test payload should be within size limit"
-        )
+        assert (
+            payload_size < MAX_PARAMETER_JSON_SIZE
+        ), "Test payload should be within size limit"
 
         result = _parse_tool_call_parameter_value(medium_json)
 
         # Should parse successfully
-        assert isinstance(result, dict), (
-            f"Medium JSON should be parsed as dict, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, dict
+        ), f"Medium JSON should be parsed as dict, got {type(result).__name__}"
         assert "data" in result, "Parsed result should contain 'data' key"
 
     def test_max_constants_defined(self) -> None:
@@ -152,13 +151,13 @@ class TestToolCallTextParserDoSRegression:
             f"MAX_PARAMETER_JSON_SIZE ({MAX_PARAMETER_JSON_SIZE}) should be 10MB "
             "(10485760 bytes)"
         )
-        assert MAX_PARAMETER_JSON_DEPTH == 50, (
-            f"MAX_PARAMETER_JSON_DEPTH ({MAX_PARAMETER_JSON_DEPTH}) should be 50"
-        )
+        assert (
+            MAX_PARAMETER_JSON_DEPTH == 50
+        ), f"MAX_PARAMETER_JSON_DEPTH ({MAX_PARAMETER_JSON_DEPTH}) should be 50"
         assert MAX_PARAMETER_JSON_SIZE > 0, "MAX_PARAMETER_JSON_SIZE should be positive"
-        assert MAX_PARAMETER_JSON_DEPTH > 0, (
-            "MAX_PARAMETER_JSON_DEPTH should be positive"
-        )
+        assert (
+            MAX_PARAMETER_JSON_DEPTH > 0
+        ), "MAX_PARAMETER_JSON_DEPTH should be positive"
 
     def test_size_at_limit_boundary(self) -> None:
         """Test parameter exactly at the size limit."""
@@ -174,13 +173,13 @@ class TestToolCallTextParserDoSRegression:
 
         # Should be rejected if exceeds limit, or parsed if under limit
         if payload_size > MAX_PARAMETER_JSON_SIZE:
-            assert isinstance(result, str), (
-                "Payload exceeding limit should be returned as string"
-            )
+            assert isinstance(
+                result, str
+            ), "Payload exceeding limit should be returned as string"
         else:
-            assert isinstance(result, dict), (
-                "Payload within limit should be parsed as dict"
-            )
+            assert isinstance(
+                result, dict
+            ), "Payload within limit should be parsed as dict"
 
     def test_depth_at_limit_boundary(self) -> None:
         """Test JSON depth exactly at the depth limit."""
@@ -189,25 +188,25 @@ class TestToolCallTextParserDoSRegression:
         payload_size = len(depth_json.encode("utf-8"))
 
         # Should be within size limit
-        assert payload_size < MAX_PARAMETER_JSON_SIZE, (
-            "Test payload should be within size limit"
-        )
+        assert (
+            payload_size < MAX_PARAMETER_JSON_SIZE
+        ), "Test payload should be within size limit"
 
         result = _parse_tool_call_parameter_value(depth_json)
 
         # Should be rejected (limit is exclusive)
-        assert isinstance(result, str), (
-            "JSON at depth limit should be returned as string"
-        )
+        assert isinstance(
+            result, str
+        ), "JSON at depth limit should be returned as string"
 
         # Create JSON with MAX_PARAMETER_JSON_DEPTH - 1 levels (should work)
         safe_depth_json = self.create_deep_json(MAX_PARAMETER_JSON_DEPTH - 1)
         safe_result = _parse_tool_call_parameter_value(safe_depth_json)
 
         # Should parse successfully (though it's a dict, not necessarily useful)
-        assert isinstance(safe_result, (dict, str)), (
-            "JSON at safe depth should be processed (may be dict or string)"
-        )
+        assert isinstance(
+            safe_result, dict | str
+        ), "JSON at safe depth should be processed (may be dict or string)"
 
     def test_malformed_json_returns_string(self) -> None:
         """Test that malformed JSON is returned as string."""
@@ -216,12 +215,12 @@ class TestToolCallTextParserDoSRegression:
         result = _parse_tool_call_parameter_value(malformed_json)
 
         # Should return as string (not raise exception)
-        assert isinstance(result, str), (
-            f"Malformed JSON should be returned as string, got {type(result).__name__}"
-        )
-        assert result == malformed_json.strip(), (
-            "Returned string should match original (trimmed) payload"
-        )
+        assert isinstance(
+            result, str
+        ), f"Malformed JSON should be returned as string, got {type(result).__name__}"
+        assert (
+            result == malformed_json.strip()
+        ), "Returned string should match original (trimmed) payload"
 
     def test_empty_string_returns_empty(self) -> None:
         """Test that empty string returns empty string."""

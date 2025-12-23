@@ -10,7 +10,6 @@ clean up anonymous entries that were never cleaned up before.
 import time
 
 import pytest
-
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
 
 
@@ -60,9 +59,7 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
             anon_tool_calls.append(
                 {
                     "id": f"anon_tool_{i}",
-                    "extra_content": {
-                        "google": {"thought_signature": f"anon_sig_{i}"}
-                    },
+                    "extra_content": {"google": {"thought_signature": f"anon_sig_{i}"}},
                 }
             )
 
@@ -78,13 +75,13 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
         final_secondary_size = len(manager._by_tool_call)
 
         assert cleared > 0, "Should have cleared anonymous entries"
-        assert final_cache_size < initial_cache_size, (
-            "Cache size should decrease after clearing anonymous entries"
-        )
+        assert (
+            final_cache_size < initial_cache_size
+        ), "Cache size should decrease after clearing anonymous entries"
         assert final_cache_size == 0, "All anonymous entries should be removed"
-        assert final_secondary_size < initial_secondary_size, (
-            "Secondary index should decrease after clearing anonymous entries"
-        )
+        assert (
+            final_secondary_size < initial_secondary_size
+        ), "Secondary index should decrease after clearing anonymous entries"
 
     def test_clear_all_anonymous_preserves_session_entries(
         self, manager: ThoughtSignatureManager
@@ -110,9 +107,7 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
             anon_tool_calls.append(
                 {
                     "id": f"anon_tool_{i}",
-                    "extra_content": {
-                        "google": {"thought_signature": f"anon_sig_{i}"}
-                    },
+                    "extra_content": {"google": {"thought_signature": f"anon_sig_{i}"}},
                 }
             )
 
@@ -144,9 +139,7 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
             anon_tool_calls.append(
                 {
                     "id": f"anon_tool_{i}",
-                    "extra_content": {
-                        "google": {"thought_signature": f"anon_sig_{i}"}
-                    },
+                    "extra_content": {"google": {"thought_signature": f"anon_sig_{i}"}},
                 }
             )
 
@@ -159,7 +152,9 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
 
         final_cache_size = len(manager._cache)
 
-        assert cleared == 0, "clear_session_cache('') should not clear anonymous entries"
+        assert (
+            cleared == 0
+        ), "clear_session_cache('') should not clear anonymous entries"
         assert (
             final_cache_size == initial_cache_size
         ), "Anonymous entries should remain after clear_session_cache('')"
@@ -174,9 +169,7 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
             anon_tool_calls.append(
                 {
                     "id": f"anon_tool_{i}",
-                    "extra_content": {
-                        "google": {"thought_signature": f"anon_sig_{i}"}
-                    },
+                    "extra_content": {"google": {"thought_signature": f"anon_sig_{i}"}},
                 }
             )
 
@@ -207,6 +200,5 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
                     found = True
                     break
             assert found, (
-                f"Orphaned entry in secondary index: {tc_id} "
-                "not found in cache"
+                f"Orphaned entry in secondary index: {tc_id} " "not found in cache"
             )

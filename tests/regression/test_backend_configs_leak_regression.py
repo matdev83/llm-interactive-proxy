@@ -4,9 +4,9 @@ This test verifies that _backend_configs and _disabled_backends are properly
 cleaned up when backends are evicted, preventing unbounded memory growth.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+import contextlib
 
+import pytest
 from src.core.config.app_config import BackendConfig
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
@@ -66,11 +66,8 @@ class TestBackendConfigsLeakRegression:
         backend_types = [f"backend_{i}" for i in range(100)]
 
         for backend_type in backend_types:
-            try:
+            with contextlib.suppress(Exception):
                 await manager.get_or_create(backend_type)
-            except Exception:
-                # Ignore errors, we're just testing accumulation
-                pass
 
         # Check final size - should be bounded by the limit, not the number of backends accessed
         final_size = len(manager._backend_configs)
@@ -106,9 +103,9 @@ class TestBackendConfigsLeakRegression:
         manager._maybe_cleanup_backend_config(backend_type)
 
         # Config should be cleaned up since no instances remain
-        assert backend_type not in manager._backend_configs, (
-            "Backend config was not cleaned up when no instances remain."
-        )
+        assert (
+            backend_type not in manager._backend_configs
+        ), "Backend config was not cleaned up when no instances remain."
 
     @pytest.mark.asyncio
     async def test_disabled_backends_bounded(self) -> None:
@@ -147,22 +144,17 @@ class TestBackendConfigsLeakRegression:
         backend_type = "test_backend"
         for i in range(20):
             session_id = f"session_{i}"
-            try:
+            with contextlib.suppress(Exception):
                 await manager.get_or_create(backend_type, session_id=session_id)
-            except Exception:
-                pass
 
         # After eviction, config should remain if there are still instances
         # But if all instances are evicted, config should be cleaned up
         if backend_type in manager._backend_configs:
             # Check that there are still instances
-            has_instances = (
-                backend_type in manager._backends
-                or any(
-                    key.startswith(f"{backend_type}:")
-                    for key in manager._per_session_backends
-                )
+            has_instances = backend_type in manager._backends or any(
+                key.startswith(f"{backend_type}:")
+                for key in manager._per_session_backends
             )
-            assert has_instances, (
-                "Backend config should only exist if there are active instances."
-            )
+            assert (
+                has_instances
+            ), "Backend config should only exist if there are active instances."

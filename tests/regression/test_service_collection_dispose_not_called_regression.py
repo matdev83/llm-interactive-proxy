@@ -7,9 +7,8 @@ during application shutdown to await all pending cleanup tasks.
 
 import asyncio
 
-import pytest
-
 import httpx
+import pytest
 from src.core.di.container import ServiceCollection
 
 
@@ -37,7 +36,9 @@ class TestServiceCollectionDisposeNotCalledRegression:
 
         # Verify cleanup task was created
         pending_tasks = [t for t in services._cleanup_tasks if not t.done()]
-        assert len(pending_tasks) > 0, "Cleanup task should be created when replacing client"
+        assert (
+            len(pending_tasks) > 0
+        ), "Cleanup task should be created when replacing client"
 
         # Verify client1 is still open (cleanup task not awaited yet)
         assert not client1.is_closed, "Client1 should still be open before dispose()"
@@ -48,10 +49,14 @@ class TestServiceCollectionDisposeNotCalledRegression:
         # Verify cleanup tasks were awaited
         await asyncio.sleep(0.1)  # Give tasks time to complete
         pending_after = [t for t in services._cleanup_tasks if not t.done()]
-        assert len(pending_after) == 0, "All cleanup tasks should be completed after dispose()"
+        assert (
+            len(pending_after) == 0
+        ), "All cleanup tasks should be completed after dispose()"
 
         # Verify client1 was closed (cleanup task completed)
-        assert client1.is_closed, "Client1 should be closed after dispose() awaits cleanup tasks"
+        assert (
+            client1.is_closed
+        ), "Client1 should be closed after dispose() awaits cleanup tasks"
 
         # Cleanup client2
         await client2.aclose()
@@ -63,7 +68,7 @@ class TestServiceCollectionDisposeNotCalledRegression:
 
         # Create and replace multiple clients
         clients = []
-        for i in range(10):
+        for _i in range(10):
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
                 limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
@@ -73,11 +78,15 @@ class TestServiceCollectionDisposeNotCalledRegression:
 
         # Verify cleanup tasks were created for all but the last client
         pending_tasks = [t for t in services._cleanup_tasks if not t.done()]
-        assert len(pending_tasks) == 9, "Should have 9 cleanup tasks (one for each replaced client)"
+        assert (
+            len(pending_tasks) == 9
+        ), "Should have 9 cleanup tasks (one for each replaced client)"
 
         # Verify all but last client are still open
         open_clients = [c for c in clients[:-1] if not c.is_closed]
-        assert len(open_clients) == 9, "All replaced clients should still be open before dispose()"
+        assert (
+            len(open_clients) == 9
+        ), "All replaced clients should still be open before dispose()"
 
         # Call dispose() - should clean up all clients
         await services.dispose()
@@ -89,7 +98,9 @@ class TestServiceCollectionDisposeNotCalledRegression:
 
         # Verify all replaced clients were closed
         open_after = [c for c in clients[:-1] if not c.is_closed]
-        assert len(open_after) == 0, "All replaced clients should be closed after dispose()"
+        assert (
+            len(open_after) == 0
+        ), "All replaced clients should be closed after dispose()"
 
         # Cleanup last client
         await clients[-1].aclose()

@@ -11,10 +11,7 @@ import asyncio
 
 import httpx
 import pytest
-
 from src.core.app.stages.backend import BackendStage
-from src.core.config.app_config import AppConfig
-from src.core.config.models import BackendSettings
 
 
 class TestBackendStageCleanupTasksLeakRegression:
@@ -26,7 +23,9 @@ class TestBackendStageCleanupTasksLeakRegression:
         return BackendStage()
 
     @pytest.mark.asyncio
-    async def test_cleanup_tasks_tracked_on_exception(self, stage: BackendStage) -> None:
+    async def test_cleanup_tasks_tracked_on_exception(
+        self, stage: BackendStage
+    ) -> None:
         """Test that cleanup tasks are tracked when exceptions occur."""
         client: httpx.AsyncClient | None = None
 
@@ -44,18 +43,18 @@ class TestBackendStageCleanupTasksLeakRegression:
                 stage._cleanup_tasks.add(cleanup_task)
 
                 # Verify task is tracked
-                assert len(stage._cleanup_tasks) > 0, (
-                    "Cleanup task should be tracked in _cleanup_tasks set"
-                )
+                assert (
+                    len(stage._cleanup_tasks) > 0
+                ), "Cleanup task should be tracked in _cleanup_tasks set"
 
                 # Simulate exception during cleanup setup
                 raise ValueError("Simulated exception during cleanup")
 
         except ValueError:
             # Exception caught, but task should still be tracked
-            assert len(stage._cleanup_tasks) > 0, (
-                "Cleanup task should remain tracked even after exception"
-            )
+            assert (
+                len(stage._cleanup_tasks) > 0
+            ), "Cleanup task should remain tracked even after exception"
         finally:
             # Ensure client is closed
             if client and not client.is_closed:
@@ -71,7 +70,7 @@ class TestBackendStageCleanupTasksLeakRegression:
 
         try:
             # Create multiple clients and cleanup tasks
-            for i in range(3):
+            for _i in range(3):
                 client = httpx.AsyncClient()
                 clients.append(client)
 
@@ -82,9 +81,9 @@ class TestBackendStageCleanupTasksLeakRegression:
                     cleanup_tasks.append(cleanup_task)
 
             # Verify tasks are tracked
-            assert len(stage._cleanup_tasks) >= len(cleanup_tasks), (
-                "All cleanup tasks should be tracked"
-            )
+            assert len(stage._cleanup_tasks) >= len(
+                cleanup_tasks
+            ), "All cleanup tasks should be tracked"
 
             # Wait for tasks to complete
             await asyncio.sleep(0.2)
@@ -102,6 +101,7 @@ class TestBackendStageCleanupTasksLeakRegression:
     @pytest.mark.asyncio
     async def test_cleanup_tasks_timeout_handling(self, stage: BackendStage) -> None:
         """Test that cleanup tasks timeout is handled properly."""
+
         async def slow_cleanup():
             """Simulate slow cleanup that might timeout."""
             await asyncio.sleep(1.0)  # Longer than typical timeout
@@ -149,7 +149,7 @@ class TestBackendStageCleanupTasksLeakRegression:
 
         # Create multiple cleanup tasks
         clients = []
-        for i in range(10):
+        for _i in range(10):
             client = httpx.AsyncClient()
             clients.append(client)
 
@@ -210,10 +210,12 @@ class TestBackendStageCleanupTasksLeakRegression:
                         failing_task = asyncio.create_task(failing_cleanup())
                         stage._cleanup_tasks.add(failing_task)
 
-                        await asyncio.gather(*stage._cleanup_tasks, return_exceptions=True)
+                        await asyncio.gather(
+                            *stage._cleanup_tasks, return_exceptions=True
+                        )
                     except Exception as e:
                         # Exception should be handled gracefully
-                        assert isinstance(e, (RuntimeError, Exception))
+                        assert isinstance(e, RuntimeError | Exception)
 
                 # All tasks should be done (completed or failed)
                 for task in stage._cleanup_tasks:

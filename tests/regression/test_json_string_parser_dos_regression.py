@@ -9,10 +9,9 @@ Fixed: Added MAX_JSON_PAYLOAD_SIZE (10MB) and validate_json_structure() checks.
 import json
 
 import pytest
-
 from src.core.domain.streaming.parsing.json_string_parser import (
-    JSONStringParser,
     MAX_JSON_PAYLOAD_SIZE,
+    JSONStringParser,
 )
 
 
@@ -94,16 +93,16 @@ class TestJSONStringParserDoSRegression:
         try:
             result = parser.parse(combined_json)
             # If parsed, should be handled safely
-            assert isinstance(result.content, (dict, str))
+            assert isinstance(result.content, dict | str)
         except ValueError:
             # Expected rejection
             pass
 
     def test_max_constant_defined(self) -> None:
         """Test that MAX_JSON_PAYLOAD_SIZE constant is defined correctly."""
-        assert MAX_JSON_PAYLOAD_SIZE == 10 * 1024 * 1024, (
-            f"MAX_JSON_PAYLOAD_SIZE ({MAX_JSON_PAYLOAD_SIZE}) should be 10MB"
-        )
+        assert (
+            MAX_JSON_PAYLOAD_SIZE == 10 * 1024 * 1024
+        ), f"MAX_JSON_PAYLOAD_SIZE ({MAX_JSON_PAYLOAD_SIZE}) should be 10MB"
         assert MAX_JSON_PAYLOAD_SIZE > 0, "MAX_JSON_PAYLOAD_SIZE should be positive"
 
     def test_normal_functionality_works(self, parser: JSONStringParser) -> None:

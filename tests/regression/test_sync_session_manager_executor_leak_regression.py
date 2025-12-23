@@ -9,10 +9,10 @@ even when exceptions occur during execution.
 
 import asyncio
 import concurrent.futures
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.session import Session, SessionState
 from src.core.services.sync_session_manager import SyncSessionManager
 
@@ -39,9 +39,10 @@ class TestSyncSessionManagerExecutorLeakRegression:
 
     def test_executor_normal_usage(self, sync_manager: SyncSessionManager) -> None:
         """Test that normal ThreadPoolExecutor usage doesn't leak resources."""
+
         # Run in async context to trigger executor path
         async def run_test():
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # Create a task to simulate running event loop
             task = asyncio.create_task(asyncio.sleep(0.01))
             try:
@@ -51,10 +52,8 @@ class TestSyncSessionManagerExecutorLeakRegression:
                 assert session.session_id == "test-session"
             finally:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         asyncio.run(run_test())
 
@@ -65,8 +64,9 @@ class TestSyncSessionManagerExecutorLeakRegression:
         self, sync_manager: SyncSessionManager
     ) -> None:
         """Test that exceptions during executor.submit don't cause leaks."""
+
         async def run_test():
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             task = asyncio.create_task(asyncio.sleep(0.01))
             try:
                 # Simulate exception scenario
@@ -81,10 +81,8 @@ class TestSyncSessionManagerExecutorLeakRegression:
                 assert session is not None
             finally:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         asyncio.run(run_test())
 
@@ -100,7 +98,7 @@ class TestSyncSessionManagerExecutorLeakRegression:
         )
 
         async def run_test():
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             task = asyncio.create_task(asyncio.sleep(0.01))
             try:
                 # This should raise exception from thread
@@ -108,10 +106,8 @@ class TestSyncSessionManagerExecutorLeakRegression:
                     sync_manager.get_session("test-session")
             finally:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         asyncio.run(run_test())
 
@@ -126,7 +122,7 @@ class TestSyncSessionManagerExecutorLeakRegression:
         initial_thread_count = threading.active_count()
 
         async def run_test():
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             task = asyncio.create_task(asyncio.sleep(0.01))
             try:
                 # Create multiple sessions (each creates an executor)
@@ -135,10 +131,8 @@ class TestSyncSessionManagerExecutorLeakRegression:
                     assert session is not None
             finally:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         asyncio.run(run_test())
 
@@ -173,11 +167,13 @@ class TestSyncSessionManagerExecutorLeakRegression:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             executor_refs.append(id(executor))
             future = executor.submit(run_in_thread)
-            result = future.result()
+            future.result()
 
         # Executor should be closed
         # Verify by checking that executor is shutdown
-        assert executor._shutdown, "Executor should be shutdown after context manager exits"
+        assert (
+            executor._shutdown
+        ), "Executor should be shutdown after context manager exits"
 
         # Test with exception
         try:
@@ -188,6 +184,6 @@ class TestSyncSessionManagerExecutorLeakRegression:
             pass
 
         # Executor should still be closed even after exception
-        assert executor._shutdown, (
-            "Executor should be shutdown even after exception in context manager"
-        )
+        assert (
+            executor._shutdown
+        ), "Executor should be shutdown even after exception in context manager"

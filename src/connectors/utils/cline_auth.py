@@ -704,34 +704,30 @@ class ClineAuthMixin:
         ]
 
         try:
-            conn = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True)
+            with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True) as conn:
+                cur = conn.cursor()
+                for pattern in patterns:
+                    cur.execute(
+                        "SELECT value FROM ItemTable WHERE key=? ORDER BY rowid DESC LIMIT 1",
+                        (pattern,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    value = row[0]
+                    try:
+                        buffer_json = json.loads(value)
+                        data = buffer_json.get("data")
+                        if isinstance(data, list):
+                            return bytes(data)
+                    except Exception:
+                        logger.debug(
+                            "Failed to parse VSCode secret blob for key %s", pattern
+                        )
+                        continue
         except sqlite3.Error:
             logger.debug("Unable to open VSCode state database", exc_info=True)
             return None
-
-        try:
-            cur = conn.cursor()
-            for pattern in patterns:
-                cur.execute(
-                    "SELECT value FROM ItemTable WHERE key=? ORDER BY rowid DESC LIMIT 1",
-                    (pattern,),
-                )
-                row = cur.fetchone()
-                if not row:
-                    continue
-                value = row[0]
-                try:
-                    buffer_json = json.loads(value)
-                    data = buffer_json.get("data")
-                    if isinstance(data, list):
-                        return bytes(data)
-                except Exception:
-                    logger.debug(
-                        "Failed to parse VSCode secret blob for key %s", pattern
-                    )
-                    continue
-        finally:
-            conn.close()
 
         return None
 

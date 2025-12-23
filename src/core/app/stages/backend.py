@@ -11,6 +11,7 @@ This stage registers backend-related services:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from typing import cast
@@ -1083,10 +1084,8 @@ class BackendStage(InitializationStage):
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
-                    pass  # Suppress errors during final cleanup
 
         # Clear the cleanup tasks set to prevent memory leaks
         # This ensures task references don't prevent garbage collection

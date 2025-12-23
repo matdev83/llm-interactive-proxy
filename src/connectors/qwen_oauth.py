@@ -1506,11 +1506,14 @@ class QwenOAuthConnector(OpenAIConnector):
             }
 
     async def shutdown(self) -> None:
-        """Shutdown the connector and clean up resources.
+        """Shutdown connector and clean up resources.
 
         This method is called by BackendLifecycleManager during backend shutdown
         to ensure proper cleanup of resources like CLI refresh subprocesses.
         """
+        # Stop file watching to prevent thread leaks
+        self._stop_file_watching()
+
         # Cleanup CLI refresh process
         if hasattr(self, "_cli_refresh_process"):
             process = self._cli_refresh_process
@@ -1526,11 +1529,8 @@ class QwenOAuthConnector(OpenAIConnector):
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            try:
+                            with contextlib.suppress(subprocess.TimeoutExpired, Exception):
                                 process.wait(timeout=5)
-                            except (subprocess.TimeoutExpired, Exception):
-                                # Suppress all exceptions during cleanup
-                                pass
                 except Exception:
                     # Suppress all exceptions during cleanup
                     pass
@@ -1560,12 +1560,8 @@ class QwenOAuthConnector(OpenAIConnector):
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            try:
+                            with contextlib.suppress(subprocess.TimeoutExpired, Exception):
                                 process.wait(timeout=5)
-                            except (subprocess.TimeoutExpired, Exception):
-                                # Suppress all exceptions during interpreter shutdown
-                                # The logging system may already be torn down
-                                pass
                 except Exception:
                     # Suppress all exceptions during interpreter shutdown
                     # The logging system may already be torn down

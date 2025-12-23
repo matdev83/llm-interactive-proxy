@@ -349,6 +349,53 @@ class TestBackendLifecycleManagerGetActiveBackends:
         assert "openai:s2" in active
 
 
+class TestBackendLifecycleManagerShutdownAll:
+    """Tests for shutdown_all method."""
+
+    @pytest.mark.asyncio
+    async def test_shutdowns_all_backends(self) -> None:
+        """Should shutdown all global and per-session backends."""
+        factory = MockBackendFactory()
+        manager = BackendLifecycleManager(factory=factory)  # type: ignore
+
+        # Create backends
+        global_backend = await manager.get_or_create("openai")
+        session_backend_1 = await manager.get_or_create("anthropic", session_id="s1")
+        session_backend_2 = await manager.get_or_create("gemini", session_id="s2")
+
+        # Shutdown all
+        await manager.shutdown_all()
+
+        # Verify backends are shutdown
+        assert global_backend.shutdown_called  # type: ignore
+        assert session_backend_1.shutdown_called  # type: ignore
+        assert session_backend_2.shutdown_called  # type: ignore
+
+        # Verify caches are cleared
+        assert len(manager._backends) == 0
+        assert len(manager._per_session_backends) == 0
+        assert len(manager._backend_configs) == 0
+
+    @pytest.mark.asyncio
+    async def test_waits_for_pending_tasks(self) -> None:
+        """Should wait for pending shutdown tasks from previous discards."""
+        factory = MockBackendFactory()
+        manager = BackendLifecycleManager(factory=factory)  # type: ignore
+
+        # Create and discard backend
+        backend = await manager.get_or_create("openai")
+        manager.discard("openai", None, "reason")
+
+        # At this point, a shutdown task is running in background
+        assert len(manager._shutdown_tasks) > 0
+
+        # Shutdown all should await it
+        await manager.shutdown_all()
+
+        assert len(manager._shutdown_tasks) == 0
+        assert backend.shutdown_called  # type: ignore
+
+
 class TestBackendLifecycleManagerCacheKeyRules:
     """Test cache key generation rules."""
 

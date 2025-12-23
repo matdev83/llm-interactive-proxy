@@ -10,7 +10,6 @@ await_pending_shutdown_tasks() to prevent unbounded task accumulation.
 import asyncio
 
 import pytest
-
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
 
@@ -59,15 +58,15 @@ class TestBackendDiscardTaskLeakRegression:
         manager.discard("test-backend-3", "session-1", "test")
 
         # Verify tasks are tracked
-        assert len(manager._shutdown_tasks) == 3, (
-            f"Expected 3 tracked shutdown tasks, got {len(manager._shutdown_tasks)}"
-        )
+        assert (
+            len(manager._shutdown_tasks) == 3
+        ), f"Expected 3 tracked shutdown tasks, got {len(manager._shutdown_tasks)}"
 
         # Count tasks after discard
         tasks_after = [t for t in asyncio.all_tasks(loop) if not t.done()]
-        assert len(tasks_after) > len(tasks_before), (
-            "Discard should create new shutdown tasks"
-        )
+        assert len(tasks_after) > len(
+            tasks_before
+        ), "Discard should create new shutdown tasks"
 
         # Wait for tasks to complete
         await asyncio.sleep(0.2)
@@ -81,9 +80,9 @@ class TestBackendDiscardTaskLeakRegression:
         # (via done callback)
         await asyncio.sleep(0.1)  # Allow callbacks to fire
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
-        assert len(pending_tracked) == 0, (
-            f"All tracked tasks should complete. {len(pending_tracked)} still pending"
-        )
+        assert (
+            len(pending_tracked) == 0
+        ), f"All tracked tasks should complete. {len(pending_tracked)} still pending"
 
     @pytest.mark.asyncio
     async def test_rapid_discards_dont_accumulate_unbounded(
@@ -113,9 +112,9 @@ class TestBackendDiscardTaskLeakRegression:
         # Count tasks after discard
         tasks_after = [t for t in asyncio.all_tasks(loop) if not t.done()]
         new_tasks = len(tasks_after) - len(tasks_before)
-        assert new_tasks == num_backends, (
-            f"Expected {num_backends} new tasks, got {new_tasks}"
-        )
+        assert (
+            new_tasks == num_backends
+        ), f"Expected {num_backends} new tasks, got {new_tasks}"
 
         # Wait for tasks to complete
         await asyncio.sleep(0.5)
@@ -123,9 +122,9 @@ class TestBackendDiscardTaskLeakRegression:
         # Verify tasks completed and are cleaned up from tracking set
         await asyncio.sleep(0.1)  # Allow callbacks to fire
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
-        assert len(pending_tracked) == 0, (
-            f"All tracked tasks should complete. {len(pending_tracked)} still pending"
-        )
+        assert (
+            len(pending_tracked) == 0
+        ), f"All tracked tasks should complete. {len(pending_tracked)} still pending"
 
     @pytest.mark.asyncio
     async def test_await_pending_shutdown_tasks_awaits_all_tasks(
@@ -156,15 +155,16 @@ class TestBackendDiscardTaskLeakRegression:
 
         # Verify tracking set is cleaned up
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
-        assert len(pending_tracked) == 0, (
-            f"All tracked tasks should be awaited. {len(pending_tracked)} still pending"
-        )
+        assert (
+            len(pending_tracked) == 0
+        ), f"All tracked tasks should be awaited. {len(pending_tracked)} still pending"
 
     @pytest.mark.asyncio
     async def test_await_pending_shutdown_tasks_handles_timeout(
         self, manager: BackendLifecycleManager
     ) -> None:
         """Test that await_pending_shutdown_tasks() handles timeout properly."""
+
         # Create a backend with slow shutdown
         class SlowBackend(MockBackend):
             async def shutdown(self) -> None:
@@ -184,9 +184,9 @@ class TestBackendDiscardTaskLeakRegression:
 
         # Task should be cancelled due to timeout
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
-        assert len(pending_tracked) == 0, (
-            "Tasks should be cancelled and removed from tracking set after timeout"
-        )
+        assert (
+            len(pending_tracked) == 0
+        ), "Tasks should be cancelled and removed from tracking set after timeout"
 
     @pytest.mark.asyncio
     async def test_discard_removes_backends_from_cache(

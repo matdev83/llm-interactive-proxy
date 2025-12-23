@@ -7,7 +7,6 @@ are properly bounded to prevent unbounded memory growth.
 import random
 
 import pytest
-
 from src.core.services.replacement_metrics import ReplacementMetrics
 
 
@@ -19,9 +18,7 @@ class TestReplacementMetricsTimestampLeakRegression:
         """Create ReplacementMetrics instance."""
         return ReplacementMetrics()
 
-    def test_activation_timestamps_bounded(
-        self, metrics: ReplacementMetrics
-    ) -> None:
+    def test_activation_timestamps_bounded(self, metrics: ReplacementMetrics) -> None:
         """Test that activation_timestamps list is bounded."""
         # Import the constant
         from src.core.services.replacement_metrics import _MAX_ACTIVATION_TIMESTAMPS
@@ -40,9 +37,7 @@ class TestReplacementMetricsTimestampLeakRegression:
             "unbounded memory growth."
         )
 
-    def test_opt_out_timestamps_bounded(
-        self, metrics: ReplacementMetrics
-    ) -> None:
+    def test_opt_out_timestamps_bounded(self, metrics: ReplacementMetrics) -> None:
         """Test that opt_out_timestamps list is bounded."""
         # Import the constant
         from src.core.services.replacement_metrics import _MAX_OPT_OUT_TIMESTAMPS
@@ -158,9 +153,9 @@ class TestReplacementMetricsTimestampLeakRegression:
         metrics.prune_history(max_age_seconds=0.1)
 
         # Verify prune_history method exists and works
-        assert hasattr(metrics, "prune_history"), (
-            "ReplacementMetrics should have prune_history method."
-        )
+        assert hasattr(
+            metrics, "prune_history"
+        ), "ReplacementMetrics should have prune_history method."
 
         # The actual count depends on timing, but the method should work
         final_count = len(metrics.activation_timestamps)

@@ -6,16 +6,13 @@ response body size to prevent DoS attacks through unbounded streaming responses.
 Fixed: Added MAX_RESPONSE_BODY_SIZE limit (50MB) to prevent memory exhaustion.
 """
 
-import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
-from starlette.responses import StreamingResponse
-
 from src.core.app.middleware.content_rewriting_middleware import (
     ContentRewritingMiddleware,
 )
-from src.core.services.content_rewriter_service import ContentRewriterService
+from starlette.responses import StreamingResponse
 
 
 class TestContentRewritingMiddlewareDoSRegression:
@@ -27,8 +24,8 @@ class TestContentRewritingMiddlewareDoSRegression:
         """Generate a streaming response of specified size."""
         chunk_size = 1024 * 1024  # 1MB chunks
         total_chunks = (size_mb * 1024 * 1024) // chunk_size
-        
-        for i in range(total_chunks):
+
+        for _i in range(total_chunks):
             chunk = b"x" * chunk_size
             yield chunk
 
@@ -37,13 +34,13 @@ class TestContentRewritingMiddlewareDoSRegression:
     ) -> tuple[int, bool]:
         """
         Simulate the middleware's accumulation logic to test size limits.
-        
+
         Returns:
             Tuple of (accumulated_size_bytes, limit_exceeded)
         """
         response_body = b""
         limit_exceeded = False
-        
+
         async for chunk in response.body_iterator:
             chunk_bytes: bytes
             if isinstance(chunk, str):
@@ -52,7 +49,7 @@ class TestContentRewritingMiddlewareDoSRegression:
                 chunk_bytes = chunk.tobytes()
             else:
                 chunk_bytes = chunk
-            
+
             # DoS protection: Check accumulated size before adding chunk
             max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
             if len(response_body) + len(chunk_bytes) > max_size:
@@ -62,9 +59,9 @@ class TestContentRewritingMiddlewareDoSRegression:
                 if remaining > 0:
                     response_body += chunk_bytes[:remaining]
                 break
-            
+
             response_body += chunk_bytes
-        
+
         return len(response_body), limit_exceeded
 
     @pytest.mark.asyncio
@@ -73,12 +70,12 @@ class TestContentRewritingMiddlewareDoSRegression:
         # Create a response larger than 50MB limit
         response_size_mb = 60
         generator = self.generate_large_streaming_response(response_size_mb)
-        
+
         response = StreamingResponse(generator)
         accumulated_size, limit_exceeded = await self.simulate_middleware_accumulation(
             response
         )
-        
+
         # Should have hit the limit
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         assert limit_exceeded, "Large response should trigger size limit"
@@ -93,12 +90,12 @@ class TestContentRewritingMiddlewareDoSRegression:
         # Create a response smaller than 50MB limit
         response_size_mb = 10
         generator = self.generate_large_streaming_response(response_size_mb)
-        
+
         response = StreamingResponse(generator)
         accumulated_size, limit_exceeded = await self.simulate_middleware_accumulation(
             response
         )
-        
+
         # Should not hit the limit
         assert not limit_exceeded, "Small response should not trigger size limit"
         expected_size = response_size_mb * 1024 * 1024
@@ -114,12 +111,12 @@ class TestContentRewritingMiddlewareDoSRegression:
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         limit_mb = max_size // (1024 * 1024)
         generator = self.generate_large_streaming_response(limit_mb)
-        
+
         response = StreamingResponse(generator)
         accumulated_size, limit_exceeded = await self.simulate_middleware_accumulation(
             response
         )
-        
+
         # Should be at or just under the limit
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         assert accumulated_size <= max_size, (
@@ -130,17 +127,18 @@ class TestContentRewritingMiddlewareDoSRegression:
     @pytest.mark.asyncio
     async def test_multiple_large_chunks(self) -> None:
         """Test that multiple large chunks are properly handled."""
+
         async def large_chunk_generator() -> AsyncGenerator[bytes, None]:
             # Send chunks that individually are small but together exceed limit
             chunk_size = 10 * 1024 * 1024  # 10MB chunks
-            for i in range(10):  # 100MB total
+            for _i in range(10):  # 100MB total
                 yield b"x" * chunk_size
-        
+
         response = StreamingResponse(large_chunk_generator())
         accumulated_size, limit_exceeded = await self.simulate_middleware_accumulation(
             response
         )
-        
+
         # Should hit limit after a few chunks
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         assert limit_exceeded, "Multiple large chunks should trigger size limit"
@@ -154,7 +152,6 @@ class TestContentRewritingMiddlewareDoSRegression:
         # Verify the constant exists and has reasonable value
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         assert max_size == 50 * 1024 * 1024, (
-            f"MAX_RESPONSE_BODY_SIZE ({max_size}) should be 50MB "
-            "(52428800 bytes)"
+            f"MAX_RESPONSE_BODY_SIZE ({max_size}) should be 50MB " "(52428800 bytes)"
         )
         assert max_size > 0, "MAX_RESPONSE_BODY_SIZE should be positive"

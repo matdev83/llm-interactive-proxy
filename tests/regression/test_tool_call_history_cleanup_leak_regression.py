@@ -8,7 +8,6 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-
 from src.core.services.tool_call_reactor_service import InMemoryToolCallHistoryTracker
 
 
@@ -123,7 +122,9 @@ class TestToolCallHistoryCleanupLeakRegression:
             )
 
         # Record recent sessions
-        recent_sessions = [f"session_{i}" for i in range(max_sessions - 3, max_sessions)]
+        recent_sessions = [
+            f"session_{i}" for i in range(max_sessions - 3, max_sessions)
+        ]
 
         # Add more sessions to trigger cleanup
         for i in range(max_sessions, max_sessions + 5):

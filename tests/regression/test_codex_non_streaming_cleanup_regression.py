@@ -9,7 +9,6 @@ Fixed: Added _handle_non_streaming_response override that calls cleanup_state.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.connectors.openai_codex.compat import CompatibilityLayer
 from src.connectors.openai_codex.contracts import CompatibilityState
@@ -39,22 +38,20 @@ class TestCodexNonStreamingCleanupRegression:
 
     def test_connector_has_handle_non_streaming_response_override(self) -> None:
         """Test that connector has _handle_non_streaming_response override."""
-        assert hasattr(OpenAICodexConnector, "_handle_non_streaming_response"), (
-            "Connector should override _handle_non_streaming_response for cleanup"
-        )
+        assert hasattr(
+            OpenAICodexConnector, "_handle_non_streaming_response"
+        ), "Connector should override _handle_non_streaming_response for cleanup"
 
         # Check that it's actually an override (not just inherited)
         base_method = getattr(
             OpenAICodexConnector.__bases__[0], "_handle_non_streaming_response", None
         )
-        connector_method = getattr(
-            OpenAICodexConnector, "_handle_non_streaming_response"
-        )
+        connector_method = OpenAICodexConnector._handle_non_streaming_response
 
         # Methods should be different (override exists)
-        assert connector_method is not base_method, (
-            "Connector should override parent's _handle_non_streaming_response"
-        )
+        assert (
+            connector_method is not base_method
+        ), "Connector should override parent's _handle_non_streaming_response"
 
     @pytest.mark.asyncio
     async def test_non_streaming_response_cleans_up_state(
@@ -202,7 +199,7 @@ class TestCodexNonStreamingCleanupRegression:
         """Test that _handle_non_streaming_response is async."""
         import inspect
 
-        method = getattr(OpenAICodexConnector, "_handle_non_streaming_response")
-        assert inspect.iscoroutinefunction(method), (
-            "_handle_non_streaming_response should be async"
-        )
+        method = OpenAICodexConnector._handle_non_streaming_response
+        assert inspect.iscoroutinefunction(
+            method
+        ), "_handle_non_streaming_response should be async"

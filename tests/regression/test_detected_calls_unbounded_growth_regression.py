@@ -4,8 +4,6 @@ This test verifies that ToolCallBufferState.detected_calls list is properly
 bounded to prevent unbounded memory growth when many tool calls are detected.
 """
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import (
     StreamingContextRegistry,
 )
@@ -80,14 +78,14 @@ class TestDetectedCallsUnboundedGrowthRegression:
             state.append_detected_call(tool_call)
 
         # Should still be at max limit
-        assert len(state.detected_calls) <= _MAX_DETECTED_TOOL_CALLS, (
-            "Detected calls exceeded max limit after adding more calls."
-        )
+        assert (
+            len(state.detected_calls) <= _MAX_DETECTED_TOOL_CALLS
+        ), "Detected calls exceeded max limit after adding more calls."
 
         # First call should be evicted
-        assert state.detected_calls[0]["id"] != first_call_id, (
-            "Oldest detected call was not evicted."
-        )
+        assert (
+            state.detected_calls[0]["id"] != first_call_id
+        ), "Oldest detected call was not evicted."
 
     def test_detected_calls_handles_many_tool_calls(self) -> None:
         """Test that detected_calls handles many tool calls without memory leak."""
@@ -152,6 +150,6 @@ class TestDetectedCallsUnboundedGrowthRegression:
             state.append_detected_call(tool_call)
 
         # Should be bounded
-        assert len(state.detected_calls) <= _MAX_DETECTED_TOOL_CALLS, (
-            "append_detected_call method is not enforcing size limits."
-        )
+        assert (
+            len(state.detected_calls) <= _MAX_DETECTED_TOOL_CALLS
+        ), "append_detected_call method is not enforcing size limits."

@@ -309,6 +309,32 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             # Clean up backend config if this was the last instance of this backend type
             self._maybe_cleanup_backend_config(evicted_key)
 
+    async def shutdown_all(self) -> None:
+        """Shutdown all active backends and clean up resources."""
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Shutting down all backends...")
+
+        # Collect all backends
+        all_backends = list(self._backends.values()) + list(
+            self._per_session_backends.values()
+        )
+
+        # Clear caches immediately
+        self._backends.clear()
+        self._per_session_backends.clear()
+        self._backend_configs.clear()
+
+        # Shutdown backends in parallel
+        if all_backends:
+            shutdown_tasks = [self.shutdown(backend) for backend in all_backends]
+            await asyncio.gather(*shutdown_tasks, return_exceptions=True)
+
+        # Await any pending shutdown tasks from previous discards
+        await self.await_pending_shutdown_tasks()
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("All backends shut down.")
+
     async def await_pending_shutdown_tasks(self, timeout: float = 5.0) -> None:
         """Await all pending shutdown tasks created by discard().
 

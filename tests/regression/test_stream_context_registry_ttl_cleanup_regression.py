@@ -6,8 +6,6 @@ even when streams are created but never accessed again (orphaned streams).
 
 import time
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 
@@ -16,7 +14,9 @@ class TestStreamContextRegistryTTLCleanupRegression:
 
     def test_ttl_cleanup_triggered_on_access(self) -> None:
         """Test that TTL cleanup is triggered when accessing streams."""
-        registry = StreamingContextRegistry(state_ttl_seconds=1)  # Very short TTL for testing
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=1
+        )  # Very short TTL for testing
 
         # Create many streams
         num_streams = 50
@@ -43,7 +43,9 @@ class TestStreamContextRegistryTTLCleanupRegression:
 
     def test_orphaned_streams_cleaned_up_by_ttl(self) -> None:
         """Test that orphaned streams (never accessed again) are cleaned up by TTL."""
-        registry = StreamingContextRegistry(state_ttl_seconds=1)  # Short TTL for testing
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=1
+        )  # Short TTL for testing
 
         # Create many streams but only access first few
         num_streams = 100
@@ -65,7 +67,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
         # Check if orphaned streams (11-100) are cleaned up
         orphaned_count = sum(
             1
-            for sid in registry._states.keys()
+            for sid in registry._states
             if sid.startswith("orphan_stream_") and int(sid.split("_")[-1]) >= 10
         )
 

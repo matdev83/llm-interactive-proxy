@@ -4,14 +4,10 @@ This test verifies that MemoryService properly bounds session state growth
 and cleans up stale sessions to prevent unbounded memory growth.
 """
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.memory.config import MemoryConfiguration
-from src.core.memory.repository import IMemoryRepository
 from src.core.memory.service import MemoryService
 
 
@@ -25,7 +21,12 @@ class MockMemoryRepository:
         pass
 
     async def get_recent_sessions(
-        self, user_id: str, limit: int, tenant_id=None, project_id=None, project_root=None
+        self,
+        user_id: str,
+        limit: int,
+        tenant_id=None,
+        project_id=None,
+        project_root=None,
     ) -> list:
         return []
 
@@ -159,7 +160,9 @@ class TestMemoryServiceUnboundedGrowthRegression:
         from src.core.memory.service import _MAX_ANALYSIS_IN_PROGRESS
 
         # Enable and mark complete many sessions to fill analysis queue
-        num_sessions = min(_MAX_ANALYSIS_IN_PROGRESS + 100, 200)  # Cap to avoid slow test
+        num_sessions = min(
+            _MAX_ANALYSIS_IN_PROGRESS + 100, 200
+        )  # Cap to avoid slow test
         for i in range(num_sessions):
             session_id = f"queued-{i}"
             await memory_service.enable_for_session(
@@ -216,13 +219,66 @@ class TestMemoryServiceUnboundedGrowthRegression:
 
         # Should still be at max limit (oldest evicted)
         assert memory_service.get_active_session_count() <= _MAX_SESSION_STATES, (
-            f"Session count exceeded max limit after adding more sessions. "
-            f"LRU eviction is not working."
+            "Session count exceeded max limit after adding more sessions. "
+            "LRU eviction is not working."
         )
 
         # Verify oldest sessions were evicted
         async with memory_service._state_lock:
             # First session should be gone
-            assert "session-0" not in memory_service._session_states, (
-                "Oldest session was not evicted."
+            assert (
+                "session-0" not in memory_service._session_states
+            ), "Oldest session was not evicted."
+
+    @pytest.mark.asyncio
+    async def test_lru_eviction_preserves_recently_accessed_sessions(
+        self, memory_service: MemoryService
+    ) -> None:
+        """Test that LRU eviction preserves recently accessed sessions."""
+        from src.core.memory.service import _MAX_SESSION_STATES
+
+        # Create sessions up to max limit (fill to capacity)
+        for i in range(_MAX_SESSION_STATES):
+            session_id = f"test-{i}"
+            await memory_service.enable_for_session(
+                session_id,
+                user_id="test-user",
+                project_root=f"/project/{i}",
             )
+
+        assert memory_service.get_active_session_count() == _MAX_SESSION_STATES
+
+        # Access first 10 sessions to update their last_access and move them to end (LRU)
+        # This makes them "most recently used" and should preserve them
+        for i in range(10):
+            session_id = f"test-{i}"
+            await memory_service.is_enabled_for_session(session_id)
+
+        # Add a small number of new sessions - should evict oldest (middle) sessions, not first 10
+        num_new_sessions = 20  # Small number to test LRU preservation
+        for i in range(_MAX_SESSION_STATES, _MAX_SESSION_STATES + num_new_sessions):
+            session_id = f"test-{i}"
+            await memory_service.enable_for_session(
+                session_id,
+                user_id="test-user",
+                project_root=f"/project/{i}",
+            )
+
+        # Should still be at max limit
+        assert memory_service.get_active_session_count() <= _MAX_SESSION_STATES
+
+        # Check if first 10 sessions are still present (they were accessed recently and moved to end)
+        # They should be preserved because they're the most recently used
+        preserved_count = 0
+        for i in range(10):
+            session_id = f"test-{i}"
+            is_enabled = await memory_service.is_enabled_for_session(session_id)
+            if is_enabled:
+                preserved_count += 1
+
+        # At least most of the recently accessed sessions should be preserved
+        # (allowing for edge cases where eviction might happen during access)
+        assert preserved_count >= 8, (
+            f"Only {preserved_count}/10 recently accessed sessions were preserved. "
+            f"LRU eviction should preserve recently accessed sessions (moved to end of OrderedDict)."
+        )

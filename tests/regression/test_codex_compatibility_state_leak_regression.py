@@ -6,9 +6,7 @@ preventing memory leaks when states are not properly released.
 """
 
 import pytest
-
 from src.connectors.openai_codex.compat import CompatibilityLayer
-from src.connectors.openai_codex.contracts import CompatibilityState
 
 
 class TestCodexCompatibilityStateLeakRegression:

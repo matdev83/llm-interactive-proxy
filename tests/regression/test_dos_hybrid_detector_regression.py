@@ -7,7 +7,6 @@ cause excessive CPU usage through nested loops when processing malicious input.
 import time
 
 import pytest
-
 from src.loop_detection.hybrid_detector import RollingHashTracker
 
 
@@ -26,7 +25,9 @@ class TestDosHybridDetectorRegression:
         # Craft malicious content that triggers maximum iterations
         # Content that will NOT trigger early detection but still requires full processing
         # Use content that has no clear repetitions but is at the threshold
-        malicious_content = "".join(chr(65 + (i % 26)) for i in range(1800))  # 1800 unique-ish chars
+        malicious_content = "".join(
+            chr(65 + (i % 26)) for i in range(1800)
+        )  # 1800 unique-ish chars
 
         # Measure time taken
         start_time = time.time()
@@ -42,9 +43,9 @@ class TestDosHybridDetectorRegression:
         )
 
         # Verify processing completed successfully
-        assert result is None or isinstance(result, tuple), (
-            "Processing should complete successfully without errors"
-        )
+        assert result is None or isinstance(
+            result, tuple
+        ), "Processing should complete successfully without errors"
 
     def test_edge_cases_processing_time(self) -> None:
         """Test edge cases that could trigger the vulnerability."""
@@ -54,12 +55,22 @@ class TestDosHybridDetectorRegression:
             # Case 1: Content just at the threshold for triggering detection
             ("A" * 180, "Minimum threshold content"),
             # Case 2: Content with many different pattern lengths
-            ("A" * 100 + "B" * 100 + "C" * 100 + "D" * 100 + "E" * 100, "Multi-pattern content"),
+            (
+                "A" * 100 + "B" * 100 + "C" * 100 + "D" * 100 + "E" * 100,
+                "Multi-pattern content",
+            ),
             # Case 3: Content that maximizes pattern length checks
             ("A" * 250 + "B" * 250, "Two long patterns"),
             # Case 4: Content with varying character frequencies
             (
-                "A" * 50 + "B" * 50 + "C" * 50 + "D" * 50 + "E" * 50 + "F" * 50 + "G" * 50 + "H" * 50,
+                "A" * 50
+                + "B" * 50
+                + "C" * 50
+                + "D" * 50
+                + "E" * 50
+                + "F" * 50
+                + "G" * 50
+                + "H" * 50,
                 "8 different chars",
             ),
         ]
@@ -81,9 +92,9 @@ class TestDosHybridDetectorRegression:
                 )
 
                 # Verify processing completed successfully
-                assert result is None or isinstance(result, tuple), (
-                    f"Processing should complete successfully for '{description}'"
-                )
+                assert result is None or isinstance(
+                    result, tuple
+                ), f"Processing should complete successfully for '{description}'"
 
             except Exception as e:
                 pytest.fail(
@@ -122,6 +133,6 @@ class TestDosHybridDetectorRegression:
         )
 
         # Verify result is valid
-        assert result is None or isinstance(result, tuple), (
-            "Processing should complete successfully"
-        )
+        assert result is None or isinstance(
+            result, tuple
+        ), "Processing should complete successfully"

@@ -4,10 +4,10 @@ This test verifies that ConnectionManager properly enforces max_connections limi
 and cleans up stale connections to prevent unbounded memory growth.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from src.codebuff.connection_manager import ConnectionManager
 
 
@@ -62,7 +62,7 @@ class TestConnectionManagerLeakRegression:
 
         # Make some connections stale by setting old last_seen
         stale_count = 5
-        for mock_ws, session_id in mock_websockets[:stale_count]:
+        for mock_ws, _session_id in mock_websockets[:stale_count]:
             session = manager.get_session(mock_ws)
             if session:
                 session.last_seen = datetime.utcnow() - timedelta(seconds=120)
@@ -170,7 +170,7 @@ class TestConnectionManagerLeakRegression:
         await manager.cleanup_stale_connections()
 
         # Connection should still be removed even if close() failed
-        assert mock_ws not in manager._connections, (
-            "Stale connection should be removed even if close() fails."
-        )
+        assert (
+            mock_ws not in manager._connections
+        ), "Stale connection should be removed even if close() fails."
         assert session_id not in manager._session_id_to_websocket

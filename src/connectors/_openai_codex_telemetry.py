@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 # This keeps memory bounded while still providing useful averages.
 DEFAULT_DURATION_SAMPLE_LIMIT = 1024
 
+# Maximum number of unique tools to track individually
+# This prevents memory leaks from clients generating random tool names
+DEFAULT_TOOL_TRACKING_LIMIT = 100
+_OTHER_TOOL_KEY = "__other_tools_overflow__"
+
 
 class MetricType(Enum):
     """Types of metrics tracked by the compatibility layer."""
@@ -126,14 +131,21 @@ class TranslationMetrics:
             self.failed_translations += 1
 
         # Track per-tool counters
-        self.translations_by_tool[tool_name] = (
-            self.translations_by_tool.get(tool_name, 0) + 1
+        effective_tool_name = tool_name
+        if (
+            len(self.translations_by_tool) >= DEFAULT_TOOL_TRACKING_LIMIT
+            and tool_name not in self.translations_by_tool
+        ):
+            effective_tool_name = _OTHER_TOOL_KEY
+
+        self.translations_by_tool[effective_tool_name] = (
+            self.translations_by_tool.get(effective_tool_name, 0) + 1
         )
 
-        durations = self.durations_by_tool.get(tool_name)
+        durations = self.durations_by_tool.get(effective_tool_name)
         if durations is None:
             durations = deque(maxlen=DEFAULT_DURATION_SAMPLE_LIMIT)
-            self.durations_by_tool[tool_name] = durations
+            self.durations_by_tool[effective_tool_name] = durations
         durations.append(duration_ms)
 
     def get_average_duration(self, tool_name: str | None = None) -> float:
@@ -178,7 +190,16 @@ class ErrorMetrics:
 
         # Track by tool if provided
         if tool_name:
-            self.errors_by_tool[tool_name] = self.errors_by_tool.get(tool_name, 0) + 1
+            effective_tool_name = tool_name
+            if (
+                len(self.errors_by_tool) >= DEFAULT_TOOL_TRACKING_LIMIT
+                and tool_name not in self.errors_by_tool
+            ):
+                effective_tool_name = _OTHER_TOOL_KEY
+
+            self.errors_by_tool[effective_tool_name] = (
+                self.errors_by_tool.get(effective_tool_name, 0) + 1
+            )
 
 
 class CompatibilityTelemetry:

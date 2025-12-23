@@ -65,6 +65,7 @@ class CodebuffWebSocketServer:
         prompt_handler: PromptHandler,
         init_handler: InitHandler,
         subscription_handler: SubscriptionHandler,
+        config: Any,
         metrics_initializer: ISessionMetricsInitializer | None = None,
         client_eos_service: IClientEndOfSessionService | None = None,
     ) -> None:
@@ -76,6 +77,7 @@ class CodebuffWebSocketServer:
             prompt_handler: Handler for prompt actions
             init_handler: Handler for init actions
             subscription_handler: Handler for subscription actions
+            config: Codebuff configuration (with max_message_size_bytes)
             metrics_initializer: Optional service for initializing session metrics
             client_eos_service: Optional service for reporting client termination
         """
@@ -84,6 +86,7 @@ class CodebuffWebSocketServer:
         self._prompt_handler = prompt_handler
         self._init_handler = init_handler
         self._subscription_handler = subscription_handler
+        self.config = config
         self._metrics_initializer = metrics_initializer
         self._client_eos_service = client_eos_service
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -102,6 +105,16 @@ class CodebuffWebSocketServer:
         async def websocket_endpoint(websocket: WebSocket) -> None:
             """WebSocket endpoint handler."""
             await self.handle_connection(websocket)
+
+        @app.on_event("startup")
+        async def startup_event() -> None:
+            """Handle application startup."""
+            await self.start_heartbeat_monitor()
+
+        @app.on_event("shutdown")
+        async def shutdown_event() -> None:
+            """Handle application shutdown."""
+            await self.shutdown()
 
         logger.info("WebSocket endpoint registered at /ws")
 

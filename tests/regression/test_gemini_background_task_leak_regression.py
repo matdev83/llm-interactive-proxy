@@ -9,18 +9,18 @@ of background task cleanup in Gemini connectors.
 """
 
 import asyncio
+import contextlib
 
 import pytest
 
 # Try to import Gemini connector, skip test if not available
 try:
-    from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
+    import importlib.util
 
-    GEMINI_CONNECTOR_AVAILABLE = True
+    spec = importlib.util.find_spec("src.connectors.gemini_base.connector")
+    GEMINI_CONNECTOR_AVAILABLE = spec is not None
 except ImportError:
     GEMINI_CONNECTOR_AVAILABLE = False
-
-from src.core.config.app_config import AppConfig
 
 
 @pytest.mark.skipif(
@@ -41,7 +41,8 @@ class TestGeminiBackgroundTaskLeakRegression:
         # Create some background tasks to simulate connector behavior
         background_tasks = []
 
-        for i in range(5):
+        for _i in range(5):
+
             async def background_operation():
                 await asyncio.sleep(0.01)
 
@@ -55,10 +56,8 @@ class TestGeminiBackgroundTaskLeakRegression:
         for task in background_tasks:
             if not task.done():
                 task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         await asyncio.sleep(0.1)
 
@@ -84,7 +83,8 @@ class TestGeminiBackgroundTaskLeakRegression:
         # Simulate file watcher task creation
         file_watcher_tasks = []
 
-        for i in range(3):
+        for _i in range(3):
+
             async def file_watcher_operation():
                 await asyncio.sleep(0.05)
 
@@ -97,10 +97,8 @@ class TestGeminiBackgroundTaskLeakRegression:
         for task in file_watcher_tasks:
             if not task.done():
                 task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         await asyncio.sleep(0.2)
 

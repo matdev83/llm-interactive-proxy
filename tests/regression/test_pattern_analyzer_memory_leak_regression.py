@@ -5,7 +5,6 @@ and cleaned up to prevent unbounded memory growth.
 """
 
 import pytest
-
 from src.loop_detection.analyzer import PatternAnalyzer
 from src.loop_detection.config import InternalLoopDetectionConfig
 from src.loop_detection.hasher import ContentHasher
@@ -42,13 +41,15 @@ class TestPatternAnalyzerMemoryLeakRegression:
         num_chunks = 10000
 
         for i in range(num_chunks):
-            unique_content = f"unique_content_chunk_{i}_with_some_text_to_make_it_longer"
+            unique_content = (
+                f"unique_content_chunk_{i}_with_some_text_to_make_it_longer"
+            )
             analyzer.ingest_chunk(unique_content)
 
         # Check that _content_stats is bounded
         # The analyzer should clean up stats when history is truncated
         content_stats_size = len(analyzer._content_stats)
-        history_length = len(analyzer._stream_history)
+        len(analyzer._stream_history)
 
         # Content stats should be bounded relative to history length
         # If history is truncated, stats should also be cleaned up
@@ -67,8 +68,8 @@ class TestPatternAnalyzerMemoryLeakRegression:
             content = f"chunk_{i}_with_content"
             analyzer.ingest_chunk(content)
 
-        initial_stats_size = len(analyzer._content_stats)
-        initial_history_length = len(analyzer._stream_history)
+        len(analyzer._content_stats)
+        len(analyzer._stream_history)
 
         # Process more chunks to trigger truncation (if max_history_length is exceeded)
         # Since max_history_length is very large, we'll simulate truncation by
@@ -79,7 +80,7 @@ class TestPatternAnalyzerMemoryLeakRegression:
             analyzer.ingest_chunk(unique_content)
 
         final_stats_size = len(analyzer._content_stats)
-        final_history_length = len(analyzer._stream_history)
+        len(analyzer._stream_history)
 
         # Stats should not grow unbounded even with many unique chunks
         # The analyzer should have cleanup mechanisms

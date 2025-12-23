@@ -50,8 +50,9 @@ def _extract_command_text_from_arguments(arguments: str | None) -> str | None:
 
 
 class _TextToolCallMatcher:
-    def __init__(self) -> None:
+    def __init__(self, max_pending: int = 1000) -> None:
         self._pending: list[_PendingToolCallRecord] = []
+        self._max_pending = max(max_pending, 1)
 
     def register(self, call_id: str, name: str, command_text: str | None) -> None:
         self._pending.append(
@@ -61,6 +62,8 @@ class _TextToolCallMatcher:
                 command_text=_normalize_command_text(command_text),
             )
         )
+        if len(self._pending) > self._max_pending:
+            self._pending.pop(0)
 
     def match_textual_result(
         self, result: TextToolResult

@@ -4,11 +4,11 @@ This test verifies that MemoryRepository properly closes SQLite connections
 when close() is called, preventing connection leaks.
 """
 
-import pytest
-import tempfile
+import contextlib
 import os
-from pathlib import Path
+import tempfile
 
+import pytest
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.sqlite_repository import MemoryRepository
 
@@ -26,9 +26,9 @@ class TestMemoryRepositoryLeakRegression:
             config = MemoryConfiguration(database_path=temp_db.name)
             repo = MemoryRepository(config)
 
-            assert hasattr(repo, "close"), (
-                "MemoryRepository should have a close() method to prevent connection leaks."
-            )
+            assert hasattr(
+                repo, "close"
+            ), "MemoryRepository should have a close() method to prevent connection leaks."
             assert callable(repo.close), "close() should be callable."
         finally:
             if os.path.exists(temp_db.name):
@@ -48,7 +48,9 @@ class TestMemoryRepositoryLeakRegression:
             await repo.initialize_schema()
 
             # Verify connection is open
-            assert repo._db is not None, "Database connection should be open after initialize_schema()"
+            assert (
+                repo._db is not None
+            ), "Database connection should be open after initialize_schema()"
 
             # Close the repository
             await repo.close()
@@ -70,7 +72,7 @@ class TestMemoryRepositoryLeakRegression:
 
         try:
             # Create multiple repositories
-            for i in range(3):
+            for _i in range(3):
                 temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
                 temp_db.close()
                 temp_files.append(temp_db.name)
@@ -98,10 +100,8 @@ class TestMemoryRepositoryLeakRegression:
             # Cleanup temp files
             for temp_file in temp_files:
                 if os.path.exists(temp_file):
-                    try:
+                    with contextlib.suppress(Exception):
                         os.unlink(temp_file)
-                    except Exception:
-                        pass
 
     @pytest.mark.asyncio
     async def test_close_idempotent(self) -> None:

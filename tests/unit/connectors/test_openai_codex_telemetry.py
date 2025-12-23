@@ -2,6 +2,7 @@
 
 from src.connectors._openai_codex_telemetry import (
     DEFAULT_DURATION_SAMPLE_LIMIT,
+    DEFAULT_TOOL_TRACKING_LIMIT,
     CompatibilityTelemetry,
     DetectionMetrics,
     ErrorMetrics,
@@ -187,6 +188,23 @@ class TestTranslationMetrics:
         avg = metrics.get_average_duration("nonexistent_tool")
         assert avg == 0.0
 
+    def test_translation_tools_are_bounded(self):
+        """Tool counters should be bounded to prevent unbounded memory growth."""
+        metrics = TranslationMetrics()
+        
+        # Add limit + 10 unique tools
+        for i in range(DEFAULT_TOOL_TRACKING_LIMIT + 10):
+            tool_name = f"tool_{i}"
+            metrics.record_translation(tool_name, 1.0, success=True)
+
+        # Should be bounded to limit (regular tools) + 1 (overflow bucket)
+        assert len(metrics.translations_by_tool) <= DEFAULT_TOOL_TRACKING_LIMIT + 1
+        assert len(metrics.translations_by_tool) >= DEFAULT_TOOL_TRACKING_LIMIT
+        
+        # Check that we have the overflow bucket
+        assert "__other_tools_overflow__" in metrics.translations_by_tool
+
+
 
 class TestErrorMetrics:
     """Test error metrics tracking."""
@@ -232,6 +250,19 @@ class TestErrorMetrics:
         assert metrics.errors_by_code["COMPAT_E001"] == 1
         assert metrics.errors_by_code["COMPAT_E002"] == 1
         assert metrics.errors_by_code["COMPAT_E003"] == 1
+
+    def test_error_tools_are_bounded(self):
+        """Tool counters in error metrics should be bounded."""
+        metrics = ErrorMetrics()
+        
+        # Add limit + 10 unique tools
+        for i in range(DEFAULT_TOOL_TRACKING_LIMIT + 10):
+            tool_name = f"tool_{i}"
+            metrics.record_error("ERR001", tool_name=tool_name)
+
+        assert len(metrics.errors_by_tool) <= DEFAULT_TOOL_TRACKING_LIMIT + 1
+        assert "__other_tools_overflow__" in metrics.errors_by_tool
+
 
 
 class TestCompatibilityTelemetry:

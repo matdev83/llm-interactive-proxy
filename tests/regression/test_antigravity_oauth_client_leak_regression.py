@@ -4,9 +4,10 @@ This test verifies that AntigravityOAuthConnector properly cleans up
 custom HTTP clients during shutdown.
 """
 
-import pytest
+import contextlib
 
 import httpx
+import pytest
 from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.config.models import BackendSettings
@@ -27,12 +28,16 @@ class TestAntigravityOAuthClientLeakRegression:
 
         try:
             # Create multiple connectors to simulate multiple backend instances
-            for i in range(3):
+            for _i in range(3):
                 # Create a shared HTTP client (simulating DI container)
                 shared_client = httpx.AsyncClient(
                     http2=False,
-                    timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-                    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=60.0, write=60.0, pool=60.0
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100, max_keepalive_connections=20
+                    ),
                     trust_env=False,
                 )
 
@@ -43,23 +48,24 @@ class TestAntigravityOAuthClientLeakRegression:
                 )
 
                 # Initialize connector (may create custom client)
-                try:
+                with contextlib.suppress(Exception):
                     await connector.initialize()
-                except Exception:
-                    # Initialization might fail due to missing credentials, that's OK
-                    pass
 
                 connectors_created.append(connector)
 
                 # Track custom clients if they exist
-                if hasattr(connector, "client") and connector.client is not None:
-                    if hasattr(connector, "_owns_custom_client") and connector._owns_custom_client:
-                        clients_created.append(connector.client)
+                if (
+                    hasattr(connector, "client")
+                    and connector.client is not None
+                    and hasattr(connector, "_owns_custom_client")
+                    and connector._owns_custom_client
+                ):
+                    clients_created.append(connector.client)
 
             # Verify shutdown method exists
-            assert hasattr(connectors_created[0], "shutdown"), (
-                "shutdown() method is missing - this would cause a memory leak!"
-            )
+            assert hasattr(
+                connectors_created[0], "shutdown"
+            ), "shutdown() method is missing - this would cause a memory leak!"
 
             # Test shutdown
             for connector in connectors_created:
@@ -78,19 +84,18 @@ class TestAntigravityOAuthClientLeakRegression:
             # Manual cleanup for any remaining clients
             for connector in connectors_created:
                 if hasattr(connector, "shutdown"):
-                    try:
+                    with contextlib.suppress(Exception):
                         await connector.shutdown()
-                    except Exception:
-                        pass
 
             # Also close shared clients
             for connector in connectors_created:
-                if hasattr(connector, "client") and connector.client is not None:
-                    if not connector.client.is_closed:
-                        try:
-                            await connector.client.aclose()
-                        except Exception:
-                            pass
+                if (
+                    hasattr(connector, "client")
+                    and connector.client is not None
+                    and not connector.client.is_closed
+                ):
+                    with contextlib.suppress(Exception):
+                        await connector.client.aclose()
 
     @pytest.mark.asyncio
     async def test_shutdown_method_exists(self) -> None:
@@ -113,12 +118,10 @@ class TestAntigravityOAuthClientLeakRegression:
 
         try:
             # Verify shutdown method exists
-            assert hasattr(connector, "shutdown"), (
-                "shutdown() method is missing - this would cause a memory leak!"
-            )
-            assert callable(getattr(connector, "shutdown")), (
-                "shutdown() is not callable"
-            )
+            assert hasattr(
+                connector, "shutdown"
+            ), "shutdown() method is missing - this would cause a memory leak!"
+            assert callable(connector.shutdown), "shutdown() is not callable"
 
             # Verify shutdown can be called without error
             await connector.shutdown()

@@ -5,8 +5,6 @@ _MAX_STREAM_STATES limit to prevent unbounded memory growth even when
 streams are never accessed again.
 """
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 

@@ -88,3 +88,11 @@ class IBackendLifecycleManager(ABC):
         Returns:
             Dictionary mapping backend instance names to LLMBackend objects.
         """
+
+    @abstractmethod
+    async def shutdown_all(self) -> None:
+        """Shutdown all active backends and clean up resources.
+
+        This method should be called during application shutdown to ensure
+        all backend resources (processes, connections) are properly released.
+        """

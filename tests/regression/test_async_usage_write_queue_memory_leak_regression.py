@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.services.async_usage_write_queue import (
@@ -55,7 +54,7 @@ def create_test_record(record_id: str) -> UsageRecord:
         id=record_id,
         timestamp=datetime.now(timezone.utc),
         session_id=f"session_{int(record_id.split('_')[1]) % 10}",
-        turn_number=int(record_id.split('_')[1]) if '_' in record_id else 0,
+        turn_number=int(record_id.split("_")[1]) if "_" in record_id else 0,
         backend_type="test",
         model="test-model",
         frontend_type="test",
@@ -74,7 +73,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         writer = FailingWriter()
         max_pending = 100
         queue = AsyncUsageWriteQueue(
-            writer, batch_size=10, flush_interval_seconds=0.1, max_pending_records=max_pending
+            writer,
+            batch_size=10,
+            flush_interval_seconds=0.1,
+            max_pending_records=max_pending,
         )
 
         await queue.start()
@@ -103,7 +105,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         writer = SlowWriter()
         max_pending = 50
         queue = AsyncUsageWriteQueue(
-            writer, batch_size=10, flush_interval_seconds=0.1, max_pending_records=max_pending
+            writer,
+            batch_size=10,
+            flush_interval_seconds=0.1,
+            max_pending_records=max_pending,
         )
 
         await queue.start()
@@ -130,7 +135,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         writer = SlowWriter()
         max_pending = 200
         queue = AsyncUsageWriteQueue(
-            writer, batch_size=10, flush_interval_seconds=1.0, max_pending_records=max_pending
+            writer,
+            batch_size=10,
+            flush_interval_seconds=1.0,
+            max_pending_records=max_pending,
         )
 
         await queue.start()
@@ -166,7 +174,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         writer = SlowWriter()
         max_pending = 50
         queue = AsyncUsageWriteQueue(
-            writer, batch_size=10, flush_interval_seconds=1.0, max_pending_records=max_pending
+            writer,
+            batch_size=10,
+            flush_interval_seconds=1.0,
+            max_pending_records=max_pending,
         )
 
         await queue.start()
@@ -182,9 +193,9 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
 
         # Check that pending count is limited
         pending_count = queue.pending_count
-        assert pending_count <= max_pending, (
-            f"Pending records ({pending_count}) exceeded max limit ({max_pending})"
-        )
+        assert (
+            pending_count <= max_pending
+        ), f"Pending records ({pending_count}) exceeded max limit ({max_pending})"
 
         # Verify that oldest records were evicted (newer records should be present)
         # The exact records depend on processing, but we should have at most max_pending
@@ -192,9 +203,9 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         newest_id = f"record_{num_records - 1}"
 
         # Newest record should be present (or recently processed)
-        newest_pending = await queue.get_pending_record(newest_id)
+        await queue.get_pending_record(newest_id)
         # Oldest record might not be present if evicted
-        oldest_pending = await queue.get_pending_record(oldest_id)
+        await queue.get_pending_record(oldest_id)
 
         # At least verify the count is correct
         assert pending_count <= max_pending

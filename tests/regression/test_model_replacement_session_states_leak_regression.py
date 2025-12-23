@@ -5,10 +5,8 @@ when cleanup_session() is called to prevent unbounded memory growth.
 """
 
 import pytest
-
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.services.model_replacement_service import ModelReplacementService
-from src.core.services.replacement_metrics import ReplacementMetrics
 
 
 class MockBackendRegistry:
@@ -34,7 +32,9 @@ class TestModelReplacementSessionStatesLeakRegression:
         return ModelReplacementService(config, registry)
 
     @pytest.mark.asyncio
-    async def test_session_states_cleaned_up(self, service: ModelReplacementService) -> None:
+    async def test_session_states_cleaned_up(
+        self, service: ModelReplacementService
+    ) -> None:
         """Test that session states are cleaned up when cleanup_session() is called."""
         session_id = "test-session"
 
@@ -55,9 +55,9 @@ class TestModelReplacementSessionStatesLeakRegression:
         service.cleanup_session(session_id)
 
         # Verify state is removed
-        assert session_id not in service._session_states, (
-            "Session state should be removed after cleanup"
-        )
+        assert (
+            session_id not in service._session_states
+        ), "Session state should be removed after cleanup"
 
     @pytest.mark.asyncio
     async def test_disabled_sessions_cleaned_up(
@@ -76,9 +76,9 @@ class TestModelReplacementSessionStatesLeakRegression:
         service.cleanup_session(session_id)
 
         # Verify disabled session is removed
-        assert session_id not in service._disabled_sessions, (
-            "Disabled session should be removed after cleanup"
-        )
+        assert (
+            session_id not in service._disabled_sessions
+        ), "Disabled session should be removed after cleanup"
 
     @pytest.mark.asyncio
     async def test_multiple_sessions_cleaned_up(
@@ -101,9 +101,9 @@ class TestModelReplacementSessionStatesLeakRegression:
                 service.disable_for_session(session_id)
 
         # Verify states exist
-        assert len(service._session_states) == num_sessions, (
-            f"Expected {num_sessions} session states, got {len(service._session_states)}"
-        )
+        assert (
+            len(service._session_states) == num_sessions
+        ), f"Expected {num_sessions} session states, got {len(service._session_states)}"
         assert len(service._disabled_sessions) == num_sessions // 10, (
             f"Expected {num_sessions // 10} disabled sessions, "
             f"got {len(service._disabled_sessions)}"
@@ -115,9 +115,9 @@ class TestModelReplacementSessionStatesLeakRegression:
             service.cleanup_session(session_id)
 
         # Verify all states are removed
-        assert len(service._session_states) == 0, (
-            f"Expected 0 session states after cleanup, got {len(service._session_states)}"
-        )
+        assert (
+            len(service._session_states) == 0
+        ), f"Expected 0 session states after cleanup, got {len(service._session_states)}"
         assert len(service._disabled_sessions) == 0, (
             f"Expected 0 disabled sessions after cleanup, "
             f"got {len(service._disabled_sessions)}"
@@ -144,9 +144,9 @@ class TestModelReplacementSessionStatesLeakRegression:
         service.cleanup_session(session_id)
 
         # Should not raise exception and should be idempotent
-        assert session_id not in service._session_states, (
-            "Session state should be removed after cleanup"
-        )
-        assert session_id not in service._disabled_sessions, (
-            "Disabled session should be removed after cleanup"
-        )
+        assert (
+            session_id not in service._session_states
+        ), "Session state should be removed after cleanup"
+        assert (
+            session_id not in service._disabled_sessions
+        ), "Disabled session should be removed after cleanup"

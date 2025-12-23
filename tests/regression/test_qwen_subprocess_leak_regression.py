@@ -6,11 +6,9 @@ when destroyed, preventing subprocess leaks if shutdown() is not called explicit
 Fixed: Added __del__ method to cleanup CLI refresh subprocess on destruction.
 """
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
@@ -38,9 +36,9 @@ class TestQwenSubprocessLeakRegression:
 
     def test_connector_has_del_method(self) -> None:
         """Test that connector has __del__ method for automatic cleanup."""
-        assert hasattr(QwenOAuthConnector, "__del__"), (
-            "Connector should have __del__ method to cleanup subprocesses on destruction"
-        )
+        assert hasattr(
+            QwenOAuthConnector, "__del__"
+        ), "Connector should have __del__ method to cleanup subprocesses on destruction"
 
     def test_del_method_cleans_up_subprocess(self) -> None:
         """Test that __del__ method properly cleans up subprocess."""
@@ -60,12 +58,12 @@ class TestQwenSubprocessLeakRegression:
         connector.__del__()
 
         # Verify process was terminated
-        assert mock_process.terminate.called or mock_process.kill.called, (
-            "Process should be terminated in __del__"
-        )
-        assert connector._cli_refresh_process is None, (
-            "Process reference should be cleared in __del__"
-        )
+        assert (
+            mock_process.terminate.called or mock_process.kill.called
+        ), "Process should be terminated in __del__"
+        assert (
+            connector._cli_refresh_process is None
+        ), "Process reference should be cleared in __del__"
 
     def test_del_method_handles_none_process(self) -> None:
         """Test that __del__ method handles None process gracefully."""

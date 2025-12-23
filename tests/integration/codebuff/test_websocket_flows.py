@@ -37,11 +37,15 @@ def app() -> FastAPI:
     }
     config = AppConfig(**config_dict)
 
-    # Create mock backend factory
+    # Create mock service provider
+
     mock_backend_factory = MagicMock()
+    mock_service_provider = MagicMock()
+    mock_service_provider.get_required_service.return_value = mock_backend_factory
+    mock_service_provider.get_service.return_value = None
 
     # Create server
-    server = create_codebuff_server(config, mock_backend_factory)
+    server = create_codebuff_server(config, mock_service_provider)
     server.register_endpoint(app)
 
     # Store server in app state for access in tests

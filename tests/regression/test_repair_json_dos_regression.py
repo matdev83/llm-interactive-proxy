@@ -12,7 +12,6 @@ Fixed: Added MAX_JSON_REPAIR_INPUT_SIZE limit (1MB) before all repair_json calls
 import json
 
 import pytest
-
 from src.core.services.json_repair_service import (
     MAX_JSON_REPAIR_INPUT_SIZE,
     JsonRepairService,
@@ -65,9 +64,10 @@ class TestRepairJsonDoSRegression:
         normal_input = '{"command": "ls -la"}'
         result = arguments_parser._parse_string(normal_input)
         assert result.normalized_arguments is not None, "Normal input should be parsed"
-        assert result.parse_outcome in ("success", "recovered"), (
-            "Normal input should parse successfully"
-        )
+        assert result.parse_outcome in (
+            "success",
+            "recovered",
+        ), "Normal input should parse successfully"
 
         # Test large input (should skip repair but still parse if valid JSON)
         large_input = self.create_large_json_string(size_mb=2)  # 2MB > 1MB limit
@@ -76,15 +76,13 @@ class TestRepairJsonDoSRegression:
         result = arguments_parser._parse_string(large_input)
         assert result is not None, "Should handle large input gracefully"
         # Should have normalized arguments (either parsed or wrapped as raw)
-        assert result.normalized_arguments is not None, (
-            "Should always have normalized arguments"
-        )
+        assert (
+            result.normalized_arguments is not None
+        ), "Should always have normalized arguments"
         # Repair should be skipped for large input (warning logged)
         # But if input is valid JSON, it may still parse successfully
 
-    def test_input_at_limit_boundary(
-        self, repair_service: JsonRepairService
-    ) -> None:
+    def test_input_at_limit_boundary(self, repair_service: JsonRepairService) -> None:
         """Test input exactly at the size limit."""
         # Create input just under limit
         limit_bytes = MAX_JSON_REPAIR_INPUT_SIZE - 100
@@ -98,21 +96,22 @@ class TestRepairJsonDoSRegression:
 
     def test_max_constant_defined(self) -> None:
         """Test that MAX_JSON_REPAIR_INPUT_SIZE constant is defined correctly."""
-        assert MAX_JSON_REPAIR_INPUT_SIZE == 1 * 1024 * 1024, (
-            f"MAX_JSON_REPAIR_INPUT_SIZE ({MAX_JSON_REPAIR_INPUT_SIZE}) should be 1MB"
-        )
-        assert MAX_JSON_REPAIR_INPUT_SIZE > 0, (
-            "MAX_JSON_REPAIR_INPUT_SIZE should be positive"
-        )
+        assert (
+            MAX_JSON_REPAIR_INPUT_SIZE == 1 * 1024 * 1024
+        ), f"MAX_JSON_REPAIR_INPUT_SIZE ({MAX_JSON_REPAIR_INPUT_SIZE}) should be 1MB"
+        assert (
+            MAX_JSON_REPAIR_INPUT_SIZE > 0
+        ), "MAX_JSON_REPAIR_INPUT_SIZE should be positive"
 
     def test_normal_repair_works(self, repair_service: JsonRepairService) -> None:
         """Test that normal JSON repair still works."""
         # Test valid JSON (should work)
         valid_json = '{"key": "value", "number": 42}'
         result = repair_service.repair_json(valid_json)
-        assert result == {"key": "value", "number": 42}, (
-            "Valid JSON should be repaired correctly"
-        )
+        assert result == {
+            "key": "value",
+            "number": 42,
+        }, "Valid JSON should be repaired correctly"
 
         # Test malformed JSON that can be repaired
         malformed_json = '{"key": "value", "number": 42'  # Missing closing brace

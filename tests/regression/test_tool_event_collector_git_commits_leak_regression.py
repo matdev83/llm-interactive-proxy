@@ -3,15 +3,13 @@
 This test verifies that git commits are limited per session to prevent unbounded growth.
 """
 
-import asyncio
 from datetime import datetime, timezone
 
 import pytest
-
 from src.core.memory.models import GitCommitEvent
 from src.core.memory.tool_event_collector import (
-    DeterministicToolEventCollector,
     _MAX_GIT_COMMITS_PER_SESSION,
+    DeterministicToolEventCollector,
 )
 
 
@@ -107,9 +105,9 @@ class TestToolEventCollectorGitCommitsLeakRegression:
 
         # Check that oldest was evicted and new one is present
         commit_count = await collector.get_git_commit_count(session_id)
-        assert commit_count == _MAX_GIT_COMMITS_PER_SESSION, (
-            f"Expected {_MAX_GIT_COMMITS_PER_SESSION} commits, got {commit_count}"
-        )
+        assert (
+            commit_count == _MAX_GIT_COMMITS_PER_SESSION
+        ), f"Expected {_MAX_GIT_COMMITS_PER_SESSION} commits, got {commit_count}"
 
         # Get commits and verify oldest is gone and new one is present
         file_edits, commits = await collector.get_and_clear(session_id)

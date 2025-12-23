@@ -28,7 +28,7 @@ class SessionCompletionDetector:
         memory_service: IMemoryService,
         config: MemoryConfiguration,
     ):
-        """Initialize the completion detector.
+        """Initialize completion detector.
 
         Args:
             memory_service: The memory service.
@@ -38,6 +38,7 @@ class SessionCompletionDetector:
         self._config = config
         self._last_activity: dict[str, float] = {}
         self._completed_sessions: set[str] = set()
+        self._max_completed_sessions = 10000
         self._cleanup_task: asyncio.Task | None = None
         self._running = False
 
@@ -152,6 +153,10 @@ class SessionCompletionDetector:
         self._completed_sessions.add(session_id)
         self._last_activity.pop(session_id, None)
 
+        # Enforce size limit to prevent unbounded memory growth
+        if len(self._completed_sessions) > self._max_completed_sessions:
+            self._maybe_cleanup_completed_sessions()
+
         await self._memory_service.mark_session_complete(
             session_id,
             backend_model=backend_model,
@@ -167,3 +172,24 @@ class SessionCompletionDetector:
         """
         self._last_activity.pop(session_id, None)
         self._completed_sessions.discard(session_id)
+
+    def _maybe_cleanup_completed_sessions(self) -> None:
+        """Clean up old completed session IDs to prevent unbounded growth.
+
+        Evicts the oldest completed session IDs when the set exceeds the limit.
+        Uses FIFO-style cleanup by removing half the entries.
+        """
+        target_size = self._max_completed_sessions // 2
+        # Convert to list and slice to remove oldest entries
+        to_remove = list(self._completed_sessions)[
+            : len(self._completed_sessions) - target_size
+        ]
+        for session_id in to_remove:
+            self._completed_sessions.discard(session_id)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cleaned up %d completed session IDs (size limit: %d)",
+                len(to_remove),
+                self._max_completed_sessions,
+            )

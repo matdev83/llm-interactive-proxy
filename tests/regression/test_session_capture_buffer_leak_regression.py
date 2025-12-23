@@ -8,7 +8,6 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.models import CapturedInteraction
 
@@ -75,7 +74,7 @@ class TestSessionCaptureBufferLeakRegression:
             await asyncio.sleep(0.01)
 
         # Record which sessions exist before eviction
-        active_before = await buffer.get_active_session_count()
+        await buffer.get_active_session_count()
 
         # Add one more session to trigger eviction
         new_session_id = "session_new"
@@ -97,9 +96,9 @@ class TestSessionCaptureBufferLeakRegression:
         # Verify oldest sessions were evicted (newer sessions should remain)
         # The new session should be present
         async with buffer._lock:
-            assert new_session_id in buffer._buffers, (
-                "New session should be present after eviction."
-            )
+            assert (
+                new_session_id in buffer._buffers
+            ), "New session should be present after eviction."
 
     @pytest.mark.asyncio
     async def test_rapid_session_creation_maintains_limit(
@@ -140,7 +139,6 @@ class TestSessionCaptureBufferLeakRegression:
         self, buffer: SessionCaptureBuffer
     ) -> None:
         """Test that accessing a session updates its last_accessed time."""
-        import time
 
         session_id = "test_session"
         interaction1 = CapturedInteraction(
@@ -170,9 +168,9 @@ class TestSessionCaptureBufferLeakRegression:
         # Verify last_accessed was updated
         async with buffer._lock:
             updated_access = buffer._buffers[session_id].last_accessed
-            assert updated_access > initial_access, (
-                "last_accessed time should be updated when session is accessed."
-            )
+            assert (
+                updated_access > initial_access
+            ), "last_accessed time should be updated when session is accessed."
 
     @pytest.mark.asyncio
     async def test_expired_sessions_cleaned_up(
@@ -220,6 +218,6 @@ class TestSessionCaptureBufferLeakRegression:
 
         # The expired session should be cleaned up
         async with short_ttl_buffer._lock:
-            assert new_session_id in short_ttl_buffer._buffers, (
-                "New session should be present."
-            )
+            assert (
+                new_session_id in short_ttl_buffer._buffers
+            ), "New session should be present."

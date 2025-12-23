@@ -238,6 +238,7 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
             self._credentials_path,
             self,  # Pass coordinator itself for file change callbacks
             self._file_watcher_state,
+            self._handle_credentials_file_change,
         )
 
     async def validate_runtime(self) -> bool:

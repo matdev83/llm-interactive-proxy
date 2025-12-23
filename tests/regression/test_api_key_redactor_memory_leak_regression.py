@@ -4,8 +4,6 @@ This test verifies that the APIKeyRedactor cache uses LRU eviction
 and doesn't grow unbounded when processing many unique texts.
 """
 
-import pytest
-
 from src.security import APIKeyRedactor
 
 
@@ -19,9 +17,12 @@ class TestAPIKeyRedactorMemoryLeakRegression:
         # Process many different short texts (each < 1000 chars to use cache)
         num_texts = 2000
         for i in range(num_texts):
-            text = f"This is test message number {i} with some content to be processed and cached. " * 10
+            text = (
+                f"This is test message number {i} with some content to be processed and cached. "
+                * 10
+            )
             text = text[:900]  # Keep it under 1000 chars to use cached version
-            redacted = redactor.redact(text)
+            redactor.redact(text)
 
         # Cache should be bounded by _cache_max_size (512)
         cache_size = len(redactor._redact_cache)
@@ -50,9 +51,9 @@ class TestAPIKeyRedactorMemoryLeakRegression:
                 "Cache may be using full text as keys instead of hashes."
             )
             # Hash should be hexadecimal
-            assert all(c in "0123456789abcdef" for c in sample_key), (
-                "Cache key is not a valid hexadecimal hash."
-            )
+            assert all(
+                c in "0123456789abcdef" for c in sample_key
+            ), "Cache key is not a valid hexadecimal hash."
 
     def test_cache_lru_eviction(self) -> None:
         """Test that LRU eviction works correctly."""
@@ -88,6 +89,6 @@ class TestAPIKeyRedactorMemoryLeakRegression:
                 redactor.redact(text)
 
             # Cache should still be bounded
-            assert len(redactor._redact_cache) <= max_size, (
-                "Cache exceeded max size after LRU operations."
-            )
+            assert (
+                len(redactor._redact_cache) <= max_size
+            ), "Cache exceeded max size after LRU operations."

@@ -8,6 +8,7 @@ initialization.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
@@ -280,10 +281,8 @@ class ApplicationBuilder:
             except Exception as e:  # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
                 # Ensure ServiceCollection cleanup tasks are awaited on failure
-                try:
+                with contextlib.suppress(Exception):
                     await self._services.dispose()
-                except Exception:
-                    pass  # Suppress errors during cleanup
                 raise RuntimeError(f"Stage '{stage_name}' execution failed: {e}") from e
 
         # Build service provider
@@ -375,7 +374,7 @@ class ApplicationBuilder:
 
             if hasattr(app_state_service, "set_state_provider"):
                 try:
-                    app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]  # noqa: DIP-violation-initialization
+                    app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]
                 except Exception:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -385,16 +384,12 @@ class ApplicationBuilder:
             for attribute_name in dir(app_state_service):
                 if attribute_name.startswith("_"):
                     continue
-                if hasattr(
-                    app.state, attribute_name
-                ):  # noqa: DIP-violation-initialization
+                if hasattr(app.state, attribute_name):
                     continue
                 attribute_value = getattr(app_state_service, attribute_name)
                 if callable(attribute_value):
                     try:
-                        setattr(
-                            app.state, attribute_name, attribute_value
-                        )  # noqa: DIP-violation-initialization
+                        setattr(app.state, attribute_name, attribute_value)
                     except Exception:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
@@ -504,7 +499,25 @@ class ApplicationBuilder:
             # Shutdown
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Shutting down application")
+
+            # Shutdown backends to prevent resource leaks (processes, connections)
+            try:
+                from src.core.interfaces.backend_lifecycle_manager_interface import (
+                    IBackendLifecycleManager,
+                )
+
+                backend_lifecycle_manager = service_provider.get_service(
+                    IBackendLifecycleManager  # type: ignore[type-abstract]
+                )
+                if backend_lifecycle_manager:
+                    await backend_lifecycle_manager.shutdown_all()
+            except Exception:
+                # Best-effort shutdown
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Failed to shut down backends", exc_info=True)
+
             # Dispose of ServiceCollection to await pending cleanup tasks
+
             # This ensures cleanup tasks created when replacing httpx.AsyncClient
             # instances are properly awaited before closing the final client
             try:

@@ -4,13 +4,8 @@ This test verifies that sessions that fail to queue for analysis are properly
 cleaned up to prevent unbounded memory growth in _session_states.
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-
 from src.core.memory.config import MemoryConfiguration
-from src.core.memory.repository import IMemoryRepository
 from src.core.memory.service import MemoryService
 
 
@@ -24,7 +19,12 @@ class MockMemoryRepository:
         pass
 
     async def get_recent_sessions(
-        self, user_id: str, limit: int, tenant_id=None, project_id=None, project_root=None
+        self,
+        user_id: str,
+        limit: int,
+        tenant_id=None,
+        project_id=None,
+        project_root=None,
     ) -> list:
         return []
 
@@ -212,6 +212,6 @@ class TestMemoryServiceSessionStatesLeakRegression:
 
         # Verify failed session is not in _session_states
         async with memory_service._state_lock:
-            assert failed_session_id not in memory_service._session_states, (
-                "Failed session was not removed from _session_states."
-            )
+            assert (
+                failed_session_id not in memory_service._session_states
+            ), "Failed session was not removed from _session_states."

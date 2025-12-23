@@ -4,8 +4,6 @@ This test verifies that StreamBufferState.reasoning_chunks deque is properly
 bounded to prevent unbounded memory growth in long-running streams.
 """
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import (
     StreamingContextRegistry,
 )
@@ -65,14 +63,14 @@ class TestReasoningChunksUnboundedGrowthRegression:
             state.append_reasoning_chunk(reasoning_text)
 
         # Should still be at max limit
-        assert len(state.reasoning_chunks) <= _MAX_REASONING_CHUNKS, (
-            "Reasoning chunks exceeded max limit after adding more chunks."
-        )
+        assert (
+            len(state.reasoning_chunks) <= _MAX_REASONING_CHUNKS
+        ), "Reasoning chunks exceeded max limit after adding more chunks."
 
         # First chunk should be evicted
-        assert state.reasoning_chunks[0] != first_chunk, (
-            "Oldest reasoning chunk was not evicted."
-        )
+        assert (
+            state.reasoning_chunks[0] != first_chunk
+        ), "Oldest reasoning chunk was not evicted."
 
     def test_reasoning_chunks_handles_large_streams(self) -> None:
         """Test that reasoning_chunks handles very long streams without memory leak."""
@@ -125,6 +123,6 @@ class TestReasoningChunksUnboundedGrowthRegression:
             state.append_reasoning_chunk(f"Chunk {i}")
 
         # Should be bounded
-        assert len(state.reasoning_chunks) <= _MAX_REASONING_CHUNKS, (
-            "append_reasoning_chunk method is not enforcing size limits."
-        )
+        assert (
+            len(state.reasoning_chunks) <= _MAX_REASONING_CHUNKS
+        ), "append_reasoning_chunk method is not enforcing size limits."

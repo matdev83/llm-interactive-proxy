@@ -7,8 +7,6 @@ connection failures).
 Fixed: Added _MAX_CONTENT_CHUNKS limit (10000) with eviction of oldest chunks.
 """
 
-import pytest
-
 from src.core.services.streaming.stream_context_registry import (
     StreamingContextRegistry,
 )
@@ -165,9 +163,9 @@ class TestStreamBufferChunksUnboundedGrowthRegression:
             expected_encoded = expected_text.encode("utf-8")
             expected_length = len(expected_encoded)
 
-            assert state.encoded_chunks[i] == expected_encoded, (
-                f"Encoded chunk at index {i} doesn't match text chunk"
-            )
-            assert state.chunk_lengths[i] == expected_length, (
-                f"Chunk length at index {i} doesn't match encoded chunk size"
-            )
+            assert (
+                state.encoded_chunks[i] == expected_encoded
+            ), f"Encoded chunk at index {i} doesn't match text chunk"
+            assert (
+                state.chunk_lengths[i] == expected_length
+            ), f"Chunk length at index {i} doesn't match encoded chunk size"

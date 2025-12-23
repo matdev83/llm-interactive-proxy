@@ -5,10 +5,7 @@ _fingerprints, _fingerprint_bundles) are properly cleaned up when sessions are
 evicted or deleted, preventing unbounded memory growth.
 """
 
-from datetime import datetime, timezone
-
 import pytest
-
 from src.core.domain.session import Session
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.conversation_fingerprint_service import (
@@ -44,26 +41,26 @@ class TestSessionRepositoryAuxiliaryLeakRegression:
         assert "test_session" in repo._fingerprints, "Fingerprint should be tracked"
         assert "user_1" in repo._user_sessions, "User sessions should be tracked"
         assert "client_1" in repo._client_sessions, "Client sessions should be tracked"
-        assert "test_session" in repo._user_sessions["user_1"], (
-            "Session should be in user sessions"
-        )
-        assert "test_session" in repo._client_sessions["client_1"], (
-            "Session should be in client sessions"
-        )
+        assert (
+            "test_session" in repo._user_sessions["user_1"]
+        ), "Session should be in user sessions"
+        assert (
+            "test_session" in repo._client_sessions["client_1"]
+        ), "Session should be in client sessions"
 
         # Delete session
         await repo.delete("test_session")
 
         # Verify auxiliary structures are cleaned up
-        assert "test_session" not in repo._fingerprints, (
-            "Fingerprint should be removed on delete"
-        )
-        assert "test_session" not in repo._user_sessions.get("user_1", []), (
-            "Session should be removed from user sessions"
-        )
-        assert "test_session" not in repo._client_sessions.get("client_1", []), (
-            "Session should be removed from client sessions"
-        )
+        assert (
+            "test_session" not in repo._fingerprints
+        ), "Fingerprint should be removed on delete"
+        assert "test_session" not in repo._user_sessions.get(
+            "user_1", []
+        ), "Session should be removed from user sessions"
+        assert "test_session" not in repo._client_sessions.get(
+            "client_1", []
+        ), "Session should be removed from client sessions"
 
     @pytest.mark.asyncio
     async def test_user_sessions_bounded_by_limit(
@@ -130,8 +127,8 @@ class TestSessionRepositoryAuxiliaryLeakRegression:
             await repo.update_fingerprint(f"session_{i}", f"fingerprint_{i}")
             await repo.update_client_session(f"session_{i}", f"client_{i % 5}")
 
-        initial_sessions = len(repo._sessions)
-        initial_fingerprints = len(repo._fingerprints)
+        len(repo._sessions)
+        len(repo._fingerprints)
 
         # Add one more session to trigger eviction
         new_session = Session(
@@ -144,9 +141,9 @@ class TestSessionRepositoryAuxiliaryLeakRegression:
         await repo.update_client_session("new_session", "client_new")
 
         # Verify that sessions were evicted
-        assert len(repo._sessions) <= repo._max_sessions, (
-            f"Sessions should be <= {repo._max_sessions} after eviction"
-        )
+        assert (
+            len(repo._sessions) <= repo._max_sessions
+        ), f"Sessions should be <= {repo._max_sessions} after eviction"
 
         # Verify that fingerprints were cleaned up (should be <= sessions)
         assert len(repo._fingerprints) <= len(repo._sessions), (
@@ -174,17 +171,17 @@ class TestSessionRepositoryAuxiliaryLeakRegression:
         await repo.update_fingerprint_bundle("test_session", bundle)
 
         # Verify bundle exists
-        assert "test_session" in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be tracked"
-        )
+        assert (
+            "test_session" in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be tracked"
 
         # Delete session
         await repo.delete("test_session")
 
         # Verify bundle is cleaned up
-        assert "test_session" not in repo._fingerprint_bundles, (
-            "Fingerprint bundle should be removed on delete"
-        )
+        assert (
+            "test_session" not in repo._fingerprint_bundles
+        ), "Fingerprint bundle should be removed on delete"
 
     @pytest.mark.asyncio
     async def test_auxiliary_structures_dont_exceed_main_sessions(

@@ -7,16 +7,13 @@ Fixed: Added MAX_BODY_SIZE (10MB) and validate_json_structure() checks.
 """
 
 import json
-
-import pytest
-from starlette.requests import Request
-from starlette.responses import Response
-
 from unittest.mock import MagicMock
 
+import pytest
 from src.core.app.middleware.sso_middleware_adapter import SSOMiddlewareAdapter
 from src.core.auth.sso.middleware import AuthMiddleware
 from src.core.auth.sso.sandbox_handler import SandboxHandler
+from starlette.requests import Request
 
 
 class MockAuthMiddleware(AuthMiddleware):
@@ -27,8 +24,12 @@ class MockAuthMiddleware(AuthMiddleware):
         # Create minimal mocks for required dependencies
         mock_token_service = MagicMock()
         mock_token_repository = MagicMock()
-        mock_sandbox_handler = SandboxHandler(auth_url="http://test.com", token_repository=None)
-        super().__init__(mock_token_service, mock_token_repository, mock_sandbox_handler)
+        mock_sandbox_handler = SandboxHandler(
+            auth_url="http://test.com", token_repository=None
+        )
+        super().__init__(
+            mock_token_service, mock_token_repository, mock_sandbox_handler
+        )
 
     async def __call__(self, request_dict: dict) -> dict | None:
         return None  # Always allow (for testing)
@@ -82,9 +83,7 @@ class TestSSOMiddlewareAdapterDoSRegression:
         result = await middleware._convert_request_to_dict(request)
         assert isinstance(result, dict), "Should return dict even with large body"
         # Messages should be empty if body was too large
-        assert len(result.get("messages", [])) == 0, (
-            "Large body should not be parsed"
-        )
+        assert len(result.get("messages", [])) == 0, "Large body should not be parsed"
 
     @pytest.mark.asyncio
     async def test_deep_nesting_rejected(
@@ -121,14 +120,12 @@ class TestSSOMiddlewareAdapterDoSRegression:
             result = await middleware._convert_request_to_dict(request)
             assert isinstance(result, dict), "Should return dict"
             # Messages should be empty if validation failed
-            assert len(result.get("messages", [])) == 0, (
-                "Deep nesting should be rejected"
-            )
+            assert (
+                len(result.get("messages", [])) == 0
+            ), "Deep nesting should be rejected"
 
     @pytest.mark.asyncio
-    async def test_large_array_rejected(
-        self, middleware: SSOMiddlewareAdapter
-    ) -> None:
+    async def test_large_array_rejected(self, middleware: SSOMiddlewareAdapter) -> None:
         """Test that large arrays are rejected."""
         # Create payload with large array (but within size limit)
         large_array_payload = {
@@ -158,9 +155,10 @@ class TestSSOMiddlewareAdapterDoSRegression:
             result = await middleware._convert_request_to_dict(request)
             assert isinstance(result, dict), "Should return dict"
             # Messages extraction may fail due to validation
-            assert len(result.get("messages", [])) == 0 or len(result.get("messages", [])) == 1, (
-                "Large array should be handled safely"
-            )
+            assert (
+                len(result.get("messages", [])) == 0
+                or len(result.get("messages", [])) == 1
+            ), "Large array should be handled safely"
 
     @pytest.mark.asyncio
     async def test_valid_payload_accepted(
@@ -170,7 +168,9 @@ class TestSSOMiddlewareAdapterDoSRegression:
         normal_payload = {
             "messages": [{"role": "user", "content": "test"}],
             "normal_array": list(range(1000)),  # Small array
-            "normal_nested": {"level1": {"level2": {"level3": "value"}}},  # Shallow nesting
+            "normal_nested": {
+                "level1": {"level2": {"level3": "value"}}
+            },  # Shallow nesting
         }
 
         json_str = json.dumps(normal_payload)
@@ -192,15 +192,15 @@ class TestSSOMiddlewareAdapterDoSRegression:
         # Should parse successfully
         result = await middleware._convert_request_to_dict(request)
         assert isinstance(result, dict), "Should return dict"
-        assert len(result.get("messages", [])) == 1, (
-            "Valid payload should be parsed correctly"
-        )
+        assert (
+            len(result.get("messages", [])) == 1
+        ), "Valid payload should be parsed correctly"
 
     def test_max_constant_defined(self) -> None:
         """Test that MAX_BODY_SIZE constant is defined correctly."""
         mock_auth = MockAuthMiddleware()
         middleware = SSOMiddlewareAdapter(None, mock_auth)  # type: ignore
-        assert middleware.MAX_BODY_SIZE == 10 * 1024 * 1024, (
-            f"MAX_BODY_SIZE ({middleware.MAX_BODY_SIZE}) should be 10MB"
-        )
+        assert (
+            middleware.MAX_BODY_SIZE == 10 * 1024 * 1024
+        ), f"MAX_BODY_SIZE ({middleware.MAX_BODY_SIZE}) should be 10MB"
         assert middleware.MAX_BODY_SIZE > 0, "MAX_BODY_SIZE should be positive"

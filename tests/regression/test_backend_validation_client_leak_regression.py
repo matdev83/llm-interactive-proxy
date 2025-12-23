@@ -4,9 +4,10 @@ This test verifies that HTTP clients created during backend validation
 are properly tracked and cleaned up, even when app startup fails.
 """
 
-import pytest
+import contextlib
 
 import httpx
+import pytest
 from src.core.app.stages.backend import BackendStage
 from src.core.config.app_config import AppConfig
 from src.core.config.models import BackendSettings
@@ -33,12 +34,12 @@ class TestBackendValidationClientLeakRegression:
         client = provider.get_service(httpx.AsyncClient)
 
         # Client should be registered
-        assert client is not None, (
-            "Validation HTTP client was not registered in DI container"
-        )
-        assert isinstance(client, httpx.AsyncClient), (
-            f"Expected httpx.AsyncClient, got {type(client)}"
-        )
+        assert (
+            client is not None
+        ), "Validation HTTP client was not registered in DI container"
+        assert isinstance(
+            client, httpx.AsyncClient
+        ), f"Expected httpx.AsyncClient, got {type(client)}"
 
     @pytest.mark.asyncio
     async def test_validation_client_reuses_existing(self) -> None:
@@ -67,9 +68,9 @@ class TestBackendValidationClientLeakRegression:
         client = provider.get_service(httpx.AsyncClient)
 
         # Should be the same instance
-        assert client is existing_client, (
-            "Validation client should reuse existing client instead of creating new one"
-        )
+        assert (
+            client is existing_client
+        ), "Validation client should reuse existing client instead of creating new one"
 
         # Cleanup
         await existing_client.aclose()
@@ -83,7 +84,7 @@ class TestBackendValidationClientLeakRegression:
 
         try:
             # Simulate scenario: validation runs but app startup fails
-            for i in range(3):
+            for _i in range(3):
                 services = ServiceCollection()
                 services.add_instance(AppConfig, app_config)
 
@@ -100,29 +101,25 @@ class TestBackendValidationClientLeakRegression:
                     clients_created.append(client)
 
                 # Verify client is tracked in stage
-                assert hasattr(stage, "_validation_client"), (
-                    "Stage should track validation client for cleanup"
-                )
-                assert stage._validation_client is client, (
-                    "Stage should track the same client instance"
-                )
+                assert hasattr(
+                    stage, "_validation_client"
+                ), "Stage should track validation client for cleanup"
+                assert (
+                    stage._validation_client is client
+                ), "Stage should track the same client instance"
 
             # Verify clients were created
-            assert len(clients_created) > 0, (
-                "No validation clients were created"
-            )
+            assert len(clients_created) > 0, "No validation clients were created"
 
             # Verify clients are not closed yet (simulating startup failure)
             closed_count = sum(1 for c in clients_created if c.is_closed)
-            assert closed_count == 0, (
-                "Clients should not be closed yet (simulating startup failure scenario)"
-            )
+            assert (
+                closed_count == 0
+            ), "Clients should not be closed yet (simulating startup failure scenario)"
 
         finally:
             # Manual cleanup
             for client in clients_created:
                 if not client.is_closed:
-                    try:
+                    with contextlib.suppress(Exception):
                         await client.aclose()
-                    except Exception:
-                        pass

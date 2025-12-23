@@ -121,11 +121,14 @@ class TestServerLifecycleManager:
         args.daemon = True
         mock_config.logging.log_file = "proxy.log"
 
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+
         with (
             patch("os.name", "nt"),
             patch("sys.argv", ["script.py", "--daemon", "--other"]),
             patch("sys.executable", "python.exe"),
-            patch("subprocess.Popen") as mock_popen,
+            patch("subprocess.Popen", return_value=mock_process) as mock_popen,
             patch("time.sleep"),
             patch("sys.exit") as mock_exit,
         ):

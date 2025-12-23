@@ -6,9 +6,7 @@ when destroyed, preventing subprocess leaks if connector's __del__ fails.
 Fixed: Added __del__ method to TokenManager to cleanup CLI refresh subprocess.
 """
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from src.connectors.gemini_base.token_manager import TokenManager
 
@@ -18,9 +16,9 @@ class TestGeminiTokenManagerSubprocessLeakRegression:
 
     def test_token_manager_has_del_method(self) -> None:
         """Test that TokenManager has __del__ method for automatic cleanup."""
-        assert hasattr(TokenManager, "__del__"), (
-            "TokenManager should have __del__ method to cleanup subprocesses on destruction"
-        )
+        assert hasattr(
+            TokenManager, "__del__"
+        ), "TokenManager should have __del__ method to cleanup subprocesses on destruction"
 
     def test_del_method_cleans_up_subprocess(self) -> None:
         """Test that __del__ method properly cleans up subprocess."""
@@ -36,12 +34,12 @@ class TestGeminiTokenManagerSubprocessLeakRegression:
         manager.__del__()
 
         # Verify process was terminated
-        assert mock_process.terminate.called or mock_process.kill.called, (
-            "Process should be terminated in __del__"
-        )
-        assert manager._cli_refresh_process is None, (
-            "Process reference should be cleared in __del__"
-        )
+        assert (
+            mock_process.terminate.called or mock_process.kill.called
+        ), "Process should be terminated in __del__"
+        assert (
+            manager._cli_refresh_process is None
+        ), "Process reference should be cleared in __del__"
 
     def test_del_method_handles_none_process(self) -> None:
         """Test that __del__ method handles None process gracefully."""

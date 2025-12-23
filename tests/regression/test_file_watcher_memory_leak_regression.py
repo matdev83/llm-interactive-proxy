@@ -5,10 +5,8 @@ when schedule_credentials_reload is called multiple times.
 """
 
 import asyncio
-from unittest.mock import Mock
 
 import pytest
-
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
 
 
@@ -31,7 +29,7 @@ class TestFileWatcherMemoryLeakRegression:
         initial_tasks = len(asyncio.all_tasks())
 
         # Schedule multiple reload tasks rapidly
-        for i in range(20):
+        for _i in range(20):
             FileWatcher.schedule_credentials_reload(
                 state, mock_reload_callback, mock_stop_callback
             )
@@ -76,9 +74,9 @@ class TestFileWatcherMemoryLeakRegression:
         await asyncio.sleep(0.2)
 
         # Task should be cleaned up
-        assert state.pending_reload_task is None or state.pending_reload_task.done(), (
-            "Completed task was not cleaned up from state."
-        )
+        assert (
+            state.pending_reload_task is None or state.pending_reload_task.done()
+        ), "Completed task was not cleaned up from state."
 
         # Verify callback was called
         assert call_count > 0, "Reload callback was not executed."
@@ -117,6 +115,6 @@ class TestFileWatcherMemoryLeakRegression:
         )
 
         # State should be clean
-        assert state.pending_reload_task is None or state.pending_reload_task.done(), (
-            "Task was not cleaned up after completion."
-        )
+        assert (
+            state.pending_reload_task is None or state.pending_reload_task.done()
+        ), "Task was not cleaned up after completion."

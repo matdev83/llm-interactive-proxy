@@ -5,10 +5,7 @@ Note: Session history may grow unbounded by design, but this test documents
 the behavior and ensures it's intentional rather than a bug.
 """
 
-from datetime import datetime, timezone
-
 import pytest
-
 from src.core.domain.session import Session, SessionInteraction, SessionState
 
 
@@ -23,9 +20,7 @@ class TestSessionHistoryLeakRegression:
             state=SessionState(),
         )
 
-    def test_session_history_grows_with_interactions(
-        self, session: Session
-    ) -> None:
+    def test_session_history_grows_with_interactions(self, session: Session) -> None:
         """Test that session history grows as interactions are added."""
         initial_history_size = len(session.history)
 

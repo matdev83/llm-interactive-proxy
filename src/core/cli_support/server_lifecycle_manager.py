@@ -211,16 +211,42 @@ class ServerLifecycleManager:
             import subprocess
             import time
 
-            args_list: list[str] = [
-                arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
-            ]
-            command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
-            creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
-            subprocess.Popen(command, creationflags=creation_flags, close_fds=True)
-            time.sleep(2)
-            sys.exit(0)
-            # This line is unreachable but keeps static analysis happy about return type consistency
-            return True
+            daemon_process = None
+            try:
+                args_list: list[str] = [
+                    arg for arg in sys.argv[1:] if not arg.startswith("--daemon")
+                ]
+                command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
+                creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
+                daemon_process = subprocess.Popen(
+                    command, creationflags=creation_flags, close_fds=True
+                )
+
+                if daemon_process.poll() is not None:
+                    self._error_handler.handle_build_error(
+                        "Failed to start daemon process"
+                    )
+                    raise SystemExit(1)
+
+                time.sleep(2)
+                sys.exit(0)
+                # This line is unreachable but keeps static analysis happy about return type consistency
+                return True
+            except Exception:
+                # Cleanup daemon process on any exception to prevent resource leaks
+                # This handles cases where unexpected errors occur between Popen and poll
+                if daemon_process is not None and daemon_process.poll() is None:
+                    try:
+                        daemon_process.terminate()
+                        try:
+                            daemon_process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            daemon_process.kill()
+                            daemon_process.wait(timeout=5)
+                    except Exception:
+                        # Suppress cleanup errors during exception handling
+                        pass
+                raise
 
         self._daemonize()
         return False

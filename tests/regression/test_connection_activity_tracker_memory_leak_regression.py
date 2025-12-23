@@ -6,12 +6,9 @@ and don't accumulate over multiple connection cycles.
 
 import time
 
-import pytest
-
 from src.core.domain.connection_activity import ConnectionActivity, ConnectionType
 from src.core.services.connection_activity_tracker import (
     ConnectionActivityTracker,
-    get_activity_tracker,
     reset_activity_tracker,
 )
 
@@ -83,12 +80,8 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
 
             # Increment some counters
             for i in range(connections_per_cycle):
-                tracker.increment_rx(
-                    f"cycle-{cycle}-session-{i}", "test-backend", 100
-                )
-                tracker.increment_tx(
-                    f"cycle-{cycle}-session-{i}", "test-backend", 200
-                )
+                tracker.increment_rx(f"cycle-{cycle}-session-{i}", "test-backend", 100)
+                tracker.increment_tx(f"cycle-{cycle}-session-{i}", "test-backend", 200)
 
             # Properly close all connections
             for ctx in contexts:
@@ -136,9 +129,9 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
         for ctx in normal_contexts:
             ctx.__exit__(None, None, None)
 
-        assert tracker.get_connection_count() == 5, (
-            "Normal connections were not properly cleaned up."
-        )
+        assert (
+            tracker.get_connection_count() == 5
+        ), "Normal connections were not properly cleaned up."
 
         # Wait for timeout
         time.sleep(0.15)
@@ -168,9 +161,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
                 started_at=old_start_time,
             )
             with tracker._lock:
-                tracker._connections[("test-backend", f"old-session-{i}")] = (
-                    stale_conn
-                )
+                tracker._connections[("test-backend", f"old-session-{i}")] = stale_conn
 
         # Create recent connections AFTER old ones (enter context to track them)
         recent_contexts = []
