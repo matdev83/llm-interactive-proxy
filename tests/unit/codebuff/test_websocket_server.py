@@ -88,6 +88,7 @@ def server(
         prompt_handler=prompt_handler,
         init_handler=init_handler,
         subscription_handler=subscription_handler,
+        config=Mock(),
     )
 
 

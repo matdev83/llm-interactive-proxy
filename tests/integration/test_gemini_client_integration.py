@@ -6,19 +6,10 @@ with the real Google Gemini client, testing all backends and conversion logic.
 """
 
 import asyncio
-import json
-import tempfile
-import threading
-import time
-from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import requests
-import uvicorn
 from fastapi import HTTPException
-from src.core.app.application_builder import build_app
 from src.core.domain.responses import ResponseEnvelope
 
 # Suppress Windows ProactorEventLoop warnings for this module
@@ -136,107 +127,6 @@ class Blob:
 
 # Use mock client instead of real one (google-genai is a required dependency)
 genai = MockGeminiClient()
-
-
-class ProxyServer:
-    """Test server for integration tests."""
-
-    def __init__(self, config: dict[str, Any], port: int | None = None) -> None:
-        # If no port specified, find an available port in a safe range
-        if port is None or self._is_port_in_use(port):
-            port = self._find_available_port()
-        self.port = port
-        self.config = config
-        self.config_file_path: Path | None = None
-
-        # Create a temporary config file
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
-            json.dump(config, f)
-            self.config_file_path = Path(f.name)
-
-        from src.core.config.app_config import AppConfig
-
-        app_config = AppConfig.model_validate(config)
-        self.app = build_app(config=app_config)
-        self.server: uvicorn.Server | None = None
-        self.thread: threading.Thread | None = None
-
-    @staticmethod
-    def _is_port_in_use(port: int) -> bool:
-        """Check if a port is in use."""
-        import socket
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("127.0.0.1", port))
-                return False
-            except OSError:
-                return True
-
-    @staticmethod
-    def _find_available_port() -> int:
-        """Find an available port in the user-allowed range with randomization."""
-        import random
-        import socket
-
-        # Use a range of user-allowed ports (1024-65535) with randomization
-        start_port = random.randint(1024, 30000)
-        max_attempts = 1000  # Limit attempts to avoid infinite loops
-
-        for i in range(max_attempts):
-            port = start_port + i
-            if port > 65535:
-                port = 1024 + (port - 65536)  # Wrap around to beginning of range
-
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.bind(("127.0.0.1", port))
-                    return port
-                except OSError:
-                    continue
-
-        raise RuntimeError("Could not find an available port after 1000 attempts")
-
-    def start(self):
-        """Start the server in a separate thread."""
-
-        def run_server():
-            config = uvicorn.Config(
-                self.app, host="127.0.0.1", port=self.port, log_level="error"
-            )
-            self.server = uvicorn.Server(config)
-
-            # Run server in the current thread
-            asyncio.run(self.server.serve())
-
-        self.thread = threading.Thread(target=run_server)
-        self.thread.daemon = True
-        self.thread.start()
-
-        # Wait for server to start
-        time.sleep(2)
-
-        # Test if server is running
-
-        try:
-            response = requests.get(f"http://127.0.0.1:{self.port}/", timeout=5)
-            if response.status_code == 200:
-                print(f"Server started successfully on port {self.port}")
-            else:
-                print(f"Server responded with status {response.status_code}")
-        except Exception as e:
-            print(f"Failed to connect to server: {e}")
-
-    def stop(self):
-        """Stop the server."""
-        if self.server:
-            self.server.should_exit = True
-        if self.thread:
-            self.thread.join(timeout=5)
-
-        # Clean up the temporary config file
-        if self.config_file_path and self.config_file_path.exists():
-            self.config_file_path.unlink()  # Delete the file
 
 
 @pytest.fixture
@@ -633,7 +523,6 @@ class TestErrorHandling:
     # De-networked: uses mocked backend instead of real network
     def test_authentication_error(self, test_app):
         """Test authentication error handling."""
-        import asyncio
 
         # Mock the backend to return an authentication error
         from src.core.interfaces.backend_service_interface import IBackendService
@@ -669,7 +558,6 @@ class TestErrorHandling:
     # De-networked: uses mocked backend instead of real network
     def test_model_not_found_error(self, gemini_client, test_app):
         """Test model not found error handling."""
-        import asyncio
 
         from src.core.interfaces.backend_service_interface import IBackendService
 

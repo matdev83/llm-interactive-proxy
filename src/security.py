@@ -10,15 +10,25 @@ logger = logging.getLogger(__name__)
 class APIKeyRedactor:
     """Redact known API keys from user provided prompts."""
 
-    def __init__(self, api_keys: Iterable[str] | None = None) -> None:
+    def __init__(
+        self,
+        api_keys: Iterable[str] | None = None,
+        logger_instance: logging.Logger | None = None,
+    ) -> None:
         # Filter out falsy values and sort by length so longer keys are redacted first
         unique_keys = {k for k in (api_keys or []) if k}
         self.api_keys = sorted(unique_keys, key=len, reverse=True)
-        # Pre-compile regex patterns for better performance
-        self._key_patterns: dict[str, re.Pattern[str]] = {}
-        for key in self.api_keys:
-            # Escape special regex characters and compile pattern
-            self._key_patterns[key] = re.compile(re.escape(key))
+        self.logger = logger_instance or logger
+
+        # Compile a single regex pattern for all keys
+        if self.api_keys:
+            # Create a single pattern with alternatives.
+            # Since self.api_keys is sorted by length (descending), the regex engine
+            # will prioritize longer matches when using '|'.
+            pattern_str = "|".join(re.escape(key) for key in self.api_keys)
+            self._combined_pattern: re.Pattern[str] | None = re.compile(pattern_str)
+        else:
+            self._combined_pattern = None
 
         # Initialize cache for frequently processed content
         self._redact_cache: OrderedDict[str, str] = OrderedDict()
@@ -57,19 +67,22 @@ class APIKeyRedactor:
 
     def _redact_internal(self, text: str) -> str:
         """Internal redact implementation."""
-        redacted_text = text
+        if not self._combined_pattern:
+            return text
 
-        # Quick containment check before expensive regex operations
-        for key in self.api_keys:
-            if key and key in redacted_text:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "API key detected in prompt. Redacting before forwarding."
-                    )
-                # Use pre-compiled regex for replacement
-                pattern = self._key_patterns[key]
-                redacted_text = pattern.sub(
-                    "(API_KEY_HAS_BEEN_REDACTED)", redacted_text
+        found_keys: set[str] = set()
+
+        def replacement(match: re.Match[str]) -> str:
+            found_keys.add(match.group(0))
+            return "(API_KEY_HAS_BEEN_REDACTED)"
+
+        redacted_text = self._combined_pattern.sub(replacement, text)
+
+        # Log warning for each unique key detected to preserve behavior
+        if found_keys and self.logger.isEnabledFor(logging.WARNING):
+            for _ in found_keys:
+                self.logger.warning(
+                    "API key detected in prompt. Redacting before forwarding."
                 )
 
         return redacted_text

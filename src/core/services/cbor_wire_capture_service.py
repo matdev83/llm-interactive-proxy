@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -141,6 +142,7 @@ class CborWireCaptureService(IWireCapture):
 
         # Background flush task
         self._flush_task: asyncio.Task[None] | None = None
+        self._flush_start_lock = threading.Lock()
         self._flush_interval = 0.5  # seconds
 
         # Buffer configuration
@@ -192,12 +194,7 @@ class CborWireCaptureService(IWireCapture):
             self._enabled = True
 
             # Start background flush task if event loop is running
-            try:
-                loop = asyncio.get_running_loop()
-                self._flush_task = loop.create_task(self._background_flush_loop())
-            except RuntimeError:
-                # No running loop at init time
-                self._flush_task = None
+            self._maybe_start_flush_task()
 
             logger.info(f"CBOR wire capture initialized: {self._file_path}")
 
@@ -239,13 +236,16 @@ class CborWireCaptureService(IWireCapture):
 
     def _maybe_start_flush_task(self) -> None:
         """Start background flush task if not running."""
-        if not self._enabled or self._flush_task is not None:
+        if not self._enabled:
             return
-        try:
-            loop = asyncio.get_running_loop()
-            self._flush_task = loop.create_task(self._background_flush_loop())
-        except RuntimeError:
-            pass
+        with self._flush_start_lock:
+            if not self._enabled or self._flush_task is not None:
+                return
+            try:
+                loop = asyncio.get_running_loop()
+                self._flush_task = loop.create_task(self._background_flush_loop())
+            except RuntimeError:
+                pass
 
     def _extract_context_metadata(
         self,
@@ -732,11 +732,12 @@ class CborWireCaptureService(IWireCapture):
         self._enabled = False
 
         # Cancel background task
-        if self._flush_task and not self._flush_task.done():
-            self._flush_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
-                await asyncio.wait_for(self._flush_task, timeout=2.0)
-            self._flush_task = None
+        with self._flush_start_lock:
+            if self._flush_task and not self._flush_task.done():
+                self._flush_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                    await asyncio.wait_for(self._flush_task, timeout=2.0)
+                self._flush_task = None
 
         # Final flush
         async with self._buffer_lock:

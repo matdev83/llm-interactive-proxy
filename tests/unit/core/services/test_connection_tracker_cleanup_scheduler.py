@@ -154,7 +154,7 @@ class TestConnectionTrackerCleanupScheduler:
 
         # Create a slow cleanup task
         async def slow_cleanup():
-            await asyncio.sleep(35)  # Longer than 30s timeout
+            await asyncio.sleep(31)  # Longer than 30s timeout (optimized from 35s)
             return 1
 
         mock_tracker.cleanup_stale_connections = slow_cleanup

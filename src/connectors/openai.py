@@ -1282,6 +1282,10 @@ class OpenAIConnector(LLMBackend):
                     if isinstance(chunk_bytes, bytes | bytearray)
                     else str(chunk_bytes)
                 )
+                # DoS protection: Limit buffer size to prevent memory exhaustion
+                if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
+                    logger.warning("SSE buffer overflow: truncating to prevent DoS")
+                    buffer = buffer[-MAX_SSE_BUFFER_SIZE:] if buffer else ""
                 buffer += chunk_text
 
                 while True:

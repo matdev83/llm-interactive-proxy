@@ -118,47 +118,58 @@ if not HAS_PYTEST_HTTPX:
 
 
 def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
-    # Cache marker lookups and path operations to avoid repeated work
+    # Optimized: Single pass through items to minimize overhead with large test suites
+    # Cache markers and options outside the loop
+    skip_httpx = None
     if not HAS_PYTEST_HTTPX:
         skip_httpx = pytest.mark.skip(reason="pytest_httpx not installed")
-        for item in items:
+
+    skip_asyncio = None
+    if not HAS_PYTEST_ASYNCIO:
+        skip_asyncio = pytest.mark.skip(reason="pytest_asyncio not installed")
+
+    integration_marker = pytest.mark.integration
+    integration_path_str = "integration"
+
+    # Default-deselect slow/codex tests without using `-m ...` (pytest-testmon
+    # disables selection when `-m` is used).
+    markexpr = getattr(config.option, "markexpr", "")
+    need_deselection = False
+    run_slow = False
+    run_codex = False
+    deselected: list[pytest.Item] = []
+    selected: list[pytest.Item] = []
+
+    if not markexpr:
+        run_slow = config.getoption("run_slow")
+        run_codex = config.getoption("run_codex")
+        need_deselection = True
+        codex_path_marker = "/tests/codex/"
+
+    # Single loop through all items
+    for item in items:
+        # Check httpx_mock fixture
+        if skip_httpx is not None:
             fixturenames = getattr(item, "fixturenames", ())
             if "httpx_mock" in fixturenames:  # pragma: no branch
                 item.add_marker(skip_httpx)
 
-    if not HAS_PYTEST_ASYNCIO:
-        skip_asyncio = pytest.mark.skip(reason="pytest_asyncio not installed")
-        for item in items:
-            if item.get_closest_marker("asyncio"):
-                item.add_marker(skip_asyncio)
+        # Check asyncio marker
+        if skip_asyncio is not None and item.get_closest_marker("asyncio"):
+            item.add_marker(skip_asyncio)
 
-    # Auto-mark tests in the integration folder with @pytest.mark.integration
-    # (handy for `pytest -m integration` runs and reporting)
-    # Cache path strings to avoid repeated str() calls
-    integration_marker = pytest.mark.integration
-    integration_path_str = "integration"
-    for item in items:
-        # Cache fspath string conversion
+        # Auto-mark tests in the integration folder with @pytest.mark.integration
+        # Cache fspath string conversion once per item
         item_path_str = str(item.fspath)
-        # Check if test file path contains 'integration' and marker not present
         if integration_path_str in item_path_str and not item.get_closest_marker(
             "integration"
         ):
             item.add_marker(integration_marker)
 
-    # Default-deselect slow/codex tests without using `-m ...` (pytest-testmon
-    # disables selection when `-m` is used).
-    markexpr = getattr(config.option, "markexpr", "")
-    if not markexpr:
-        run_slow = config.getoption("run_slow")
-        run_codex = config.getoption("run_codex")
-
-        deselected: list[pytest.Item] = []
-        selected: list[pytest.Item] = []
-        codex_path_marker = "/tests/codex/"
-        for item in items:
+        # Check for slow/codex deselection
+        if need_deselection:
             # Cache path string conversion and normalization
-            item_path = str(item.fspath).replace("\\", "/")
+            item_path = item_path_str.replace("\\", "/")
             # Cache marker lookups
             codex_marker = item.get_closest_marker("codex")
             slow_marker = item.get_closest_marker("slow")
@@ -170,9 +181,10 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
             else:
                 selected.append(item)
 
-        if deselected:
-            config.hook.pytest_deselected(items=deselected)
-            items[:] = selected
+    # Apply deselection if needed
+    if need_deselection and deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
 
 
 def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
@@ -436,14 +448,29 @@ def pytest_cmdline_parse(pluginmanager, args):
     """
     config = yield
 
-    # Skip argument modification when xdist is active (master or workers)
-    # to avoid collection mismatches and deadlocks
-    # Check for xdist usage via:
-    # 1. Environment variable (worker processes)
-    # 2. Config option (after config is created)
-    # 3. Plugin registration (fallback)
-    # Skip XML parsing during collection-only mode to speed up collection
+    # Skip argument modification during collection-only mode to speed up collection
     is_collect_only = "--collect-only" in args or "--co" in args
+
+    if os.environ.get("DEBUG_TESTMON"):
+        print(f"[DEBUG pytest_cmdline_parse] args: {list(args)}", file=sys.stderr)
+        print(f"[DEBUG pytest_cmdline_parse] PYTEST_XDIST_WORKER: {os.environ.get('PYTEST_XDIST_WORKER')}", file=sys.stderr)
+
+    original_args = list(args)
+    modified_args = args.copy()  # Don't modify original args
+
+    use_testmon = _should_enable_testmon(original_args)
+
+    if os.environ.get("DEBUG_TESTMON"):
+        print(f"[DEBUG] original_args: {original_args}", file=sys.stderr)
+        print(f"[DEBUG] HAS_PYTEST_TESTMON: {HAS_PYTEST_TESTMON}", file=sys.stderr)
+        print(f"[DEBUG] use_testmon: {use_testmon}", file=sys.stderr)
+        print(f"[DEBUG] is_xdist_worker: {os.environ.get('PYTEST_XDIST_WORKER') is not None}", file=sys.stderr)
+
+    if use_testmon:
+        if "--testmon" not in modified_args:
+            modified_args.append("--testmon")
+    elif "--testmon" in modified_args:
+        modified_args = [arg for arg in modified_args if arg != "--testmon"]
 
     # Disable xdist during collection-only mode to speed up collection
     # xdist workers add overhead during collection and aren't needed
@@ -453,31 +480,14 @@ def pytest_cmdline_parse(pluginmanager, args):
         # This prevents worker startup overhead during collection
         config.option.numprocesses = 0
 
-    # Skip argument modification when xdist is active (but not during collection-only)
-    # to avoid collection mismatches and deadlocks
+    # Skip argument modification only in xdist worker processes to avoid
+    # collection mismatches and deadlocks. Master process should still apply
+    # modifications (like adding --testmon) before workers are spawned.
     if HAS_PYTEST_XDIST and not is_collect_only:
         is_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER") is not None
-        # Check if xdist is configured (numprocesses option is set and > 0)
-        # Note: numprocesses=0 means xdist is disabled, so we should continue
-        has_xdist_config = (
-            hasattr(config.option, "numprocesses")
-            and config.option.numprocesses is not None
-            and config.option.numprocesses > 0
-        )
-        xdist_plugin_registered = pluginmanager.hasplugin("xdist")
 
-        if is_xdist_worker or has_xdist_config or xdist_plugin_registered:
+        if is_xdist_worker:
             return
-
-    original_args = list(args)
-    modified_args = args.copy()  # Don't modify original args
-
-    use_testmon = _should_enable_testmon(original_args)
-    if use_testmon:
-        if "--testmon" not in modified_args:
-            modified_args.append("--testmon")
-    elif "--testmon" in modified_args:
-        modified_args = [arg for arg in modified_args if arg != "--testmon"]
 
     has_test_paths = any(arg for arg in modified_args if not arg.startswith("-"))
     has_maxfail = any(arg.startswith("--maxfail") for arg in modified_args)
@@ -529,14 +539,11 @@ def pytest_cmdline_main(config):
     """
     Backward compatibility function for testing pytest_cmdline_main.
     """
-    # Skip argument modification when xdist is active to avoid conflicts
+    # Skip argument modification only in xdist worker processes to avoid conflicts.
+    # Master process should still apply modifications.
     if HAS_PYTEST_XDIST:
         is_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER") is not None
-        has_xdist_config = (
-            hasattr(config.option, "numprocesses")
-            and config.option.numprocesses is not None
-        )
-        if is_xdist_worker or has_xdist_config:
+        if is_xdist_worker:
             return
 
     # Skip XML parsing during collection-only mode to speed up collection

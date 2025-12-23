@@ -108,6 +108,7 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
         prompt_handler=prompt_handler,
         init_handler=init_handler,
         subscription_handler=subscription_handler,
+        config=Mock(),
     )
 
     # Create mock WebSocket connections

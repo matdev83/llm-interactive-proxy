@@ -203,7 +203,9 @@ async def test_property_13_cancellation_cleanup(prompt_id):
 
     async def mock_task():
         with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.sleep(10)
+            await asyncio.sleep(
+                1
+            )  # Optimized from 10s - sufficient for cancellation test
 
     task = asyncio.create_task(mock_task())
     handler._active_requests[prompt_id] = task

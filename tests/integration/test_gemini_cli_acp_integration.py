@@ -178,6 +178,24 @@ def _create_test_config(config_dir: Path, workspace: Path, port: int) -> Path:
     return config_file
 
 
+def _wait_for_health_check(port: int, timeout: float = 30.0) -> None:
+    """Wait until the server is healthy or timeout."""
+    end = time.time() + timeout
+    url = f"http://127.0.0.1:{port}/"  # Root endpoint or specific health check
+
+    while time.time() < end:
+        try:
+            response = requests.get(url, timeout=1)
+            # 200 or 404 (not found but server handling request) are acceptable signs of life
+            if response.status_code in [200, 404]:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(0.1)
+
+    raise RuntimeError(f"Server health check failed on port {port} after {timeout}s")
+
+
 def _start_server(port: int, config_file: Path, log_file: Path) -> subprocess.Popen:
     """Start the proxy server with gemini-cli-acp backend."""
     env = os.environ.copy()
@@ -201,8 +219,8 @@ def _start_server(port: int, config_file: Path, log_file: Path) -> subprocess.Po
 
     try:
         _wait_port(port, timeout=30.0)
-        # Give the server a moment to fully initialize
-        time.sleep(2)
+        # Verify server is actually responding to HTTP
+        _wait_for_health_check(port, timeout=10.0)
         return proc
     except RuntimeError as e:
         output = ""

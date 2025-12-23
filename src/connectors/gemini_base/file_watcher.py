@@ -15,6 +15,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 if TYPE_CHECKING:
@@ -58,7 +59,7 @@ class FileWatcher:
     @staticmethod
     def start_file_watching(
         credentials_path: Path | None,
-        connector: Any,
+        stop_watching_callback: Callable[[], None],
         state: FileWatcherState,
         reload_callback: Callable[[], Coroutine[Any, Any, None]],
     ) -> None:
@@ -66,7 +67,7 @@ class FileWatcher:
 
         Args:
             credentials_path: Path to the credentials file to watch.
-            connector: Connector instance that owns the file watcher.
+            stop_watching_callback: Callback to stop file watching.
             state: File watcher state container.
             reload_callback: Async function to call for reloading credentials.
         """
@@ -76,17 +77,36 @@ class FileWatcher:
         if state.file_observer is not None:
             return
 
-        def _on_file_changed(event) -> None:
-            if hasattr(event, "src_path") and event.src_path == str(credentials_path):
-                logger.debug("Credentials file changed, triggering reload")
-                FileWatcher.schedule_credentials_reload(
-                    state, reload_callback, connector.stop_file_watching
-                )
+        class _FileChangeHandler(FileSystemEventHandler):
+            """Handler for file system events."""
+
+            def __init__(
+                self,
+                credentials_path: Path,
+                state: FileWatcherState,
+                reload_callback: Callable[[], Coroutine[Any, Any, None]],
+                stop_watching_callback: Callable[[], None],
+            ) -> None:
+                self._credentials_path = credentials_path
+                self._state = state
+                self._reload_callback = reload_callback
+                self._stop_watching_callback = stop_watching_callback
+
+            def on_modified(self, event) -> None:
+                if hasattr(event, "src_path") and event.src_path == str(
+                    self._credentials_path
+                ):
+                    logger.debug("Credentials file changed, triggering reload")
+                    FileWatcher.schedule_credentials_reload(
+                        self._state, self._reload_callback, self._stop_watching_callback
+                    )
 
         observer = Observer()
-        observer.schedule(
-            _on_file_changed, str(credentials_path.parent), recursive=False
+        observer.daemon = True  # Ensure thread doesn't block process exit
+        handler = _FileChangeHandler(
+            credentials_path, state, reload_callback, stop_watching_callback
         )
+        observer.schedule(handler, str(credentials_path.parent), recursive=False)
         observer.start()
         state.file_observer = observer
         logger.debug("Started watching credentials file: %s", credentials_path)
@@ -216,7 +236,7 @@ class FileWatcher:
                 if state.pending_reload_task:
                     with contextlib.suppress(Exception):
                         state.pending_reload_task.cancel()
-                    state.pending_reload_task = None
+                        state.pending_reload_task = None
                 state.reload_scheduling_in_progress = False
 
 

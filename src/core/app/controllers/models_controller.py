@@ -6,6 +6,8 @@ Handles model-related endpoints for the application.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import inspect
 import logging
 from collections.abc import Awaitable
@@ -287,10 +289,11 @@ async def _list_models_impl(
             # This backend doesn't require explicit configuration in config file,
             # but relies on the presence of the credentials file.
             if backend_type == "opencode-zen" and not has_credentials:
+                temp_backend = None
                 try:
                     # Instantiate just to check credential path logic
                     # We need a minimal config here
-                    _ = backend_factory.create_backend(backend_type, config)
+                    temp_backend = backend_factory.create_backend(backend_type, config)
                     # We can't easily access the private method _get_default_credentials_path
                     # without violating encapsulation, but we can try to check if it's functional
                     # However, create_backend doesn't initialize it fully.
@@ -335,6 +338,16 @@ async def _list_models_impl(
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(f"Failed to check opencode-zen credentials: {e}")
+                finally:
+                    # Clean up temporary backend instance to prevent resource leak
+                    if temp_backend is not None:
+                        if hasattr(temp_backend, "close"):
+                            with contextlib.suppress(Exception):
+                                temp_backend.close()
+                        elif hasattr(temp_backend, "aclose"):
+                            with contextlib.suppress(RuntimeError, Exception):
+                                # Fire-and-forget cleanup task - no need to track it
+                                asyncio.create_task(temp_backend.aclose())  # noqa: RUF006
 
             should_try_backend = backend_type in functional_backends or has_credentials
 

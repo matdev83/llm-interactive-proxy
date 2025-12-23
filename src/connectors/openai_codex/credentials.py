@@ -481,6 +481,31 @@ class CredentialManager(ICredentialManager):
             self._watcher.start(self._auth_path)
         logger.info("Credentials initialized successfully.")
 
+    def _persist_credentials_sync(
+        self, credentials: dict[str, Any], auth_path: Path
+    ) -> None:
+        """Persist credentials to disk synchronously."""
+        # Create temp file in same directory for atomic os.replace()
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=auth_path.parent,
+            prefix=".auth_",
+            suffix=".json.tmp",
+            text=True,
+        )
+        try:
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                json.dump(credentials, f, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())  # Ensure written to disk
+            # Atomic replacement (cross-platform) with retry for Windows
+            self._robust_replace(temp_path, str(auth_path))
+        except Exception:
+            # Clean up temp file on error
+            with contextlib.suppress(Exception):
+                os.unlink(temp_path)
+            raise
+
     async def refresh_access_token(self) -> bool:
         """Refresh the access token in a concurrency-safe manner.
 
@@ -567,26 +592,14 @@ class CredentialManager(ICredentialManager):
 
                 # Use atomic write pattern to prevent file corruption
                 try:
-                    # Create temp file in same directory for atomic os.replace()
-                    temp_fd, temp_path = tempfile.mkstemp(
-                        dir=self._auth_path.parent,
-                        prefix=".auth_",
-                        suffix=".json.tmp",
-                        text=True,
+                    # Run file operations in a thread pool to avoid blocking the event loop
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        self._persist_credentials_sync,
+                        updated_credentials,
+                        self._auth_path,
                     )
-                    try:
-                        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                            json.dump(updated_credentials, f, indent=2)
-                            f.write("\n")
-                            f.flush()
-                            os.fsync(f.fileno())  # Ensure written to disk
-                        # Atomic replacement (cross-platform) with retry for Windows
-                        self._robust_replace(temp_path, str(self._auth_path))
-                    except Exception:
-                        # Clean up temp file on error
-                        with contextlib.suppress(Exception):
-                            os.unlink(temp_path)
-                        raise
                 except Exception as exc:
                     logger.warning(
                         "Failed to persist refreshed OAuth credentials: %s", exc

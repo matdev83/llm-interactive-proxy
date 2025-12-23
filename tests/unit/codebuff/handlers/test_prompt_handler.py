@@ -177,7 +177,9 @@ class TestCancellation:
         # Create a mock task
         async def mock_task():
             with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.sleep(10)
+                await asyncio.sleep(
+                    1
+                )  # Optimized from 10s - sufficient for cancellation test
 
         task = asyncio.create_task(mock_task())
         prompt_id = "test-cancel-1"

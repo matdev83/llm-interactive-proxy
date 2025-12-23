@@ -1,4 +1,4 @@
-from src.core.cli import _apply_pid_suffixes
+from src.core.cli_support.logging_configurator import LoggingConfigurator
 from src.core.config.app_config import AppConfig, LoggingConfig
 
 
@@ -12,7 +12,10 @@ def test_timestamp_suffix_applied_once() -> None:
         logging=LoggingConfig(log_file="logs/proxy.log", capture_file="wire.log")
     )
 
-    updated = _apply_pid_suffixes(cfg)
+    # Use LoggingConfigurator directly to avoid importing src.core.cli,
+    # which triggers backend connector imports that can cause isolation issues
+    configurator = LoggingConfigurator()
+    updated = configurator.apply_pid_suffixes(cfg)
     assert timestamp_pattern.search(updated.logging.log_file)
     assert timestamp_pattern.search(updated.logging.capture_file)
 
@@ -23,6 +26,6 @@ def test_timestamp_suffix_applied_once() -> None:
     assert suffix[8] == "_"
     assert suffix[9:].isdigit()
 
-    updated_again = _apply_pid_suffixes(updated)
+    updated_again = configurator.apply_pid_suffixes(updated)
     assert updated_again.logging.log_file == updated.logging.log_file
     assert updated_again.logging.capture_file == updated.logging.capture_file

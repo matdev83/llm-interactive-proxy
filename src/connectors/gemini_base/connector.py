@@ -773,7 +773,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Sync main_loop to state before starting
         self._file_watcher_state.main_loop = self._main_loop
         FileWatcher.start_file_watching(
-            self._credentials_path, self, self._file_watcher_state
+            self._credentials_path,
+            self._stop_file_watching,
+            self._file_watcher_state,
+            self._handle_credentials_file_change,
         )
 
     def _stop_file_watching(self) -> None:

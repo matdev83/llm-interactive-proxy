@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, cast
 
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -331,7 +331,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                         loop = asyncio.get_running_loop()
                                         # Call cancel_callback to get coroutine, then create task and track it
                                         coro = self._cancel_callback()
-                                        task = loop.create_task(coro)  # type: ignore[arg-type]
+                                        # Type cast: cancel_callback returns Awaitable[None] but create_task expects Coroutine
+                                        # In practice, create_task accepts coroutines which are a subtype of Awaitable
+                                        coroutine: Coroutine[Any, Any, None] = cast(
+                                            Coroutine[Any, Any, None], coro
+                                        )
+                                        task: asyncio.Task[None] = loop.create_task(
+                                            coroutine
+                                        )
                                         # Track task to prevent resource leaks
                                         self._cancellation_tasks.add(task)
                                         # Remove task from set when done to prevent unbounded growth

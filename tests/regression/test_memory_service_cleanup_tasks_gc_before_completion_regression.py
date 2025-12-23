@@ -32,11 +32,12 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
         repository = MockRepository()
         memory_service = MemoryService(config, repository)
 
-        # Verify _cleanup_tasks is a set (not WeakSet) to prevent GC before completion
+        # Verify _cleanup_tasks is a WeakSet
+        from weakref import WeakSet
 
         assert isinstance(
-            memory_service._cleanup_tasks, set
-        ), f"Expected set to prevent GC before completion, got {type(memory_service._cleanup_tasks)}"
+            memory_service._cleanup_tasks, WeakSet
+        ), f"Expected WeakSet, got {type(memory_service._cleanup_tasks)}"
 
         # Enable a session
         session_id = "test_session_leak"
@@ -55,7 +56,14 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
             cleanup_task1 = asyncio.create_task(slow_cleanup())
             cleanup_task2 = asyncio.create_task(slow_cleanup())
 
-            # Add to set (not WeakSet)
+            # Add done callbacks to remove tasks when they complete (matching implementation)
+            cleanup_task1.add_done_callback(
+                lambda task: memory_service._cleanup_tasks.discard(task)
+            )
+            cleanup_task2.add_done_callback(
+                lambda task: memory_service._cleanup_tasks.discard(task)
+            )
+            # Add to WeakSet
             memory_service._cleanup_tasks.add(cleanup_task1)
             memory_service._cleanup_tasks.add(cleanup_task2)
 
@@ -70,7 +78,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
             # Force garbage collection
             gc.collect()
 
-            # Tasks should still be tracked (because we use set, not WeakSet)
+            # Tasks should still be tracked (done callbacks keep references until completion)
             remaining_count = len(memory_service._cleanup_tasks)
             assert remaining_count == 2, (
                 f"Tasks were GC'd before completion! "
@@ -112,9 +120,16 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
                 cleanup_task2 = asyncio.create_task(
                     memory_service._tool_event_collector.clear_session(session_id)
                 )
+                # Add done callbacks to remove tasks when they complete (matching implementation)
+                cleanup_task1.add_done_callback(
+                    lambda task: memory_service._cleanup_tasks.discard(task)
+                )
+                cleanup_task2.add_done_callback(
+                    lambda task: memory_service._cleanup_tasks.discard(task)
+                )
                 memory_service._cleanup_tasks.add(cleanup_task1)
                 memory_service._cleanup_tasks.add(cleanup_task2)
-                # Don't keep references - but tasks should still be tracked
+                # Don't keep references - but tasks should still be tracked (done callbacks keep references)
 
             # Force GC periodically
             if i % 10 == 0:

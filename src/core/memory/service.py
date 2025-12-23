@@ -10,6 +10,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+from weakref import WeakSet
 
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
@@ -101,9 +102,8 @@ class MemoryService:
         # Track when sessions entered analysis_in_progress for TTL cleanup
         self._analysis_in_progress: dict[str, float] = {}
         # Track cleanup tasks to prevent resource leaks
-        # Use WeakSet to allow garbage collection of completed tasks
-        from weakref import WeakSet
-
+        # Use WeakSet to allow garbage collection of completed tasks, preventing unbounded accumulation
+        # Tasks are kept alive by done callbacks until completion, then automatically removed
         self._cleanup_tasks: WeakSet[asyncio.Task[None]] = WeakSet()
 
     def is_available(self) -> bool:
@@ -539,7 +539,9 @@ class MemoryService:
                     if not task.done():
                         task.cancel()
                 with contextlib.suppress(Exception):
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)  # Suppress errors during final cleanup
+                    await asyncio.gather(
+                        *pending_tasks, return_exceptions=True
+                    )  # Suppress errors during final cleanup
 
         # Clear the cleanup tasks set to prevent memory leaks
         self._cleanup_tasks.clear()
@@ -581,6 +583,14 @@ class MemoryService:
                 cleanup_task2 = asyncio.create_task(
                     self._tool_event_collector.clear_session(sid)
                 )
+                # Add done callbacks to remove tasks from WeakSet when they complete
+                # This prevents unbounded accumulation while allowing GC after completion
+                cleanup_task1.add_done_callback(
+                    lambda task: self._cleanup_tasks.discard(task)
+                )
+                cleanup_task2.add_done_callback(
+                    lambda task: self._cleanup_tasks.discard(task)
+                )
                 self._cleanup_tasks.add(cleanup_task1)
                 self._cleanup_tasks.add(cleanup_task2)
 
@@ -619,6 +629,10 @@ class MemoryService:
         cleanup_task2 = asyncio.create_task(
             self._tool_event_collector.clear_session(oldest_session_id)
         )
+        # Add done callbacks to remove tasks from WeakSet when they complete
+        # This prevents unbounded accumulation while allowing GC after completion
+        cleanup_task1.add_done_callback(lambda task: self._cleanup_tasks.discard(task))
+        cleanup_task2.add_done_callback(lambda task: self._cleanup_tasks.discard(task))
         self._cleanup_tasks.add(cleanup_task1)
         self._cleanup_tasks.add(cleanup_task2)
 

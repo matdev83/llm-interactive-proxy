@@ -191,7 +191,7 @@ class TestTranslationMetrics:
     def test_translation_tools_are_bounded(self):
         """Tool counters should be bounded to prevent unbounded memory growth."""
         metrics = TranslationMetrics()
-        
+
         # Add limit + 10 unique tools
         for i in range(DEFAULT_TOOL_TRACKING_LIMIT + 10):
             tool_name = f"tool_{i}"
@@ -200,10 +200,9 @@ class TestTranslationMetrics:
         # Should be bounded to limit (regular tools) + 1 (overflow bucket)
         assert len(metrics.translations_by_tool) <= DEFAULT_TOOL_TRACKING_LIMIT + 1
         assert len(metrics.translations_by_tool) >= DEFAULT_TOOL_TRACKING_LIMIT
-        
+
         # Check that we have the overflow bucket
         assert "__other_tools_overflow__" in metrics.translations_by_tool
-
 
 
 class TestErrorMetrics:
@@ -254,7 +253,7 @@ class TestErrorMetrics:
     def test_error_tools_are_bounded(self):
         """Tool counters in error metrics should be bounded."""
         metrics = ErrorMetrics()
-        
+
         # Add limit + 10 unique tools
         for i in range(DEFAULT_TOOL_TRACKING_LIMIT + 10):
             tool_name = f"tool_{i}"
@@ -262,7 +261,6 @@ class TestErrorMetrics:
 
         assert len(metrics.errors_by_tool) <= DEFAULT_TOOL_TRACKING_LIMIT + 1
         assert "__other_tools_overflow__" in metrics.errors_by_tool
-
 
 
 class TestCompatibilityTelemetry:

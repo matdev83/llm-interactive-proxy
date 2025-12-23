@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from unittest.mock import Mock
 
 from src.security import APIKeyRedactor
 
@@ -16,7 +17,10 @@ def test_redactor_prioritizes_longer_keys() -> None:
     short = "sk-short"
     long = f"{short}-extra"
     # Provide keys in order that would previously leak the suffix of the longer key
-    redactor = APIKeyRedactor([short, long])
+    # Use a mock logger to ensure test isolation and prevent potential deadlocks
+    # with the global logging system during full suite execution.
+    mock_logger = Mock()
+    redactor = APIKeyRedactor([short, long], logger_instance=mock_logger)
 
     text = f"My key is {long}"
     result = redactor.redact(text)

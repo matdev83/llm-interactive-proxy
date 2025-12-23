@@ -1529,7 +1529,9 @@ class QwenOAuthConnector(OpenAIConnector):
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            with contextlib.suppress(subprocess.TimeoutExpired, Exception):
+                            with contextlib.suppress(
+                                subprocess.TimeoutExpired, Exception
+                            ):
                                 process.wait(timeout=5)
                 except Exception:
                     # Suppress all exceptions during cleanup
@@ -1560,7 +1562,9 @@ class QwenOAuthConnector(OpenAIConnector):
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            with contextlib.suppress(subprocess.TimeoutExpired, Exception):
+                            with contextlib.suppress(
+                                subprocess.TimeoutExpired, Exception
+                            ):
                                 process.wait(timeout=5)
                 except Exception:
                     # Suppress all exceptions during interpreter shutdown

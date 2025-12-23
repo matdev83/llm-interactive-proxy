@@ -236,7 +236,7 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
 
         FileWatcher.start_file_watching(
             self._credentials_path,
-            self,  # Pass coordinator itself for file change callbacks
+            self._stop_file_watching,
             self._file_watcher_state,
             self._handle_credentials_file_change,
         )

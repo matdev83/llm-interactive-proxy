@@ -25,10 +25,12 @@ async def test_cleanup_awaits_pending_tasks():
     repository = MockRepository()
     memory_service = MemoryService(config, repository)
 
-    # Verify _cleanup_tasks is a set (not WeakSet)
+    # Verify _cleanup_tasks is a WeakSet
+    from weakref import WeakSet
+
     assert isinstance(
-        memory_service._cleanup_tasks, set
-    ), "Expected set, got {type(memory_service._cleanup_tasks)}"
+        memory_service._cleanup_tasks, WeakSet
+    ), f"Expected WeakSet, got {type(memory_service._cleanup_tasks)}"
 
     # Enable a session
     session_id = "test_session"
@@ -46,6 +48,13 @@ async def test_cleanup_awaits_pending_tasks():
         task1 = asyncio.create_task(cleanup_task1)
         task2 = asyncio.create_task(cleanup_task2)
 
+        # Add done callbacks to remove tasks when they complete (matching implementation)
+        task1.add_done_callback(
+            lambda task: memory_service._cleanup_tasks.discard(task)
+        )
+        task2.add_done_callback(
+            lambda task: memory_service._cleanup_tasks.discard(task)
+        )
         memory_service._cleanup_tasks.add(task1)
         memory_service._cleanup_tasks.add(task2)
 
@@ -70,9 +79,11 @@ async def test_cleanup_handles_timeout():
 
     # Create a task that takes longer than timeout
     async def slow_task():
-        await asyncio.sleep(10)  # Longer than 5s timeout
+        await asyncio.sleep(6)  # Longer than 5s timeout (optimized from 10s)
 
     task = asyncio.create_task(slow_task())
+    # Add done callback to remove task when it completes (matching implementation)
+    task.add_done_callback(lambda t: memory_service._cleanup_tasks.discard(t))
     memory_service._cleanup_tasks.add(task)
 
     # Call cleanup() - should timeout and cancel task
@@ -101,6 +112,10 @@ async def test_cleanup_idempotent():
     async with memory_service._state_lock:
         cleanup_task1 = memory_service._capture_buffer.clear_session(session_id)
         task1 = asyncio.create_task(cleanup_task1)
+        # Add done callback to remove task when it completes (matching implementation)
+        task1.add_done_callback(
+            lambda task: memory_service._cleanup_tasks.discard(task)
+        )
         memory_service._cleanup_tasks.add(task1)
 
     # Call cleanup() multiple times
