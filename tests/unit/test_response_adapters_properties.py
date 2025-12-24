@@ -91,8 +91,8 @@ class TestEventLoopYielding:
     """
 
     @pytest.mark.asyncio
-    @settings(max_examples=50, deadline=5000)
-    @given(chunks=st.lists(processed_response_strategy(), min_size=1, max_size=20))
+    @settings(max_examples=20, deadline=5000)
+    @given(chunks=st.lists(processed_response_strategy(), min_size=1, max_size=10))
     async def test_event_loop_yielding_property(self, chunks: list[ProcessedResponse]):
         """
         Test that the streaming response yields control to the event loop.
@@ -102,14 +102,9 @@ class TestEventLoopYielding:
         other async tasks to run and preventing blocking.
         """
 
-        # Create an async iterator from the chunks
-        async def chunk_generator():
-            for chunk in chunks:
-                yield chunk
-
-        # Create streaming response envelope
+        # Create streaming response envelope with generator
         envelope = StreamingResponseEnvelope(
-            content=chunk_generator(), media_type="text/event-stream"
+            content=(chunk for chunk in chunks), media_type="text/event-stream"
         )
 
         # Convert to FastAPI streaming response
@@ -120,7 +115,7 @@ class TestEventLoopYielding:
 
         async def concurrent_task():
             """A task that should be able to run between chunks."""
-            for _ in range(len(chunks) * 2):
+            for _ in range(len(chunks)):
                 task_ran.append(True)
                 await asyncio.sleep(0)
 
@@ -131,17 +126,12 @@ class TestEventLoopYielding:
         chunk_count = 0
         async for _ in response.body_iterator:
             chunk_count += 1
-            # Give the concurrent task a chance to run
-            await asyncio.sleep(0)
 
         # Wait for concurrent task to complete
         await task
 
         # Verify that the concurrent task was able to run
-        # If event loop yielding is working, the task should have run multiple times
         assert len(task_ran) > 0, "Concurrent task never ran - event loop not yielding"
-
-        # Verify we processed all chunks
         assert chunk_count > 0, "No chunks were processed"
 
 

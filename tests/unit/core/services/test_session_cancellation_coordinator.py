@@ -31,8 +31,8 @@ class MockCancellable(ICancellable):
 @pytest.fixture
 def coordinator() -> SessionCancellationCoordinator:
     """Create a SessionCancellationCoordinator instance."""
-    # Use a short TTL for testing (1 second)
-    return SessionCancellationCoordinator(ttl_seconds=1.0)
+    # Use a short TTL for testing (0.1 second for faster tests)
+    return SessionCancellationCoordinator(ttl_seconds=0.1)
 
 
 @pytest.fixture
@@ -259,8 +259,8 @@ def test_ttl_expiry_removes_old_sessions(
     )
     assert coordinator.is_cancelled(http_session_key)
 
-    # Wait for TTL to expire (1 second in test fixture)
-    time.sleep(1.1)
+    # Wait for TTL to expire (0.1 second in test fixture)
+    time.sleep(0.15)
 
     # Accessing should trigger expiry check
     assert not coordinator.is_cancelled(http_session_key)

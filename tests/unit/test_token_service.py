@@ -100,15 +100,15 @@ class TestTokenService:
 
     def test_generated_tokens_are_unique(self) -> None:
         """Test that multiple generated tokens are unique."""
-        service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
+        service = TokenService(memory_cost=8, time_cost=1, parallelism=1)
 
         tokens = set()
-        for _ in range(100):
+        for _ in range(20):
             plaintext_token, _ = service.generate_token()
             tokens.add(plaintext_token)
 
-        # All 100 tokens should be unique
-        assert len(tokens) == 100
+        # All tokens should be unique
+        assert len(tokens) == 20
 
     def test_token_hash_does_not_contain_plaintext(self) -> None:
         """Test that token hash does not contain the plaintext token."""

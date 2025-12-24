@@ -25,7 +25,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         topics = ["topic1", "topic2", "topic3"]
 
@@ -33,11 +33,11 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_subscribe(websocket, topics)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         for topic in topics:
             assert topic in session.subscriptions
-            subscribers = connection_manager.get_subscribers(topic)
+            subscribers = await connection_manager.get_subscribers(topic)
             assert websocket in subscribers
 
     @pytest.mark.asyncio
@@ -49,7 +49,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         topics = ["single-topic"]
 
@@ -57,10 +57,10 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_subscribe(websocket, topics)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert "single-topic" in session.subscriptions
-        subscribers = connection_manager.get_subscribers("single-topic")
+        subscribers = await connection_manager.get_subscribers("single-topic")
         assert websocket in subscribers
 
     @pytest.mark.asyncio
@@ -72,7 +72,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         topics = []
 
@@ -109,7 +109,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Subscribe to same topics twice
         topics = ["topic1", "topic2"]
@@ -117,7 +117,7 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_subscribe(websocket, topics)
 
         # Assert - should still only have one subscription per topic
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert len(session.subscriptions) == 2
         for topic in topics:
@@ -132,7 +132,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         topics = ["topic1", "topic2", "topic3"]
 
@@ -143,11 +143,11 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_unsubscribe(websocket, topics)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         for topic in topics:
             assert topic not in session.subscriptions
-            subscribers = connection_manager.get_subscribers(topic)
+            subscribers = await connection_manager.get_subscribers(topic)
             assert websocket not in subscribers
 
     @pytest.mark.asyncio
@@ -159,7 +159,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         all_topics = ["topic1", "topic2", "topic3", "topic4"]
         topics_to_unsubscribe = ["topic2", "topic4"]
@@ -171,7 +171,7 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_unsubscribe(websocket, topics_to_unsubscribe)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert "topic1" in session.subscriptions
         assert "topic2" not in session.subscriptions
@@ -187,7 +187,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         topics = []
 
@@ -224,7 +224,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Subscribe to some topics
         subscribed_topics = ["topic1", "topic2"]
@@ -235,7 +235,7 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_unsubscribe(websocket, non_existent_topics)
 
         # Assert - original subscriptions should remain
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert "topic1" in session.subscriptions
         assert "topic2" in session.subscriptions
@@ -257,9 +257,9 @@ class TestSubscriptionHandler:
         websocket3 = MagicMock()
         websocket3._test_id = "ws3"
 
-        connection_manager.connect(websocket1, "session-1")
-        connection_manager.connect(websocket2, "session-2")
-        connection_manager.connect(websocket3, "session-3")
+        await connection_manager.connect(websocket1, "session-1")
+        await connection_manager.connect(websocket2, "session-2")
+        await connection_manager.connect(websocket3, "session-3")
 
         topic = "shared-topic"
 
@@ -269,7 +269,7 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_subscribe(websocket3, [topic])
 
         # Assert
-        subscribers = connection_manager.get_subscribers(topic)
+        subscribers = await connection_manager.get_subscribers(topic)
         assert len(subscribers) == 3
         assert websocket1 in subscribers
         assert websocket2 in subscribers
@@ -284,21 +284,21 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Act - subscribe to topics
         topics = ["topic1", "topic2", "topic3"]
         await subscription_handler.handle_subscribe(websocket, topics)
 
         # Verify subscriptions
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert len(session.subscriptions) == 3
 
         # Unsubscribe from some topics
         await subscription_handler.handle_unsubscribe(websocket, ["topic1", "topic3"])
 
         # Assert - only topic2 should remain
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert len(session.subscriptions) == 1
         assert "topic2" in session.subscriptions
         assert "topic1" not in session.subscriptions
@@ -313,7 +313,7 @@ class TestSubscriptionHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Topics with special characters
         topics = [
@@ -327,7 +327,7 @@ class TestSubscriptionHandler:
         await subscription_handler.handle_subscribe(websocket, topics)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         for topic in topics:
             assert topic in session.subscriptions

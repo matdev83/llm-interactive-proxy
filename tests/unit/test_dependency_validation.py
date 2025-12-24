@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -45,6 +46,26 @@ class DependencyValidator:
         self.project_root = project_root
         self.pyproject_path = project_root / "pyproject.toml"
         self._pip_list_cache: list[str] | None = None
+        self._metadata_cache: dict[str, bool] | None = None
+
+    def _get_metadata_cache(self) -> dict[str, bool]:
+        """Get cache of installed packages using importlib.metadata (fastest method).
+
+        Returns:
+            Dictionary mapping normalized package names to True
+        """
+        if self._metadata_cache is None:
+            self._metadata_cache = {}
+            try:
+                for dist in importlib.metadata.distributions():
+                    name = dist.metadata.get("Name", "").lower()
+                    if name:
+                        self._metadata_cache[name] = True
+                        # Also cache underscore variant
+                        self._metadata_cache[name.replace("-", "_")] = True
+            except Exception:
+                pass
+        return self._metadata_cache
 
     @classmethod
     def get_session_pip_cache(cls) -> list[str]:
@@ -273,9 +294,14 @@ class DependencyValidator:
         Returns:
             True if the package is installed and importable, False otherwise
         """
-        import_name = self._get_import_name(package_name)
+        # Fastest: check metadata cache first
+        metadata_cache = self._get_metadata_cache()
+        normalized_name = package_name.lower()
+        if normalized_name in metadata_cache:
+            return True
 
-        # Try direct import first (fastest path)
+        # Try direct import as fallback
+        import_name = self._get_import_name(package_name)
         try:
             importlib.import_module(import_name)
             return True
@@ -291,23 +317,11 @@ class DependencyValidator:
             except ImportError:
                 pass
 
-        # Try faster importlib.util check
-        try:
-            spec = importlib.util.find_spec(import_name)
-            if spec is not None:
-                return True
-        except (ImportError, ModuleNotFoundError, ValueError):
-            pass
-
         # As a last resort, check with cached pip list
         pip_list = self._get_pip_list_cache()
         if pip_list:
-            # Use faster string search with precomputed prefixes
             package_line = f"{package_name}=="
-            normalized_name = package_name.replace("-", "_")
-            normalized_line = f"{normalized_name}=="
-
-            # Use any() with generator expression for better performance
+            normalized_line = f"{normalized_name.replace('-', '_')}=="
             return any(
                 line.startswith((package_line, normalized_line)) for line in pip_list
             )

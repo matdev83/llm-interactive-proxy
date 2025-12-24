@@ -6,6 +6,7 @@ for clients (like Droid) that don't preserve extra_content.
 """
 
 import logging
+import threading
 import time
 from collections import OrderedDict
 from typing import Any
@@ -33,28 +34,33 @@ class ThoughtSignatureManager:
         self._cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
         # Secondary index by tool_call_id to survive session-id changes
         self._by_tool_call: dict[str, str] = {}
+        # Lock to protect cache access
+        self._lock = threading.Lock()
 
     @property
     def cache(self) -> dict[str, str]:
         """Access to cache for backward compatibility."""
-        # Convert from (sig, timestamp) tuples back to just signatures
-        return {key: value for key, (value, _) in self._cache.items()}
+        with self._lock:
+            # Convert from (sig, timestamp) tuples back to just signatures
+            return {key: value for key, (value, _) in self._cache.items()}
 
     @cache.setter
     def cache(self, value: dict[str, str]) -> None:
         """Set cache for backward compatibility (stores with current timestamp)."""
-        # Convert from just signatures to (sig, timestamp) tuples
-        current_time = time.time()
-        self._cache = OrderedDict(
-            (key, (sig, current_time)) for key, sig in value.items()
-        )
+        with self._lock:
+            # Convert from just signatures to (sig, timestamp) tuples
+            current_time = time.time()
+            self._cache = OrderedDict(
+                (key, (sig, current_time)) for key, sig in value.items()
+            )
 
     def update(self, updates: dict[str, str]) -> None:
         """Update cache with new values (for backward compatibility)."""
-        current_time = time.time()
-        for key, sig in updates.items():
-            self._cache[key] = (sig, current_time)
-            self._cache.move_to_end(key)
+        with self._lock:
+            current_time = time.time()
+            for key, sig in updates.items():
+                self._cache[key] = (sig, current_time)
+                self._cache.move_to_end(key)
 
     def inject_signatures(self, canonical_request: Any, session_id: str) -> None:
         """Inject stored thought_signatures into tool_calls that are missing them.
@@ -105,37 +111,7 @@ class ThoughtSignatureManager:
                 return  # Already has signature
 
         # Look up in cache with TTL check
-        current_time = time.time()
-        cache_key = f"{session_id}:{tc_id}"
-
-        cache_entry = self._cache.get(cache_key)
-        sig: str | None = None
-
-        if cache_entry:
-            cached_sig, timestamp = cache_entry
-            if current_time - timestamp > self._ttl_seconds:
-                # Expired, remove it
-                del self._cache[cache_key]
-                self._by_tool_call.pop(tc_id, None)
-                sig = None
-            else:
-                sig = cached_sig
-
-        if not sig:
-            # Try anonymous cache if session_id was missing at store time
-            anon_entry = self._cache.get(f"anon:{tc_id}")
-            if anon_entry:
-                anon_sig, anon_timestamp = anon_entry
-                if current_time - anon_timestamp > self._ttl_seconds:
-                    del self._cache[f"anon:{tc_id}"]
-                    self._by_tool_call.pop(tc_id, None)
-                    sig = None
-                else:
-                    sig = anon_sig
-
-        if not sig:
-            # Fallback to global index by tool_call_id (handles session re-keying)
-            sig = self._by_tool_call.get(tc_id)
+        sig = self._lookup_signature(tc_id, session_id)
         if not sig:
             # No cached signature available; avoid injecting placeholders that
             # can trigger "corrupted thought signature" errors.
@@ -146,6 +122,47 @@ class ThoughtSignatureManager:
             tc["extra_content"] = {"google": {"thought_signature": sig}}
         elif hasattr(tc, "extra_content"):
             tc.extra_content = {"google": {"thought_signature": sig}}
+
+    def _lookup_signature(self, tc_id: str, session_id: str) -> str | None:
+        """Look up a signature by tool_call_id and session_id.
+
+        Returns:
+            The signature if found and not expired, None otherwise.
+        """
+        current_time = time.time()
+        with self._lock:
+            cache_key = f"{session_id}:{tc_id}"
+
+            cache_entry = self._cache.get(cache_key)
+            sig: str | None = None
+
+            if cache_entry:
+                cached_sig, timestamp = cache_entry
+                if current_time - timestamp > self._ttl_seconds:
+                    # Expired, remove it
+                    del self._cache[cache_key]
+                    self._by_tool_call.pop(tc_id, None)
+                    sig = None
+                else:
+                    sig = cached_sig
+
+            if not sig:
+                # Try anonymous cache if session_id was missing at store time
+                anon_entry = self._cache.get(f"anon:{tc_id}")
+                if anon_entry:
+                    anon_sig, anon_timestamp = anon_entry
+                    if current_time - anon_timestamp > self._ttl_seconds:
+                        del self._cache[f"anon:{tc_id}"]
+                        self._by_tool_call.pop(tc_id, None)
+                        sig = None
+                    else:
+                        sig = anon_sig
+
+            if not sig:
+                # Fallback to global index by tool_call_id (handles session re-keying)
+                sig = self._by_tool_call.get(tc_id)
+
+            return sig
 
         if logger.isEnabledFor(TRACE_LEVEL):
             logger.log(
@@ -166,62 +183,65 @@ class ThoughtSignatureManager:
             tool_calls: List of tool call dictionaries with potential signatures
             session_id: The session ID for cache key construction
         """
-        anonymous_key = None if session_id else "anon"
-        current_time = time.time()
+        with self._lock:
+            anonymous_key = None if session_id else "anon"
+            current_time = time.time()
 
-        # Clean expired entries first
-        self._clean_expired_entries(current_time)
+            # Clean expired entries first
+            self._clean_expired_entries_locked(current_time)
 
-        for tc in tool_calls:
-            if not isinstance(tc, dict):
-                continue
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
 
-            tc_id = tc.get("id", "")
-            extra = tc.get("extra_content")
-            if not isinstance(extra, dict):
-                continue
+                tc_id = tc.get("id", "")
+                extra = tc.get("extra_content")
+                if not isinstance(extra, dict):
+                    continue
 
-            google_extra = extra.get("google", {})
-            sig = google_extra.get("thought_signature")
-            if not sig or not tc_id:
-                continue
+                google_extra = extra.get("google", {})
+                sig = google_extra.get("thought_signature")
+                if not sig or not tc_id:
+                    continue
 
-            cache_key = (
-                f"{session_id}:{tc_id}" if session_id else f"{anonymous_key}:{tc_id}"
-            )
-            if cache_key:
-                # Store with timestamp for TTL
-                self._cache[cache_key] = (sig, current_time)
-                self._by_tool_call[tc_id] = sig
+                cache_key = (
+                    f"{session_id}:{tc_id}"
+                    if session_id
+                    else f"{anonymous_key}:{tc_id}"
+                )
+                if cache_key:
+                    # Store with timestamp for TTL
+                    self._cache[cache_key] = (sig, current_time)
+                    self._by_tool_call[tc_id] = sig
 
-                # Move to end for LRU
-                self._cache.move_to_end(cache_key)
+                    # Move to end for LRU
+                    self._cache.move_to_end(cache_key)
 
-                # Enforce size limit
-                if len(self._cache) > self._max_cache_size:
-                    oldest_key, oldest_value = self._cache.popitem(last=False)
-                    oldest_sig, _ = oldest_value
-                    # Remove from secondary index too
-                    # Build fresh index from remaining cache entries
-                    # This fixes memory leak where stale entries accumulated
-                    new_by_tool_call = {}
-                    for cache_key, (sig, _) in self._cache.items():
-                        # Extract tc_id from cache_key (format: "session_id:tc_id")
-                        tc_id = (
-                            cache_key.split(":", 1)[1]
-                            if ":" in cache_key
-                            else cache_key
+                    # Enforce size limit
+                    if len(self._cache) > self._max_cache_size:
+                        oldest_key, oldest_value = self._cache.popitem(last=False)
+                        oldest_sig, _ = oldest_value
+                        # Remove from secondary index too
+                        # Build fresh index from remaining cache entries
+                        # This fixes memory leak where stale entries accumulated
+                        new_by_tool_call = {}
+                        for cache_key, (sig, _) in self._cache.items():
+                            # Extract tc_id from cache_key (format: "session_id:tc_id")
+                            tc_id = (
+                                cache_key.split(":", 1)[1]
+                                if ":" in cache_key
+                                else cache_key
+                            )
+                            new_by_tool_call[tc_id] = sig
+                        self._by_tool_call = new_by_tool_call
+
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stored thought_signature for tool_call_id=%s (key=%s, cache_size=%d)",
+                            tc_id,
+                            cache_key[:16],
+                            len(self._cache),
                         )
-                        new_by_tool_call[tc_id] = sig
-                    self._by_tool_call = new_by_tool_call
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Stored thought_signature for tool_call_id=%s (key=%s, cache_size=%d)",
-                        tc_id,
-                        cache_key[:16],
-                        len(self._cache),
-                    )
 
     def log_signature_state(
         self,
@@ -285,6 +305,18 @@ class ThoughtSignatureManager:
         Returns:
             Number of entries removed
         """
+        with self._lock:
+            return self._clean_expired_entries_locked(current_time)
+
+    def _clean_expired_entries_locked(self, current_time: float | None = None) -> int:
+        """Remove expired entries from cache (must hold lock).
+
+        Args:
+            current_time: Current timestamp (defaults to time.time())
+
+        Returns:
+            Number of entries removed
+        """
         if current_time is None:
             current_time = time.time()
 
@@ -313,28 +345,31 @@ class ThoughtSignatureManager:
         Returns:
             Number of entries cleared from cache
         """
-        keys_to_remove = [key for key in self._cache if key.startswith("anon:")]
+        with self._lock:
+            keys_to_remove = [key for key in self._cache if key.startswith("anon:")]
 
-        # Remove all keys first
-        for key in keys_to_remove:
-            self._cache.pop(key, None)
+            # Remove all keys first
+            for key in keys_to_remove:
+                self._cache.pop(key, None)
 
-        # Rebuild secondary index from remaining cache to fix memory leak
-        new_by_tool_call = {}
-        for cache_key, (sig, _) in self._cache.items():
-            # Skip anonymous entries since we're clearing those
-            if not cache_key.startswith("anon:"):
-                tc_id = cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
-                new_by_tool_call[tc_id] = sig
-        self._by_tool_call = new_by_tool_call
+            # Rebuild secondary index from remaining cache to fix memory leak
+            new_by_tool_call = {}
+            for cache_key, (sig, _) in self._cache.items():
+                # Skip anonymous entries since we're clearing those
+                if not cache_key.startswith("anon:"):
+                    tc_id = (
+                        cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
+                    )
+                    new_by_tool_call[tc_id] = sig
+            self._by_tool_call = new_by_tool_call
 
-        if keys_to_remove and logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Cleared %d anonymous thought_signature(s)",
-                len(keys_to_remove),
-            )
+            if keys_to_remove and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Cleared %d anonymous thought_signature(s)",
+                    len(keys_to_remove),
+                )
 
-        return len(keys_to_remove)
+            return len(keys_to_remove)
 
     def clear_session_cache(self, session_id: str) -> int:
         """Clear all cached signatures for a session.
@@ -351,35 +386,36 @@ class ThoughtSignatureManager:
         if not session_id:
             return 0
 
-        prefix = f"{session_id}:"
-        keys_to_remove: list[str] = [
-            key for key in self._cache if key.startswith(prefix)
-        ]
+        with self._lock:
+            prefix = f"{session_id}:"
+            keys_to_remove: list[str] = [
+                key for key in self._cache if key.startswith(prefix)
+            ]
 
-        # Also collect tool_call_ids to remove from secondary index
-        tool_call_ids_to_remove: list[str] = []
-        for key in keys_to_remove:
-            # Key format is "session_id:tool_call_id"
-            parts = key.split(":", 1)
-            if len(parts) == 2:
-                tool_call_ids_to_remove.append(parts[1])
+            # Also collect tool_call_ids to remove from secondary index
+            tool_call_ids_to_remove: list[str] = []
+            for key in keys_to_remove:
+                # Key format is "session_id:tool_call_id"
+                parts = key.split(":", 1)
+                if len(parts) == 2:
+                    tool_call_ids_to_remove.append(parts[1])
 
-        # Remove from primary cache
-        for key in keys_to_remove:
-            del self._cache[key]
+            # Remove from primary cache
+            for key in keys_to_remove:
+                del self._cache[key]
 
-        # Remove from secondary index
-        for tc_id in tool_call_ids_to_remove:
-            self._by_tool_call.pop(tc_id, None)
+            # Remove from secondary index
+            for tc_id in tool_call_ids_to_remove:
+                self._by_tool_call.pop(tc_id, None)
 
-        if keys_to_remove and logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Cleared %d thought_signature(s) for session %s",
-                len(keys_to_remove),
-                session_id[:8] if session_id else "none",
-            )
+            if keys_to_remove and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Cleared %d thought_signature(s) for session %s",
+                    len(keys_to_remove),
+                    session_id[:8] if session_id else "none",
+                )
 
-        return len(keys_to_remove)
+            return len(keys_to_remove)
 
 
 # Global instance for backward compatibility with class-level cache

@@ -26,10 +26,13 @@ class PathValidationService(IPathValidator):
         Args:
             cache_max_size: Maximum number of normalized paths to cache
         """
+        import threading
+
         self._logger = logging.getLogger(__name__)
         self._cache_max_size = cache_max_size
         # Cache for normalized paths: (path, base_dir) -> Path
         self._normalization_cache: dict[tuple[str, str | None], Path] = {}
+        self._lock = threading.Lock()
 
         # Detect operating system for platform-specific handling
         self._is_windows = platform.system() == "Windows"
@@ -63,10 +66,11 @@ class PathValidationService(IPathValidator):
         Raises:
             ValueError: If path is invalid or cannot be normalized
         """
-        # Check cache first
         cache_key = (path, base_dir)
-        if cache_key in self._normalization_cache:
-            return self._normalization_cache[cache_key]
+
+        with self._lock:
+            if cache_key in self._normalization_cache:
+                return self._normalization_cache[cache_key]
 
         try:
             # Handle empty or whitespace-only paths
@@ -99,11 +103,15 @@ class PathValidationService(IPathValidator):
 
             # Resolve symlinks and normalize (handles .., ., and symlinks)
             # resolve() returns an absolute path with all symlinks resolved
-            normalized = path_obj.resolve()
+            # Skip resolve() for UNC paths on Windows to avoid network I/O
+            if self._is_windows and str(path_obj).startswith("\\\\"):
+                normalized = path_obj
+            else:
+                normalized = path_obj.resolve()
 
-            # Cache the result if we haven't exceeded the cache size
-            if len(self._normalization_cache) < self._cache_max_size:
-                self._normalization_cache[cache_key] = normalized
+            with self._lock:
+                if len(self._normalization_cache) < self._cache_max_size:
+                    self._normalization_cache[cache_key] = normalized
 
             return normalized
 

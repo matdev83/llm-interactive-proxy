@@ -96,12 +96,14 @@ class TestCooldownLogic:
         model = "gemini-2.5-pro"
         connector._graceful_degradation.config.cooldown_duration = 1  # 1 second
 
-        connector._set_cooldown(model)
-        assert connector._is_in_cooldown(model)
+        with patch("time.time") as mock_time:
+            mock_time.return_value = 100.0
 
-        # Wait for cooldown to expire
-        time.sleep(1.1)
-        assert not connector._is_in_cooldown(model)
+            connector._set_cooldown(model)
+            assert connector._is_in_cooldown(model)
+
+            mock_time.return_value = 101.0
+            assert not connector._is_in_cooldown(model)
 
     def test_multiple_models_can_be_in_cooldown(
         self, connector: AntigravityOAuthConnector

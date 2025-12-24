@@ -5,6 +5,7 @@ Captures user prompts and assistant responses for enabled sessions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -48,6 +49,7 @@ class MemoryCaptureMiddleware:
         self._auto_enabled_sessions: TTLCache[str, bool] = TTLCache(
             maxsize=10000, ttl=3600
         )
+        self._lock = asyncio.Lock()
 
     async def capture_request(
         self,
@@ -79,33 +81,35 @@ class MemoryCaptureMiddleware:
         is_enabled = await self._memory_service.is_enabled_for_session(session_id)
 
         # Try auto-enable if default_enabled is True (Req 2.1)
-        should_auto_enable = (
-            not is_enabled
-            and self._config
-            and self._config.default_enabled
-            and session_id not in self._auto_enabled_sessions
-            and user_id
-        )
-        if should_auto_enable:
-            self._auto_enabled_sessions[session_id] = True
-            enabled = await self._memory_service.enable_for_session(
-                session_id,
-                cast(str, user_id),
-                client_id=client_id,
-                tenant_id=tenant_id,
-                project_root=project_root,
+        # Use lock to prevent race condition in check-and-set pattern
+        async with self._lock:
+            should_auto_enable = (
+                not is_enabled
+                and self._config
+                and self._config.default_enabled
+                and session_id not in self._auto_enabled_sessions
+                and user_id
             )
-            if enabled:
-                logger.info(
-                    "Auto-enabled memory for session %s (default_enabled=True)",
+            if should_auto_enable:
+                self._auto_enabled_sessions[session_id] = True
+                enabled = await self._memory_service.enable_for_session(
                     session_id,
+                    cast(str, user_id),
+                    client_id=client_id,
+                    tenant_id=tenant_id,
+                    project_root=project_root,
                 )
-                is_enabled = True
-            else:
-                logger.debug(
-                    "Auto-enable failed for session %s (denied or unavailable)",
-                    session_id,
-                )
+                if enabled:
+                    logger.info(
+                        "Auto-enabled memory for session %s (default_enabled=True)",
+                        session_id,
+                    )
+                    is_enabled = True
+                else:
+                    logger.debug(
+                        "Auto-enable failed for session %s (denied or unavailable)",
+                        session_id,
+                    )
 
         if not is_enabled:
             return

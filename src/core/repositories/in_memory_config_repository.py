@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -16,8 +17,9 @@ class InMemoryConfigRepository(IConfigRepository):
     """
 
     def __init__(self) -> None:
-        """Initialize the in-memory configuration repository."""
+        """Initialize in-memory configuration repository."""
         self._configs: dict[str, dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
 
     async def get_config(self, key: str) -> dict[str, Any] | None:
         """Get configuration by key.
@@ -28,7 +30,8 @@ class InMemoryConfigRepository(IConfigRepository):
         Returns:
             The configuration data if found, None otherwise
         """
-        return self._configs.get(key)
+        async with self._lock:
+            return self._configs.get(key)
 
     async def set_config(self, key: str, config: dict[str, Any]) -> None:
         """Set configuration data.
@@ -37,7 +40,8 @@ class InMemoryConfigRepository(IConfigRepository):
             key: The configuration key
             config: The configuration data to store
         """
-        self._configs[key] = config
+        async with self._lock:
+            self._configs[key] = config
 
     async def delete_config(self, key: str) -> bool:
         """Delete configuration by key.
@@ -46,9 +50,10 @@ class InMemoryConfigRepository(IConfigRepository):
             key: The configuration key to delete
 
         Returns:
-            True if the configuration was deleted, False if it didn't exist
+            True if configuration was deleted, False if it didn't exist
         """
-        if key in self._configs:
-            del self._configs[key]
-            return True
-        return False
+        async with self._lock:
+            if key in self._configs:
+                del self._configs[key]
+                return True
+            return False

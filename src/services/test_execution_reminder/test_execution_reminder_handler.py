@@ -68,12 +68,15 @@ class TestExecutionReminderHandler(IToolCallHandler):
             max_sessions: Maximum number of sessions to track
             test_runner_registry: Registry of test runner patterns (creates default if None)
         """
+        import threading
+
         self._message = message or DEFAULT_STEERING_MESSAGE
         self._enabled = enabled
         self._session_state: dict[str, TestExecutionSessionState] = {}
         self._state_ttl_seconds = max(state_ttl_seconds, 1)
         self._max_sessions = max(max_sessions, 1)
         self._test_runner_registry = test_runner_registry or TestRunnerRegistry()
+        self._lock = threading.Lock()
 
         if self._enabled:
             logger.info(
@@ -269,14 +272,15 @@ class TestExecutionReminderHandler(IToolCallHandler):
         """
         try:
             now = time()
-            self._prune_session_state(now)
+            with self._lock:
+                self._prune_session_state(now)
 
-            state = self._session_state.get(session_id)
-            if not state:
-                state = TestExecutionSessionState()
-                self._session_state[session_id] = state
+                state = self._session_state.get(session_id)
+                if not state:
+                    state = TestExecutionSessionState()
+                    self._session_state[session_id] = state
 
-            state.mark_dirty()
+                state.mark_dirty()
 
             # Log file modification with tool name, session ID, and timestamp
             logger.info(
@@ -312,14 +316,15 @@ class TestExecutionReminderHandler(IToolCallHandler):
         """
         try:
             now = time()
-            self._prune_session_state(now)
+            with self._lock:
+                self._prune_session_state(now)
 
-            state = self._session_state.get(session_id)
-            if not state:
-                state = TestExecutionSessionState()
-                self._session_state[session_id] = state
+                state = self._session_state.get(session_id)
+                if not state:
+                    state = TestExecutionSessionState()
+                    self._session_state[session_id] = state
 
-            state.mark_clean()
+                state.mark_clean()
 
             logger.info(
                 "Session %s marked as clean: test execution detected "
@@ -349,11 +354,12 @@ class TestExecutionReminderHandler(IToolCallHandler):
         """
         try:
             now = time()
-            self._prune_session_state(now)
+            with self._lock:
+                self._prune_session_state(now)
 
-            state = self._session_state.get(session_id)
-            if state:
-                state.update_last_seen()
+                state = self._session_state.get(session_id)
+                if state:
+                    state.update_last_seen()
 
             return state
 

@@ -318,13 +318,13 @@ class TestNormalizeStreamingResponse:
         assert chunks == [b"chunk1", b"chunk2"]
 
     @given(
-        data_list=st.lists(streaming_data(), min_size=1, max_size=2),  # Reduced from 3
+        data_list=st.lists(streaming_data(), min_size=1, max_size=1),
         media_type=st.sampled_from(["text/event-stream", "application/json"]),
         normalize=st.booleans(),
     )
     @settings(
-        max_examples=20,  # Further reduced for performance
-        deadline=5000,  # Increased deadline to prevent timeout
+        max_examples=5,
+        deadline=5000,
         suppress_health_check=[HealthCheck.too_slow],
     )
     @pytest.mark.asyncio

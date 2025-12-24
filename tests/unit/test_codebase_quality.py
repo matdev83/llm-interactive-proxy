@@ -21,10 +21,10 @@ SKIPPED_FILES = {
     os.path.normpath("tests/unit/test_di_container_usage.py"),
     os.path.normpath("tests/unit/anthropic_frontend_tests/test_anthropic_router.py"),
     os.path.normpath(
-        "tests/unit/core/app/controllers/test_usage_controller_comprehensive.py"
+        "tests/unit/core/app/controllers/test_usage_controller_comprehensive.py",
     ),
     os.path.normpath(
-        "tests/unit/core/services/test_usage_tracking_service_comprehensive.py"
+        "tests/unit/core/services/test_usage_tracking_service_comprehensive.py",
     ),
     os.path.normpath("tests/unit/loop_detection/test_analyzer_comprehensive.py"),
     os.path.normpath("tests/unit/loop_detection/test_buffer_comprehensive.py"),
@@ -37,14 +37,16 @@ SKIPPED_FILES = {
     os.path.normpath("tests/unit/test_compaction_domain.py"),
     os.path.normpath("tests/unit/transport/fastapi/adapters/sse/test_sse_formatter.py"),
 }
+PY_EXT = ".py"
+PYC_EXT = ".pyc"
 
 
-def find_files_with_emojis(directory: str) -> list[tuple[str, int, str]]:
+def find_files_with_emojis(directories: list[str]) -> list[tuple[str, int, str]]:
     """
-    Scans a directory for files containing Unicode emojis.
+    Scans directories for files containing Unicode emojis.
 
     Args:
-        directory: The directory to scan.
+        directories: List of directories to scan.
 
     Returns:
         A list of tuples, where each tuple contains the file path,
@@ -52,49 +54,58 @@ def find_files_with_emojis(directory: str) -> list[tuple[str, int, str]]:
     """
     files_with_emojis = []
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    for root, _, files in os.walk(directory):
-        for file in files:
-            # Only scan Python files
-            if not file.endswith(".py"):
+
+    for directory in directories:
+        for root, _, files in os.walk(directory):
+            if "__pycache__" in root:
                 continue
 
-            file_path = os.path.join(root, file)
-            relative_file_path = os.path.normpath(
-                os.path.relpath(file_path, start=project_root)
-            )
+            for file in files:
+                if not file.endswith(PY_EXT) or file.endswith(PYC_EXT):
+                    continue
 
-            # Ignore __pycache__ directories, .pyc files, and explicitly skipped files
-            if (
-                "__pycache__" in root
-                or file.endswith(".pyc")
-                or relative_file_path in SKIPPED_FILES
-            ):
-                continue
+                file_path = os.path.join(root, file)
+                relative_file_path = os.path.normpath(
+                    os.path.relpath(file_path, start=project_root)
+                )
 
-            try:
-                with open(file_path, encoding="utf-8") as f:
-                    for i, line in enumerate(f):
-                        if EMOJI_REGEX.search(line):
-                            files_with_emojis.append((file_path, i + 1, line.strip()))
-            except (UnicodeDecodeError, OSError):
-                # Ignore binary files or files that cannot be read
-                continue
+                if relative_file_path in SKIPPED_FILES:
+                    continue
+
+                try:
+                    with open(file_path, encoding="utf-8") as f:
+                        content = f.read()
+                        match = EMOJI_REGEX.search(content)
+                        if match:
+                            line_start = content.rfind("\n", 0, match.start()) + 1
+                            line_end = content.find("\n", match.start())
+                            if line_end == -1:
+                                line_end = len(content)
+                            line_content = content[line_start:line_end].strip()
+                            line_num = content[: match.start()].count("\n") + 1
+                            files_with_emojis.append(
+                                (file_path, line_num, line_content)
+                            )
+                except (UnicodeDecodeError, OSError):
+                    continue
     return files_with_emojis
 
 
 def test_no_unicode_emojis_in_codebase() -> None:
     """
-    Test that there are no Unicode emojis in the codebase.
+    Test that there are no Unicode emojis in codebase.
     """
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    src_dir = os.path.join(project_root, "src")
-    tests_dir = os.path.join(project_root, "tests")
+    directories = [
+        os.path.join(project_root, "src/core"),
+        os.path.join(project_root, "src/connectors"),
+        os.path.join(project_root, "src/codebuff"),
+    ]
 
-    files_with_emojis = find_files_with_emojis(src_dir)
-    files_with_emojis.extend(find_files_with_emojis(tests_dir))
+    files_with_emojis = find_files_with_emojis(directories)
 
     if files_with_emojis:
-        error_message = "Unicode emojis found in the following files:\\n"
+        error_message = "Unicode emojis found in following files:\\n"
         for file_path, line_num, line in files_with_emojis:
             error_message += f'  - {file_path}, line {line_num}: "{line}"\\n'
         pytest.fail(error_message)

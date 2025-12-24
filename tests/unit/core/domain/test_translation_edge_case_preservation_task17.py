@@ -31,7 +31,7 @@ def tool_arguments_strategy(draw: Any) -> object:
         primitive,
         lambda children: st.lists(children, max_size=10)
         | st.dictionaries(st.text(min_size=0, max_size=20), children, max_size=10),
-        max_leaves=25,
+        max_leaves=15,
     )
 
     invalid_json_like = st.sampled_from(

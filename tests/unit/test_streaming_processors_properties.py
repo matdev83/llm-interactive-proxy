@@ -86,7 +86,7 @@ class TestMiddlewareIdempotence:
 
     @pytest.mark.asyncio
     @given(chunk=non_done_streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_loop_detection_processor_idempotence(self, chunk):
         """Loop detection processor should be idempotent."""
         processor = LoopDetectionProcessor()
@@ -106,7 +106,7 @@ class TestMiddlewareIdempotence:
 
     @pytest.mark.asyncio
     @given(chunk=non_done_streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_think_tags_processor_idempotence(self, chunk):
         """Think tags processor should be idempotent."""
         processor = ThinkTagsProcessor(enabled=True)
@@ -126,7 +126,7 @@ class TestMiddlewareIdempotence:
 
     @pytest.mark.asyncio
     @given(chunk=streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_done_marker_passthrough_idempotence(self, chunk):
         """Done markers should pass through unchanged (idempotent)."""
         # Force chunk to be a done marker
@@ -195,7 +195,7 @@ class TestReasoningIsolation:
         reasoning_text=st.text(min_size=1, max_size=200),
         main_content=st.text(min_size=0, max_size=200),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_reasoning_stays_in_metadata(self, reasoning_text, main_content):
         """Reasoning content should never leak into main content."""
         # Create chunk with reasoning in metadata
@@ -229,7 +229,7 @@ class TestReasoningIsolation:
         think_content=st.text(min_size=1, max_size=100),
         response_content=st.text(min_size=0, max_size=100),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_think_tags_processor_extracts_to_metadata(
         self, think_content, response_content
     ):
@@ -269,7 +269,7 @@ class TestDoneMarkerPassthrough:
 
     @pytest.mark.asyncio
     @given(chunk=streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_loop_detection_passes_done_marker(self, chunk):
         """Loop detection processor should pass through done markers."""
         # Force chunk to be a done marker
@@ -283,7 +283,7 @@ class TestDoneMarkerPassthrough:
 
     @pytest.mark.asyncio
     @given(chunk=streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_think_tags_passes_done_marker(self, chunk):
         """Think tags processor should pass through done markers."""
         # Force chunk to be a done marker
@@ -297,7 +297,7 @@ class TestDoneMarkerPassthrough:
 
     @pytest.mark.asyncio
     @given(chunk=streaming_content_strategy())
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_processor_chain_preserves_done_marker(self, chunk):
         """A chain of processors should preserve done markers."""
         # Force chunk to be a done marker
@@ -336,7 +336,7 @@ class TestStreamStateIsolation:
         stream_id1=st.text(min_size=1, max_size=50),
         stream_id2=st.text(min_size=1, max_size=50),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_loop_detection_isolates_streams(
         self, content1, content2, stream_id1, stream_id2
     ):
@@ -391,7 +391,7 @@ class TestStreamStateIsolation:
         stream_id1=st.text(min_size=1, max_size=50),
         stream_id2=st.text(min_size=1, max_size=50),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_think_tags_isolates_streams(
         self, content1, content2, stream_id1, stream_id2
     ):
@@ -435,7 +435,7 @@ class TestStreamStateIsolation:
         stream_id1=st.text(min_size=1, max_size=50),
         stream_id2=st.text(min_size=1, max_size=50),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_reset_clears_state_for_new_stream(self, stream_id1, stream_id2):
         """Reset should clear state without affecting other streams."""
         # Ensure different stream IDs

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, cast
@@ -118,6 +119,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._cancellation_coordinator = cancellation_coordinator
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
+        self._cancellation_tasks_lock = threading.Lock()
+
+    def _cancellation_tasks_lock_sync_discard(self, task: asyncio.Task[None]) -> None:
+        """Synchronous discard for task done callback - uses thread-unsafe dict access.
+
+        This is safe because Python's GIL makes individual dict operations atomic,
+        and done callbacks run one at a time in the event loop.
+        """
+        self._cancellation_tasks.discard(task)
 
     def _normalize_backend_exception(
         self, exc: Exception, backend_type: str
@@ -323,7 +333,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                 self._cancellation_tasks = cancellation_tasks
 
                             def cancel(self) -> None:
-                                """Cancel the streaming backend work."""
+                                """Cancel streaming backend work."""
                                 if not self._cancelled:
                                     self._cancelled = True
                                     # Schedule cancellation callback execution
@@ -350,7 +360,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                         pass
 
                         cancellable: ICancellable = StreamingCancellable(
-                            result.cancel_callback, self._cancellation_tasks
+                            result.cancel_callback,
+                            self._cancellation_tasks,
                         )
                         self._cancellation_coordinator.register_cancellable(
                             session_key, cancellable
@@ -719,7 +730,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         are properly released.
         """
         # Take snapshot of pending tasks
-        pending_tasks = [t for t in self._cancellation_tasks if not t.done()]
+        with self._cancellation_tasks_lock:
+            pending_tasks = [t for t in self._cancellation_tasks if not t.done()]
         if pending_tasks:
             try:
                 # Cancel all pending tasks
@@ -735,5 +747,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         "Error during cancellation task cleanup", exc_info=True
                     )
             finally:
-                # Clear the set to prevent memory leaks
-                self._cancellation_tasks.clear()
+                # Clear set to prevent memory leaks
+                with self._cancellation_tasks_lock:
+                    self._cancellation_tasks.clear()

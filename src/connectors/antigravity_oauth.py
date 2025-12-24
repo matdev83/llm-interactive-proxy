@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.connectors.base import strip_vendor_prefix
 from src.connectors.gemini_base.credential_providers import (
@@ -72,6 +73,49 @@ MAX_JSON_PARSE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
     "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
 ).lower() not in {"0", "false", "no"}
+
+
+class AntigravityAuthStatus(BaseModel):
+    """Antigravity-specific auth status loaded from state database.
+
+    This model represents the credentials stored by Antigravity's VS Code extension.
+    The primary field is 'apiKey' which gets normalized to 'access_token' for
+    OAuth compatibility.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    api_key: str = Field(..., alias="apiKey", description="Antigravity API key/credential")
+    project_id: str | None = Field(None, description="Cached project ID")
+    refresh_token: str | None = Field(None, description="Refresh token if available")
+    expiry_date: int | None = Field(None, description="Token expiry timestamp in epoch milliseconds")
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        if not v or not isinstance(v, str):
+            raise ValueError("apiKey must be a non-empty string")
+        return v
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AntigravityAuthStatus":
+        """Create auth status from dictionary.
+
+        Args:
+            data: Dictionary containing auth status fields.
+
+        Returns:
+            AntigravityAuthStatus instance.
+        """
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for backward compatibility.
+
+        Returns:
+            Dictionary representation including extra fields.
+        """
+        return self.model_dump(mode="python", exclude_none=False, by_alias=True)
 
 
 class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
@@ -1004,9 +1048,34 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             )
         return unique_candidates
 
-    def _load_auth_status_from_db(self, db_path: Path) -> dict[str, Any] | None:
+    def _load_auth_status_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
         """
         Read the Antigravity auth status payload from the state database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        parsed = self._parse_auth_status_value_from_db(db_path)
+        return parsed
+
+    def _extract_credentials_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
+        """
+        Load and parse the Antigravity auth status from the database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        return self._load_auth_status_from_db(db_path)
+
+    def _parse_auth_status_value_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
+        """
+        Parse Antigravity auth status from database.
+
+        Args:
+            db_path: Path to the Antigravity state database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
         """
         try:
             # Use URI mode for read-only access to avoid locking issues
@@ -1054,15 +1123,17 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             )
             return None
 
-    def _extract_credentials_from_db(self, db_path: Path) -> dict[str, Any] | None:
+    def _parse_auth_status_value(
+        self, raw_value: str | bytes
+    ) -> AntigravityAuthStatus | None:
         """
-        Load and parse the Antigravity auth status from the database.
-        """
-        return self._load_auth_status_from_db(db_path)
+        Parse JSON string from the database into a strongly-typed model.
 
-    def _parse_auth_status_value(self, raw_value: str | bytes) -> dict[str, Any] | None:
-        """
-        Parse the JSON string from the database into a dictionary.
+        Args:
+            raw_value: Raw value from database (string or bytes).
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
         """
         try:
             if isinstance(raw_value, bytes):
@@ -1091,7 +1162,14 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 return None
 
             if isinstance(auth_data, dict):
-                return auth_data
+                try:
+                    return AntigravityAuthStatus.from_dict(auth_data)
+                except (ValueError, TypeError) as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to create AntigravityAuthStatus from dict: {e}"
+                        )
+                    return None
 
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -1110,19 +1188,30 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             return None
 
     def _normalize_antigravity_credentials(
-        self, credentials: dict[str, Any]
+        self, credentials: AntigravityAuthStatus | dict[str, Any]
     ) -> dict[str, Any]:
         """
         Normalize Antigravity-specific credentials to standard OAuth format.
 
         Antigravity stores credentials with 'apiKey' field, but the OAuth system
-        expects 'access_token'. This method maps the fields appropriately.
+        expects 'access_token'. This method maps fields appropriately.
+
+        Args:
+            credentials: AntigravityAuthStatus or dict containing credentials.
+
+        Returns:
+            Dictionary in standard OAuth format with 'access_token' field.
         """
-        if not isinstance(credentials, dict):
+        # Convert model to dict if needed
+        if isinstance(credentials, AntigravityAuthStatus):
+            base_dict = credentials.to_dict()
+        elif isinstance(credentials, dict):
+            base_dict = credentials
+        else:
             return credentials
 
         # Create a copy to avoid modifying the original
-        normalized = credentials.copy()
+        normalized = base_dict.copy()
 
         # Map Antigravity 'apiKey' to standard OAuth 'access_token'
         if "apiKey" in normalized and "access_token" not in normalized:

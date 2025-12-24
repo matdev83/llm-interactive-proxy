@@ -94,9 +94,13 @@ def convert_cline_marker_to_openai_tool_call(content: str) -> dict:
     """
     Convert Cline marker to OpenAI tool call format.
     Frontend-specific implementation for OpenAI API.
+
+    Returns dict for backward compatibility. Internal model is ToolCall.
     """
     import json
     import secrets
+
+    from src.core.domain.chat import FunctionCall, ToolCall
 
     # Extract content from marker
     if content.startswith("__CLINE_TOOL_CALL_MARKER__") and content.endswith(
@@ -108,14 +112,16 @@ def convert_cline_marker_to_openai_tool_call(content: str) -> dict:
     else:
         actual_content = content
 
-    return {
-        "id": f"call_{secrets.token_hex(12)}",
-        "type": "function",
-        "function": {
-            "name": "attempt_completion",
-            "arguments": json.dumps({"result": actual_content}),
-        },
-    }
+    tool_call = ToolCall(
+        id=f"call_{secrets.token_hex(12)}",
+        type="function",
+        function=FunctionCall(
+            name="attempt_completion",
+            arguments=json.dumps({"result": actual_content}),
+        ),
+    )
+
+    return tool_call.model_dump(mode="python")
 
 
 def convert_cline_marker_to_anthropic_tool_use(content: str) -> str:
@@ -185,6 +191,8 @@ def create_openai_attempt_completion_tool_call(content_lines: list[str]) -> dict
     strings (typically split lines from a command response) and converts them
     into the exact structure produced by
     `convert_cline_marker_to_openai_tool_call`.
+
+    Returns dict for backward compatibility. Internal model is ToolCall.
 
     Parameters
     ----------

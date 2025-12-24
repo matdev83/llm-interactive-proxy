@@ -203,6 +203,13 @@ def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
         dest="run_codex",
         help="Include tests marked with @pytest.mark.codex (excluded by default).",
     )
+    group.addoption(
+        "--run-black",
+        action="store_true",
+        default=False,
+        dest="run_black",
+        help="Include black formatting tests (excluded by default when ruff passes).",
+    )
 
 
 # Provide env fixtures used by config tests
@@ -453,7 +460,10 @@ def pytest_cmdline_parse(pluginmanager, args):
 
     if os.environ.get("DEBUG_TESTMON"):
         print(f"[DEBUG pytest_cmdline_parse] args: {list(args)}", file=sys.stderr)
-        print(f"[DEBUG pytest_cmdline_parse] PYTEST_XDIST_WORKER: {os.environ.get('PYTEST_XDIST_WORKER')}", file=sys.stderr)
+        print(
+            f"[DEBUG pytest_cmdline_parse] PYTEST_XDIST_WORKER: {os.environ.get('PYTEST_XDIST_WORKER')}",
+            file=sys.stderr,
+        )
 
     original_args = list(args)
     modified_args = args.copy()  # Don't modify original args
@@ -464,7 +474,10 @@ def pytest_cmdline_parse(pluginmanager, args):
         print(f"[DEBUG] original_args: {original_args}", file=sys.stderr)
         print(f"[DEBUG] HAS_PYTEST_TESTMON: {HAS_PYTEST_TESTMON}", file=sys.stderr)
         print(f"[DEBUG] use_testmon: {use_testmon}", file=sys.stderr)
-        print(f"[DEBUG] is_xdist_worker: {os.environ.get('PYTEST_XDIST_WORKER') is not None}", file=sys.stderr)
+        print(
+            f"[DEBUG] is_xdist_worker: {os.environ.get('PYTEST_XDIST_WORKER') is not None}",
+            file=sys.stderr,
+        )
 
     if use_testmon:
         if "--testmon" not in modified_args:

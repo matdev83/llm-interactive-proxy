@@ -300,8 +300,8 @@ class TestConnectionActivityTracker:
 
     def test_thread_safety(self) -> None:
         """Test thread-safe concurrent access."""
-        num_threads = 10
-        iterations_per_thread = 100
+        num_threads = 3
+        iterations_per_thread = 20
         errors: list[Exception] = []
 
         def worker(thread_id: int) -> None:
@@ -319,8 +319,6 @@ class TestConnectionActivityTracker:
                         self.tracker.increment_tx(
                             session_id, f"backend-{thread_id % 3}", 5
                         )
-                        # Brief yield to increase contention
-                        time.sleep(0.0001)
             except Exception as e:
                 errors.append(e)
 

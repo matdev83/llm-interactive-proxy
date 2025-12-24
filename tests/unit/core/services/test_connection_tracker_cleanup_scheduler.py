@@ -34,7 +34,7 @@ class TestConnectionTrackerCleanupScheduler:
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=1,  # Short interval for testing
+            cleanup_interval_seconds=0.1,
         )
 
         # Initially not running
@@ -47,7 +47,7 @@ class TestConnectionTrackerCleanupScheduler:
         assert not scheduler._cleanup_task.done()
 
         # Wait for at least one cleanup cycle
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(0.15)
 
         # Verify cleanup was called
         mock_tracker.cleanup_stale_connections.assert_called()
@@ -98,11 +98,11 @@ class TestConnectionTrackerCleanupScheduler:
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=1,
+            cleanup_interval_seconds=0.1,
         )
 
         await scheduler.start()
-        await asyncio.sleep(1.5)  # Wait for cleanup cycle
+        await asyncio.sleep(0.15)
         await scheduler.stop()
 
         # Verify cleanup was called
@@ -116,11 +116,11 @@ class TestConnectionTrackerCleanupScheduler:
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=1,
+            cleanup_interval_seconds=0.1,
         )
 
         await scheduler.start()
-        await asyncio.sleep(1.5)  # Wait for cleanup cycle
+        await asyncio.sleep(0.15)
         await scheduler.stop()
 
         # Verify cleanup was called
@@ -132,19 +132,18 @@ class TestConnectionTrackerCleanupScheduler:
         mock_tracker = MagicMock()
         mock_tracker.cleanup_stale_connections.side_effect = [
             Exception("Test error"),
-            2,  # Second call succeeds
+            2,
         ]
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=1,
+            cleanup_interval_seconds=0.1,
         )
 
         await scheduler.start()
-        await asyncio.sleep(2.5)  # Wait for multiple cleanup cycles
+        await asyncio.sleep(0.25)
         await scheduler.stop()
 
-        # Verify cleanup was called multiple times despite exception
         assert mock_tracker.cleanup_stale_connections.call_count >= 2
 
     @pytest.mark.asyncio
@@ -152,22 +151,20 @@ class TestConnectionTrackerCleanupScheduler:
         """Test stopping scheduler when cleanup task doesn't finish quickly."""
         mock_tracker = MagicMock()
 
-        # Create a slow cleanup task
         async def slow_cleanup():
-            await asyncio.sleep(31)  # Longer than 30s timeout (optimized from 35s)
+            await asyncio.sleep(0.4)
             return 1
 
         mock_tracker.cleanup_stale_connections = slow_cleanup
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=1,
+            cleanup_interval_seconds=0.1,
         )
 
         await scheduler.start()
-        await asyncio.sleep(0.5)  # Let cleanup start
+        await asyncio.sleep(0.1)
 
-        # Stop should timeout and cancel the task
         await scheduler.stop()
         assert not scheduler.is_running
 
@@ -179,15 +176,14 @@ class TestConnectionTrackerCleanupScheduler:
 
         scheduler = ConnectionTrackerCleanupScheduler(
             activity_tracker=mock_tracker,
-            cleanup_interval_seconds=30,  # Long interval
+            cleanup_interval_seconds=10,
         )
 
         await scheduler.start()
 
-        # Should stop quickly despite long interval
         start_time = time.time()
         await scheduler.stop()
         elapsed = time.time() - start_time
 
-        assert elapsed < 5  # Should stop immediately, not wait for interval
+        assert elapsed < 1
         assert not scheduler.is_running

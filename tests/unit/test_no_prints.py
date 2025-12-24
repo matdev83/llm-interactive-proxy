@@ -60,22 +60,27 @@ def test_no_print_statements(print_check_cache: dict[str, Any]) -> None:
     else:
         search_paths = [src_dir]
 
+    # Pre-compute skip set for faster lookups
+    skip_parts = {
+        "tests",
+        ".venv",
+        "site-packages",
+        ".git",
+        "dev",
+        "examples",
+        "tools",
+        "scripts",
+        "stubs",
+    }
+
     for search_path in search_paths:
         for path in search_path.rglob("*.py"):
-            if (
-                "tests" in path.parts
-                or ".venv" in path.parts
-                or "site-packages" in path.parts
-                or ".git" in path.parts
-                or "dev" in path.parts
-                or "examples" in path.parts
-                or "tools" in path.parts
-                or "scripts" in path.parts
-            ):
+            # Fast path: skip directories using set lookup
+            if any(skip_part in path.parts for skip_part in skip_parts):
                 continue
             if path in ALLOWED_FILES:
                 continue
-            if not path.is_file():  # Ensure it's a file, not a directory or symlink
+            if not path.is_file():
                 continue
 
             path_str = str(path)
@@ -143,8 +148,6 @@ def test_no_print_statements(print_check_cache: dict[str, Any]) -> None:
                     )
 
             except (SyntaxError, ValueError):
-                # Log a warning or just skip if the file is not valid Python
-                # Using print here would violate our own rule, so we'll just continue
                 continue
 
     # Save updated cache (only write if we made changes)
@@ -154,5 +157,4 @@ def test_no_print_statements(print_check_cache: dict[str, Any]) -> None:
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(print_check_cache, f, indent=2)
         except OSError:
-            # If we can't write cache, just continue - not a test failure
             pass

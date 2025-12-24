@@ -99,10 +99,13 @@ def test_threshold_warnings(
     persistence_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Mock both the date and the logger directly in the test
-    with patch.object(
-        DailyRequestCounter,
-        "_get_current_pacific_date",
-        return_value="2023-01-01",
+    with (
+        patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
+            return_value="2023-01-01",
+        ),
+        patch.object(DailyRequestCounter, "_save_state"),
     ):
         caplog.set_level(
             logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
@@ -187,12 +190,14 @@ def test_thresholds_persist_across_restarts(
     persistence_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Mock both the date and the logger directly in the test
+    original_save_state = DailyRequestCounter._save_state
     with (
         patch.object(
             DailyRequestCounter,
             "_get_current_pacific_date",
             return_value="2023-01-01",
         ),
+        patch.object(DailyRequestCounter, "_save_state"),
     ):
         caplog.set_level(
             logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
@@ -206,6 +211,8 @@ def test_thresholds_persist_across_restarts(
         assert counter.count == 800
         assert counter.logged_thresholds == {700, 800}
 
+        # Manually save state for this test since we mocked _save_state
+        original_save_state(counter)
         persisted = json.loads(persistence_path.read_text(encoding="utf-8"))
         assert set(persisted["logged_thresholds"]) == {700, 800}
 

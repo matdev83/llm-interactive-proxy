@@ -116,11 +116,12 @@ class AsyncUsageWriteQueue:
         self._shutdown_event = asyncio.Event()
         self._is_running = False
 
-        # Statistics
+        # Statistics - use lock for concurrent access
         self._total_inserts = 0
         self._total_updates = 0
         self._total_batches = 0
         self._last_flush_time: datetime | None = None
+        self._stats_lock = asyncio.Lock()
 
     async def start(self) -> None:
         """Start the background flush task."""
@@ -300,8 +301,9 @@ class AsyncUsageWriteQueue:
             await self._process_update_batch(update_batch)
 
         if insert_batch or update_batch:
-            self._last_flush_time = datetime.now(timezone.utc)
-            self._total_batches += 1
+            async with self._stats_lock:
+                self._last_flush_time = datetime.now(timezone.utc)
+                self._total_batches += 1
 
     async def _collect_batch(
         self, queue: asyncio.Queue[UsageRecord]
@@ -338,12 +340,9 @@ class AsyncUsageWriteQueue:
         record_ids = [r.id for r in batch]
 
         try:
-            # Run the actual database write in executor to not block event loop
-            loop = asyncio.get_running_loop()
-            count = await loop.run_in_executor(
-                None, lambda: asyncio.run(self._writer.batch_insert(batch))
-            )
-            self._total_inserts += count
+            count = await self._writer.batch_insert(batch)
+            async with self._stats_lock:
+                self._total_inserts += count
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Inserted %d usage records", count)
@@ -370,12 +369,9 @@ class AsyncUsageWriteQueue:
         record_ids = [r.id for r in batch]
 
         try:
-            # Run the actual database write in executor to not block event loop
-            loop = asyncio.get_running_loop()
-            count = await loop.run_in_executor(
-                None, lambda: asyncio.run(self._writer.batch_update(batch))
-            )
-            self._total_updates += count
+            count = await self._writer.batch_update(batch)
+            async with self._stats_lock:
+                self._total_updates += count
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Updated %d usage records", count)

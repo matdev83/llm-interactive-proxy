@@ -59,9 +59,9 @@ async def test_streaming_429_with_short_retry_after_emits_keepalive_and_retries(
         update={
             "failure_handling": FailureHandlingConfig(
                 enabled=True,
-                total_timeout_budget=5.0,
+                total_timeout_budget=3.0,
                 max_silent_wait=60.0,
-                keepalive_interval=1.0,
+                keepalive_interval=0.5,
                 max_failover_hops=5,
                 min_retry_wait=0.1,
             )

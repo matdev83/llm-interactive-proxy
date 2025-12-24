@@ -67,6 +67,9 @@ class JSONResponseBuilder:
         self._usage_header_injector = usage_header_injector or UsageHeaderInjector()
         self._reasoning_injector = reasoning_injector or ReasoningInjector()
         self._usage_normalization_service = usage_normalization_service
+        self._cached_usage_normalization_service: IUsageNormalizationService | None = (
+            None
+        )
 
     def _get_usage_normalization_service(self) -> IUsageNormalizationService | None:
         """Get usage normalization service from DI or instance.
@@ -76,6 +79,9 @@ class JSONResponseBuilder:
         """
         if self._usage_normalization_service is not None:
             return self._usage_normalization_service
+
+        if self._cached_usage_normalization_service is not None:
+            return self._cached_usage_normalization_service
 
         # Try to resolve from DI
         try:
@@ -88,7 +94,10 @@ class JSONResponseBuilder:
 
             provider = get_service_provider()
             if provider:
-                return provider.get_service(cast(type, IUsageNormalizationService))
+                self._cached_usage_normalization_service = provider.get_service(
+                    cast(type, IUsageNormalizationService)
+                )
+                return self._cached_usage_normalization_service
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -113,15 +122,12 @@ class JSONResponseBuilder:
             FastAPI JSONResponse
         """
         # Normalize content
-        content = self._prepare_json_content(envelope.content)
+        prepared_content = self._prepare_json_content(envelope.content)
 
         # Apply reasoning injection
-        content = self._reasoning_injector.inject_reasoning(
-            content, getattr(envelope, "metadata", None) or {}, streaming=False
+        prepared_content = self._reasoning_injector.inject_reasoning(
+            prepared_content, getattr(envelope, "metadata", None) or {}, streaming=False
         )
-
-        # Prepare JSON content
-        prepared_content = self._prepare_json_content(content)
 
         # Apply metadata (reasoning, steering_retry_occurred)
         if envelope.metadata and isinstance(prepared_content, dict):
@@ -149,16 +155,6 @@ class JSONResponseBuilder:
         headers = self._usage_header_injector.inject_headers(
             headers, usage_data or {}, canonical_usage=envelope.canonical_usage
         )
-
-        # Surface middleware metadata such as reasoning streams when available
-        if envelope.metadata and isinstance(prepared_content, dict):
-            metadata_reasoning = envelope.metadata.get(
-                "reasoning"
-            ) or envelope.metadata.get("reasoning_content")
-            if metadata_reasoning:
-                metadata_block = prepared_content.setdefault("metadata", {})
-                if isinstance(metadata_block, dict):
-                    metadata_block.setdefault("reasoning", metadata_reasoning)
 
         # Sanitize content and headers
         safe_content = self._json_sanitizer.sanitize(prepared_content)

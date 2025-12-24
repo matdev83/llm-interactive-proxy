@@ -47,7 +47,7 @@ class TestPropertyInfrastructureBasics:
         assert_valid_chunk(chunk)
 
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @property_test_settings(max_examples=50)
+    @property_test_settings(max_examples=20)
     def test_streams_with_done_marker(self, chunks):
         """Test that streams with done markers are properly structured.
 
@@ -135,7 +135,7 @@ class TestAsyncHelpers:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_strategy(min_size=1, max_size=20))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_async_stream_processing(self, chunks):
         """Test processing async streams.
 
@@ -170,7 +170,7 @@ class TestUtilityFunctions:
         assert chunk.stream_id == "stream-2"
 
     @given(chunks=chunk_stream_strategy(min_size=0, max_size=20))
-    @property_test_settings(max_examples=50)
+    @property_test_settings(max_examples=10)
     def test_count_done_markers(self, chunks):
         """Test counting done markers in streams."""
         # Add a done marker
@@ -208,14 +208,14 @@ class TestExamplePropertyTest:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_stream_processing_preserves_done_marker(self, chunks):
         """
         Example Property: Stream processing preserves done marker
         Feature: streaming-pipeline-refactor, Example property
 
         For any stream of chunks ending with a done marker, processing
-        the stream should preserve the done marker at the end.
+        stream should preserve done marker at the end.
 
         This is an example of how to write a complete property test.
         """

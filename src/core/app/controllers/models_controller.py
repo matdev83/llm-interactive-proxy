@@ -347,7 +347,7 @@ async def _list_models_impl(
                         elif hasattr(temp_backend, "aclose"):
                             with contextlib.suppress(RuntimeError, Exception):
                                 # Fire-and-forget cleanup task - no need to track it
-                                asyncio.create_task(temp_backend.aclose())  # noqa: RUF006
+                                asyncio.create_task(temp_backend.aclose())
 
             should_try_backend = backend_type in functional_backends or has_credentials
 

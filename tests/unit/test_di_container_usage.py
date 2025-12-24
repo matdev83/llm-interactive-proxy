@@ -34,14 +34,13 @@ class DIViolationScanner:
         """
         self.src_path = src_path
         self.violations: list[dict[str, Any]] = []
-        # Cache file contents to avoid redundant reads
         self._file_cache: dict[Path, str] = {}
+        self._py_files_cache: list[Path] | None = None
 
-        # Setup scan result caching
         self._cache_dir = src_path.parent / ".pytest_cache"
         self._cache_dir.mkdir(exist_ok=True)
         self._cache_file = self._cache_dir / "di_violations_cache.json"
-        self._cache_timeout = 3600  # 1 hour in seconds
+        self._cache_timeout = 3600
 
         self.service_interfaces = self._get_service_interfaces()
         self.service_implementations = self._get_service_implementations()
@@ -55,27 +54,36 @@ class DIViolationScanner:
                 self._file_cache[file_path] = ""
         return self._file_cache[file_path]
 
+    def _get_py_files(self) -> list[Path]:
+        """Get cached list of Python files to scan."""
+        if self._py_files_cache is None:
+            self._py_files_cache = [
+                py_file
+                for py_file in self.src_path.rglob("*.py")
+                if not self._should_skip_file(py_file)
+            ]
+        return self._py_files_cache
+
     def _calculate_codebase_hash(self) -> str:
-        """Calculate hash of all Python files in the codebase for caching."""
+        """Calculate hash of all Python files in the codebase for caching.
+
+        Uses sampling for performance: hashes all file metadata but only samples
+        file content from every 10th file.
+        """
         hasher = hashlib.sha256()
-        file_paths = []
-
-        # Collect all Python files to scan
-        for py_file in self.src_path.rglob("*.py"):
-            if not self._should_skip_file(py_file):
-                file_paths.append(py_file)
-
-        # Sort for consistent hashing
+        file_paths = self._get_py_files()
         file_paths.sort()
 
-        for file_path in file_paths:
+        sample_step = 10
+
+        for i, file_path in enumerate(file_paths):
             try:
-                content = self._read_file_cached(file_path)
                 hasher.update(str(file_path).encode())
-                hasher.update(content.encode())
                 hasher.update(str(file_path.stat().st_mtime).encode())
+                if i % sample_step == 0:
+                    content = self._read_file_cached(file_path)
+                    hasher.update(content.encode())
             except Exception:
-                # If we can't read a file, include its path and mtime anyway
                 hasher.update(str(file_path).encode())
                 with contextlib.suppress(Exception):
                     hasher.update(str(file_path.stat().st_mtime).encode())
@@ -110,28 +118,29 @@ class DIViolationScanner:
         if len(interfaces) >= 15:  # We have a good baseline
             return interfaces
 
-        # Optimized pattern - compile once for better performance
         interface_pattern = re.compile(
             r"\bI[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
         )
 
-        # Limit interface file scanning to specific directories only
-        interface_dirs = ["interfaces", "core/interfaces", "domain/interfaces"]
+        # Filter from cached Python files instead of multiple rglob calls
         interface_files = []
+        skip_patterns = ["test", "__pycache__", ".git"]
 
-        for interface_dir in interface_dirs:
-            dir_path = self.src_path / interface_dir
-            if dir_path.exists():
-                interface_files.extend(dir_path.rglob("*.py"))
-
-        # Also check files with interface in name in core directory only
-        core_dir = self.src_path / "core"
-        if core_dir.exists():
-            for file_path in core_dir.rglob("*.py"):
-                if "interface" in file_path.name.lower() and not any(
-                    skip in str(file_path) for skip in ["test", "__pycache__", ".git"]
-                ):
-                    interface_files.append(file_path)
+        for file_path in self._get_py_files():
+            norm_path = str(file_path).replace("\\", "/")
+            if (
+                any(
+                    pattern in norm_path
+                    for pattern in [
+                        "interfaces",
+                        "core/interfaces",
+                        "domain/interfaces",
+                    ]
+                )
+                or "interface" in file_path.name.lower()
+                and not any(skip in norm_path for skip in skip_patterns)
+            ):
+                interface_files.append(file_path)
 
         # Process files with cached reads and compiled pattern
         for file_path in interface_files:
@@ -169,29 +178,25 @@ class DIViolationScanner:
             # Filter out interfaces and return
             return {name for name in implementations if not name.startswith("I")}
 
-        # Compile pattern once for better performance
         impl_pattern = re.compile(
             r"\b[A-Z][a-zA-Z]*(?:Service|Processor|Factory|Handler|Resolver|Provider)\b"
         )
 
-        # Limit scanning to key directories only (services, core)
+        # Filter from cached Python files
         key_dirs = ["services", "core/services", "connectors", "core/app"]
         files_to_process = []
 
-        # Also add common service directories from src
-        for key_dir in key_dirs:
-            dir_path = self.src_path / key_dir
-            if dir_path.exists():
-                files_to_process.extend(dir_path.rglob("*.py"))
+        for file_path in self._get_py_files():
+            norm_path = str(file_path).replace("\\", "/")
+            if any(key_dir in norm_path for key_dir in key_dirs):
+                files_to_process.append(file_path)
 
-        # Only scan root src if we don't have enough files
         if len(files_to_process) < 20:
-            for file_path in self.src_path.rglob("*.py"):
+            skip_patterns = ["test", "__pycache__", ".git"]
+            for file_path in self._get_py_files():
+                norm_path = str(file_path).replace("\\", "/")
                 if (
-                    not any(
-                        skip in str(file_path)
-                        for skip in ["test", "__pycache__", ".git"]
-                    )
+                    not any(skip in norm_path for skip in skip_patterns)
                     and file_path not in files_to_process
                 ):
                     files_to_process.append(file_path)
@@ -212,6 +217,9 @@ class DIViolationScanner:
         """Scan the codebase for DI violations."""
         current_time = time.time()
 
+        # Calculate codebase hash once and reuse
+        current_hash = self._calculate_codebase_hash()
+
         # Check cache first
         if self._cache_file.exists():
             try:
@@ -220,7 +228,6 @@ class DIViolationScanner:
 
                 cached_hash = cache_data.get("codebase_hash")
                 cached_time = cache_data.get("timestamp", 0)
-                current_hash = self._calculate_codebase_hash()
 
                 # Use cached results if hash matches and cache is not too old
                 if (
@@ -237,14 +244,8 @@ class DIViolationScanner:
                 # If cache is corrupted or invalid, proceed with fresh scan
                 pass
 
-        # Perform fresh scan
         self.violations = []
-
-        # Collect files to process first to avoid multiple directory scans
-        files_to_process = []
-        for py_file in self.src_path.rglob("*.py"):
-            if not self._should_skip_file(py_file):
-                files_to_process.append(py_file)
+        files_to_process = self._get_py_files()
 
         # Process files with progress tracking
         for py_file in files_to_process:
@@ -261,10 +262,10 @@ class DIViolationScanner:
                     }
                 )
 
-        # Cache the results
+        # Cache the results (reuse the hash calculated earlier)
         try:
             cache_data = {
-                "codebase_hash": self._calculate_codebase_hash(),
+                "codebase_hash": current_hash,
                 "timestamp": current_time,
                 "violations": self.violations,
             }
@@ -287,18 +288,17 @@ class DIViolationScanner:
             "example_usage.py",
             "mock_",
             "_test_",
-            "src/core/di/",  # Whitelist all DI files
-            "src/core/app/controllers/",  # Whitelist all controller files
-            "src/core/app/stages/",  # Whitelist all stage files
-            "src/core/services/response_processor_service.py",  # Whitelist service constructor logic
-            "src/core/services/application_state_service.py",  # Whitelist service constructor logic
-            "src/core/services/backend_service.py",  # Whitelist service constructor logic
-            "src/connectors/",  # Whitelist all connector files
+            "src/core/di/",
+            "src/core/app/controllers/",
+            "src/core/app/stages/",
+            "src/core/services/response_processor_service.py",
+            "src/core/services/application_state_service.py",
+            "src/core/services/backend_service.py",
+            "src/connectors/",
         ]
 
         norm_path = str(file_path).replace("\\", "/")
-        norm_patterns = [p.replace("\\", "/") for p in skip_patterns]
-        return any(pattern in norm_path for pattern in norm_patterns)
+        return any(pattern in norm_path for pattern in skip_patterns)
 
     def _analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a single file for DI violations."""

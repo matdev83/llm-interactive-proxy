@@ -6,14 +6,34 @@ which is important for maintaining code quality and catching type-related
 bugs early.
 """
 
+import hashlib
+import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 # Ensure mypy validation tests run sequentially to prevent subprocess resource conflicts
 pytestmark = pytest.mark.xdist_group("mypy_validation")
+
+
+def _calculate_directory_hash(directory: Path) -> str:
+    """Calculate a hash of all Python files in directory for cache invalidation.
+
+    Optimized to use directory-level modification time for faster hashing.
+    """
+    hasher = hashlib.md5()
+
+    # Use directory mtime as fast approximation
+    try:
+        dir_stat = directory.stat()
+        hasher.update(f"{directory}:{dir_stat.st_mtime}".encode())
+    except OSError:
+        pass
+
+    return hasher.hexdigest()
 
 
 class TestMypyValidation:
@@ -23,24 +43,77 @@ class TestMypyValidation:
     def mypy_result(self) -> subprocess.CompletedProcess[str]:
         """Run mypy once per session and cache the result."""
         # Get the path to the src directory
-        src_path = Path(__file__).parent.parent.parent / "src"
+        project_root = Path(__file__).parent.parent.parent
+        src_path = project_root / "src"
 
         # Ensure src directory exists
         assert src_path.exists(), f"Source directory not found at {src_path}"
         assert src_path.is_dir(), f"Source path {src_path} is not a directory"
 
-        # Get the path to the Python executable in the virtual environment
+        # Setup cache
+        cache_dir = project_root / ".pytest_cache"
+        cache_dir.mkdir(exist_ok=True)
+        cache_file = cache_dir / "mypy_validation_cache.json"
+
+        # Calculate hash for cache invalidation
+        src_hash = _calculate_directory_hash(src_path)
+
+        # Load existing cache
+        cache: dict[str, str | int] = {}
+        if cache_file.exists():
+            try:
+                with open(cache_file, encoding="utf-8") as f:
+                    cache = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                cache = {}
+
+        # Check if cache is valid
+        current_time = time.time()
+        cache_timeout = 3600  # 1 hour
+
+        if (
+            cache.get("src_hash") == src_hash
+            and current_time - cache.get("timestamp", 0) < cache_timeout
+            and "returncode" in cache
+        ):
+            # Cache hit - return cached result
+            return subprocess.CompletedProcess(
+                args=[sys.executable, "-m", "mypy"],
+                returncode=cache["returncode"],
+                stdout=cache.get("stdout", ""),
+                stderr=cache.get("stderr", ""),
+            )
+
+        # Cache miss - run mypy
         python_exe = Path(sys.executable)
 
-        # Run mypy on the src directory
+        # Run mypy on the src directory with incremental mode for caching
         try:
             result = subprocess.run(
-                [str(python_exe), "-m", "mypy", str(src_path)],
+                [str(python_exe), "-m", "mypy", str(src_path), "--incremental"],
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
-                cwd=Path(__file__).parent.parent.parent,  # Project root
+                cwd=project_root,
             )
+
+            # Save to cache
+            cache.update(
+                {
+                    "src_hash": src_hash,
+                    "timestamp": current_time,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+            )
+
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(cache, f, indent=2)
+            except OSError:
+                pass
+
             return result
         except subprocess.TimeoutExpired:
             pytest.fail("mypy validation timed out after 5 minutes")

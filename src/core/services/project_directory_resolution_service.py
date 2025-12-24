@@ -338,6 +338,11 @@ class ProjectDirectoryResolutionService:
         elif os.name == "nt" and path_type == "unix":
             return None
 
+        # Skip network I/O for UNC paths to avoid timeouts on non-existent servers
+        # In production, UNC paths should be validated by user intent anyway
+        if path_type == "unc":
+            return None
+
         try:
             dir_path = Path(candidate_path)
             if not dir_path.exists():

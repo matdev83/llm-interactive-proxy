@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
@@ -23,25 +24,27 @@ logger = logging.getLogger(__name__)
 
 # Thread pool for running blocking ping operations
 _ping_executor: ThreadPoolExecutor | None = None
+_ping_executor_lock = threading.Lock()
 
 
 def _get_ping_executor() -> ThreadPoolExecutor:
     """Get or create the shared thread pool for ping operations."""
     global _ping_executor
-    if _ping_executor is None:
-        # Use a small pool since pings are quick but may need parallelism
-        _ping_executor = ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="ping_check"
-        )
-    return _ping_executor
+    with _ping_executor_lock:
+        if _ping_executor is None:
+            _ping_executor = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="ping_check"
+            )
+        return _ping_executor
 
 
 def _shutdown_ping_executor() -> None:
     """Shutdown the ping thread pool."""
     global _ping_executor
-    if _ping_executor is not None:
-        _ping_executor.shutdown(wait=False)
-        _ping_executor = None
+    with _ping_executor_lock:
+        if _ping_executor is not None:
+            _ping_executor.shutdown(wait=False)
+            _ping_executor = None
 
 
 class ICMPHealthChecker:

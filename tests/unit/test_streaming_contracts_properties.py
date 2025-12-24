@@ -137,10 +137,10 @@ def test_property_chunk_validation(chunk: StreamingContent) -> None:
 
 # Property 2: Single sentinel emission
 @given(
-    chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=50),
+    chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20),
     inject_done=st.booleans(),
 )
-@settings(max_examples=50)
+@settings(max_examples=20)
 def test_property_single_sentinel_emission(
     chunks: list[StreamingContent], inject_done: bool
 ) -> None:

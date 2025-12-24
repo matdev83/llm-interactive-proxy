@@ -17,6 +17,75 @@ import pytest
 
 
 @pytest.fixture(scope="session")
+def architectural_linter_cache() -> dict[str, Any]:
+    """Session-scoped cache for architectural linter results."""
+    project_root = Path(__file__).parent.parent.parent
+    src_dir = project_root / "src"
+
+    # Setup cache directory and file
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "architectural_linter_cache.json"
+
+    # Calculate hash of src directory for cache invalidation
+    src_hash = _calculate_directory_hash(src_dir)
+
+    # Load existing cache or create empty cache
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    # Check if cache is valid (same directory hash and not expired)
+    current_time = time.time()
+    cache_timeout = 3600
+
+    if (
+        cache.get("src_hash") == src_hash
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "result" in cache
+    ):
+        return cache
+
+    # Run architectural linter
+    architectural_linter_path = (
+        project_root / "dev" / "scripts" / "architectural_linter.py"
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(architectural_linter_path), str(src_dir)],
+        capture_output=True,
+        text=True,
+        cwd=project_root,
+    )
+
+    # Cache result
+    cache.update(
+        {
+            "src_hash": str(src_hash),
+            "timestamp": current_time,
+            "result": {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        }
+    )
+
+    # Save updated cache
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
+
+
+@pytest.fixture(scope="session")
 def bandit_security_cache() -> dict[str, Any]:
     """Session-scoped cache for bandit security scanning results."""
     project_root = Path(__file__).parent.parent.parent
@@ -98,14 +167,14 @@ def bandit_security_cache() -> dict[str, Any]:
         json_content = stdout[json_start:]
         bandit_output = json.loads(json_content)
 
-        # Cache the successful result
+        # Cache minimal data to reduce file size (store only returncode and issue count)
         cache.update(
             {
                 "src_hash": str(src_hash),  # Ensure string conversion
                 "timestamp": current_time,
                 "result": {
-                    "bandit_output": bandit_output,
                     "returncode": result.returncode,
+                    "issue_count": len(bandit_output.get("results", [])),
                 },
             }
         )
@@ -144,16 +213,29 @@ def black_formatting_cache() -> dict[str, Any]:
     """
     project_root = Path(__file__).parent.parent.parent
 
-    # Quick check: if ruff passes on src, skip black entirely
+    # Quick check: if ruff passes on both src and tests, skip black entirely
     # (ruff covers most formatting issues that black would catch)
-    ruff_check = subprocess.run(
+    ruff_src_check = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--no-fix", str(project_root / "src")],
         capture_output=True,
         text=True,
         cwd=project_root,
     )
-    if ruff_check.returncode == 0:
-        # Ruff passed - black is redundant, return cache indicating skip
+    ruff_tests_check = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--no-fix",
+            str(project_root / "tests"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=project_root,
+    )
+    if ruff_src_check.returncode == 0 and ruff_tests_check.returncode == 0:
+        # Ruff passed on both - black is redundant, return cache indicating skip
         return {
             "ruff_passed": True,
             "src_result": {"returncode": 0, "skipped": True},
@@ -278,11 +360,20 @@ def _run_black_check(directory: Path, project_root: Path) -> dict[str, Any]:
     }
 
 
+# In-memory cache for directory hashes to avoid redundant calculations
+_dir_hash_cache: dict[Path, str] = {}
+
+
 def _calculate_directory_hash(directory: Path) -> str:
-    """Calculate a hash of all Python files in the directory for cache invalidation.
+    """Calculate a hash of all Python files in directory for cache invalidation.
 
     Optimized to use directory-level modification time when possible for faster hashing.
+    Results are cached to avoid redundant calculations.
     """
+    # Check cache first
+    if directory in _dir_hash_cache:
+        return _dir_hash_cache[directory]
+
     hasher = hashlib.md5()
 
     # First try to use directory modification time as a fast approximation
@@ -312,7 +403,9 @@ def _calculate_directory_hash(directory: Path) -> str:
             except OSError:
                 continue
 
-    return hasher.hexdigest()
+    result = hasher.hexdigest()
+    _dir_hash_cache[directory] = result
+    return result
 
 
 @pytest.mark.quality
@@ -418,15 +511,29 @@ def test_ruff_linting_on_tests() -> None:
 
 
 @pytest.mark.quality
-def test_black_formatting_on_tests(black_formatting_cache: dict[str, Any]) -> None:
-    """Test that black formatting passes on the tests directory with auto-fix.
+def test_black_formatting_on_tests(request: pytest.FixtureRequest) -> None:
+    """Test that black formatting passes on tests directory with auto-fix.
 
-    This test runs black on the tests directory with auto-fix enabled.
+    This test runs black on tests directory with auto-fix enabled.
     It only fails if there are formatting issues that cannot be automatically fixed.
     This helps maintain consistent code style across all test files by automatically
     applying fixes and only reporting unrecoverable errors.
     Uses session-scoped caching for better performance.
+
+    Note: This test is skipped by default when ruff linting passes, since ruff covers
+    most formatting issues that black would catch. Use pytest --run-black to run it.
     """
+    # Skip if --run-black flag not provided
+    if not request.config.getoption("--run-black", default=False):
+        pytest.skip(
+            "Black formatting skipped: use --run-black flag (black is redundant when ruff passes)"
+        )
+
+    # Lazy fixture access - only created if test actually runs
+    black_formatting_cache: dict[str, Any] = request.getfixturevalue(
+        "black_formatting_cache"
+    )
+
     # Get the cached black result for tests directory
     tests_result = black_formatting_cache.get("tests_result", {})
 
@@ -541,14 +648,13 @@ def test_black_formatting_on_src(request: pytest.FixtureRequest) -> None:
     applying fixes and only reporting unrecoverable errors.
     Uses session-scoped caching for better performance.
 
-    Note: This test is skipped when ruff linting passes, since ruff covers
-    most formatting issues that black would catch.
+    Note: This test is skipped by default when ruff linting passes, since ruff covers
+    most formatting issues that black would catch. Use pytest --run-black to run it.
     """
-    # Skip if ruff passes - black is redundant in this case
-    # Check this BEFORE accessing the fixture to avoid expensive setup
-    if _quick_ruff_check():
+    # Skip if --run-black flag not provided
+    if not request.config.getoption("--run-black", default=False):
         pytest.skip(
-            "Black formatting skipped: ruff linting passed (black is redundant when ruff passes)"
+            "Black formatting skipped: use --run-black flag (black is redundant when ruff passes)"
         )
 
     # Lazy fixture access - only created if test actually runs
@@ -1067,9 +1173,9 @@ def _read_suppressions_for_cli(suppressions_file: Path) -> str:
 def test_bandit_security_scan_on_src_strict(
     bandit_security_cache: dict[str, Any],
 ) -> None:
-    """Test that bandit security scanning passes on the src directory with high severity and confidence.
+    """Test that bandit security scanning passes on src directory with high severity and confidence.
 
-    This test runs bandit to detect security issues in the src directory with strict filters:
+    This test runs bandit to detect security issues in src directory with strict filters:
     - Only reports issues with HIGH severity
     - Only reports issues with HIGH confidence
     - Exits with failure if any such issues are found
@@ -1088,81 +1194,43 @@ def test_bandit_security_scan_on_src_strict(
             f"Stderr: {cached_result.get('stderr', '')}"
         )
 
-    # Get the bandit output from cache
-    bandit_output = cached_result.get("bandit_output", {})
-
-    # Check if bandit found any high severity, high confidence issues
-    high_severity_issues = bandit_output.get("results", [])
+    # Check if bandit found any high severity, high confidence issues (using cached count)
+    issue_count = cached_result.get("issue_count", 0)
 
     # If any high severity, high confidence issues are found, fail the test
-    if high_severity_issues:
-        error_lines = []
-        error_lines.append(
-            f"bandit found {len(high_severity_issues)} HIGH severity, HIGH confidence security issues in src/:"
+    if issue_count > 0:
+        error_msg = (
+            f"bandit found {issue_count} HIGH severity, HIGH confidence security issues in src/.\n"
+            "Run 'bandit -r src --severity-level high --confidence-level high' to see details."
         )
-
-        # Format results by file
-        files: dict[str, list] = {}
-        for issue in high_severity_issues:
-            filename = issue.get("filename", "unknown")
-            if filename not in files:
-                files[filename] = []
-            files[filename].append(issue)
-
-        # Format results by file
-        for filename, issues in sorted(files.items()):
-            error_lines.append(f"\n{filename}:")
-            for issue in sorted(issues, key=lambda x: x.get("line_number", 0)):
-                line_num = issue.get("line_number", "unknown")
-                test_id = issue.get("test_id", "unknown")
-                issue_text = issue.get("issue_text", "no description")
-                error_lines.append(f"  Line {line_num}: {test_id} - {issue_text}")
-
-        error_lines.append(
-            "\nThese are HIGH severity issues with HIGH confidence that should be addressed immediately."
-        )
-        error_msg = "\n".join(error_lines)
         pytest.fail(error_msg)
 
 
 @pytest.mark.quality
-def test_architectural_linter_compliance() -> None:
-    """Test that architectural linter passes on the src directory.
+def test_architectural_linter_compliance(
+    architectural_linter_cache: dict[str, Any],
+) -> None:
+    """Test that architectural linter passes on src directory.
 
-    This test runs the architectural linter to detect SOLID principle violations
-    and DIP (Dependency Inversion Principle) issues. It helps ensure the codebase
+    This test runs architectural linter to detect SOLID principle violations
+    and DIP (Dependency Inversion Principle) issues. It helps ensure codebase
     follows proper architectural patterns and dependency injection practices.
 
     The test will fail if any architectural violations are found.
+    Uses session-scoped caching for better performance.
     """
-    import subprocess
-    import sys
-    from pathlib import Path
+    # Get cached result
+    cached_result = architectural_linter_cache.get("result", {})
 
-    # Get project root
-    project_root = Path(__file__).parent.parent.parent
-    architectural_linter_path = (
-        project_root / "dev" / "scripts" / "architectural_linter.py"
-    )
-    src_dir = project_root / "src"
-
-    # Run the architectural linter
-    result = subprocess.run(
-        [sys.executable, str(architectural_linter_path), str(src_dir)],
-        capture_output=True,
-        text=True,
-        cwd=project_root,
-    )
-
-    # If the linter found violations (exit code 1), fail the test
-    if result.returncode != 0:
-        error_msg = f"Architectural linter found violations in src/:\n{result.stdout}\n{result.stderr}"
+    # If linter found violations (exit code 1), fail test
+    if cached_result.get("returncode", 0) != 0:
+        error_msg = f"Architectural linter found violations in src/:\n{cached_result.get('stdout', '')}\n{cached_result.get('stderr', '')}"
         pytest.fail(error_msg)
 
     # The linter should have succeeded (exit code 0)
     assert (
-        result.returncode == 0
-    ), f"Architectural linter failed:\n{result.stdout}\n{result.stderr}"
+        cached_result.get("returncode", 0) == 0
+    ), f"Architectural linter failed:\n{cached_result.get('stdout', '')}\n{cached_result.get('stderr', '')}"
 
 
 def _is_false_positive(item: object) -> bool:

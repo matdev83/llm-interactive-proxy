@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
+import threading
 import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
@@ -65,6 +66,15 @@ class BackendLifecycleManager(IBackendLifecycleManager):
 
         # Track shutdown tasks created by discard() to prevent resource leaks
         self._shutdown_tasks: set[asyncio.Task[None]] = set()
+        self._shutdown_tasks_lock = threading.Lock()
+
+    def _shutdown_tasks_lock_sync_discard(self, task: asyncio.Task[None]) -> None:
+        """Synchronous discard for task done callback - uses thread-unsafe dict access.
+
+        This is safe because Python's GIL makes individual dict operations atomic,
+        and done callbacks run one at a time in the event loop.
+        """
+        self._shutdown_tasks.discard(task)
 
     @staticmethod
     def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
@@ -211,9 +221,10 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                     self._factory.unregister_backend(cache_key)
             # Create shutdown task and track it to prevent resource leaks
             task = asyncio.create_task(self.shutdown(backend))
-            self._shutdown_tasks.add(task)
+            with self._shutdown_tasks_lock:
+                self._shutdown_tasks.add(task)
             # Remove task from tracking set when it completes
-            task.add_done_callback(self._shutdown_tasks.discard)
+            task.add_done_callback(lambda t: self._shutdown_tasks_lock_sync_discard(t))
 
         for cache_key in global_cache_keys_to_remove:
             backend = self._backends.pop(cache_key, None)
@@ -332,6 +343,10 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         # Await any pending shutdown tasks from previous discards
         await self.await_pending_shutdown_tasks()
 
+        # Clear the shutdown tasks lock to prevent memory leaks
+        with self._shutdown_tasks_lock:
+            self._shutdown_tasks.clear()
+
         if logger.isEnabledFor(logging.INFO):
             logger.info("All backends shut down.")
 
@@ -344,15 +359,16 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         Args:
             timeout: Maximum time to wait for tasks to complete (default: 5.0 seconds).
         """
-        if not self._shutdown_tasks:
-            return
+        with self._shutdown_tasks_lock:
+            if not self._shutdown_tasks:
+                return
 
-        # Filter out completed tasks
-        pending_tasks = [t for t in self._shutdown_tasks if not t.done()]
-        if not pending_tasks:
-            # All tasks completed, clear the set
-            self._shutdown_tasks.clear()
-            return
+            # Filter out completed tasks
+            pending_tasks = [t for t in self._shutdown_tasks if not t.done()]
+            if not pending_tasks:
+                # All tasks completed, clear the set
+                self._shutdown_tasks.clear()
+                return
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -378,4 +394,5 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             await asyncio.gather(*pending_tasks, return_exceptions=True)
         finally:
             # Clear completed tasks from tracking set
-            self._shutdown_tasks = {t for t in self._shutdown_tasks if not t.done()}
+            with self._shutdown_tasks_lock:
+                self._shutdown_tasks = {t for t in self._shutdown_tasks if not t.done()}

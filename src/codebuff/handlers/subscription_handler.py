@@ -57,7 +57,7 @@ class SubscriptionHandler:
             CodebuffSessionError: If session is not found
             CodebuffError: If subscription fails
         """
-        session = self._connection_manager.get_session(websocket)
+        session = await self._connection_manager.get_session(websocket)
         if session is None:
             logger.error("Attempted to subscribe unknown session")
             raise CodebuffSessionError(
@@ -84,7 +84,7 @@ class SubscriptionHandler:
                 )
 
             # Add subscriptions through connection manager
-            self._connection_manager.subscribe(websocket, topics)
+            await self._connection_manager.subscribe(websocket, topics)
 
             logger.info(
                 "Successfully subscribed session %s to %d topics",
@@ -125,7 +125,7 @@ class SubscriptionHandler:
             CodebuffSessionError: If session is not found
             CodebuffError: If unsubscription fails
         """
-        session = self._connection_manager.get_session(websocket)
+        session = await self._connection_manager.get_session(websocket)
         if session is None:
             logger.error("Attempted to unsubscribe unknown session")
             raise CodebuffSessionError(
@@ -152,7 +152,7 @@ class SubscriptionHandler:
                 )
 
             # Remove subscriptions through connection manager
-            self._connection_manager.unsubscribe(websocket, topics)
+            await self._connection_manager.unsubscribe(websocket, topics)
 
             logger.info(
                 "Successfully unsubscribed session %s from %d topics",
