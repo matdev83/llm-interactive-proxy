@@ -3,6 +3,7 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 
 import pytz
 
@@ -21,6 +22,7 @@ class DailyRequestCounter:
         self._reset_if_needed()
         if self._check_thresholds():
             self._save_state()
+        self._lock = Lock()
 
     @property
     def logged_thresholds(self) -> set[int]:
@@ -97,10 +99,11 @@ class DailyRequestCounter:
             self._save_state()
 
     def increment(self) -> None:
-        self._reset_if_needed()
-        self.count += 1
-        self._check_thresholds()
-        self._save_state()
+        with self._lock:
+            self._reset_if_needed()
+            self.count += 1
+            self._check_thresholds()
+            self._save_state()
 
     def _check_thresholds(self) -> bool:
         """Log warnings for thresholds that have been met or exceeded."""

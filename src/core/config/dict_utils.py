@@ -5,8 +5,15 @@ from typing import Any
 
 
 def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Deep-merge override into base (mutates and returns base)."""
+    """Deep-merge override into base (mutates and returns base).
 
+    Args:
+        base: Base dictionary to merge into
+        override: Override dictionary with values to merge
+
+    Returns:
+        The merged base dictionary
+    """
     for key, value in override.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):
             merge_dicts(base[key], value)
@@ -93,11 +100,11 @@ def set_by_path(target: dict[str, Any], path: str, value: Any) -> None:
     current[parts[-1]] = value
 
 
-def get_by_path(source: dict[str, Any], path: str) -> Any:
+def get_by_path(source: dict[str, Any], path: str) -> dict[str, Any] | None:
     parts = _parse_path(path)
     if not parts:
         return None
-    current: Any = source
+    current: dict[str, Any] | None = source
     for key in parts:
         if not isinstance(current, dict):
             return None

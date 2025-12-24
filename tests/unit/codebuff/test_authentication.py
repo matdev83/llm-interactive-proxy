@@ -51,7 +51,7 @@ class TestAuthTokenHandling:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action with auth token
         action = PromptAction(
@@ -67,7 +67,7 @@ class TestAuthTokenHandling:
         await handler.handle_prompt(websocket, action)
 
         # Verify token is stored in session
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.auth_token == "test-auth-token-123"
 
     @pytest.mark.asyncio
@@ -102,7 +102,7 @@ class TestAuthTokenHandling:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action without auth token
         action = PromptAction(
@@ -121,7 +121,7 @@ class TestAuthTokenHandling:
         assert websocket.send_json.called
 
         # Verify session has no auth token
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.auth_token is None
 
     @pytest.mark.asyncio
@@ -140,7 +140,7 @@ class TestAuthTokenHandling:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create init action with auth token
         action = InitAction(
@@ -154,7 +154,7 @@ class TestAuthTokenHandling:
         await handler.handle_init(websocket, action)
 
         # Verify token is stored in session
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.auth_token == "test-auth-token-456"
 
 
@@ -193,7 +193,7 @@ class TestFingerprintTracking:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action with fingerprint ID
         action = PromptAction(
@@ -208,7 +208,7 @@ class TestFingerprintTracking:
         await handler.handle_prompt(websocket, action)
 
         # Verify fingerprint ID is stored in session
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.fingerprint_id == "unique-fingerprint-789"
 
     @pytest.mark.asyncio
@@ -227,7 +227,7 @@ class TestFingerprintTracking:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create init action with fingerprint ID
         action = InitAction(
@@ -240,7 +240,7 @@ class TestFingerprintTracking:
         await handler.handle_init(websocket, action)
 
         # Verify fingerprint ID is stored in session
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.fingerprint_id == "unique-fingerprint-abc"
 
     @pytest.mark.asyncio
@@ -275,7 +275,7 @@ class TestFingerprintTracking:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # First prompt with fingerprint ID
         action1 = PromptAction(
@@ -288,7 +288,7 @@ class TestFingerprintTracking:
         await handler.handle_prompt(websocket, action1)
 
         # Verify fingerprint ID is stored
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.fingerprint_id == "persistent-fingerprint"
 
         # Second prompt with same fingerprint ID
@@ -302,7 +302,7 @@ class TestFingerprintTracking:
         await handler.handle_prompt(websocket, action2)
 
         # Verify fingerprint ID is still the same
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.fingerprint_id == "persistent-fingerprint"
 
 
@@ -346,7 +346,7 @@ class TestCostAttribution:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action with fingerprint ID
         action = PromptAction(
@@ -361,7 +361,7 @@ class TestCostAttribution:
         await handler.handle_prompt(websocket, action)
 
         # Verify session has fingerprint ID for cost attribution
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.fingerprint_id == "cost-tracking-fingerprint"
 
         # Verify backend was called (usage data available)
@@ -404,7 +404,7 @@ class TestCostAttribution:
 
         # Register connection
         session_id = "test-session-for-cost"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action without fingerprint ID (empty string)
         action = PromptAction(
@@ -419,7 +419,7 @@ class TestCostAttribution:
         await handler.handle_prompt(websocket, action)
 
         # Verify session has session_id for cost attribution
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session.session_id == session_id
 
         # Verify backend was called (usage data available)
@@ -462,7 +462,7 @@ class TestCostAttribution:
 
         # Register connection
         session_id = "test-session"
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create prompt action
         action = PromptAction(

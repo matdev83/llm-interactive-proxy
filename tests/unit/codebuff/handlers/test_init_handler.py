@@ -26,7 +26,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         file_context = {
             "file1.py": {"content": "print('hello')"},
@@ -45,7 +45,7 @@ class TestInitHandler:
         response = await init_handler.handle_init(websocket, init_action)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.file_context == file_context
         assert response.type == "init-response"
@@ -61,7 +61,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         init_action = InitAction(
             type="init",
@@ -75,7 +75,7 @@ class TestInitHandler:
         await init_handler.handle_init(websocket, init_action)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.fingerprint_id == "test-fingerprint-456"
 
@@ -88,7 +88,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         init_action = InitAction(
             type="init",
@@ -102,7 +102,7 @@ class TestInitHandler:
         await init_handler.handle_init(websocket, init_action)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.auth_token == "test-auth-token-789"
 
@@ -115,7 +115,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         init_action = InitAction(
             type="init",
@@ -143,7 +143,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         init_action = InitAction(
             type="init",
@@ -157,7 +157,7 @@ class TestInitHandler:
         response = await init_handler.handle_init(websocket, init_action)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.file_context == {}
         assert response.type == "init-response"
@@ -195,7 +195,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # Create a large file context
         file_context = {
@@ -214,7 +214,7 @@ class TestInitHandler:
         response = await init_handler.handle_init(websocket, init_action)
 
         # Assert
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.file_context == file_context
         assert len(session.file_context) == 50
@@ -229,7 +229,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         init_action = InitAction(
             type="init",
@@ -259,7 +259,7 @@ class TestInitHandler:
         websocket = MagicMock()
         session_id = "test-session-123"
 
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
         # First init
         init_action1 = InitAction(
@@ -282,6 +282,6 @@ class TestInitHandler:
         await init_handler.handle_init(websocket, init_action2)
 
         # Assert - should have the second context
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.file_context == {"file2.py": {"content": "second"}}

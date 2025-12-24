@@ -61,7 +61,7 @@ class InitHandler:
             CodebuffSessionError: If session is not found
             CodebuffError: If initialization fails
         """
-        session = self._connection_manager.get_session(websocket)
+        session = await self._connection_manager.get_session(websocket)
         if session is None:
             logger.error("Attempted to handle init for unknown session")
             raise CodebuffSessionError(

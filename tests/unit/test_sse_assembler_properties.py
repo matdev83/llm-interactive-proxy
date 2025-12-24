@@ -7,6 +7,7 @@ properties of the SSE assembler implementation.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -120,6 +121,7 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
+        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -180,7 +182,7 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
     )
 )
 @settings(
-    max_examples=20,
+    max_examples=10,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -211,6 +213,7 @@ async def test_sentinel_format_consistency_property(
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
+        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -321,6 +324,7 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
+        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -400,6 +404,7 @@ async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
+        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()

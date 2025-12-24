@@ -144,7 +144,7 @@ class CodebuffWebSocketServer:
                 return
 
             # Register the connection
-            self._connection_manager.connect(websocket, session_id)
+            await self._connection_manager.connect(websocket, session_id)
             logger.info("Connection registered: session_id=%s", session_id)
 
             # Requirement 5.5: Initialize session metrics after identify
@@ -192,7 +192,7 @@ class CodebuffWebSocketServer:
             # Disconnect from connection manager if session was registered
             if session_id is not None:
                 try:
-                    self._connection_manager.disconnect(websocket)
+                    await self._connection_manager.disconnect(websocket)
                 except Exception as e:
                     logger.error(
                         "Error during disconnect cleanup: %s", str(e), exc_info=True
@@ -283,7 +283,7 @@ class CodebuffWebSocketServer:
         """
         if isinstance(message, PingMessage):
             # Update heartbeat
-            self._connection_manager.update_last_seen(websocket)
+            await self._connection_manager.update_last_seen(websocket)
             logger.debug("Ping received, updated last_seen")
 
         elif isinstance(message, SubscribeMessage):

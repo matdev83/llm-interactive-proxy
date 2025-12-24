@@ -8,6 +8,7 @@ session tracking, and subscription handling.
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
@@ -38,7 +39,8 @@ def websocket_strategy(draw):
 # Property 1: Connection tracking
 @given(session_id=session_id_strategy())
 @settings(max_examples=50)
-def test_property_1_connection_tracking(session_id):
+@pytest.mark.asyncio
+async def test_property_1_connection_tracking(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 1: Connection tracking
     Validates: Requirements 1.1
@@ -50,10 +52,10 @@ def test_property_1_connection_tracking(session_id):
     websocket = MagicMock()
 
     # Connect the websocket
-    manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id)
 
     # Verify the connection is tracked
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     assert session is not None, "Session should be created for connection"
     assert session.session_id == session_id, "Session ID should match"
     assert isinstance(session.created_at, datetime), "Created timestamp should be set"
@@ -63,7 +65,8 @@ def test_property_1_connection_tracking(session_id):
 # Property 2: Session ID association
 @given(session_id=session_id_strategy())
 @settings(max_examples=50)
-def test_property_2_session_id_association(session_id):
+@pytest.mark.asyncio
+async def test_property_2_session_id_association(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 2: Session ID association
     Validates: Requirements 1.2
@@ -75,10 +78,10 @@ def test_property_2_session_id_association(session_id):
     websocket = MagicMock()
 
     # Connect with the session ID
-    manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id)
 
     # Verify the session ID is stored and associated
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     assert session is not None, "Session should exist"
     assert session.session_id == session_id, "Session ID should be stored correctly"
 
@@ -86,7 +89,8 @@ def test_property_2_session_id_association(session_id):
 # Property 3: Heartbeat timestamp updates
 @given(session_id=session_id_strategy())
 @settings(max_examples=50, deadline=None)
-def test_property_3_heartbeat_timestamp_updates(session_id):
+@pytest.mark.asyncio
+async def test_property_3_heartbeat_timestamp_updates(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 3: Heartbeat timestamp updates
     Validates: Requirements 1.3
@@ -98,8 +102,8 @@ def test_property_3_heartbeat_timestamp_updates(session_id):
     websocket = MagicMock()
 
     # Connect and get initial timestamp
-    manager.connect(websocket, session_id)
-    session = manager.get_session(websocket)
+    await manager.connect(websocket, session_id)
+    session = await manager.get_session(websocket)
     initial_last_seen = session.last_seen
 
     # Simulate a small delay
@@ -108,10 +112,10 @@ def test_property_3_heartbeat_timestamp_updates(session_id):
     time.sleep(0.01)
 
     # Update last seen (simulating a ping)
-    manager.update_last_seen(websocket)
+    await manager.update_last_seen(websocket)
 
     # Verify timestamp was updated
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     assert (
         session.last_seen > initial_last_seen
     ), "Last seen timestamp should be updated"
@@ -120,7 +124,8 @@ def test_property_3_heartbeat_timestamp_updates(session_id):
 # Property 4: Session cleanup on disconnect
 @given(session_id=session_id_strategy())
 @settings(max_examples=50)
-def test_property_4_session_cleanup_on_disconnect(session_id):
+@pytest.mark.asyncio
+async def test_property_4_session_cleanup_on_disconnect(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 4: Session cleanup on disconnect
     Validates: Requirements 1.5
@@ -132,14 +137,15 @@ def test_property_4_session_cleanup_on_disconnect(session_id):
     websocket = MagicMock()
 
     # Connect
-    manager.connect(websocket, session_id)
-    assert manager.get_session(websocket) is not None, "Session should exist"
+    await manager.connect(websocket, session_id)
+    session_check = await manager.get_session(websocket)
+    assert session_check is not None, "Session should exist"
 
     # Disconnect
-    manager.disconnect(websocket)
+    await manager.disconnect(websocket)
 
     # Verify session is removed
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     assert session is None, "Session should be removed after disconnect"
 
 
@@ -149,7 +155,8 @@ def test_property_4_session_cleanup_on_disconnect(session_id):
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
 @settings(max_examples=50)
-def test_property_27_subscription_addition(session_id, topics):
+@pytest.mark.asyncio
+async def test_property_27_subscription_addition(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 27: Subscription addition
     Validates: Requirements 9.1
@@ -161,17 +168,17 @@ def test_property_27_subscription_addition(session_id, topics):
     websocket = MagicMock()
 
     # Connect
-    manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id)
 
     # Subscribe to topics
-    manager.subscribe(websocket, topics)
+    await manager.subscribe(websocket, topics)
 
     # Verify subscriptions were added
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     assert session is not None, "Session should exist"
     for topic in topics:
         assert topic in session.subscriptions, f"Should be subscribed to {topic}"
-        subscribers = manager.get_subscribers(topic)
+        subscribers = await manager.get_subscribers(topic)
         assert websocket in subscribers, f"Should be in subscribers list for {topic}"
 
 
@@ -181,7 +188,8 @@ def test_property_27_subscription_addition(session_id, topics):
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
 @settings(max_examples=50)
-def test_property_28_subscription_removal(session_id, topics):
+@pytest.mark.asyncio
+async def test_property_28_subscription_removal(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 28: Subscription removal
     Validates: Requirements 9.2
@@ -193,24 +201,24 @@ def test_property_28_subscription_removal(session_id, topics):
     websocket = MagicMock()
 
     # Connect and subscribe
-    manager.connect(websocket, session_id)
-    manager.subscribe(websocket, topics)
+    await manager.connect(websocket, session_id)
+    await manager.subscribe(websocket, topics)
 
     # Verify subscriptions exist
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     for topic in topics:
         assert topic in session.subscriptions
 
     # Unsubscribe from topics
-    manager.unsubscribe(websocket, topics)
+    await manager.unsubscribe(websocket, topics)
 
     # Verify subscriptions were removed
-    session = manager.get_session(websocket)
+    session = await manager.get_session(websocket)
     for topic in topics:
         assert (
             topic not in session.subscriptions
         ), f"Should not be subscribed to {topic}"
-        subscribers = manager.get_subscribers(topic)
+        subscribers = await manager.get_subscribers(topic)
         assert (
             websocket not in subscribers
         ), f"Should not be in subscribers list for {topic}"
@@ -222,7 +230,8 @@ def test_property_28_subscription_removal(session_id, topics):
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
 @settings(max_examples=50)
-def test_property_30_subscription_cleanup(session_id, topics):
+@pytest.mark.asyncio
+async def test_property_30_subscription_cleanup(session_id, topics):
     """
     Feature: codebuff-backend-compatibility, Property 30: Subscription cleanup
     Validates: Requirements 9.4
@@ -234,20 +243,20 @@ def test_property_30_subscription_cleanup(session_id, topics):
     websocket = MagicMock()
 
     # Connect and subscribe
-    manager.connect(websocket, session_id)
-    manager.subscribe(websocket, topics)
+    await manager.connect(websocket, session_id)
+    await manager.subscribe(websocket, topics)
 
     # Verify subscriptions exist
     for topic in topics:
-        subscribers = manager.get_subscribers(topic)
+        subscribers = await manager.get_subscribers(topic)
         assert websocket in subscribers
 
     # Disconnect
-    manager.disconnect(websocket)
+    await manager.disconnect(websocket)
 
     # Verify all subscriptions were cleaned up
     for topic in topics:
-        subscribers = manager.get_subscribers(topic)
+        subscribers = await manager.get_subscribers(topic)
         assert (
             websocket not in subscribers
         ), f"Should not be in subscribers list for {topic} after disconnect"

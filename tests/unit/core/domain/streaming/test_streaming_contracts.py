@@ -167,14 +167,13 @@ class TestStreamingContentToTypedChunk:
         assert chunk.payload.text == "Hello world"
 
     def test_dict_content_to_typed_chunk(self):
-        """Dict content should convert to opaque_json payload kind."""
+        """Dict content should convert to opaque_json_dict payload kind."""
         content_dict = {"key": "value", "nested": {"inner": 123}}
         sc = StreamingContent(content=content_dict, metadata={}, is_done=False)
         chunk = sc.to_typed_chunk()
-        assert chunk.payload.kind == "opaque_json"
-        # Should be JSON string
-        parsed = json.loads(chunk.payload.opaque_json)
-        assert parsed == content_dict
+        assert chunk.payload.kind == "opaque_json_dict"
+        # Should be dict directly
+        assert chunk.payload.opaque_json_dict == content_dict
 
     def test_bytes_content_to_typed_chunk(self):
         """Bytes content should convert to binary payload kind."""
@@ -285,7 +284,7 @@ class TestStreamingContentToTypedChunk:
         assert chunk.is_cancellation is True
 
     def test_stop_chunk_with_usage_preserved(self):
-        """StopChunkWithUsage should be preserved as-is in content."""
+        """StopChunkWithUsage should be preserved as opaque_json_dict in content."""
         stop_chunk_data = {
             "id": "chatcmpl-test",
             "choices": [{"delta": {"content": "final"}}],
@@ -299,10 +298,9 @@ class TestStreamingContentToTypedChunk:
             usage=stop_chunk_data["usage"],
         )
         chunk = sc.to_typed_chunk()
-        # StopChunkWithUsage should be converted to opaque_json
-        assert chunk.payload.kind == "opaque_json"
-        parsed = json.loads(chunk.payload.opaque_json)
-        assert parsed["id"] == "chatcmpl-test"
+        # StopChunkWithUsage should be converted to opaque_json_dict
+        assert chunk.payload.kind == "opaque_json_dict"
+        assert chunk.payload.opaque_json_dict["id"] == "chatcmpl-test"
 
 
 class TestStreamingContentFromTypedChunk:

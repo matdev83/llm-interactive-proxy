@@ -71,7 +71,7 @@ async def test_property_17_file_context_storage(
     websocket = MagicMock()
 
     # Register the connection
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Create init action
     init_action = InitAction(
@@ -86,7 +86,7 @@ async def test_property_17_file_context_storage(
     await init_handler.handle_init(websocket, init_action)
 
     # Assert - file context should be stored in session
-    session = connection_manager.get_session(websocket)
+    session = await connection_manager.get_session(websocket)
     assert session is not None
     assert session.file_context == file_context
 
@@ -121,7 +121,7 @@ async def test_property_18_file_context_persistence(
     websocket = MagicMock()
 
     # Register the connection
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Create and handle init action
     init_action = InitAction(
@@ -134,8 +134,8 @@ async def test_property_18_file_context_persistence(
     await init_handler.handle_init(websocket, init_action)
 
     # Act - retrieve session multiple times
-    session1 = connection_manager.get_session(websocket)
-    session2 = connection_manager.get_session(websocket)
+    session1 = await connection_manager.get_session(websocket)
+    session2 = await connection_manager.get_session(websocket)
 
     # Assert - file context should persist across retrievals
     assert session1 is not None

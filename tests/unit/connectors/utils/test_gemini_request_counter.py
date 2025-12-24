@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import logging
 import uuid
@@ -294,3 +295,81 @@ def test_reset_clears_logged_thresholds(
 
             assert counter.count == 1
             assert counter.logged_thresholds == set()
+
+
+def test_concurrent_increments_thread_safety(
+    persistence_path: Path,
+) -> None:
+    """Test that concurrent increments don't lose count (regression for race condition).
+
+    This test verifies that the threading.Lock added to DailyRequestCounter
+    properly protects against race conditions when increment() is called
+    from multiple threads concurrently.
+    """
+    counter = DailyRequestCounter(persistence_path, limit=1000)
+
+    num_threads = 100
+    num_iterations_per_thread = 10
+    expected_total = num_threads * num_iterations_per_thread
+
+    def increment_multiple_times():
+        for _ in range(num_iterations_per_thread):
+            counter.increment()
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=num_threads
+    ) as executor:
+        futures = [executor.submit(increment_multiple_times) for _ in range(num_threads)]
+        concurrent.futures.wait(futures)
+
+    assert counter.count == expected_total, (
+        f"Expected {expected_total} increments but got {counter.count}. "
+        "This indicates a race condition in increment()."
+    )
+
+
+def test_concurrent_threshold_logging_thread_safety(
+    persistence_path: Path,
+) -> None:
+    """Test that concurrent threshold logging doesn't corrupt _logged_thresholds set.
+
+    This test verifies that the threading.Lock added to DailyRequestCounter
+    properly protects against duplicate threshold logging when increment() is
+    called from multiple threads concurrently.
+    """
+    with (
+        patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
+            return_value="2023-01-01",
+        ),
+        patch.object(DailyRequestCounter, "_save_state"),
+    ):
+        counter = DailyRequestCounter(persistence_path, limit=100)
+        # Counter starts at 0, thresholds are at 70, 80, 90
+
+        num_threads = 50
+        num_increments = 95  # Cross all three thresholds (70, 80, 90)
+
+        def increment_multiple_times():
+            for _ in range(num_increments):
+                counter.increment()
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=num_threads
+        ) as executor:
+            futures = [executor.submit(increment_multiple_times) for _ in range(num_threads)]
+            concurrent.futures.wait(futures)
+
+        # Expected count: 50 threads * 95 increments each = 4750
+        expected_count = num_threads * num_increments
+        assert counter.count == expected_count, (
+            f"Expected {expected_count} increments but got {counter.count}"
+        )
+
+        # All thresholds should be logged exactly once
+        expected_thresholds = {70, 80, 90}
+        assert counter.logged_thresholds == expected_thresholds, (
+            f"Expected thresholds {expected_thresholds} but got {counter.logged_thresholds}. "
+            "This indicates a race condition in threshold logging."
+        )

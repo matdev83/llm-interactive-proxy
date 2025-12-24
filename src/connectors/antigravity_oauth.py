@@ -85,10 +85,14 @@ class AntigravityAuthStatus(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    api_key: str = Field(..., alias="apiKey", description="Antigravity API key/credential")
+    api_key: str = Field(
+        ..., alias="apiKey", description="Antigravity API key/credential"
+    )
     project_id: str | None = Field(None, description="Cached project ID")
     refresh_token: str | None = Field(None, description="Refresh token if available")
-    expiry_date: int | None = Field(None, description="Token expiry timestamp in epoch milliseconds")
+    expiry_date: int | None = Field(
+        None, description="Token expiry timestamp in epoch milliseconds"
+    )
 
     @field_validator("api_key")
     @classmethod
@@ -1058,7 +1062,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         parsed = self._parse_auth_status_value_from_db(db_path)
         return parsed
 
-    def _extract_credentials_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
+    def _extract_credentials_from_db(
+        self, db_path: Path
+    ) -> AntigravityAuthStatus | None:
         """
         Load and parse the Antigravity auth status from the database.
 
@@ -1067,7 +1073,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         """
         return self._load_auth_status_from_db(db_path)
 
-    def _parse_auth_status_value_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
+    def _parse_auth_status_value_from_db(
+        self, db_path: Path
+    ) -> AntigravityAuthStatus | None:
         """
         Parse Antigravity auth status from database.
 
@@ -1282,10 +1290,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     continue
 
                 # Map Antigravity-specific fields to standard OAuth format
-                credentials = self._normalize_antigravity_credentials(credentials)
+                normalized_credentials = self._normalize_antigravity_credentials(
+                    credentials
+                )
 
                 is_valid, validation_errors = self._validate_credentials_structure(
-                    credentials, silent=silent
+                    normalized_credentials, silent=silent
                 )
                 errors.extend(validation_errors)
                 if not is_valid:
@@ -1294,11 +1304,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     )
                     continue
 
-                self._oauth_credentials = credentials
+                self._oauth_credentials = normalized_credentials
                 self._credentials_path = path
                 self._last_modified = current_modified or time.time()
                 self._credentials_fingerprint = self._compute_credentials_fingerprint(
-                    credentials
+                    normalized_credentials
                 )
                 try:
                     credentials_file_hash = hashlib.sha256(

@@ -69,14 +69,14 @@ async def test_property_14_token_validation(action: PromptAction):
 
     # Register connection
     session_id = "test-session"
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Handle prompt with auth token
     await handler.handle_prompt(websocket, action)
 
     # Verify: For MVP, we accept the token without validation
     # The token should be stored in the session
-    session = connection_manager.get_session(websocket)
+    session = await connection_manager.get_session(websocket)
 
     if action.authToken:
         # Token should be stored in session
@@ -131,7 +131,7 @@ async def test_property_15_fingerprint_association(
 
     # Register connection
     session_id = "test-session"
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Override fingerprint ID in action
     action.fingerprintId = fingerprint_id
@@ -140,7 +140,7 @@ async def test_property_15_fingerprint_association(
     await handler.handle_prompt(websocket, action)
 
     # Verify: Fingerprint ID should be associated with the session
-    session = connection_manager.get_session(websocket)
+    session = await connection_manager.get_session(websocket)
     assert session.fingerprint_id == fingerprint_id
 
 
@@ -189,13 +189,13 @@ async def test_property_16_cost_attribution(action: PromptAction):
 
     # Register connection
     session_id = "test-session"
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Handle prompt
     await handler.handle_prompt(websocket, action)
 
     # Verify: Session should have fingerprint ID for cost attribution
-    session = connection_manager.get_session(websocket)
+    session = await connection_manager.get_session(websocket)
 
     # Cost should be attributable to either fingerprint_id or session_id
     assert session.fingerprint_id is not None or session.session_id is not None
@@ -249,7 +249,7 @@ async def test_property_33_accounting_integration(action: PromptAction):
 
     # Register connection
     session_id = "test-session"
-    connection_manager.connect(websocket, session_id)
+    await connection_manager.connect(websocket, session_id)
 
     # Handle prompt
     await handler.handle_prompt(websocket, action)
@@ -266,3 +266,4 @@ async def test_property_33_accounting_integration(action: PromptAction):
 
     # The response contains usage information that can be used for accounting
     assert "usage" in mock_response.response
+

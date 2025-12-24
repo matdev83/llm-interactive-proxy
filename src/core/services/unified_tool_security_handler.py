@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -398,7 +399,7 @@ class FileSandboxingCheck(ISecurityCheck):
         path_validator: IPathValidator,
         session_service: ISessionService,
     ) -> None:
-        """Initialize the file sandboxing check.
+        """Initialize file sandboxing check.
 
         Args:
             config: Configuration for file sandboxing.
@@ -426,6 +427,8 @@ class FileSandboxingCheck(ISecurityCheck):
         # Metrics
         self._blocked_count = 0
         self._allowed_count = 0
+        self._metrics_lock = threading.Lock()
+        self._metrics_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -515,7 +518,8 @@ class FileSandboxingCheck(ISecurityCheck):
                 violating_paths.append(path_str)
 
         if violating_paths:
-            self._blocked_count += 1
+            with self._metrics_lock:
+                self._blocked_count += 1
             return SecurityCheckResult.block(
                 reason="path_outside_sandbox",
                 message=(
@@ -529,7 +533,8 @@ class FileSandboxingCheck(ISecurityCheck):
                 },
             )
 
-        self._allowed_count += 1
+        with self._metrics_lock:
+            self._allowed_count += 1
         return SecurityCheckResult.allow()
 
     def _is_file_changing_tool(self, tool_name: str) -> bool:
@@ -543,10 +548,11 @@ class FileSandboxingCheck(ISecurityCheck):
 
     def get_metrics(self) -> dict[str, int]:
         """Get metrics for monitoring."""
-        return {
-            "blocked_count": self._blocked_count,
-            "allowed_count": self._allowed_count,
-        }
+        with self._metrics_lock:
+            return {
+                "blocked_count": self._blocked_count,
+                "allowed_count": self._allowed_count,
+            }
 
 
 # =============================================================================

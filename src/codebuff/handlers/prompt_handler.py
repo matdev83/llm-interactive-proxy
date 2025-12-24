@@ -86,7 +86,7 @@ class PromptHandler:
         Raises:
             CodebuffError: If prompt processing fails
         """
-        session = self._connection_manager.get_session(websocket)
+        session = await self._connection_manager.get_session(websocket)
         if session is None:
             logger.error("Attempted to handle prompt for unknown session")
             error_msg = self._format_converter.create_error_response(

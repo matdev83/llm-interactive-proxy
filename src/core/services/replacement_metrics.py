@@ -8,6 +8,7 @@ and opt-out rates.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import defaultdict
 from collections.abc import MutableMapping
@@ -71,6 +72,11 @@ class ReplacementMetrics:
         default_factory=lambda: defaultdict(int)
     )
 
+    # Lock for protecting timestamp list modifications
+    _lock: threading.RLock = field(
+        default_factory=threading.RLock, init=False, repr=False
+    )
+
     def record_activation(self, session_id: str, turn_count: int) -> None:
         """Record a replacement activation.
 
@@ -78,33 +84,34 @@ class ReplacementMetrics:
             session_id: The session identifier
             turn_count: The number of turns for this activation
         """
-        self.total_activations += 1
-        self.activations_by_session[session_id] = (
-            self.activations_by_session.get(session_id, 0) + 1
-        )
-        self.activation_timestamps.append(time.time())
+        with self._lock:
+            self.total_activations += 1
+            self.activations_by_session[session_id] = (
+                self.activations_by_session.get(session_id, 0) + 1
+            )
+            self.activation_timestamps.append(time.time())
 
-        # Enforce size limit to prevent unbounded memory growth
-        # Keep only the most recent timestamps (they are appended in order)
-        if len(self.activation_timestamps) > _MAX_ACTIVATION_TIMESTAMPS:
-            # Remove oldest entries, keeping only the most recent ones
-            excess = len(self.activation_timestamps) - _MAX_ACTIVATION_TIMESTAMPS
-            self.activation_timestamps = self.activation_timestamps[excess:]
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Pruned {excess} old activation timestamps to enforce size limit "
-                    f"({_MAX_ACTIVATION_TIMESTAMPS})"
-                )
+            # Enforce size limit to prevent unbounded memory growth
+            # Keep only the most recent timestamps (they are appended in order)
+            if len(self.activation_timestamps) > _MAX_ACTIVATION_TIMESTAMPS:
+                # Remove oldest entries, keeping only the most recent ones
+                excess = len(self.activation_timestamps) - _MAX_ACTIVATION_TIMESTAMPS
+                self.activation_timestamps = self.activation_timestamps[excess:]
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Pruned {excess} old activation timestamps to enforce size limit "
+                        f"({_MAX_ACTIVATION_TIMESTAMPS})"
+                    )
 
-        # Track in histogram instead of unbounded list
-        self._turn_count_histogram[turn_count] += 1
-        # Maintain compatibility for turn_counts property if needed, but we remove the field
-        # self.turn_counts.append(turn_count) # Removed
+            # Track in histogram instead of unbounded list
+            self._turn_count_histogram[turn_count] += 1
+            # Maintain compatibility for turn_counts property if needed, but we remove the field
+            # self.turn_counts.append(turn_count) # Removed
 
-        logger.debug(
-            f"Metrics: Recorded activation for session {session_id}, "
-            f"turn_count={turn_count}, total_activations={self.total_activations}"
-        )
+            logger.debug(
+                f"Metrics: Recorded activation for session {session_id}, "
+                f"turn_count={turn_count}, total_activations={self.total_activations}"
+            )
 
     def record_turn_completion(self, session_id: str) -> None:
         """Record a turn completion.
@@ -127,33 +134,34 @@ class ReplacementMetrics:
             session_id: The session identifier
             opt_out_type: Type of opt-out ('header' or 'session')
         """
-        self.total_opt_outs += 1
-        self.opt_outs_by_session[session_id] = (
-            self.opt_outs_by_session.get(session_id, 0) + 1
-        )
-        self.opt_out_timestamps.append(time.time())
+        with self._lock:
+            self.total_opt_outs += 1
+            self.opt_outs_by_session[session_id] = (
+                self.opt_outs_by_session.get(session_id, 0) + 1
+            )
+            self.opt_out_timestamps.append(time.time())
 
-        # Enforce size limit to prevent unbounded memory growth
-        # Keep only the most recent timestamps (they are appended in order)
-        if len(self.opt_out_timestamps) > _MAX_OPT_OUT_TIMESTAMPS:
-            # Remove oldest entries, keeping only the most recent ones
-            excess = len(self.opt_out_timestamps) - _MAX_OPT_OUT_TIMESTAMPS
-            self.opt_out_timestamps = self.opt_out_timestamps[excess:]
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Pruned {excess} old opt-out timestamps to enforce size limit "
-                    f"({_MAX_OPT_OUT_TIMESTAMPS})"
-                )
+            # Enforce size limit to prevent unbounded memory growth
+            # Keep only the most recent timestamps (they are appended in order)
+            if len(self.opt_out_timestamps) > _MAX_OPT_OUT_TIMESTAMPS:
+                # Remove oldest entries, keeping only the most recent ones
+                excess = len(self.opt_out_timestamps) - _MAX_OPT_OUT_TIMESTAMPS
+                self.opt_out_timestamps = self.opt_out_timestamps[excess:]
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Pruned {excess} old opt-out timestamps to enforce size limit "
+                        f"({_MAX_OPT_OUT_TIMESTAMPS})"
+                    )
 
-        if opt_out_type == "header":
-            self.header_opt_outs += 1
-        elif opt_out_type == "session":
-            self.session_opt_outs += 1
+            if opt_out_type == "header":
+                self.header_opt_outs += 1
+            elif opt_out_type == "session":
+                self.session_opt_outs += 1
 
-        logger.debug(
-            f"Metrics: Recorded {opt_out_type} opt-out for session {session_id}, "
-            f"total_opt_outs={self.total_opt_outs}"
-        )
+            logger.debug(
+                f"Metrics: Recorded {opt_out_type} opt-out for session {session_id}, "
+                f"total_opt_outs={self.total_opt_outs}"
+            )
 
     def record_probability_check(self, session_id: str) -> None:
         """Record a probability check.
@@ -175,19 +183,20 @@ class ReplacementMetrics:
         Returns:
             Activations per second in the time window
         """
-        if time_window_seconds is None:
-            elapsed = max(time.time() - self.start_time, 1e-9)
-            return self.total_activations / elapsed
+        with self._lock:
+            if time_window_seconds is None:
+                elapsed = max(time.time() - self.start_time, 1e-9)
+                return self.total_activations / elapsed
 
-        # Count activations within time window
-        cutoff_time = time.time() - time_window_seconds
-        recent_activations = sum(
-            1 for ts in self.activation_timestamps if ts >= cutoff_time
-        )
+            # Count activations within time window
+            cutoff_time = time.time() - time_window_seconds
+            recent_activations = sum(
+                1 for ts in self.activation_timestamps if ts >= cutoff_time
+            )
 
-        if time_window_seconds == 0:
-            return 0.0
-        return recent_activations / time_window_seconds
+            if time_window_seconds == 0:
+                return 0.0
+            return recent_activations / time_window_seconds
 
     def get_activation_rate_by_session(self, session_id: str) -> float:
         """Calculate activation rate for a specific session.
@@ -237,17 +246,20 @@ class ReplacementMetrics:
         Returns:
             Opt-outs per second in the time window
         """
-        if time_window_seconds is None:
-            elapsed = max(time.time() - self.start_time, 1e-9)
-            return self.total_opt_outs / elapsed
+        with self._lock:
+            if time_window_seconds is None:
+                elapsed = max(time.time() - self.start_time, 1e-9)
+                return self.total_opt_outs / elapsed
 
-        # Count opt-outs within time window
-        cutoff_time = time.time() - time_window_seconds
-        recent_opt_outs = sum(1 for ts in self.opt_out_timestamps if ts >= cutoff_time)
+            # Count opt-outs within time window
+            cutoff_time = time.time() - time_window_seconds
+            recent_opt_outs = sum(
+                1 for ts in self.opt_out_timestamps if ts >= cutoff_time
+            )
 
-        if time_window_seconds == 0:
-            return 0.0
-        return recent_opt_outs / time_window_seconds
+            if time_window_seconds == 0:
+                return 0.0
+            return recent_opt_outs / time_window_seconds
 
     def get_opt_out_rate_by_session(self, session_id: str) -> float:
         """Calculate opt-out rate for a specific session.
@@ -282,36 +294,40 @@ class ReplacementMetrics:
         Args:
             max_age_seconds: Keep timestamps newer than this age
         """
-        cutoff_time = time.time() - max_age_seconds
+        with self._lock:
+            cutoff_time = time.time() - max_age_seconds
 
-        # Prune activation timestamps
-        if self.activation_timestamps and self.activation_timestamps[0] < cutoff_time:
-            # Find index where timestamps become recent enough
-            # Timestamps are appended, so they are sorted
-            keep_idx = 0
-            for i, ts in enumerate(self.activation_timestamps):
-                if ts >= cutoff_time:
-                    keep_idx = i
-                    break
-            else:
-                # All are old
-                keep_idx = len(self.activation_timestamps)
+            # Prune activation timestamps
+            if (
+                self.activation_timestamps
+                and self.activation_timestamps[0] < cutoff_time
+            ):
+                # Find index where timestamps become recent enough
+                # Timestamps are appended, so they are sorted
+                keep_idx = 0
+                for i, ts in enumerate(self.activation_timestamps):
+                    if ts >= cutoff_time:
+                        keep_idx = i
+                        break
+                else:
+                    # All are old
+                    keep_idx = len(self.activation_timestamps)
 
-            if keep_idx > 0:
-                self.activation_timestamps = self.activation_timestamps[keep_idx:]
+                if keep_idx > 0:
+                    self.activation_timestamps = self.activation_timestamps[keep_idx:]
 
-        # Prune opt-out timestamps
-        if self.opt_out_timestamps and self.opt_out_timestamps[0] < cutoff_time:
-            keep_idx = 0
-            for i, ts in enumerate(self.opt_out_timestamps):
-                if ts >= cutoff_time:
-                    keep_idx = i
-                    break
-            else:
-                keep_idx = len(self.opt_out_timestamps)
+            # Prune opt-out timestamps
+            if self.opt_out_timestamps and self.opt_out_timestamps[0] < cutoff_time:
+                keep_idx = 0
+                for i, ts in enumerate(self.opt_out_timestamps):
+                    if ts >= cutoff_time:
+                        keep_idx = i
+                        break
+                else:
+                    keep_idx = len(self.opt_out_timestamps)
 
-            if keep_idx > 0:
-                self.opt_out_timestamps = self.opt_out_timestamps[keep_idx:]
+                if keep_idx > 0:
+                    self.opt_out_timestamps = self.opt_out_timestamps[keep_idx:]
 
     def get_summary(self) -> dict[str, Any]:
         """Get a comprehensive metrics summary.

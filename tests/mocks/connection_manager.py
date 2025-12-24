@@ -11,7 +11,7 @@ class MockConnectionManager:
     def __init__(self):
         self._sessions = {}
 
-    def connect(self, websocket, session_id: str):
+    async def connect(self, websocket, session_id: str):
         """Register a mock connection."""
         session = SessionState(
             session_id=session_id,
@@ -20,26 +20,26 @@ class MockConnectionManager:
         )
         self._sessions[websocket] = session
 
-    def disconnect(self, websocket):
+    async def disconnect(self, websocket):
         """Remove a mock connection."""
         if websocket in self._sessions:
             del self._sessions[websocket]
 
-    def get_session(self, websocket):
+    async def get_session(self, websocket):
         """Get mock session."""
         return self._sessions.get(websocket)
 
-    def update_last_seen(self, websocket):
+    async def update_last_seen(self, websocket):
         """Update mock last seen."""
         if websocket in self._sessions:
             self._sessions[websocket].last_seen = datetime.utcnow()
 
-    def subscribe(self, websocket, topics: list[str]):
+    async def subscribe(self, websocket, topics: list[str]):
         """Add mock subscriptions."""
         if websocket in self._sessions:
             self._sessions[websocket].subscriptions.update(topics)
 
-    def unsubscribe(self, websocket, topics: list[str]):
+    async def unsubscribe(self, websocket, topics: list[str]):
         """Remove mock subscriptions."""
         if websocket in self._sessions:
             for topic in topics:

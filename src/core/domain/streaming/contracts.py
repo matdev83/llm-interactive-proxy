@@ -8,7 +8,7 @@ usage, and error envelopes that can be used across layer boundaries.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,12 +55,15 @@ class StreamingMetadata(BaseModel):
 class StreamingPayload(BaseModel):
     """Payload content for streaming chunks."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
-    kind: Literal["text", "opaque_json", "binary", "empty"] = "empty"
+    kind: Literal["text", "opaque_json", "binary", "empty", "opaque_json_dict"] = (
+        "empty"
+    )
     text: str | None = None
     opaque_json: str | None = None
     binary_b64: str | None = None
+    opaque_json_dict: dict[str, Any] | None = None
 
 
 class StreamingChunk(BaseModel):

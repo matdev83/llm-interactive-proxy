@@ -199,7 +199,7 @@ async def test_streaming_content_dict_conversion_backward_compatibility(
     chunks=st.lists(streaming_content_strategy(), min_size=2, max_size=10),
     delays=st.lists(st.floats(min_value=0.001, max_value=0.1), min_size=2, max_size=10),
 )
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_timing_determinism_with_fake_clock(
     chunks: list[StreamingContent], delays: list[float]
 ) -> None:

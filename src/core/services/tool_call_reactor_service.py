@@ -11,6 +11,7 @@ import asyncio
 import copy
 import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -67,6 +68,8 @@ class ToolCallReactorService(IToolCallReactor):
             "recovered": 0,
             "failed": 0,
         }
+        # Lock for telemetry counters (for cross-thread protection)
+        self._telemetry_lock = threading.Lock()
         # Session alias tracking with TTL-based cleanup to prevent memory leaks
         self._session_aliases: dict[str, str] = {}
         self._session_aliases_last_access: dict[str, datetime] = {}
@@ -262,28 +265,43 @@ class ToolCallReactorService(IToolCallReactor):
         return list(self._handlers.keys())
 
     def increment_tool_definitions_filtered(self, count: int = 1) -> None:
-        """Increment the counter for filtered tool definitions.
+        """Increment counter for filtered tool definitions.
 
         Args:
             count: Number of tool definitions filtered (default 1).
         """
-        self._tool_definitions_filtered_count += count
+        with self._telemetry_lock:
+            self._tool_definitions_filtered_count += count
 
     def increment_tool_calls_blocked(self, count: int = 1) -> None:
-        """Increment the counter for blocked tool calls.
+        """Increment counter for blocked tool calls.
 
         Args:
             count: Number of tool calls blocked (default 1).
         """
-        self._tool_calls_blocked_count += count
+        with self._telemetry_lock:
+            self._tool_calls_blocked_count += count
 
     def increment_tool_calls_allowed(self, count: int = 1) -> None:
-        """Increment the counter for allowed tool calls.
+        """Increment counter for allowed tool calls.
 
         Args:
             count: Number of tool calls allowed (default 1).
         """
-        self._tool_calls_allowed_count += count
+        with self._telemetry_lock:
+            self._tool_calls_allowed_count += count
+
+    def record_tool_argument_repair_outcome(self, outcome: str) -> None:
+        """Record telemetry for tool argument repair attempts."""
+        if outcome not in self._tool_argument_repair_stats:
+            return
+        with self._telemetry_lock:
+            self._tool_argument_repair_stats[outcome] += 1
+
+    def get_tool_argument_repair_stats(self) -> dict[str, int]:
+        """Return a snapshot of tool argument repair telemetry counters."""
+        with self._telemetry_lock:
+            return dict(self._tool_argument_repair_stats)
 
     def get_telemetry_stats(self) -> dict[str, int]:
         """Get telemetry statistics for tool access control.
@@ -291,21 +309,14 @@ class ToolCallReactorService(IToolCallReactor):
         Returns:
             Dictionary containing telemetry counters.
         """
-        return {
-            "tool_definitions_filtered": self._tool_definitions_filtered_count,
-            "tool_calls_blocked": self._tool_calls_blocked_count,
-            "tool_calls_allowed": self._tool_calls_allowed_count,
-        }
+        with self._telemetry_lock:
+            return {
+                "tool_definitions_filtered": self._tool_definitions_filtered_count,
+                "tool_calls_blocked": self._tool_calls_blocked_count,
+                "tool_calls_allowed": self._tool_calls_allowed_count,
+            }
 
-    def record_tool_argument_repair_outcome(self, outcome: str) -> None:
-        """Record telemetry for tool argument repair attempts."""
-        if outcome not in self._tool_argument_repair_stats:
-            return
-        self._tool_argument_repair_stats[outcome] += 1
 
-    def get_tool_argument_repair_stats(self) -> dict[str, int]:
-        """Return a snapshot of tool argument repair telemetry counters."""
-        return dict(self._tool_argument_repair_stats)
 
     @classmethod
     def _snapshot_tool_arguments(cls, arguments: Any) -> Any:

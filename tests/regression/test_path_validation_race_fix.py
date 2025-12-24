@@ -1,6 +1,7 @@
 """Regression tests for race condition fixes in PathValidationService."""
 
 import asyncio
+from pathlib import Path
 
 from src.core.services.path_validation_service import PathValidationService
 
@@ -20,11 +21,16 @@ async def test_concurrent_normalize_no_race():
     tasks = [normalize_batch(paths) for _ in range(20)]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    errors = [r for r in sum(all_results, []) if isinstance(r, Exception)]
+    all_flat = []
+    for lst in all_results:
+        all_flat.extend(lst)
+    errors = [r for r in all_flat if isinstance(r, Exception)]
     assert len(errors) == 0, f"Expected no errors, got {len(errors)}"
 
-    results = [r for r in sum(all_results, []) if isinstance(r, Path)]
-    assert len(results) == len(paths) * 20, f"Expected {len(paths) * 20} results, got {len(results)}"
+    results = [r for r in all_flat if isinstance(r, Path)]
+    assert (
+        len(results) == len(paths) * 20
+    ), f"Expected {len(paths) * 20} results, got {len(results)}"
 
 
 if __name__ == "__main__":

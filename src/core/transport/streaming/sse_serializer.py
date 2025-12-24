@@ -531,6 +531,30 @@ class SSESerializer:
         # Add main content from typed payload
         if chunk.payload.kind == "text" and chunk.payload.text is not None:
             delta["content"] = chunk.payload.text
+        elif (
+            chunk.payload.kind == "opaque_json_dict" and chunk.payload.opaque_json_dict
+        ):
+            parsed_content = chunk.payload.opaque_json_dict
+            if isinstance(parsed_content, dict):
+                # Check if OpenAI-formatted chunk
+                if "choices" in parsed_content or "usage" in parsed_content:
+                    return self._serialize_openai_formatted_dict(
+                        parsed_content, chunk, content
+                    )
+
+                # Check for StopChunkWithUsage misuse
+                if isinstance(content.content, StopChunkWithUsage):
+                    raise UsageChunkLeakError(
+                        chunk_id=(
+                            parsed_content.get("id")
+                            if isinstance(parsed_content, dict)
+                            else None
+                        )
+                    )
+
+                delta["content"] = json.dumps(parsed_content)
+            else:
+                delta["content"] = json.dumps(parsed_content)
         elif chunk.payload.kind == "opaque_json" and chunk.payload.opaque_json:
             # Parse JSON to check if it's OpenAI-formatted
             try:

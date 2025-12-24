@@ -136,7 +136,7 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
 
     # Verify no sessions remain after disconnect
     for websocket in websockets:
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is None, "Session should be cleaned up after disconnect"
 
 
@@ -176,7 +176,7 @@ async def test_property_20_operation_isolation(
         websockets.append(websocket)
 
         # Register connection directly (bypass identify for simplicity)
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
     # Perform operations on first client
     first_websocket = websockets[0]
@@ -184,7 +184,7 @@ async def test_property_20_operation_isolation(
     # Get initial state of all sessions
     initial_states = {}
     for websocket, session_id in zip(websockets, session_ids, strict=False):
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         initial_states[session_id] = {
             "subscriptions": set(session.subscriptions),
@@ -194,14 +194,14 @@ async def test_property_20_operation_isolation(
     # Perform operations on first client
     for _ in range(operation_count):
         # Update last_seen (simulating ping)
-        connection_manager.update_last_seen(first_websocket)
+        await connection_manager.update_last_seen(first_websocket)
 
         # Subscribe to a topic
-        connection_manager.subscribe(first_websocket, ["test-topic"])
+        await connection_manager.subscribe(first_websocket, ["test-topic"])
 
     # Verify other clients' sessions are unchanged
     for websocket, session_id in zip(websockets[1:], session_ids[1:], strict=False):
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
 
         # Check that session state matches initial state
@@ -214,7 +214,7 @@ async def test_property_20_operation_isolation(
 
     # Clean up
     for websocket in websockets:
-        connection_manager.disconnect(websocket)
+        await connection_manager.disconnect(websocket)
 
 
 @pytest.mark.asyncio
@@ -245,21 +245,21 @@ async def test_property_21_disconnect_isolation(
     for session_id in session_ids:
         websocket = create_mock_websocket(session_id)
         websockets.append(websocket)
-        connection_manager.connect(websocket, session_id)
+        await connection_manager.connect(websocket, session_id)
 
     # Verify all connections are registered
     for websocket, session_id in zip(websockets, session_ids, strict=False):
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None
         assert session.session_id == session_id
 
     # Disconnect one client
     disconnected_websocket = websockets[disconnect_index]
 
-    connection_manager.disconnect(disconnected_websocket)
+    await connection_manager.disconnect(disconnected_websocket)
 
     # Verify disconnected client is removed
-    session = connection_manager.get_session(disconnected_websocket)
+    session = await connection_manager.get_session(disconnected_websocket)
     assert session is None, "Disconnected session should be removed"
 
     # Verify other connections remain active
@@ -269,7 +269,7 @@ async def test_property_21_disconnect_isolation(
         if i == disconnect_index:
             continue  # Skip the disconnected one
 
-        session = connection_manager.get_session(websocket)
+        session = await connection_manager.get_session(websocket)
         assert session is not None, f"Session {session_id} should still be active"
         assert (
             session.session_id == session_id
@@ -278,4 +278,4 @@ async def test_property_21_disconnect_isolation(
     # Clean up remaining connections
     for i, websocket in enumerate(websockets):
         if i != disconnect_index:
-            connection_manager.disconnect(websocket)
+            await connection_manager.disconnect(websocket)

@@ -29,6 +29,15 @@ from src.core.transport.fastapi.adapters.sanitization.json_sanitizer import (
 from src.core.transport.fastapi.adapters.usage.header_injector import (
     UsageHeaderInjector,
 )
+from src.core.utils.usage_recalculation import (
+    extract_content_text,
+    should_recalculate_usage,
+)
+
+try:
+    from src.core.utils.token_count import count_tokens
+except Exception:
+    count_tokens = None
 
 if TYPE_CHECKING:
     from src.core.interfaces.usage_normalization_service_interface import (
@@ -70,6 +79,8 @@ class JSONResponseBuilder:
         self._cached_usage_normalization_service: IUsageNormalizationService | None = (
             None
         )
+        self._cached_usage_calculation_service: Any = None
+        self._cached_steering_leak_protector: Any = None
 
     def _get_usage_normalization_service(self) -> IUsageNormalizationService | None:
         """Get usage normalization service from DI or instance.
@@ -210,9 +221,14 @@ class JSONResponseBuilder:
         Returns:
             Tuple of (updated payload, usage dict in OpenRouter format)
         """
-        from src.core.services.usage_calculation_service import (
-            get_usage_calculation_service,
-        )
+        # Lazy load and cache usage calculation service
+        if self._cached_usage_calculation_service is None:
+            from src.core.services.usage_calculation_service import (
+                get_usage_calculation_service,
+            )
+
+            self._cached_usage_calculation_service = get_usage_calculation_service()
+        service = self._cached_usage_calculation_service
 
         # Priority 1: Use canonical usage if available (Requirement 5.2)
         normalization_service = self._get_usage_normalization_service()
@@ -256,9 +272,6 @@ class JSONResponseBuilder:
         metadata = getattr(envelope, "metadata", None)
         if isinstance(metadata, dict) and metadata.get("allow_usage_recalculation"):
             requires_recalc = True
-
-        # Use the service for proper usage calculation
-        service = get_usage_calculation_service()
 
         if requires_recalc or existing_usage is None:
             # Get prompt tokens hint from metadata
@@ -422,21 +435,17 @@ class JSONResponseBuilder:
         Returns:
             Completion tokens or None
         """
+        if count_tokens is None:
+            return None
+
         text_value: str | None = None
         if isinstance(payload, dict):
-            from src.core.utils.usage_recalculation import (
-                extract_content_text,
-                should_recalculate_usage,
-            )
-
             if should_recalculate_usage(payload):
                 text_value = extract_content_text(payload)
         elif isinstance(payload, str):
             text_value = payload
 
         if text_value:
-            from src.core.utils.token_count import count_tokens
-
             try:
                 return count_tokens(text_value, model=model_name)
             except Exception:
@@ -518,11 +527,14 @@ class JSONResponseBuilder:
         """
         # CRITICAL: Apply steering leak protection as final safety net
         # This ensures internal steering data NEVER reaches clients
-        from src.core.services.steering_leak_protection import (
-            get_steering_leak_protector,
-        )
+        if self._cached_steering_leak_protector is None:
+            from src.core.services.steering_leak_protection import (
+                get_steering_leak_protector,
+            )
 
-        protector = get_steering_leak_protector()
+            self._cached_steering_leak_protector = get_steering_leak_protector()
+
+        protector = self._cached_steering_leak_protector
         safe_content = content
         if protector.enabled and isinstance(content, dict):
             safe_content, had_leak = protector.sanitize_dict(content)

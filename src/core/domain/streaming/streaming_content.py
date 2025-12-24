@@ -333,7 +333,7 @@ class StreamingContent:
             # Convert to plain dict first to avoid triggering protection
             plain_dict = dict(self.content)
             payload = StreamingPayload(
-                kind="opaque_json", opaque_json=json.dumps(plain_dict)
+                kind="opaque_json_dict", opaque_json_dict=plain_dict
             )
         elif isinstance(self.content, str):
             if len(self.content) == 0:
@@ -341,8 +341,9 @@ class StreamingContent:
             else:
                 payload = StreamingPayload(kind="text", text=self.content)
         elif isinstance(self.content, dict):
+            # Pass dict directly without JSON serialization
             payload = StreamingPayload(
-                kind="opaque_json", opaque_json=json.dumps(self.content)
+                kind="opaque_json_dict", opaque_json_dict=self.content
             )
         elif isinstance(self.content, bytes):
             binary_b64 = base64.b64encode(self.content).decode("utf-8")
@@ -449,6 +450,8 @@ class StreamingContent:
         content: str | dict | bytes
         if chunk.payload.kind == "text":
             content = chunk.payload.text or ""
+        elif chunk.payload.kind == "opaque_json_dict":
+            content = chunk.payload.opaque_json_dict or {}
         elif chunk.payload.kind == "opaque_json":
             if chunk.payload.opaque_json:
                 try:

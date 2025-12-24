@@ -9,6 +9,7 @@ import contextlib
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
@@ -39,7 +40,8 @@ def message_type_strategy(draw):
 # Property 22: Connection logging
 @given(session_id=session_id_strategy())
 @settings(max_examples=50, deadline=None)
-def test_property_22_connection_logging(session_id):
+@pytest.mark.asyncio
+async def test_property_22_connection_logging(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 22: Connection logging
     Validates: Requirements 8.1
@@ -53,7 +55,7 @@ def test_property_22_connection_logging(session_id):
     with patch.object(
         logging.getLogger("src.codebuff.connection_manager"), "info"
     ) as mock_log:
-        manager.connect(websocket, session_id)
+        await manager.connect(websocket, session_id)
 
         # Verify connection was logged with session ID
         assert mock_log.called, "Connection should be logged"
@@ -136,7 +138,8 @@ def test_property_23_message_logging(session_id, message_type):
 # Property 24: Error logging
 @given(session_id=session_id_strategy())
 @settings(max_examples=50, deadline=None)
-def test_property_24_error_logging(session_id):
+@pytest.mark.asyncio
+async def test_property_24_error_logging(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 24: Error logging
     Validates: Requirements 8.3
@@ -148,7 +151,7 @@ def test_property_24_error_logging(session_id):
     websocket = MagicMock()
 
     # Connect first
-    manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id)
 
     # Capture log output for error scenario
     with (
@@ -162,7 +165,7 @@ def test_property_24_error_logging(session_id):
         # Try to connect with duplicate session ID (should cause error/warning)
         websocket2 = MagicMock()
         with contextlib.suppress(Exception):
-            manager.connect(websocket2, session_id)
+            await manager.connect(websocket2, session_id)
 
         # Verify error/warning was logged
         assert mock_log.called or mock_warning.called, "Error should be logged"
@@ -184,7 +187,8 @@ def test_property_24_error_logging(session_id):
 # Property 25: Disconnect logging
 @given(session_id=session_id_strategy())
 @settings(max_examples=50)
-def test_property_25_disconnect_logging(session_id):
+@pytest.mark.asyncio
+async def test_property_25_disconnect_logging(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 25: Disconnect logging
     Validates: Requirements 8.4
@@ -195,13 +199,13 @@ def test_property_25_disconnect_logging(session_id):
     websocket = MagicMock()
 
     # Connect first
-    manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id)
 
     # Capture log output for disconnect
     with patch.object(
         logging.getLogger("src.codebuff.connection_manager"), "info"
     ) as mock_log:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)
 
         # Verify disconnection was logged
         assert mock_log.called, "Disconnection should be logged"
@@ -256,9 +260,9 @@ def test_property_26_sensitive_data_exclusion(session_id, auth_token):
         ) as mock_error,
     ):
         # Perform operations
-        manager.connect(websocket, session_id)
-        manager.update_last_seen(websocket)
-        manager.disconnect(websocket)
+        await manager.connect(websocket, session_id)
+        await manager.update_last_seen(websocket)
+        await manager.disconnect(websocket)
 
         # Collect all log calls
         all_calls = (

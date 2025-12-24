@@ -31,7 +31,7 @@ class TestConnectionManagerLeakRegression:
             mock_ws = MagicMock()
             mock_ws.close = MagicMock()
             session_id = f"session-{i}"
-            manager.connect(mock_ws, session_id)
+            await manager.connect(mock_ws, session_id)
             mock_websockets.append((mock_ws, session_id))
 
         # Verify we're at the limit
@@ -42,7 +42,7 @@ class TestConnectionManagerLeakRegression:
 
         extra_ws = MagicMock()
         with pytest.raises(CodebuffSessionError):
-            manager.connect(extra_ws, "session-extra")
+            await manager.connect(extra_ws, "session-extra")
 
     @pytest.mark.asyncio
     async def test_stale_connections_cleaned_up(
@@ -55,7 +55,7 @@ class TestConnectionManagerLeakRegression:
             mock_ws = MagicMock()
             mock_ws.close = AsyncMock()
             session_id = f"session-{i}"
-            manager.connect(mock_ws, session_id)
+            await manager.connect(mock_ws, session_id)
             mock_websockets.append((mock_ws, session_id))
 
         initial_count = len(manager._connections)
@@ -63,7 +63,7 @@ class TestConnectionManagerLeakRegression:
         # Make some connections stale by setting old last_seen
         stale_count = 5
         for mock_ws, _session_id in mock_websockets[:stale_count]:
-            session = manager.get_session(mock_ws)
+            session = await manager.get_session(mock_ws)
             if session:
                 session.last_seen = datetime.utcnow() - timedelta(seconds=120)
 
@@ -85,21 +85,23 @@ class TestConnectionManagerLeakRegression:
         # Create a connection and subscribe to topics
         mock_ws = MagicMock()
         session_id = "test-session"
-        manager.connect(mock_ws, session_id)
+        await manager.connect(mock_ws, session_id)
 
         topics = ["topic-1", "topic-2", "topic-3"]
-        manager.subscribe(mock_ws, topics)
+        await manager.subscribe(mock_ws, topics)
 
         # Verify subscriptions exist
         for topic in topics:
-            assert mock_ws in manager.get_subscribers(topic)
+            subscribers = await manager.get_subscribers(topic)
+            assert mock_ws in subscribers
 
         # Disconnect
-        manager.disconnect(mock_ws)
+        await manager.disconnect(mock_ws)
 
         # Verify subscriptions are cleaned up
         for topic in topics:
-            assert mock_ws not in manager.get_subscribers(topic)
+            subscribers = await manager.get_subscribers(topic)
+            assert mock_ws not in subscribers
             # Empty topic sets should be removed
             assert topic not in manager._subscriptions
 
@@ -119,7 +121,7 @@ class TestConnectionManagerLeakRegression:
             session_id = f"session-{i}"
 
             try:
-                manager.connect(mock_ws, session_id)
+                await manager.connect(mock_ws, session_id)
                 created_count += 1
                 mock_websockets.append((mock_ws, session_id))
             except Exception:
@@ -139,13 +141,13 @@ class TestConnectionManagerLeakRegression:
         """Test that session_id_to_websocket mapping is cleaned up on disconnect."""
         mock_ws = MagicMock()
         session_id = "test-session"
-        manager.connect(mock_ws, session_id)
+        await manager.connect(mock_ws, session_id)
 
         # Verify mapping exists
         assert session_id in manager._session_id_to_websocket
 
         # Disconnect
-        manager.disconnect(mock_ws)
+        await manager.disconnect(mock_ws)
 
         # Verify mapping is cleaned up
         assert session_id not in manager._session_id_to_websocket
@@ -159,10 +161,10 @@ class TestConnectionManagerLeakRegression:
         mock_ws = MagicMock()
         mock_ws.close = AsyncMock(side_effect=Exception("Close failed"))
         session_id = "stale-session"
-        manager.connect(mock_ws, session_id)
+        await manager.connect(mock_ws, session_id)
 
         # Make it stale
-        session = manager.get_session(mock_ws)
+        session = await manager.get_session(mock_ws)
         if session:
             session.last_seen = datetime.utcnow() - timedelta(seconds=120)
 

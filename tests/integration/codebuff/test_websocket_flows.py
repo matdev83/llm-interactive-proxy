@@ -659,10 +659,10 @@ class TestHeartbeatTimeout:
         mock_websocket.close = AsyncMock()
 
         # Register connection
-        connection_manager.connect(mock_websocket, "stale-session")
+        await connection_manager.connect(mock_websocket, "stale-session")
 
         # Verify connection exists
-        session = connection_manager.get_session(mock_websocket)
+        session = await connection_manager.get_session(mock_websocket)
         assert session is not None
         assert session.session_id == "stale-session"
 
@@ -676,5 +676,5 @@ class TestHeartbeatTimeout:
         mock_websocket.close.assert_called_once()
 
         # Verify connection was removed
-        session = connection_manager.get_session(mock_websocket)
+        session = await connection_manager.get_session(mock_websocket)
         assert session is None

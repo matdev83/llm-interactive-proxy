@@ -178,7 +178,7 @@ async def test_handle_connection_cleans_up_on_disconnect(
     await server.handle_connection(websocket)
 
     # Verify session is cleaned up
-    session = connection_manager.get_session(websocket)
+    session = await connection_manager.get_session(websocket)
     assert session is None
 
 
@@ -254,7 +254,7 @@ async def test_heartbeat_monitor_cleans_up_stale_connections(
     """Test that heartbeat monitor cleans up stale connections."""
     # Create a mock connection
     websocket = create_mock_websocket()
-    connection_manager.connect(websocket, "test-session")
+    await connection_manager.connect(websocket, "test-session")
 
     # Start heartbeat monitor
     await server.start_heartbeat_monitor()

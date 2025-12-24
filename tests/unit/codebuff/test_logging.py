@@ -18,7 +18,8 @@ from src.codebuff.message_router import MessageRouter
 class TestConnectionLogging:
     """Test connection-related logging."""
 
-    def test_connection_logs_session_id(self):
+    @pytest.mark.asyncio
+    async def test_connection_logs_session_id(self):
         """Test that connection logging includes session ID."""
         manager = ConnectionManager()
         websocket = MagicMock()
@@ -27,7 +28,7 @@ class TestConnectionLogging:
         with patch.object(
             logging.getLogger("src.codebuff.connection_manager"), "info"
         ) as mock_log:
-            manager.connect(websocket, session_id)
+            await manager.connect(websocket, session_id)
 
             # Verify logging occurred
             assert mock_log.called
@@ -92,7 +93,8 @@ class TestMessageLogging:
 class TestErrorLogging:
     """Test error-related logging."""
 
-    def test_duplicate_session_logs_warning(self):
+    @pytest.mark.asyncio
+    async def test_duplicate_session_logs_warning(self):
         """Test that duplicate session ID attempts are logged."""
         manager = ConnectionManager()
         websocket1 = MagicMock()
@@ -100,14 +102,14 @@ class TestErrorLogging:
         session_id = "duplicate-session"
 
         # Connect first websocket
-        manager.connect(websocket1, session_id)
+        await manager.connect(websocket1, session_id)
 
         with patch.object(
             logging.getLogger("src.codebuff.connection_manager"), "warning"
         ) as mock_log:
             # Try to connect second websocket with same session ID
             with pytest.raises(CodebuffSessionError):
-                manager.connect(websocket2, session_id)
+                await manager.connect(websocket2, session_id)
 
             # Verify warning was logged
             assert mock_log.called
@@ -115,7 +117,8 @@ class TestErrorLogging:
             assert "duplicate session id" in call_args[0].lower()
             assert call_args[1] == session_id
 
-    def test_unknown_connection_update_logs_warning(self):
+    @pytest.mark.asyncio
+    async def test_unknown_connection_update_logs_warning(self):
         """Test that updating unknown connection logs warning."""
         manager = ConnectionManager()
         websocket = MagicMock()
@@ -125,7 +128,7 @@ class TestErrorLogging:
         ) as mock_log:
             # Try to update last_seen for unknown connection
             with pytest.raises(CodebuffSessionError):
-                manager.update_last_seen(websocket)
+                await manager.update_last_seen(websocket)
 
             # Verify warning was logged
             assert mock_log.called
@@ -136,19 +139,20 @@ class TestErrorLogging:
 class TestDisconnectLogging:
     """Test disconnection-related logging."""
 
-    def test_disconnect_logs_session_id(self):
+    @pytest.mark.asyncio
+    async def test_disconnect_logs_session_id(self):
         """Test that disconnection logging includes session ID."""
         manager = ConnectionManager()
         websocket = MagicMock()
         session_id = "test-session-456"
 
         # Connect first
-        manager.connect(websocket, session_id)
+        await manager.connect(websocket, session_id)
 
         with patch.object(
             logging.getLogger("src.codebuff.connection_manager"), "info"
         ) as mock_log:
-            manager.disconnect(websocket)
+            await manager.disconnect(websocket)
 
             # Verify logging occurred
             assert mock_log.called
@@ -158,7 +162,8 @@ class TestDisconnectLogging:
             assert "disconnect" in call_args[0].lower()
             assert call_args[1] == session_id
 
-    def test_disconnect_unknown_connection_logs_warning(self):
+    @pytest.mark.asyncio
+    async def test_disconnect_unknown_connection_logs_warning(self):
         """Test that disconnecting unknown connection logs warning."""
         manager = ConnectionManager()
         websocket = MagicMock()
@@ -166,7 +171,7 @@ class TestDisconnectLogging:
         with patch.object(
             logging.getLogger("src.codebuff.connection_manager"), "warning"
         ) as mock_log:
-            manager.disconnect(websocket)
+            await manager.disconnect(websocket)
 
             # Verify warning was logged
             assert mock_log.called
@@ -177,7 +182,8 @@ class TestDisconnectLogging:
 class TestSensitiveDataFiltering:
     """Test that sensitive data is not logged."""
 
-    def test_session_id_logged_but_not_auth_token(self):
+    @pytest.mark.asyncio
+    async def test_session_id_logged_but_not_auth_token(self):
         """Test that session IDs are logged but auth tokens are not."""
         manager = ConnectionManager()
         websocket = MagicMock()
@@ -196,8 +202,8 @@ class TestSensitiveDataFiltering:
             ) as mock_debug,
         ):
             # Perform operations
-            manager.connect(websocket, session_id)
-            manager.disconnect(websocket)
+            await manager.connect(websocket, session_id)
+            await manager.disconnect(websocket)
 
             # Collect all log calls
             all_calls = mock_info.call_args_list + mock_debug.call_args_list

@@ -5,6 +5,7 @@ import contextlib
 import inspect
 import logging
 import os
+import threading
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -64,7 +65,7 @@ class ServiceScope(IServiceScope):
 
     def __init__(
         self, provider: ServiceProvider, parent_scope: ServiceScope | None = None
-    ):
+    ) -> None:
         """Initialize a service scope.
 
         Args:
@@ -74,6 +75,7 @@ class ServiceScope(IServiceScope):
         self._provider = ScopedServiceProvider(provider, self)
         self._parent_scope = parent_scope
         self._instances: dict[type, Any] = {}
+        self._lock = threading.Lock()
         self._disposed = False
 
     @property
@@ -85,19 +87,20 @@ class ServiceScope(IServiceScope):
 
     async def dispose(self) -> None:
         """Dispose of this scope and any scoped services."""
-        if self._disposed:
-            return
+        with self._lock:
+            if self._disposed:
+                return
 
-        self._disposed = True
+            self._disposed = True
 
-        # Dispose any instances that implement disposable pattern
-        for instance in self._instances.values():
-            if hasattr(instance, "__aenter__") and hasattr(instance, "__aexit__"):
-                await instance.__aexit__(None, None, None)
-            elif hasattr(instance, "dispose") and callable(instance.dispose):
-                instance.dispose()
+            # Dispose any instances that implement disposable pattern
+            for instance in self._instances.values():
+                if hasattr(instance, "__aenter__") and hasattr(instance, "__aexit__"):
+                    await instance.__aexit__(None, None, None)
+                elif hasattr(instance, "dispose") and callable(instance.dispose):
+                    instance.dispose()
 
-        self._instances.clear()
+            self._instances.clear()
 
 
 class ScopedServiceProvider(IServiceProvider):
@@ -150,6 +153,7 @@ class ServiceProvider(IServiceProvider):
         """
         self._descriptors = descriptors
         self._singleton_instances: dict[type, Any] = {}
+        self._lock = threading.Lock()
         self._diagnostics = os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
             "true",
             "1",
@@ -207,16 +211,17 @@ class ServiceProvider(IServiceProvider):
 
             # Handle based on lifetime
             if descriptor.lifetime == ServiceLifetime.SINGLETON:
-                # Check for cached singleton instance
-                if service_type in self._singleton_instances:
-                    pop_resolution()  # Pop before returning successfully resolved service
-                    return self._singleton_instances[service_type]  # type: ignore[no-any-return]
+                # Check for cached singleton instance (with lock for thread safety)
+                with self._lock:
+                    if service_type in self._singleton_instances:
+                        pop_resolution()  # Pop before returning successfully resolved service
+                        return self._singleton_instances[service_type]  # type: ignore[no-any-return]
 
-                # Create and cache singleton instance
-                instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
-                self._singleton_instances[service_type] = instance
-                pop_resolution()  # Pop before returning successfully resolved service
-                return instance  # type: ignore[no-any-return]
+                    # Create and cache singleton instance
+                    instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+                    self._singleton_instances[service_type] = instance
+                    pop_resolution()  # Pop before returning successfully resolved service
+                    return instance  # type: ignore[no-any-return]
 
             elif descriptor.lifetime == ServiceLifetime.SCOPED:
                 if scope is None:
@@ -230,16 +235,17 @@ class ServiceProvider(IServiceProvider):
                         f"Cannot resolve scoped service {type_name} from root provider"
                     )
 
-                # Check for cached scoped instance
-                if service_type in scope._instances:
-                    pop_resolution()  # Pop before returning successfully resolved service
-                    return scope._instances[service_type]  # type: ignore[no-any-return]
+                # Check for cached scoped instance (with lock for thread safety)
+                with self._lock:
+                    if service_type in scope._instances:
+                        pop_resolution()  # Pop before returning successfully resolved service
+                        return scope._instances[service_type]  # type: ignore[no-any-return]
 
-                # Create and cache scoped instance
-                instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
-                scope._instances[service_type] = instance
-                pop_resolution()  # Pop before returning successfully resolved service
-                return instance  # type: ignore[no-any-return]
+                    # Create and cache scoped instance
+                    instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
+                    scope._instances[service_type] = instance
+                    pop_resolution()  # Pop before returning successfully resolved service
+                    return instance  # type: ignore[no-any-return]
 
             else:  # TRANSIENT
                 instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
