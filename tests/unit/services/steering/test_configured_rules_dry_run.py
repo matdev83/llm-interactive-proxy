@@ -3,7 +3,9 @@
 import pytest
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.services.steering import SessionStateStore
+from src.services.steering.models import SteeringRule
 from src.services.steering.policies import ConfiguredRulesPolicy
+
 
 
 @pytest.fixture
@@ -25,15 +27,16 @@ async def test_dry_run_no_side_effects(context):
     store = SessionStateStore()
 
     rules = [
-        {
-            "name": "limit_rule",
-            "enabled": True,
-            "triggers": {"phrases": ["rm -rf"]},
-            "message": "blocked",
-            "priority": 100,
-            "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
-        }
+        SteeringRule(
+            name="limit_rule",
+            enabled=True,
+            triggers={"phrases": ["rm -rf"]},
+            message="blocked",
+            priority=100,
+            rate_limit={"calls_per_window": 1, "window_seconds": 60},
+        )
     ]
+
 
     policy = ConfiguredRulesPolicy(session_store=store, rules=rules, enabled=True)
 

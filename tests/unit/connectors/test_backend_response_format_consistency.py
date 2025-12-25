@@ -61,6 +61,14 @@ NON_STANDARD_NESTED_RESPONSE = {
     }
 }
 
+_CORE_CONNECTOR_MODULES = {
+    "src.connectors.openai",
+    "src.connectors.cline",
+    "src.connectors.anthropic",
+    "src.connectors.gemini",
+}
+_CONNECTOR_IMPORT_ERRORS: dict[str, str] = {}
+
 
 def _discover_all_connector_modules() -> list[str]:
     """Discover all connector module names in the src/connectors package."""
@@ -78,9 +86,10 @@ def _import_all_connectors() -> None:
     for module_name in _discover_all_connector_modules():
         try:
             importlib.import_module(module_name)
-        except ImportError as e:
-            # Some connectors might have optional dependencies - skip gracefully
-            pytest.skip(f"Could not import {module_name}: {e}")
+        except Exception as e:
+            _CONNECTOR_IMPORT_ERRORS[module_name] = f"{type(e).__name__}: {e}"
+            if module_name in _CORE_CONNECTOR_MODULES:
+                raise
 
 
 class TestBackendResponseFormatDiscovery:

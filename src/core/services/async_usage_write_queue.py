@@ -11,8 +11,10 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
+
     from src.core.domain.usage_record import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -33,18 +35,27 @@ class IUsageRecordWriter(Protocol):
         ...
 
     async def batch_update(self, records: list[UsageRecord]) -> int:
-        """Update a batch of records.
-
-        Args:
-            records: List of records to update
-
-        Returns:
-            Number of records successfully updated
-        """
         ...
 
 
+@dataclass(frozen=True)
+class QueueStatistics:
+    """Statistics for the async usage write queue."""
+
+    is_running: bool
+    insert_queue_size: int
+    update_queue_size: int
+    pending_count: int
+    total_inserts: int
+    total_updates: int
+    total_batches: int
+    last_flush_time: str | None
+    batch_size: int
+    flush_interval_seconds: float
+
+
 class AsyncUsageWriteQueue:
+
     """Async-safe write queue for usage records.
 
     Buffers usage records and writes them to the database in batches

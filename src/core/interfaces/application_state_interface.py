@@ -8,7 +8,10 @@ without coupling to specific web framework implementations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from src.connectors.base import LLMBackend
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.configuration.failover_models import FailoverRoute
@@ -184,7 +187,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def get_backend(self) -> Any:
+    def get_backend(self) -> LLMBackend | None:
         """Get current backend instance.
 
         Returns:
@@ -192,7 +195,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def set_backend(self, backend: Any) -> None:
+    def set_backend(self, backend: LLMBackend | None) -> None:
         """Set current backend instance.
 
         Args:

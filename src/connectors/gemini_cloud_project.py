@@ -41,7 +41,8 @@ This implementation is designed for production use with proper GCP project setup
 as opposed to the personal OAuth backend which is for development/testing.
 """
 
-# mypy: disable-error-code="no-untyped-call,no-untyped-def,no-any-return,has-type,var-annotated"
+# mypy: disable-error-code="no-untyped-call,no-untyped-def,no-any-return,has-type,var-annotated,override"
+
 import asyncio
 import contextlib
 import json

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+if TYPE_CHECKING:
+    from src.connectors.base import LLMBackend
 
 _T_co = TypeVar("_T_co")
 
@@ -145,10 +148,10 @@ class SessionStateAdapter(
     def set_backend_type(self, backend_type: str | None) -> None:
         self._local_state["backend_type"] = backend_type
 
-    def get_backend(self) -> Any:
-        return self._local_state.get("backend")
+    def get_backend(self) -> LLMBackend | None:
+        return cast("LLMBackend | None", self._local_state.get("backend"))
 
-    def set_backend(self, backend: Any) -> None:
+    def set_backend(self, backend: LLMBackend | None) -> None:
         self._local_state["backend"] = backend
 
     def get_model_defaults(self) -> dict[str, ModelDefaults]:

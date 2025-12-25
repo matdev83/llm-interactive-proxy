@@ -125,7 +125,9 @@ class TestMessageRouter:
         large_data = "x" * (MAX_MESSAGE_SIZE + 1000)
         oversized_json = f'{{"type": "ping", "txid": 123, "data": "{large_data}"}}'
 
-        validated_message, ack = await router.route_message(oversized_json)
+        routed = await router.route_message(oversized_json)
+        validated_message = routed.validated_message
+        ack = routed.ack
 
         assert validated_message is None
         assert ack.success is False
@@ -141,7 +143,9 @@ class TestMessageRouter:
         # Create normal-sized message
         normal_json = '{"type": "ping", "txid": 456, "data": "hello world"}'
 
-        validated_message, ack = await router.route_message(normal_json)
+        routed = await router.route_message(normal_json)
+        validated_message = routed.validated_message
+        ack = routed.ack
 
         assert validated_message is not None
         assert isinstance(validated_message, PingMessage)

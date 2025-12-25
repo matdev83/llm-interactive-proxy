@@ -27,6 +27,7 @@ from src.codebuff.schemas import (
     ClientMessage,
     IdentifyMessage,
     PingMessage,
+    RoutedMessage,
     SubscribeMessage,
     UnsubscribeMessage,
 )
@@ -153,7 +154,7 @@ class MessageRouter:
 
     async def route_message(
         self, raw_message: str
-    ) -> tuple[ClientMessage | None, AckMessage]:
+    ) -> RoutedMessage:
         """Parse, validate, and route a message.
 
         This is the main entry point for processing incoming messages.
@@ -163,9 +164,9 @@ class MessageRouter:
             raw_message: Raw JSON string from WebSocket
 
         Returns:
-            Tuple of (validated_message, ack_message)
-            - validated_message is None if parsing/validation failed
-            - ack_message contains success status and any errors
+            RoutedMessage object containing:
+            - validated_message (None if parsing/validation failed)
+            - ack (success status and any errors)
 
         Note:
             This method does not raise exceptions. All errors are captured
@@ -186,7 +187,7 @@ class MessageRouter:
             # Create success ack
             ack = self.create_ack(txid=txid, success=True)
 
-            return validated_message, ack
+            return RoutedMessage(validated_message=validated_message, ack=ack)
 
         except (CodebuffMessageError, CodebuffValidationError) as e:
             # Create error ack using format_error_response
@@ -196,7 +197,7 @@ class MessageRouter:
             else:
                 # Should not happen given current format_error_response logic
                 ack = self.create_ack(txid=txid, success=False, error=str(e))
-            return None, ack
+            return RoutedMessage(validated_message=None, ack=ack)
 
         except Exception as e:
             # Catch any unexpected errors
@@ -208,4 +209,4 @@ class MessageRouter:
                 ack = error_response
             else:
                 ack = self.create_ack(txid=txid, success=False, error=str(e))
-            return None, ack
+            return RoutedMessage(validated_message=None, ack=ack)

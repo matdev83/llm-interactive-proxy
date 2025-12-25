@@ -108,6 +108,18 @@ class AssessmentResult:
         )
 
 
+@dataclass(frozen=True)
+class SessionStats:
+    """Statistics for a conversation session."""
+
+    turn_count: int
+    last_check_turn: int
+    current_check_interval: int
+    disabled_for_session: bool
+    assessment_count: int
+    turns_since_last_check: int
+
+
 @dataclass
 class SessionAssessmentState:
     """

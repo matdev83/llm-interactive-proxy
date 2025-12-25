@@ -10,6 +10,7 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 import logging
 
 from src.core.common.logging_utils import get_logger
+from src.core.domain.assessment import SessionStats
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import (
     IAssessmentRepository,
@@ -214,7 +215,7 @@ class TurnCounterService(ITurnCounterService):
 
         logger.info(f"Assessment enabled for session {session_id}")
 
-    def get_session_stats(self, session_id: str) -> dict:
+    def get_session_stats(self, session_id: str) -> SessionStats:
         """
         Get statistics for a session.
 
@@ -222,14 +223,14 @@ class TurnCounterService(ITurnCounterService):
             session_id: Unique identifier for the session
 
         Returns:
-            Dictionary with session statistics
+            SessionStats object
         """
         state = self.repository.get_session_state(session_id)
-        return {
-            "turn_count": state.turn_count,
-            "last_check_turn": state.last_check_turn,
-            "current_check_interval": state.current_check_interval,
-            "disabled_for_session": state.disabled_for_session,
-            "assessment_count": len(state.assessment_history),
-            "turns_since_last_check": state.turn_count - state.last_check_turn,
-        }
+        return SessionStats(
+            turn_count=state.turn_count,
+            last_check_turn=state.last_check_turn,
+            current_check_interval=state.current_check_interval,
+            disabled_for_session=state.disabled_for_session,
+            assessment_count=len(state.assessment_history),
+            turns_since_last_check=state.turn_count - state.last_check_turn,
+        )

@@ -2,6 +2,8 @@
 A command handler for failover commands.
 """
 
+from __future__ import annotations
+
 import contextlib
 import threading
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -30,6 +32,7 @@ from src.core.interfaces.state_provider_interface import (
 )
 
 if TYPE_CHECKING:
+    from src.connectors.base import LLMBackend
     from src.core.interfaces.command_service_interface import ICommandService
 
 _T_co = TypeVar("_T_co")
@@ -141,11 +144,11 @@ class SessionStateApplicationStateAdapter(
         with self._lock:
             self._local_state["backend_type"] = backend_type
 
-    def get_backend(self) -> Any:
+    def get_backend(self) -> LLMBackend | None:
         with self._lock:
-            return self._local_state.get("backend")
+            return cast("LLMBackend | None", self._local_state.get("backend"))
 
-    def set_backend(self, backend: Any) -> None:
+    def set_backend(self, backend: LLMBackend | None) -> None:
         with self._lock:
             self._local_state["backend"] = backend
 

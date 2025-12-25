@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+if TYPE_CHECKING:
+    from src.connectors.base import LLMBackend
 
 from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.model_utils import ModelDefaults
@@ -262,15 +265,15 @@ class ApplicationStateService(IApplicationState):
         with self._lock:
             self._local_state["backend_type"] = backend_type
 
-    def get_backend(self) -> Any:
+    def get_backend(self) -> LLMBackend | None:
         """Get current backend instance."""
         has_value, provider_value = self._get_provider_value("backend")
         if has_value:
-            return provider_value
+            return cast("LLMBackend | None", provider_value)
         with self._lock:
-            return self._local_state.get("backend")
+            return cast("LLMBackend | None", self._local_state.get("backend"))
 
-    def set_backend(self, backend: Any) -> None:
+    def set_backend(self, backend: LLMBackend | None) -> None:
         """Set current backend instance."""
         if self._state_provider:
             self._state_provider.backend = backend

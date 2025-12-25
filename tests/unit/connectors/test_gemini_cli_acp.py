@@ -7,16 +7,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import asyncio
+import json
+import os
+import contextlib
+from unittest.mock import MagicMock, patch, AsyncMock
+from pathlib import Path
 
-# Ensure all gemini-cli-acp tests run sequentially to prevent port conflicts
-pytestmark = pytest.mark.xdist_group("gemini_cli_acp_integration")
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
-from src.core.common.exceptions import (
-    APITimeoutError,
-    BackendError,
-    ConfigurationError,
-    ServiceUnavailableError,
+from src.connectors.gemini_cli_acp_types import ACPResponse
+from src.core.domain.responses import (
+    ProcessedResponse,
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
 )
+from src.core.common.exceptions import (
+    BackendError,
+    ServiceUnavailableError,
+    APITimeoutError,
+    ConfigurationError,
+)
+
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -307,7 +318,8 @@ class TestGeminiCliAcpConnectorCommunication:
         with patch("asyncio.get_event_loop", return_value=loop):
             response = await connector._read_jsonrpc_response()
 
-        assert response == {"result": "success"}
+        assert response.result == "success"
+
 
     async def test_read_jsonrpc_response_invalid_json(self, connector, temp_workspace):
         """Test reading invalid JSON raises error."""
@@ -500,9 +512,10 @@ class TestGeminiCliAcpConnectorStreaming:
 
         # Mock _read_jsonrpc_response to return text response then None to end
         responses = [
-            {"result": {"Message": "Hello, world!"}},
+            ACPResponse(result={"Message": "Hello, world!"}),
             None,  # End stream
         ]
+
         response_iter = iter(responses)
 
         async def mock_read():
@@ -528,7 +541,8 @@ class TestGeminiCliAcpConnectorStreaming:
 
         async def mock_read_slow():
             await asyncio.sleep(1)  # Sleep longer than timeout
-            return {"result": {}}
+            return ACPResponse(result={})
+
 
         with (
             patch.object(

@@ -5,6 +5,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+
+class SteeringRuleTriggers(BaseModel):
+    """Triggers for a steering rule."""
+
+    tool_names: list[str] = Field(default_factory=list)
+    phrases: list[str] = Field(default_factory=list)
+
+
+class SteeringRuleRateLimit(BaseModel):
+    """Rate limit configuration for a steering rule."""
+
+    calls_per_window: int = 1
+    window_seconds: int = 60
+
+
+class SteeringRule(BaseModel):
+    """Definition of a configurable steering rule."""
+
+    name: str
+    message: str
+    enabled: bool = True
+    priority: int = 50
+    triggers: SteeringRuleTriggers = Field(default_factory=SteeringRuleTriggers)
+    rate_limit: SteeringRuleRateLimit = Field(default_factory=SteeringRuleRateLimit)
+
 
 @dataclass
 class SteeringResult:

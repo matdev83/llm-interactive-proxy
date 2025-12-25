@@ -12,6 +12,7 @@ from collections import deque
 from typing import Any
 
 from src.core.domain.configuration.failover_models import FailoverRoute
+from src.core.domain.state_auditing import StateAccessLogEntry
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -47,7 +48,7 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
 
         self._application_state = application_state
         self._access_log_max_entries = max_entries
-        self._access_log: deque[dict[str, Any]] = deque(maxlen=max_entries)
+        self._access_log: deque[StateAccessLogEntry] = deque(maxlen=max_entries)
 
     # Secure read access methods
     def get_command_prefix(self) -> str | None:
@@ -120,7 +121,7 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
 
         # Validate route structure
         for i, route in enumerate(routes):
-            if not isinstance(route, (dict, FailoverRoute)):
+            if not isinstance(route, dict | FailoverRoute):
                 raise StateAccessViolationError(
                     f"Route {i} must be a dictionary or FailoverRoute model",
                     "ISecureStateModification.update_failover_routes",
@@ -141,17 +142,17 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
         self, operation: str, access_type: str, data: dict[str, Any] | None = None
     ) -> None:
         """Log state access for auditing purposes."""
-        log_entry = {
-            "operation": operation,
-            "access_type": access_type,
-            "timestamp": __import__("time").time(),
-            "data": data or {},
-        }
+        log_entry = StateAccessLogEntry(
+            operation=operation,
+            access_type=access_type,
+            timestamp=__import__("time").time(),
+            data=data or {},
+        )
         self._access_log.append(log_entry)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"State access: {operation} ({access_type})")
 
-    def get_access_log(self) -> list[dict[str, Any]]:
+    def get_access_log(self) -> list[StateAccessLogEntry]:
         """Get the access log for auditing."""
         return list(self._access_log)
 

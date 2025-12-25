@@ -241,9 +241,11 @@ async def test_property_10_valid_message_acknowledgment(message_json: str) -> No
     router = MessageRouter()
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was validated successfully
+
     assert validated_message is not None
 
     # Verify ack indicates success
@@ -270,9 +272,11 @@ async def test_property_10_identify_message_acknowledgment(message_json: str) ->
     router = MessageRouter()
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was validated successfully
+
     assert validated_message is not None
     assert validated_message.type == "identify"
 
@@ -299,9 +303,11 @@ async def test_property_10_ping_message_acknowledgment(message_json: str) -> Non
     router = MessageRouter()
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was validated successfully
+
     assert validated_message is not None
     assert validated_message.type == "ping"
 
@@ -328,9 +334,11 @@ async def test_property_10_subscribe_message_acknowledgment(message_json: str) -
     router = MessageRouter()
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was validated successfully
+
     assert validated_message is not None
     assert validated_message.type == "subscribe"
 
@@ -359,9 +367,11 @@ async def test_property_10_unsubscribe_message_acknowledgment(
     router = MessageRouter()
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was validated successfully
+
     assert validated_message is not None
     assert validated_message.type == "unsubscribe"
 
@@ -390,9 +400,11 @@ async def test_property_10_invalid_json_acknowledgment_failure(
     router = MessageRouter()
 
     # Route the invalid message
-    validated_message, ack = await router.route_message(invalid_json)
+    routed = await router.route_message(invalid_json)
+    validated_message, ack = routed.validated_message, routed.ack
 
     # Verify message was not validated
+
     assert validated_message is None
 
     # Verify ack indicates failure
@@ -430,7 +442,9 @@ async def test_property_10_unknown_message_type_acknowledgment_failure(
     message_json = json.dumps({"type": invalid_type, "txid": txid})
 
     # Route the message
-    validated_message, ack = await router.route_message(message_json)
+    routed = await router.route_message(message_json)
+    validated_message, ack = routed.validated_message, routed.ack
+
 
     # Verify message was not validated
     assert validated_message is None

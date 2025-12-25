@@ -3,11 +3,13 @@
 import pytest
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.services.steering import SessionStateStore
+from src.services.steering.models import SteeringRule
 from src.services.steering.policies import (
     ConfiguredRulesPolicy,
     InlinePythonPolicy,
     PytestFullSuitePolicy,
 )
+
 
 
 @pytest.fixture
@@ -82,15 +84,16 @@ async def test_pytest_full_suite_policy():
 async def test_configured_rules_policy(context):
     """Verify configured rules application."""
     rules = [
-        {
-            "name": "no_rm_rf",
-            "enabled": True,
-            "triggers": {"phrases": ["rm -rf /"]},
-            "message": "Do not delete root",
-            "priority": 100,
-            "rate_limit": {"calls_per_window": 1, "window_seconds": 60},
-        }
+        SteeringRule(
+            name="no_rm_rf",
+            enabled=True,
+            triggers={"phrases": ["rm -rf /"]},
+            message="Do not delete root",
+            priority=100,
+            rate_limit={"calls_per_window": 1, "window_seconds": 60},
+        )
     ]
+
 
     policy = ConfiguredRulesPolicy(
         session_store=SessionStateStore(), rules=rules, enabled=True

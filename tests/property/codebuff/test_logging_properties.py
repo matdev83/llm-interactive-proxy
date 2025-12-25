@@ -114,9 +114,11 @@ def test_property_23_message_logging(session_id, message_type):
             ) as mock_debug_log,
         ):
             try:
-                validated_message, ack = await router.route_message(raw_message)
+                routed = await router.route_message(raw_message)
+                validated_message, ack = routed.validated_message, routed.ack
 
                 # For valid messages, check that message type was logged somewhere
+
                 # (could be in debug, info, or error depending on the flow)
                 all_calls = (
                     mock_error_log.call_args_list

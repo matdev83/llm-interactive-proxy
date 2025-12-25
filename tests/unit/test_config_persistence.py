@@ -339,7 +339,13 @@ def test_apply_failover_routes_uses_validator_and_skips_invalid(monkeypatch) -> 
     assert "backend rejection" in " ".join(warnings)
     routes = application_state.get_failover_routes()
     assert routes is not None
-    assert any(route for route in routes if route.get("elements") == ["gemini:model-a"])
+    assert any(
+        route
+        for route in routes
+        if (route.elements if hasattr(route, "elements") else route.get("elements"))
+        == ["gemini:model-a"]
+    )
+
 
 
 def test_apply_failover_routes_does_not_invoke_asyncio_run(monkeypatch) -> None:

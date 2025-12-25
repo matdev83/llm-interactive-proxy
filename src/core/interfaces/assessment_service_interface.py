@@ -12,6 +12,7 @@ from src.core.domain.assessment import (
     AssessmentRequest,
     AssessmentResult,
     LLMAssessmentResponse,
+    SessionStats,
 )
 from src.core.domain.chat import ChatMessage
 
@@ -147,6 +148,18 @@ class ITurnCounterService(ABC):
 
         Args:
             session_id: Unique identifier for the session
+        """
+
+    @abstractmethod
+    def get_session_stats(self, session_id: str) -> SessionStats:
+        """
+        Get statistics for a session.
+
+        Args:
+            session_id: Unique identifier for the session
+
+        Returns:
+            SessionStats object
         """
 
 

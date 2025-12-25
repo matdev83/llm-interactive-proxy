@@ -509,7 +509,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                         yield ProcessedResponse(content=sse_chunk)
 
                     # Handle DataPart or TextPart model
-                    elif isinstance(message, (TextPart, DataPart)):
+                    elif isinstance(message, TextPart | DataPart):
+
                         if isinstance(message, TextPart):
                             text = message.TextPart
                             sse_chunk = self._create_sse_chunk(
@@ -538,21 +539,22 @@ class GeminiCliAcpConnector(GeminiBackend):
                         elif "DataPart" in message:
                             data_part = message["DataPart"]
                             if "ToolCall" in data_part:
-                                tool_call = data_part["ToolCall"]
+                                tc = data_part["ToolCall"]
                                 tool_name = (
-                                    tool_call.get("tool_name")
-                                    if isinstance(tool_call, dict)
-                                    else getattr(tool_call, "tool_name", "unknown")
+                                    tc.get("tool_name")
+                                    if isinstance(tc, dict)
+                                    else getattr(tc, "tool_name", "unknown")
                                 )
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(f"Tool call: {tool_name}")
 
-                elif response.is_error:
-                    error = response.error
+                elif response.error is not None:
+                    err = response.error
                     raise BackendError(
-                        message=f"gemini-cli error: {error.message}",
-                        details=error.model_dump(),
+                        message=f"gemini-cli error: {err.message}",
+                        details=err.model_dump(),
                     )
+
 
         except asyncio.TimeoutError:
             if logger.isEnabledFor(logging.ERROR):

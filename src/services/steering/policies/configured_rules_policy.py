@@ -12,8 +12,9 @@ from typing import Any
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 
 from ..interfaces import ISteeringPolicy
-from ..models import SteeringResult
+from ..models import SteeringResult, SteeringRule
 from ..session_state_store import SessionStateStore
+
 
 logger = logging.getLogger(__name__)
 _NON_ALNUM_PATTERN = re.compile(r"[\W_]+")
@@ -73,7 +74,7 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
     def __init__(
         self,
         session_store: SessionStateStore,
-        rules: list[dict[str, Any]] | None = None,
+        rules: list[SteeringRule] | None = None,
         enabled: bool = True,
     ) -> None:
         """Initialize the policy.
@@ -86,6 +87,7 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
         self._session_store = session_store
         self._enabled = enabled
         self._rules = self._compile_rules(rules or [])
+
         # self._last_hits removed in favor of SessionStateStore
 
         # Build tool name index for fast lookups
@@ -152,47 +154,36 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
             },
         )
 
-    def _compile_rules(self, rules: list[dict[str, Any]]) -> list[_CompiledRule]:
+    def _compile_rules(self, rules: list[SteeringRule]) -> list[_CompiledRule]:
         """Compile raw rules into optimized internal format."""
         compiled: list[_CompiledRule] = []
 
-        for idx, raw in enumerate(rules):
+        for rule in rules:
             try:
-                name = str(raw.get("name") or f"rule_{idx}")
-                enabled = bool(raw.get("enabled", True))
-                msg = str(raw.get("message") or "")
-                if not msg:
+                if not rule.message:
                     continue  # Skip invalid rule
-
-                rl = raw.get("rate_limit") or {}
-                calls_per_window = int(rl.get("calls_per_window", 1))
-                window_seconds = int(rl.get("window_seconds", 60))
-                prio = int(raw.get("priority", 50))
-
-                triggers = raw.get("triggers") or {}
-                tool_names = triggers.get("tool_names") or []
-                phrases = triggers.get("phrases") or []
 
                 compiled.append(
                     _CompiledRule(
-                        name=name,
-                        enabled=enabled,
-                        message=msg,
-                        calls_per_window=calls_per_window,
-                        window_seconds=window_seconds,
-                        priority=prio,
-                        trigger_tool_names=[str(t) for t in tool_names if t],
-                        trigger_phrases=[str(p) for p in phrases if p],
+                        name=rule.name,
+                        enabled=rule.enabled,
+                        message=rule.message,
+                        calls_per_window=rule.rate_limit.calls_per_window,
+                        window_seconds=rule.rate_limit.window_seconds,
+                        priority=rule.priority,
+                        trigger_tool_names=[
+                            str(t) for t in rule.triggers.tool_names if t
+                        ],
+                        trigger_phrases=[str(p) for p in rule.triggers.phrases if p],
                     )
                 )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Invalid steering rule at index %s: %s", idx, e, exc_info=True
-                    )
+                    logger.warning("Error compiling steering rule %s: %s", rule.name, e)
 
         # Sort by priority (highest first)
         return sorted(compiled, key=lambda r: r.priority, reverse=True)
+
 
     def _match_rule(
         self, context: ToolCallContext, command: str

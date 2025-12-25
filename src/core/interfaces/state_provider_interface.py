@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
 from src.core.domain.configuration.failover_models import FailoverRoute
+from src.core.domain.state_auditing import StateAccessLogEntry
 
 
 @runtime_checkable
@@ -44,6 +45,10 @@ class ISecureStateAccess(ABC):
     @abstractmethod
     def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes through secure access."""
+
+    @abstractmethod
+    def get_access_log(self) -> list[StateAccessLogEntry]:
+        """Get the access log for auditing."""
 
 
 class ISecureStateModification(ABC):

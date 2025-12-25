@@ -1,18 +1,46 @@
-$job = Start-Job -ScriptBlock {
-    Set-Location "C:\Users\Mateusz\source\repos\llm-interactive-proxy"
-    & "./.venv/Scripts/python.exe" -m pytest --tb=short --timeout=60 --timeout-method=thread -p no:xdist 2>&1
+param(
+    [int]$TimeoutSeconds = 3600,
+    [string]$OutputPath = "test_output_sequential.txt"
+)
+
+$ErrorActionPreference = "Stop"
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
+Set-Location $repoRoot
+
+$python = Join-Path $repoRoot ".venv\\Scripts\\python.exe"
+if (-not (Test-Path $python)) {
+    throw "Python not found at: $python"
 }
 
-$timeout = 3600
-Wait-Job $job -Timeout $timeout | Out-Null
+function Quote-Arg([string]$arg) {
+    if ($arg -match "[\\s\"&|<>^]") {
+        return '"' + ($arg -replace '"', '""') + '"'
+    }
+    return $arg
+}
 
-$output = Receive-Job $job
-Stop-Job $job -ErrorAction SilentlyContinue
-Remove-Job $job -ErrorAction SilentlyContinue
+$args = @(
+    "-m", "pytest",
+    "--tb=short",
+    "-p", "no:timeout",
+    "-p", "no:xdist"
+)
 
-$output | Out-File -FilePath "test_output_sequential.txt" -Encoding UTF8
-Write-Host "Test output saved to test_output_sequential.txt"
+Remove-Item -Path $OutputPath -ErrorAction SilentlyContinue
 
-# Extract summary
-$summary = $output | Select-String -Pattern "====.*passed.*====" | Select-Object -Last 1
-Write-Host $summary
+$cmdLine = "$(Quote-Arg $python) $(($args | ForEach-Object { Quote-Arg $_ }) -join ' ') 1> $(Quote-Arg $OutputPath) 2>&1"
+$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmdLine -PassThru -NoNewWindow
+
+$exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+if (-not $exited) {
+    & taskkill /PID $proc.Id /T /F | Out-Null
+    Write-Host "Timed out after $TimeoutSeconds seconds; see $OutputPath"
+    exit 1
+}
+
+Write-Host "Test output saved to $OutputPath"
+$summary = Get-Content $OutputPath | Select-String -Pattern "====.*passed.*====" | Select-Object -Last 1
+if ($summary) {
+    Write-Host $summary.Line
+}

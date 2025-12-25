@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.interfaces.model_bases import DomainModel
+from src.services.steering.models import SteeringRule
 
 
 class ToolCallReactorConfig(DomainModel):
@@ -84,7 +85,7 @@ class ToolCallReactorConfig(DomainModel):
     test_execution_reminder_message: str | None = None
     """Optional custom steering message for test execution reminders."""
 
-    steering_rules: list[dict[str, Any]] = Field(default_factory=list)
+    steering_rules: list[SteeringRule] = Field(default_factory=list)
     """Configurable steering rules.
 
     Each rule is a dict describing when to trigger steering and what message to

@@ -18,6 +18,7 @@ from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
 
 # Import at module level to avoid undefined name issues
+from src.services.steering.models import SteeringRule
 from src.services.steering.policies import ConfiguredRulesPolicy
 
 from .base import InitializationStage
@@ -191,9 +192,9 @@ class SteeringStage(InitializationStage):
         if getattr(reactor_config, "apply_diff_steering_enabled", False):
             has_apply_rule = False
             for r in effective_rules:
-                triggers = (r or {}).get("triggers") or {}
-                tnames = triggers.get("tool_names") or []
-                phrases = triggers.get("phrases") or []
+                triggers = r.triggers
+                tnames = triggers.tool_names
+                phrases = triggers.phrases
                 if "apply_diff" in tnames or any(
                     isinstance(p, str) and "apply_diff" in p for p in phrases
                 ):
@@ -221,26 +222,26 @@ class SteeringStage(InitializationStage):
                         )
 
                 effective_rules.append(
-                    {
-                        "name": "apply_diff_to_patch_file",
-                        "enabled": True,
-                        "priority": 100,
-                        "triggers": {
+                    SteeringRule(
+                        name="apply_diff_to_patch_file",
+                        enabled=True,
+                        priority=100,
+                        triggers={
                             "tool_names": ["apply_diff"],
                             "phrases": [],
                         },
-                        "message": (
+                        message=(
                             apply_diff_msg
                             or (
                                 "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, "
                                 "as it is superior to apply_diff and provides automated Python QA checks."
                             )
                         ),
-                        "rate_limit": {
+                        rate_limit={
                             "calls_per_window": 1,
                             "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
                         },
-                    }
+                    )
                 )
 
         return ConfiguredRulesPolicy(

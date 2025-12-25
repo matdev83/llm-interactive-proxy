@@ -258,7 +258,15 @@ class ServerActionMessage(DomainModel):
 ServerMessage = AckMessage | ServerActionMessage
 
 
+class RoutedMessage(DomainModel):
+    """Result of message routing and validation."""
+
+    validated_message: ClientMessage | None = None
+    ack: AckMessage
+
+
 # ============================================================================
+
 # Helper Models
 # ============================================================================
 
