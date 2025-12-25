@@ -142,7 +142,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self.is_functional = False
         self._credential_validation_errors = errors
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Anthropic OAuth backend degraded: {'; '.join(errors)}")
+            logger.warning("Anthropic OAuth backend degraded: %s", "; ".join(errors))
 
     def _recover(self) -> None:
         """Mark backend as recovered after successful validation."""
@@ -277,7 +277,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 self._file_observer.join(timeout=1.0)
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Error stopping Anthropic OAuth file watcher: {e}")
+                    logger.debug("Error stopping Anthropic OAuth file watcher: %s", e)
             finally:
                 self._file_observer = None
 
@@ -542,7 +542,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self.is_functional = True
         self._last_validation_time = time.time()
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Credentials file validation passed for {self.name}.")
+            logger.info("Credentials file validation passed for %s.", self.name)
 
         # Do not fetch models during init to avoid unnecessary outbound calls in tests;
         # they'll be lazily fetched on first use via _ensure_models_loaded in the parent.
