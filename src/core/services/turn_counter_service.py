@@ -200,7 +200,8 @@ class TurnCounterService(ITurnCounterService):
         state.disabled_for_session = True
         self.repository.update_session_state(state)
 
-        logger.info(f"Assessment disabled for session {session_id}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Assessment disabled for session {session_id}")
 
     def enable_for_session(self, session_id: str):
         """
@@ -213,7 +214,8 @@ class TurnCounterService(ITurnCounterService):
         state.disabled_for_session = False
         self.repository.update_session_state(state)
 
-        logger.info(f"Assessment enabled for session {session_id}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Assessment enabled for session {session_id}")
 
     def get_session_stats(self, session_id: str) -> SessionStats:
         """
