@@ -44,7 +44,6 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.session_key import SessionKey
 from src.core.domain.validation import ValidationResult
 from src.core.services.backend_registry import backend_registry
-
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -69,9 +68,10 @@ class AnthropicCredentialsFileHandler(FileSystemEventHandler):
                 )
 
                 if credentials_path and event_path == credentials_path:
-                    logger.debug(
-                        "Anthropic OAuth credentials file changed, scheduling reload"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Anthropic OAuth credentials file changed, scheduling reload"
+                        )
                     self.connector._schedule_credentials_reload()
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
@@ -148,7 +148,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self.is_functional = True
         self._credential_validation_errors = []
         self._last_validation_time = time.time()
-        logger.info("Anthropic OAuth backend recovered")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Anthropic OAuth backend recovered")
 
     # -----------------------------
     # Validation methods (stale token handling pattern)
@@ -183,7 +184,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 f"No permission to read OAuth credentials file: {creds_path}"
             )
         except Exception as e:
-            return ValidationResult.failure(f"Error reading OAuth credentials file: {e}")
+            return ValidationResult.failure(
+                f"Error reading OAuth credentials file: {e}"
+            )
 
         return ValidationResult.success()
 
@@ -210,7 +213,6 @@ class AnthropicOAuthBackend(AnthropicBackend):
             )
 
         return ValidationResult.success()
-
 
     async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling."""
@@ -241,7 +243,6 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._last_validation_time = current_time
         return True
 
-
     # -----------------------------
     # File watching methods (stale token handling pattern)
     # -----------------------------
@@ -256,13 +257,15 @@ class AnthropicOAuthBackend(AnthropicBackend):
             watch_dir = self._credentials_path.parent
             self._file_observer.schedule(handler, str(watch_dir), recursive=False)
             self._file_observer.start()
-            logger.debug(
-                f"Started watching Anthropic OAuth credentials directory: {watch_dir}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Started watching Anthropic OAuth credentials directory: {watch_dir}"
+                )
         except Exception as e:
-            logger.warning(
-                f"Failed to start file watching for Anthropic OAuth credentials: {e}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to start file watching for Anthropic OAuth credentials: {e}"
+                )
 
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file for changes."""
@@ -285,7 +288,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
         async def reload_task() -> None:
             """Reload credentials from file with force_reload to bypass cache."""
             try:
-                logger.debug("Reloading Anthropic OAuth credentials due to file change")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Reloading Anthropic OAuth credentials due to file change"
+                    )
                 loaded = await self._load_oauth_credentials(force_reload=True)
                 if loaded:
                     if self._oauth_credentials is not None:
@@ -322,9 +328,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
             target_loop = self._event_loop
 
         if target_loop is None or target_loop.is_closed():
-            logger.warning(
-                "Cannot schedule Anthropic OAuth credentials reload: no running event loop available."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot schedule Anthropic OAuth credentials reload: no running event loop available."
+                )
             return
 
         if target_loop is not self._event_loop:
@@ -344,9 +351,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
             future.add_done_callback(_clear)
             self._pending_reload_task = future
         except RuntimeError as exc:
-            logger.warning(
-                "Failed to schedule Anthropic OAuth credentials reload: %s", exc
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to schedule Anthropic OAuth credentials reload: %s", exc
+                )
 
     # -----------------------------
     # Credential loading utilities
@@ -394,9 +402,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
         """
         creds_path = self._discover_credentials_path()
         if creds_path is None:
-            logger.warning(
-                "Anthropic OAuth credentials file not found in default paths"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Anthropic OAuth credentials file not found in default paths"
+                )
             return False
 
         self._credentials_path = creds_path
@@ -439,9 +448,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 )
 
             if not token:
-                logger.warning(
-                    "Anthropic OAuth credentials missing access_token/api_key"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Anthropic OAuth credentials missing access_token/api_key"
+                    )
                 return False
 
             self._oauth_credentials = data
@@ -469,7 +479,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
     # -----------------------------
     async def initialize(self, **kwargs: Any) -> None:  # type: ignore[override]
         """Initialize backend with enhanced validation using stale token handling pattern."""
-        logger.info("Initializing Anthropic OAuth backend with enhanced validation.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Initializing Anthropic OAuth backend with enhanced validation."
+            )
 
         try:
             self._event_loop = asyncio.get_running_loop()
@@ -521,7 +534,6 @@ class AnthropicOAuthBackend(AnthropicBackend):
         else:
             self._fail_init(["OAuth credentials are None after loading"])
             return
-
 
         # 4) Start file watching and mark functional
         self._start_file_watching()
