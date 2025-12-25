@@ -327,10 +327,10 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
     # Call list_models to verify it works correctly
     models_data = await zai_backend.list_models()
 
-    # Verify the models data format
-    assert "data" in models_data
-    assert len(models_data["data"]) == 3
-    assert models_data["data"][0]["id"] == "glm-4.5"
+    # Verify the models data format (ModelsListingResponse object)
+    assert hasattr(models_data, "data")
+    assert len(models_data.data) == 3
+    assert models_data.data[0].id == "glm-4.5"
 
 
 @pytest.mark.asyncio

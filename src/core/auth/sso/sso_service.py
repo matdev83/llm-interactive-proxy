@@ -456,7 +456,12 @@ class SSOService:
             jwks_model = await self._fetch_jwks(jwks_uri)
 
             # Import the JWKS as a key set
-            keys = JsonWebKey.import_key_set(asdict(jwks_model))
+            # Handle both dataclass and dict (for testing compatibility)
+            if isinstance(jwks_model, dict):
+                jwks_dict = jwks_model
+            else:
+                jwks_dict = asdict(jwks_model)
+            keys = JsonWebKey.import_key_set(jwks_dict)
 
             # Decode and verify the token
             # Note: authlib's JsonWebToken.decode returns a dict-like object

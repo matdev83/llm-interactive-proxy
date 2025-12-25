@@ -477,7 +477,7 @@ class SessionDetector:
         key_string = f"{session_id}:{backend}:{agent}"
         return hashlib.sha256(key_string.encode()).hexdigest()
 
-    async def invalidate_cache_for_backend_change(
+    def invalidate_cache_for_backend_change(
         self, old_backend: str, new_backend: str
     ) -> None:
         """Invalidate cache entries when backend configuration changes.
@@ -486,9 +486,9 @@ class SessionDetector:
             old_backend: Previous backend name
             new_backend: New backend name
         """
-        async with self._cache_lock:
-            size_before = len(self._cache)
-            self._cache.clear()
+        # Synchronous cache clear - safe since TTLCache is thread-safe
+        size_before = len(self._cache)
+        self._cache.clear()
 
         logger.info(
             "Cache invalidated for backend change: %s → %s (%d entries cleared)",
@@ -497,16 +497,16 @@ class SessionDetector:
             size_before,
         )
 
-    async def invalidate_cache_for_agent_change(self, old_agent: str, new_agent: str) -> None:
+    def invalidate_cache_for_agent_change(self, old_agent: str, new_agent: str) -> None:
         """Invalidate cache entries when agent configuration changes.
 
         Args:
             old_agent: Previous agent identifier
             new_agent: New agent identifier
         """
-        async with self._cache_lock:
-            size_before = len(self._cache)
-            self._cache.clear()
+        # Synchronous cache clear - safe since TTLCache is thread-safe
+        size_before = len(self._cache)
+        self._cache.clear()
 
         logger.info(
             "Cache invalidated for agent change: %s → %s (%d entries cleared)",

@@ -112,6 +112,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._last_validation_time: float = 0.0
         self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._reload_lock = asyncio.Lock()  # Lock for credential reload operations
 
     @property
     def has_static_credentials(self) -> bool:

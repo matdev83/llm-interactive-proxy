@@ -96,6 +96,7 @@ class MemoryService:
         # Use OrderedDict for LRU eviction to prevent unbounded memory growth
         self._session_states: OrderedDict[str, SessionMemoryState] = OrderedDict()
         self._state_lock = asyncio.Lock()
+        self._analysis_lock = asyncio.Lock()  # Lock for _analysis_in_progress access
         self._analysis_queue: asyncio.Queue[str] = asyncio.Queue(
             maxsize=config.analysis_queue_maxsize
         )

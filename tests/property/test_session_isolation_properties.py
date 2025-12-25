@@ -63,8 +63,8 @@ async def test_session_isolation_file_modifications(
     await handler._mark_session_dirty(session1_id)
 
     # Get state for both sessions
-    state1 = handler._get_session_state(session1_id)
-    state2 = handler._get_session_state(session2_id)
+    state1 = await handler._get_session_state(session1_id)
+    state2 = await handler._get_session_state(session2_id)
 
     # Session 1 should be dirty
     assert state1 is not None
@@ -83,7 +83,7 @@ async def test_session_isolation_file_modifications(
     session2_id=session_ids,
     session3_id=session_ids,
 )
-def test_session_isolation_multiple_sessions(
+async def test_session_isolation_multiple_sessions(
     session1_id: str,
     session2_id: str,
     session3_id: str,
@@ -113,9 +113,9 @@ def test_session_isolation_multiple_sessions(
     # Session 3: don't touch
 
     # Get states
-    state1 = handler._get_session_state(session1_id)
-    state2 = handler._get_session_state(session2_id)
-    state3 = handler._get_session_state(session3_id)
+    state1 = await handler._get_session_state(session1_id)
+    state2 = await handler._get_session_state(session2_id)
+    state3 = await handler._get_session_state(session3_id)
 
     # Verify session 1 is dirty
     assert state1 is not None
@@ -140,7 +140,7 @@ def test_session_isolation_multiple_sessions(
     modifications1=st.integers(min_value=1, max_value=10),
     modifications2=st.integers(min_value=1, max_value=10),
 )
-def test_session_isolation_modification_counts(
+async def test_session_isolation_modification_counts(
     session1_id: str,
     session2_id: str,
     modifications1: int,
@@ -170,8 +170,8 @@ def test_session_isolation_modification_counts(
         await handler._mark_session_dirty(session2_id)
 
     # Get states
-    state1 = handler._get_session_state(session1_id)
-    state2 = handler._get_session_state(session2_id)
+    state1 = await handler._get_session_state(session1_id)
+    state2 = await handler._get_session_state(session2_id)
 
     # Verify each session has its own modification count
     assert state1 is not None
@@ -186,7 +186,7 @@ def test_session_isolation_modification_counts(
     session1_id=session_ids,
     session2_id=session_ids,
 )
-def test_session_isolation_clean_dirty_transitions(
+async def test_session_isolation_clean_dirty_transitions(
     session1_id: str,
     session2_id: str,
 ) -> None:
@@ -210,8 +210,8 @@ def test_session_isolation_clean_dirty_transitions(
     await handler._mark_session_dirty(session2_id)
 
     # Verify both are dirty
-    state1 = handler._get_session_state(session1_id)
-    state2 = handler._get_session_state(session2_id)
+    state1 = await handler._get_session_state(session1_id)
+    state2 = await handler._get_session_state(session2_id)
     assert state1 is not None and state1.is_dirty is True
     assert state2 is not None and state2.is_dirty is True
 
@@ -219,8 +219,8 @@ def test_session_isolation_clean_dirty_transitions(
     await handler._mark_session_clean(session1_id, "pytest", "python", "pytest")
 
     # Get states again
-    state1 = handler._get_session_state(session1_id)
-    state2 = handler._get_session_state(session2_id)
+    state1 = await handler._get_session_state(session1_id)
+    state2 = await handler._get_session_state(session2_id)
 
     # Session 1 should be clean
     assert state1 is not None

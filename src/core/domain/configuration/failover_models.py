@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from src.core.interfaces.model_bases import DomainModel
 
 
-class FailoverRoute(BaseModel):
+class FailoverRoute(DomainModel):
     """Failover route configuration."""
 
     name: str

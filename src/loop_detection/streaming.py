@@ -42,8 +42,7 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
                     return (candidate, repeats)
         return (None, 0)
     except IndexError as e:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Error during simple repetition detection: {e}")
+        logger.debug("Error during simple repetition detection: %s", e)
         return (None, 0)
 
 

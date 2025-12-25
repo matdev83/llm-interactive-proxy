@@ -36,7 +36,7 @@ time_offsets = st.integers(min_value=0, max_value=7200)
     ttl_seconds=ttl_seconds,
     time_offset=time_offsets,
 )
-def test_ttl_cleanup_removes_expired_sessions(
+async def test_ttl_cleanup_removes_expired_sessions(
     session_id: str,
     ttl_seconds: int,
     time_offset: int,
@@ -87,7 +87,7 @@ def test_ttl_cleanup_removes_expired_sessions(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )
-def test_ttl_cleanup_preserves_recent_sessions(
+async def test_ttl_cleanup_preserves_recent_sessions(
     session_id: str,
     ttl_seconds: int,
 ) -> None:
@@ -126,7 +126,7 @@ def test_ttl_cleanup_preserves_recent_sessions(
     session2_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )
-def test_ttl_cleanup_selective_removal(
+async def test_ttl_cleanup_selective_removal(
     session1_id: str,
     session2_id: str,
     ttl_seconds: int,
@@ -162,7 +162,7 @@ def test_ttl_cleanup_selective_removal(
     handler._session_state[session1_id].last_seen = current_time - ttl_seconds - 10
 
     # Keep session2 recent by accessing it
-    handler._get_session_state(session2_id)
+    await handler._get_session_state(session2_id)
 
     # Run cleanup
     handler._prune_session_state(current_time)
@@ -179,7 +179,7 @@ def test_ttl_cleanup_selective_removal(
     num_sessions=st.integers(min_value=1, max_value=20),
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )
-def test_ttl_cleanup_multiple_sessions(
+async def test_ttl_cleanup_multiple_sessions(
     num_sessions: int,
     ttl_seconds: int,
 ) -> None:
@@ -236,7 +236,7 @@ def test_ttl_cleanup_multiple_sessions(
     ttl_seconds=st.integers(min_value=10, max_value=100),
     max_sessions=st.integers(min_value=5, max_value=50),
 )
-def test_max_sessions_limit_enforcement(
+async def test_max_sessions_limit_enforcement(
     session_id: str,
     ttl_seconds: int,
     max_sessions: int,
@@ -307,7 +307,7 @@ def test_ttl_cleanup_empty_state(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )
-def test_ttl_cleanup_updates_last_seen(
+async def test_ttl_cleanup_updates_last_seen(
     session_id: str,
     ttl_seconds: int,
 ) -> None:

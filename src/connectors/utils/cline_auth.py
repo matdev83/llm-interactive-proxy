@@ -134,6 +134,10 @@ class ClineAuthMixin:
             else:
                 token_data = self._token_cache
 
+            # Convert dict to ClineTokenData if needed (for tests compatibility)
+            if isinstance(token_data, Mapping) and not isinstance(token_data, ClineTokenData):
+                token_data = ClineTokenData.model_validate(token_data)
+
             if not token_data:
                 raise AuthenticationError(
                     "Cline auth token not found. Please sign into Cline first.",

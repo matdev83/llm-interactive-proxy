@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Cache tiktoken encoding for better performance
 _tiktoken_encoding = None
+_tiktoken_lock = threading.Lock()
 
 
 def count_tokens(text: str, model: str | None = None) -> int:
@@ -28,10 +30,14 @@ def count_tokens(text: str, model: str | None = None) -> int:
 
     try:
         # Lazy load and cache tiktoken encoding for better performance
+        # Use double-checked locking to avoid race conditions
         if _tiktoken_encoding is None:
-            import tiktoken  # type: ignore
+            with _tiktoken_lock:
+                # Check again inside the lock to avoid duplicate initialization
+                if _tiktoken_encoding is None:
+                    import tiktoken  # type: ignore
 
-            _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+                    _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
         return len(_tiktoken_encoding.encode(text))
     except Exception as e:

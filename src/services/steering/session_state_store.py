@@ -70,6 +70,13 @@ class SessionStateStore:
                 return default
 
             now = self._monotonic()
+            
+            # Check if entry has expired
+            if now - entry.last_seen > self._ttl_seconds:
+                # Entry expired, remove it
+                del self._sessions[session_id]
+                return default
+            
             entry.last_seen = now
             return entry.payload.get(key, default)
 

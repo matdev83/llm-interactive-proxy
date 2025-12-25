@@ -26,9 +26,24 @@ class WireCapture(IWireCapture):
     No-ops when the capture file is not configured.
     """
 
+    def __new__(cls, *args, **kwargs):
+        """Create instance and initialize locks."""
+        instance = super().__new__(cls)
+        # Initialize locks at instance creation time so they exist even if __init__ is not called
+        import threading
+
+        instance._thread_lock = threading.Lock()
+        instance._cache_lock = threading.Lock()
+        return instance
+
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._lock = asyncio.Lock()
+        # Thread lock for synchronous operations
+        import threading
+
+        self._thread_lock = threading.Lock()
+        self._cache_lock = threading.Lock()  # Lock for cache operations
         self._file_path: str | None = getattr(config.logging, "capture_file", None)
         # Rotation/truncation options
         self._max_bytes: int | None = getattr(config.logging, "capture_max_bytes", None)

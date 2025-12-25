@@ -20,7 +20,7 @@ class LogLevel(str, Enum):
 class LoggingConfig(DomainModel):
     """Logging configuration."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=False)
 
     level: LogLevel = LogLevel.INFO
     use_colors: bool = False

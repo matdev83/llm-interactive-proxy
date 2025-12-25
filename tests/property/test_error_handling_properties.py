@@ -191,7 +191,7 @@ async def test_unknown_tools_do_not_modify_state(
         await handler.can_handle(context)
 
         # Assert: Session state should remain clean (default state)
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
 
         # State might be None (not created) or clean (default)
         if state is not None:

@@ -40,7 +40,8 @@ Refactor approach (required)
 1) Pick one file with at least one unguarded call (not already fixed).
 2) Replace ALL unguarded calls in that file with guarded calls and/or lazy logging formatting.
 3) Keep indentation and control flow minimal.
-4) Run per-file QA (Windows):
+4) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+5) Run per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
@@ -48,8 +49,7 @@ Refactor approach (required)
 Search rules (must follow)
 - Use `rg` for searches. Limit to ./src/.
 - Exclude directories starting with `.` or `_`.
-- IMPORTANT (Windows): this repo contains a `src/nul` file that can make ripgrep error; always exclude it.
-  Example patterns (adapt as needed):
+- Example patterns (adapt as needed):
   - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(f\"|logger\\.(debug|info|warning)\\(.*\\.format\\('`
   - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(.*(json\\.dumps|model_dump|join\\(|re\\.)'`
   - Optional helper script (if helpful): `./.venv/Scripts/python.exe dev/scripts/find_unguarded_logger_calls.py`

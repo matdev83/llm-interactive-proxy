@@ -7,7 +7,7 @@ cause excessive CPU usage through nested loops when processing malicious input.
 import time
 
 import pytest
-from src.loop_detection.hybrid_detector import RollingHashTracker
+from src.loop_detection.hybrid_detector import LongPatternMatch, RollingHashTracker
 
 
 class TestDosHybridDetectorRegression:
@@ -44,7 +44,7 @@ class TestDosHybridDetectorRegression:
 
         # Verify processing completed successfully
         assert result is None or isinstance(
-            result, tuple
+            result, (tuple, LongPatternMatch)
         ), "Processing should complete successfully without errors"
 
     def test_edge_cases_processing_time(self) -> None:
@@ -93,7 +93,7 @@ class TestDosHybridDetectorRegression:
 
                 # Verify processing completed successfully
                 assert result is None or isinstance(
-                    result, tuple
+                    result, (tuple, LongPatternMatch)
                 ), f"Processing should complete successfully for '{description}'"
 
             except Exception as e:
@@ -134,5 +134,5 @@ class TestDosHybridDetectorRegression:
 
         # Verify result is valid
         assert result is None or isinstance(
-            result, tuple
+            result, (tuple, LongPatternMatch)
         ), "Processing should complete successfully"

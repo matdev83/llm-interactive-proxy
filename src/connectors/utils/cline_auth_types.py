@@ -18,7 +18,7 @@ class ClineUserInfo(BaseModel):
 
 class ClineTokenData(BaseModel):
     id_token: str = Field(alias="idToken")
-    refresh_token: str = Field(alias="refreshToken")
+    refresh_token: str | None = Field(default=None, alias="refreshToken")
     expires_at: float | None = Field(default=None, alias="expiresAt")
     user_info: dict[str, Any] = Field(default_factory=dict, alias="userInfo")
     provider: str = "cline"

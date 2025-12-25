@@ -8,6 +8,8 @@ usage across the codebase.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -32,6 +34,18 @@ class DomainModel(BaseModel):
         # You might want to show a few key fields, but keep it brief
         # For now, a simple representation is best to avoid verbosity
         return f"<{class_name}>"
+
+    def __getitem__(self, key: str) -> Any:
+        """Support dict-style access for backward compatibility."""
+        return getattr(self, key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Support dict-style assignment for backward compatibility."""
+        setattr(self, key, value)
+
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator for backward compatibility."""
+        return hasattr(self, key)
 
 
 class InternalDTO:

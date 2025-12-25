@@ -9,16 +9,16 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.model_utils import parse_model_backend
-from src.core.interfaces.model_bases import InternalDTO
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = get_logger(__name__)
 
 
-class FailoverRouteConfig(BaseModel):
+class FailoverRouteConfig(DomainModel):
     """Configuration for a failover route."""
 
     policy: str = "k"
@@ -31,6 +31,13 @@ class FailoverRouteConfig(BaseModel):
         if isinstance(data, str):
             return {"elements": [data]}
         return data
+
+    def __eq__(self, other: Any) -> bool:
+        """Support comparison with strings for backward compatibility."""
+        if isinstance(other, str):
+            # Compare against single-element route
+            return len(self.elements) == 1 and self.elements[0] == other
+        return super().__eq__(other)
 
 
 @dataclass
@@ -153,7 +160,9 @@ class FailoverService:
         return attempts
 
     def add_failover_route(
-        self, backend_type: str, failover_route: FailoverRouteConfig | dict[str, Any] | str
+        self,
+        backend_type: str,
+        failover_route: FailoverRouteConfig | dict[str, Any] | str,
     ) -> None:
         """Add a failover route.
 

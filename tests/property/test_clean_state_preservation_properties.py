@@ -112,7 +112,7 @@ async def test_property_3_test_execution_in_clean_state_remains_clean(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Ensure session starts clean (no state = clean)
-    state_before = handler._get_session_state(session_id)
+    state_before = await handler._get_session_state(session_id)
     assert state_before is None or state_before.is_dirty is False
 
     # Create context for test execution
@@ -132,7 +132,7 @@ async def test_property_3_test_execution_in_clean_state_remains_clean(
     assert can_handle_result is False
 
     # Verify state remains clean
-    state_after = handler._get_session_state(session_id)
+    state_after = await handler._get_session_state(session_id)
     assert state_after is not None, "State should exist after test execution"
     assert state_after.is_dirty is False, (
         f"Session should remain clean after test execution in clean state. "
@@ -164,7 +164,7 @@ async def test_property_3_non_modification_in_clean_state_remains_clean(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Ensure session starts clean (no state = clean)
-    state_before = handler._get_session_state(session_id)
+    state_before = await handler._get_session_state(session_id)
     assert state_before is None or state_before.is_dirty is False
 
     # Create context for non-modification tool
@@ -184,7 +184,7 @@ async def test_property_3_non_modification_in_clean_state_remains_clean(
     assert can_handle_result is False
 
     # Verify state remains clean (or still doesn't exist)
-    state_after = handler._get_session_state(session_id)
+    state_after = await handler._get_session_state(session_id)
     if state_after is not None:
         assert state_after.is_dirty is False, (
             f"Session should remain clean after non-modification tool in clean state. "
@@ -233,7 +233,7 @@ async def test_property_3_multiple_test_runs_maintain_clean_state(
         assert can_handle_result is False
 
         # Verify state remains clean after each test
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None, f"State should exist after test execution {i + 1}"
         assert state.is_dirty is False, (
             f"Session should remain clean after test execution {i + 1}. "
@@ -282,7 +282,7 @@ async def test_property_3_multiple_non_modifications_maintain_clean_state(
         assert can_handle_result is False
 
         # Verify state remains clean (or still doesn't exist)
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         if state is not None:
             assert state.is_dirty is False, (
                 f"Session should remain clean after non-modification tool {i + 1}. "
@@ -326,7 +326,7 @@ async def test_property_3_mixed_clean_operations_maintain_clean_state(
     await handler.can_handle(context_test)
 
     # Verify clean after test
-    state_after_test = handler._get_session_state(session_id)
+    state_after_test = await handler._get_session_state(session_id)
     assert state_after_test is not None
     assert state_after_test.is_dirty is False
 
@@ -342,7 +342,7 @@ async def test_property_3_mixed_clean_operations_maintain_clean_state(
     await handler.can_handle(context_non_mod)
 
     # Verify still clean after non-modification
-    state_after_non_mod = handler._get_session_state(session_id)
+    state_after_non_mod = await handler._get_session_state(session_id)
     assert state_after_non_mod is not None
     assert state_after_non_mod.is_dirty is False, (
         f"Session should remain clean after mixed operations. "
@@ -367,7 +367,7 @@ async def test_property_3_initial_state_is_clean(session_id: str) -> None:
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Get initial state (should be None, which means clean)
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
 
     # Either no state exists (clean) or state is explicitly clean
     if state is not None:

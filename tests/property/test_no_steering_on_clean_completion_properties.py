@@ -163,7 +163,7 @@ async def test_property_6_no_steering_after_test_execution(
     await handler.can_handle(file_context)
 
     # Verify dirty
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
     assert state.is_dirty is True
 
@@ -179,7 +179,7 @@ async def test_property_6_no_steering_after_test_execution(
     await handler.can_handle(test_context)
 
     # Verify clean
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
     assert state.is_dirty is False
 
@@ -262,7 +262,7 @@ async def test_property_6_no_steering_after_any_test_runner(
     await handler.can_handle(test_context)
 
     # Verify clean
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
     assert (
         state.is_dirty is False
@@ -333,7 +333,7 @@ async def test_property_6_no_steering_after_multiple_test_runs(
         await handler.can_handle(test_context)
 
         # Verify still clean after each test run
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None
         assert state.is_dirty is False
 
@@ -392,7 +392,7 @@ async def test_property_6_clean_state_preserved_through_completion(
     await handler.handle(completion_context)
 
     # Verify state is still clean (or doesn't exist, which is also clean)
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     if state is not None:
         assert (
             state.is_dirty is False

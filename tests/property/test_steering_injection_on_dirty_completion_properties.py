@@ -125,7 +125,7 @@ async def test_property_5_steering_injection_on_dirty_completion(
     await handler.can_handle(file_context)
 
     # Verify session is dirty
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None, f"Session state should exist for session {session_id}"
     assert state.is_dirty is True, "Session should be dirty after file modification"
 
@@ -338,7 +338,7 @@ async def test_property_5_multiple_modifications_before_completion(
         await handler.can_handle(file_context)
 
     # Verify session is dirty with correct count
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
     assert state.is_dirty is True
     assert state.modification_count == modification_count
