@@ -58,7 +58,6 @@ class GeminiApiConfig:
 
 
 class GeminiBackend(LLMBackend, UsageCalculationMixin):
-
     """LLMBackend implementation for Google's Gemini API.
 
     Implements StreamProducer protocol for streaming pipeline integration.
@@ -109,9 +108,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     key_name=self.key_name,
                     api_key=self.api_key,
                 )
-                self.available_models = [
-                    m.id for m in data.data if m.id
-                ]
+                self.available_models = [m.id for m in data.data if m.id]
 
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
@@ -161,7 +158,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 try:
                     header, b64_data = url.split(",", 1)
                     mime = header.split(";")[0][5:]
-                except Exception:
+                except (ValueError, IndexError) as parse_err:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to parse data URL MIME type: %s", str(parse_err)
+                        )
                     mime = "application/octet-stream"
                     b64_data = ""
                 return {"inlineData": {"mimeType": mime, "data": b64_data}}
@@ -549,7 +550,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             domain_request, target_format="gemini"
         )
 
-
         # Apply generation config including temperature clamping
         self._apply_generation_config(payload, domain_request)
 
@@ -680,7 +680,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             model_url, payload, api_config.headers, effective_model
         )
 
-
         # Ensure usage is calculated if missing
         return self.ensure_usage_in_response(
             response_envelope, processed_messages, effective_model
@@ -799,7 +798,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         return GeminiApiConfig(
             base_url=normalized_base, headers=ensure_loop_guard_header(headers)
         )
-
 
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest
@@ -957,7 +955,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
-
     def _extract_gemini_usage(
         self, response_data: dict[str, Any]
     ) -> UsageSummary | None:
@@ -991,7 +988,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Failed to extract Gemini usage: {e}")
             return None
-
 
     # StreamProducer protocol implementation
     async def stream_completion(
@@ -1173,7 +1169,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             "model": f"models/{effective_model}",
             "contents": self._prepare_gemini_contents(processed_messages),
         }
-
 
         # Apply generation config including temperature clamping
         # Type assertion: we know from architectural design that request_data is ChatRequest-like

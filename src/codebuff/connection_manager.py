@@ -62,7 +62,6 @@ class ConnectionManager:
                 max_connections,
             )
 
-
     @staticmethod
     def _safe(value: object) -> str:
         """Convert potentially invalid strings to safe UTF-8 for logging."""
@@ -424,7 +423,10 @@ class ConnectionManager:
                         await websocket.close(
                             code=1000, reason="Max connections exceeded"
                         )
-                    except Exception:
-                        pass
+                    except (RuntimeError, OSError) as close_err:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to close excess connection: %s", str(close_err)
+                            )
                     finally:
                         self._disconnect_locked(websocket)

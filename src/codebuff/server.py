@@ -296,8 +296,11 @@ class CodebuffWebSocketServer:
                         txid=None, success=False, error=f"Internal error: {e!s}"
                     )
                     await self.send_message(websocket, error_ack)
-                except Exception:
-                    pass  # Connection may be broken
+                except (WebSocketDisconnect, RuntimeError, OSError) as send_err:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to send error acknowledgment: %s", str(send_err)
+                        )
 
     async def _handle_message(self, websocket: WebSocket, message: Any) -> None:
         """Handle a validated message.
