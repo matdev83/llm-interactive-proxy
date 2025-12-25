@@ -50,7 +50,8 @@ class DomainCommandRegistry:
             raise ValueError(f"Command '{name}' is already registered.")
 
         self._factories[name] = factory
-        logger.debug(f"Registered domain command: {name}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered domain command: %s", name)
 
     def get_command_factory(self, name: str) -> Callable[..., BaseCommand]:
         """

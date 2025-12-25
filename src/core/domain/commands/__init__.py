@@ -47,7 +47,8 @@ for module_info in pkgutil.iter_modules([str(_current_dir)]):
     try:
         # Import the module to trigger command registration side effects
         module = importlib.import_module(f".{module_name}", package=__package__)
-        logger.debug(f"Auto-discovered and imported command module: {module_name}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Auto-discovered and imported command module: %s", module_name)
 
         # SECURITY: Removed global namespace pollution via globals()
         # Previous code polluted global namespace during import time:
@@ -56,6 +57,7 @@ for module_info in pkgutil.iter_modules([str(_current_dir)]):
         # Use explicit imports instead of auto-exporting all discovered classes
     except Exception as e:
         # Log but don't fail - allow other commands to load
-        logger.warning(
-            f"Failed to import command module {module_name}: {e}", exc_info=True
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to import command module %s: %s", module_name, e, exc_info=True
+            )
