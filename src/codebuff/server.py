@@ -92,7 +92,8 @@ class CodebuffWebSocketServer:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
 
-        logger.info("CodebuffWebSocketServer initialized")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("CodebuffWebSocketServer initialized")
 
     def register_endpoint(self, app: FastAPI) -> None:
         """Register the WebSocket endpoint with the FastAPI app.
@@ -116,7 +117,8 @@ class CodebuffWebSocketServer:
             """Handle application shutdown."""
             await self.shutdown()
 
-        logger.info("WebSocket endpoint registered at /ws")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("WebSocket endpoint registered at /ws")
 
     async def handle_connection(self, websocket: WebSocket) -> None:
         """Handle a WebSocket connection lifecycle.
@@ -131,37 +133,47 @@ class CodebuffWebSocketServer:
             websocket: The WebSocket connection to handle
         """
         await websocket.accept()
-        logger.info("WebSocket connection accepted")
 
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("WebSocket connection accepted")
         session_id: str | None = None
 
         try:
             # Wait for identify message
             session_id = await self._wait_for_identify(websocket)
-
             if session_id is None:
-                logger.warning("Connection closed before identify message received")
+
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Connection closed before identify message received")
                 return
 
             # Register the connection
             await self._connection_manager.connect(websocket, session_id)
-            logger.info("Connection registered: session_id=%s", session_id)
 
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Connection registered: session_id=%s", session_id)
             # Requirement 5.5: Initialize session metrics after identify
             # This ensures metrics exist before any potential termination
             await self._initialize_session_metrics(session_id)
 
             # Process messages
             await self._process_messages(websocket)
-
         except WebSocketDisconnect:
-            logger.info("WebSocket disconnected: session_id=%s", session_id)
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("WebSocket disconnected: session_id=%s", session_id)
             # Termination reporting happens in finally block to ensure it always runs
 
         except CodebuffSessionError as e:
-            logger.error(
-                "Session error: %s (session_id=%s)", str(e), session_id, exc_info=True
-            )
+
+            if logger.isEnabledFor(logging.ERROR):
+
+                logger.error(
+                    "Session error: %s (session_id=%s)",
+                    str(e),
+                    session_id,
+                    exc_info=True,
+                )
             # Send error and close
             try:
                 error_ack = self._message_router.create_ack(
@@ -169,18 +181,22 @@ class CodebuffWebSocketServer:
                 )
                 await self.send_message(websocket, error_ack)
             except (WebSocketDisconnect, RuntimeError, ConnectionError) as send_err:
-                logger.debug(
-                    "Failed to send error acknowledgment (connection likely closed): %s",
-                    send_err,
-                )
+
+                if logger.isEnabledFor(logging.DEBUG):
+
+                    logger.debug(
+                        "Failed to send error acknowledgment (connection likely closed): %s",
+                        send_err,
+                    )
 
         except Exception as e:
-            logger.error(
-                "Unexpected error in connection handler: %s (session_id=%s)",
-                str(e),
-                session_id,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error in connection handler: %s (session_id=%s)",
+                    str(e),
+                    session_id,
+                    exc_info=True,
+                )
 
         finally:
             # Clean up connection
@@ -197,9 +213,10 @@ class CodebuffWebSocketServer:
                 try:
                     await self._connection_manager.disconnect(websocket)
                 except Exception as e:
-                    logger.error(
-                        "Error during disconnect cleanup: %s", str(e), exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Error during disconnect cleanup: %s", str(e), exc_info=True
+                        )
                 # Defensive: ensure termination is reported even if exception occurred
                 # (only if identify completed and we haven't already reported)
                 with contextlib.suppress(Exception):
@@ -216,16 +233,18 @@ class CodebuffWebSocketServer:
         """
         try:
             raw_message = await websocket.receive_text()
-            validated_message, ack = await self._message_router.route_message(
-                raw_message
-            )
+            routed = await self._message_router.route_message(raw_message)
+            validated_message = routed.validated_message
+            ack = routed.ack
 
             # Send ack
+
             await self.send_message(websocket, ack)
 
             # Check if it's an identify message
             if not ack.success or not isinstance(validated_message, IdentifyMessage):
-                logger.warning("First message was not a valid identify message")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("First message was not a valid identify message")
                 await websocket.close(code=1008, reason="Expected identify message")
                 return None
 
@@ -234,9 +253,10 @@ class CodebuffWebSocketServer:
         except WebSocketDisconnect:
             return None
         except Exception as e:
-            logger.error(
-                "Error waiting for identify message: %s", str(e), exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Error waiting for identify message: %s", str(e), exc_info=True
+                )
             return None
 
     async def _process_messages(self, websocket: WebSocket) -> None:
@@ -250,11 +270,12 @@ class CodebuffWebSocketServer:
                 raw_message = await websocket.receive_text()
 
                 # Route and validate message
-                validated_message, ack = await self._message_router.route_message(
-                    raw_message
-                )
+                routed = await self._message_router.route_message(raw_message)
+                validated_message = routed.validated_message
+                ack = routed.ack
 
                 # Send ack
+
                 await self.send_message(websocket, ack)
 
                 # If validation failed, continue to next message
@@ -267,7 +288,8 @@ class CodebuffWebSocketServer:
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                logger.error("Error processing message: %s", str(e), exc_info=True)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("Error processing message: %s", str(e), exc_info=True)
                 # Try to send error ack
                 try:
                     error_ack = self._message_router.create_ack(
@@ -287,8 +309,9 @@ class CodebuffWebSocketServer:
         if isinstance(message, PingMessage):
             # Update heartbeat
             await self._connection_manager.update_last_seen(websocket)
-            logger.debug("Ping received, updated last_seen")
 
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Ping received, updated last_seen")
         elif isinstance(message, SubscribeMessage):
             # Handle subscription
             await self._subscription_handler.handle_subscribe(websocket, message.topics)
@@ -302,9 +325,10 @@ class CodebuffWebSocketServer:
         elif isinstance(message, ActionMessage):
             # Handle action messages
             await self._handle_action(websocket, message)
-
         else:
-            logger.warning("Unhandled message type: %s", type(message).__name__)
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Unhandled message type: %s", type(message).__name__)
 
     async def _handle_action(
         self, websocket: WebSocket, message: ActionMessage
@@ -329,7 +353,8 @@ class CodebuffWebSocketServer:
             await self.send_message(websocket, action_message)
 
         else:
-            logger.warning("Unhandled action type: %s", type(action_data).__name__)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Unhandled action type: %s", type(action_data).__name__)
 
     async def send_message(
         self, websocket: WebSocket, message: AckMessage | ServerActionMessage
@@ -343,12 +368,14 @@ class CodebuffWebSocketServer:
         try:
             message_dict = message.model_dump(exclude_none=True, by_alias=True)
             message_json = json.dumps(message_dict)
-
             await websocket.send_text(message_json)
-            logger.debug("Sent message: type=%s", message.type)
 
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Sent message: type=%s", message.type)
         except Exception as e:
-            logger.error("Error sending message: %s", str(e), exc_info=True)
+
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Error sending message: %s", str(e), exc_info=True)
             raise
 
     async def _initialize_session_metrics(self, client_session_id: str) -> None:
@@ -370,16 +397,17 @@ class CodebuffWebSocketServer:
         except Exception as exc:
             # Requirement 3.9: Fail-open behavior - log but don't raise
             # Design.md line 434: Log with high-signal error code/metric for visibility
-            logger.warning(
-                "Failed to initialize session metrics for Codebuff session %s: %s",
-                client_session_id,
-                exc,
-                exc_info=True,
-                extra={
-                    "session_id": client_session_id,
-                    "error_code": "SESSION_METRICS_INIT_FAILED",
-                },
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to initialize session metrics for Codebuff session %s: %s",
+                    client_session_id,
+                    exc,
+                    exc_info=True,
+                    extra={
+                        "session_id": client_session_id,
+                        "error_code": "SESSION_METRICS_INIT_FAILED",
+                    },
+                )
 
     async def _report_client_termination(self, client_session_id: str) -> None:
         """Report client termination for Codebuff WebSocket disconnect.
@@ -407,15 +435,16 @@ class CodebuffWebSocketServer:
         except Exception as exc:
             # Fail-open: log but don't raise - termination reporting is best-effort
             # Design.md line 445: Log with high-visibility error code
-            logger.warning(
-                "Failed to report client termination for Codebuff disconnect: %s",
-                exc,
-                exc_info=True,
-                extra={
-                    "session_id": client_session_id,
-                    "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
-                },
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to report client termination for Codebuff disconnect: %s",
+                    exc,
+                    exc_info=True,
+                    extra={
+                        "session_id": client_session_id,
+                        "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                    },
+                )
 
     async def start_heartbeat_monitor(self) -> None:
         """Start the background heartbeat monitoring task.
@@ -423,26 +452,33 @@ class CodebuffWebSocketServer:
         This task periodically checks for stale connections and closes them.
         """
         if self._heartbeat_task is not None:
-            logger.warning("Heartbeat monitor already running")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Heartbeat monitor already running")
             return
 
         async def monitor_loop() -> None:
             """Background task that monitors heartbeats."""
-            logger.info("Heartbeat monitor started")
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Heartbeat monitor started")
             while not self._shutdown_event.is_set():
                 try:
                     await asyncio.sleep(30)  # Check every 30 seconds
                     await self._connection_manager.cleanup_stale_connections()
                 except asyncio.CancelledError:
-                    logger.info("Heartbeat monitor cancelled")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Heartbeat monitor cancelled")
                     break
                 except Exception as e:
-                    logger.error(
-                        "Error in heartbeat monitor: %s", str(e), exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Error in heartbeat monitor: %s", str(e), exc_info=True
+                        )
 
         self._heartbeat_task = asyncio.create_task(monitor_loop())
-        logger.info("Heartbeat monitoring task started")
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Heartbeat monitoring task started")
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the WebSocket server.
@@ -452,8 +488,9 @@ class CodebuffWebSocketServer:
         - Waits for the heartbeat task to complete
         - Closes all active connections
         """
-        logger.info("Shutting down WebSocket server")
 
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Shutting down WebSocket server")
         # Signal shutdown
         self._shutdown_event.set()
 
@@ -464,4 +501,5 @@ class CodebuffWebSocketServer:
                 await self._heartbeat_task
             self._heartbeat_task = None
 
-        logger.info("WebSocket server shutdown complete")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("WebSocket server shutdown complete")
