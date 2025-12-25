@@ -72,9 +72,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         self.api_base_url = kwargs.get("api_base_url", env_base_url or default_base_url)
 
         # Log the base URL for debugging
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI Coding Plan base URL: {self.api_base_url}")
-        if env_base_url and logger.isEnabledFor(logging.INFO):
+        logger.info("ZAI Coding Plan base URL: %s", self.api_base_url)
+        if env_base_url:
             logger.info(
                 "Using custom base URL from ZAI_API_BASE_URL environment variable"
             )
@@ -367,12 +366,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 token = auth_value[7:]
                 debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI API Request (non-streaming): POST {url}")
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI API Headers: {debug_headers}")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"ZAI API Payload model: {payload.get('model', 'N/A')}")
+        logger.info("ZAI API Request (non-streaming): POST %s", url)
+        logger.info("ZAI API Headers: %s", debug_headers)
+        logger.debug("ZAI API Payload model: %s", payload.get("model", "N/A"))
 
         # Call parent implementation
         return await super()._handle_non_streaming_response(
@@ -408,12 +404,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 token = auth_value[7:]
                 debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI API Request (streaming): POST {url}")
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI API Headers: {debug_headers}")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"ZAI API Payload model: {payload.get('model', 'N/A')}")
+        logger.info("ZAI API Request (streaming): POST %s", url)
+        logger.info("ZAI API Headers: %s", debug_headers)
+        logger.debug("ZAI API Payload model: %s", payload.get("model", "N/A"))
 
         # Log key payload fields for debugging
         payload_summary = {
@@ -422,33 +415,34 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             "temperature": payload.get("temperature"),
             "top_p": payload.get("top_p"),
         }
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"ZAI API Payload summary: {payload_summary}")
+        logger.info("ZAI API Payload summary: %s", payload_summary)
 
         # Log first message for debugging (truncated)
         messages = payload.get("messages", [])
         if messages:
             first_msg = messages[0]
             content_preview = str(first_msg.get("content", ""))[:100]
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"First message: role={first_msg.get('role')}, content={content_preview}..."
-                )
+            logger.debug(
+                "First message: role=%s, content=%s...",
+                first_msg.get("role"),
+                content_preview,
+            )
 
         # Log the actual Authorization header format for verification
         if headers and "Authorization" in headers:
             auth_header = headers["Authorization"]
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Authorization format: Bearer {self._mask_api_key(token)} (length: {len(token)})"
-                    )
+                logger.info(
+                    "Authorization format: Bearer %s (length: %d)",
+                    self._mask_api_key(token),
+                    len(token),
+                )
             else:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Authorization header does not start with 'Bearer ': {auth_header[:20]}..."
-                    )
+                logger.warning(
+                    "Authorization header does not start with 'Bearer ': %s...",
+                    auth_header[:20],
+                )
 
         # Call parent implementation with potentially corrected URL
         base_handle = await super()._handle_streaming_response(
@@ -777,25 +771,20 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         ):
             try:
                 payload["temperature"] = float(request_data.temperature)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Including temperature: {payload['temperature']}")
+                logger.debug("Including temperature: %s", payload["temperature"])
             except (ValueError, TypeError):
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Invalid temperature value '{request_data.temperature}' ignored."
-                    )
+                logger.warning(
+                    "Invalid temperature value '%s' ignored.", request_data.temperature
+                )
         if hasattr(request_data, "top_p") and request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Including top_p: {request_data.top_p}")
+            logger.debug("Including top_p: %s", request_data.top_p)
         if hasattr(request_data, "tools") and request_data.tools:
             payload["tools"] = request_data.tools
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Including tools: {len(request_data.tools)} tools")
+            logger.debug("Including tools: %d tools", len(request_data.tools))
         if hasattr(request_data, "tool_choice") and request_data.tool_choice:
             payload["tool_choice"] = request_data.tool_choice
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Including tool_choice: {request_data.tool_choice}")
+            logger.debug("Including tool_choice: %s", request_data.tool_choice)
 
         allowed_keys = {
             "model",
@@ -818,8 +807,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             cleaned_payload[key] = value
 
         # Log final payload keys for debugging
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Final payload keys: {list(cleaned_payload.keys())}")
+        logger.info("Final payload keys: %s", list(cleaned_payload.keys()))
 
         return cleaned_payload
 
