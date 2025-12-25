@@ -23,7 +23,6 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
-
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
@@ -181,7 +180,6 @@ class AnthropicBackend(LLMBackend):
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format
         # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
 
         from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
@@ -386,9 +384,10 @@ class AnthropicBackend(LLMBackend):
                                         }
                                     )
                                 except ValueError:
-                                    logger.warning(
-                                        f"Invalid data URI format: {url[:50]}"
-                                    )
+                                    if logger.isEnabledFor(logging.WARNING):
+                                        logger.warning(
+                                            f"Invalid data URI format: {url[:50]}"
+                                        )
                             elif url.startswith(("http://", "https://")):
                                 # URL source
                                 parts.append(
@@ -516,9 +515,10 @@ class AnthropicBackend(LLMBackend):
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         try:
-            logger.info(
-                f"Sending request to {url} with headers: {headers} and payload: {payload}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Sending request to {url} with headers: {headers} and payload: {payload}"
+                )
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
@@ -592,17 +592,16 @@ class AnthropicBackend(LLMBackend):
                         f"Anthropic API error {response.status_code}: {body_text}"
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
-                logger.warning(f"Failed to read Anthropic error response body: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
             finally:
                 await response.aclose()
-
             raise BackendError(
                 message=body_text,
                 code="anthropic_error",
                 status_code=response.status_code,
             )
-
         loop = asyncio.get_running_loop()
         message_id_future: asyncio.Future[str | None] = loop.create_future()
         cancel_lock = asyncio.Lock()
@@ -674,24 +673,26 @@ class AnthropicBackend(LLMBackend):
                         headers=ensure_loop_guard_header(cancel_headers),
                     )
                 except Exception as exc:
-                    logger.debug(
-                        "Failed to build Anthropic cancel request - url=%s error=%s",
-                        cancel_url,
-                        exc,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to build Anthropic cancel request - url=%s error=%s",
+                            cancel_url,
+                            exc,
+                            exc_info=True,
+                        )
                 else:
                     try:
                         cancel_response = await self.client.send(
                             cancel_request, stream=False
                         )
                     except Exception as exc:
-                        logger.warning(
-                            "Failed to send Anthropic cancel request - url=%s error=%s",
-                            cancel_url,
-                            exc,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to send Anthropic cancel request - url=%s error=%s",
+                                cancel_url,
+                                exc,
+                                exc_info=True,
+                            )
                     else:
                         with contextlib.suppress(Exception):
                             await cancel_response.aclose()
@@ -748,9 +749,10 @@ class AnthropicBackend(LLMBackend):
                     domain_chunk = self.translation_service.to_domain_stream_chunk(
                         chunk, "anthropic"
                     )
-                    logger.debug(
-                        f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}"
+                        )
                     yield ProcessedResponse(content=domain_chunk)
 
                 # Translate final [DONE] marker to domain format
@@ -858,7 +860,6 @@ class AnthropicBackend(LLMBackend):
 
         return ModelsListingResponse(object="list", data=model_infos)
 
-
     def _get_headers(
         self, identity: IAppIdentityConfig | None = None
     ) -> dict[str, str]:
@@ -912,7 +913,6 @@ class AnthropicBackend(LLMBackend):
         request_headers = ensure_loop_guard_header(headers)
 
         # Prepare payload
-        from typing import cast
 
         from src.core.domain.chat import CanonicalChatRequest
 
@@ -970,17 +970,16 @@ class AnthropicBackend(LLMBackend):
                         f"Anthropic API error {response.status_code}: {body_text}"
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
-                logger.warning(f"Failed to read Anthropic error response body: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
             finally:
                 await response.aclose()
-
             raise BackendError(
                 message=body_text,
                 code="anthropic_error",
                 status_code=response.status_code,
             )
-
         # Stream SSE messages
         try:
             async for line in response.aiter_lines():
