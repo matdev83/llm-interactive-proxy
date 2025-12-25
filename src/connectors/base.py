@@ -132,11 +132,12 @@ class LLMBackend(abc.ABC, IHealthAware):
         self._auth_valid = False
         self._endpoint_healthy = False
         self._last_health_change_reason = reason
-        logger.error(
-            "Backend %s: %s. Backend permanently disabled.",
-            getattr(self, "backend_type", "unknown"),
-            reason,
-        )
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "Backend %s: %s. Backend permanently disabled.",
+                getattr(self, "backend_type", "unknown"),
+                reason,
+            )
 
     async def on_endpoint_healthy(self, api_url: str) -> None:
         """Called when the API endpoint becomes healthy (recovery).
