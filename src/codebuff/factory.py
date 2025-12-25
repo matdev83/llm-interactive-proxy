@@ -46,8 +46,10 @@ def create_codebuff_server(
     Returns:
         Configured CodebuffWebSocketServer instance
     """
-    logger.info("Creating Codebuff WebSocket server")
 
+    if logger.isEnabledFor(logging.INFO):
+
+        logger.info("Creating Codebuff WebSocket server")
     # Create connection manager
     connection_manager = ConnectionManager(
         heartbeat_timeout_seconds=config.codebuff.heartbeat_timeout_seconds
@@ -103,5 +105,7 @@ def create_codebuff_server(
         client_eos_service=client_eos_service,
     )
 
-    logger.info("Codebuff WebSocket server created successfully")
+    if logger.isEnabledFor(logging.INFO):
+
+        logger.info("Codebuff WebSocket server created successfully")
     return server
