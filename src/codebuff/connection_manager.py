@@ -54,12 +54,13 @@ class ConnectionManager:
         self._heartbeat_timeout = timedelta(seconds=heartbeat_timeout_seconds)
         self._max_connections = max_connections
         self._lock = asyncio.Lock()
-        logger.info(
-            "ConnectionManager initialized with heartbeat timeout: %d seconds, "
-            "max_connections: %d",
-            heartbeat_timeout_seconds,
-            max_connections,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "ConnectionManager initialized with heartbeat timeout: %d seconds, "
+                "max_connections: %d",
+                heartbeat_timeout_seconds,
+                max_connections,
+            )
 
     @staticmethod
     def _safe(value: object) -> str:
@@ -71,7 +72,8 @@ class ConnectionManager:
                 .decode("utf-8", errors="replace")
             )
         except (TypeError, UnicodeError) as e:
-            logger.debug("Failed to sanitize value for logging: %s", e)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to sanitize value for logging: %s", e)
             return repr(value)
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
@@ -88,10 +90,11 @@ class ConnectionManager:
         """
         async with self._lock:
             if session_id in self._session_id_to_websocket:
-                logger.warning(
-                    "Attempted to register duplicate session ID: %s",
-                    self._safe(session_id),
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Attempted to register duplicate session ID: %s",
+                        self._safe(session_id),
+                    )
                 raise CodebuffSessionError(
                     f"Session ID {session_id} is already in use",
                     details={"session_id": session_id},
@@ -99,10 +102,11 @@ class ConnectionManager:
 
             # Check if we're at max connections and try to clean up stale ones
             if len(self._connections) >= self._max_connections:
-                logger.warning(
-                    "Max connections (%d) reached. Attempting to clean up stale connections...",
-                    self._max_connections,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Max connections (%d) reached. Attempting to clean up stale connections...",
+                        self._max_connections,
+                    )
                 # Try to clean up stale connections synchronously (best effort)
                 # Note: This is a best-effort cleanup; full cleanup requires async context
                 now = datetime.utcnow()
@@ -121,22 +125,24 @@ class ConnectionManager:
                         self._disconnect_locked(stale_ws)
                         disconnected_count += 1
                     except Exception as e:
-                        logger.warning(
-                            "Failed to disconnect stale connection during cleanup: %s",
-                            str(e),
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to disconnect stale connection during cleanup: %s",
+                                str(e),
+                                exc_info=True,
+                            )
 
                 # Strict enforcement: reject if still at limit after cleanup attempt
                 if len(self._connections) >= self._max_connections:
-                    logger.error(
-                        "Cannot register new connection: max_connections (%d) reached "
-                        "after cleanup attempt (disconnected %d stale connections, "
-                        "%d connections remaining)",
-                        self._max_connections,
-                        disconnected_count,
-                        len(self._connections),
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Cannot register new connection: max_connections (%d) reached "
+                            "after cleanup attempt (disconnected %d stale connections, "
+                            "%d connections remaining)",
+                            self._max_connections,
+                            disconnected_count,
+                            len(self._connections),
+                        )
                     raise CodebuffSessionError(
                         f"Maximum connections ({self._max_connections}) reached",
                         details={"max_connections": self._max_connections},
@@ -152,7 +158,10 @@ class ConnectionManager:
             self._connections[websocket] = session
             self._session_id_to_websocket[session_id] = websocket
 
-            logger.info("Connection registered: session_id=%s", self._safe(session_id))
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Connection registered: session_id=%s", self._safe(session_id)
+                )
 
     async def disconnect(self, websocket: WebSocket) -> None:
         """Remove a connection and clean up its session.
@@ -174,7 +183,8 @@ class ConnectionManager:
         """
         session = self._connections.get(websocket)
         if session is None:
-            logger.warning("Attempted to disconnect unknown connection")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Attempted to disconnect unknown connection")
             return
 
         session_id = session.session_id
@@ -193,7 +203,10 @@ class ConnectionManager:
         # Remove the connection
         del self._connections[websocket]
 
-        logger.info("Connection disconnected: session_id=%s", self._safe(session_id))
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Connection disconnected: session_id=%s", self._safe(session_id)
+            )
 
     async def get_session(self, websocket: WebSocket) -> SessionState | None:
         """Get session data for a connection.
@@ -228,9 +241,10 @@ class ConnectionManager:
                 )
 
             session.last_seen = datetime.utcnow()
-            logger.debug(
-                "Updated last_seen for session: %s", self._safe(session.session_id)
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Updated last_seen for session: %s", self._safe(session.session_id)
+                )
 
     async def subscribe(self, websocket: WebSocket, topics: list[str]) -> None:
         """Add subscriptions for a connection.
@@ -245,7 +259,8 @@ class ConnectionManager:
         async with self._lock:
             session = self._connections.get(websocket)
             if session is None:
-                logger.warning("Attempted to subscribe unknown connection")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Attempted to subscribe unknown connection")
                 raise CodebuffSessionError(
                     "Connection not found",
                     details={"error": "Connection not registered"},
@@ -260,11 +275,12 @@ class ConnectionManager:
                     self._subscriptions[topic] = set()
                 self._subscriptions[topic].add(websocket)
 
-            logger.info(
-                "Subscribed session %s to topics: %s",
-                self._safe(session.session_id),
-                ", ".join(topics),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Subscribed session %s to topics: %s",
+                    self._safe(session.session_id),
+                    ", ".join(topics),
+                )
 
     async def unsubscribe(self, websocket: WebSocket, topics: list[str]) -> None:
         """Remove subscriptions for a connection.
@@ -279,7 +295,8 @@ class ConnectionManager:
         async with self._lock:
             session = self._connections.get(websocket)
             if session is None:
-                logger.warning("Attempted to unsubscribe unknown connection")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Attempted to unsubscribe unknown connection")
                 raise CodebuffSessionError(
                     "Connection not found",
                     details={"error": "Connection not registered"},
@@ -296,11 +313,12 @@ class ConnectionManager:
                     if not self._subscriptions[topic]:
                         del self._subscriptions[topic]
 
-            logger.info(
-                "Unsubscribed session %s from topics: %s",
-                self._safe(session.session_id),
-                ", ".join(topics),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Unsubscribed session %s from topics: %s",
+                    self._safe(session.session_id),
+                    ", ".join(topics),
+                )
 
     async def get_subscribers(self, topic: str) -> list[WebSocket]:
         """Get all connections subscribed to a topic.
@@ -335,33 +353,36 @@ class ConnectionManager:
 
             # Close and remove stale connections
             for websocket, session_id in stale_connections:
-                logger.warning(
-                    "Closing stale connection: session_id=%s, last_seen=%s",
-                    self._safe(session_id),
-                    self._connections.get(websocket, None)
-                    and self._connections[websocket].last_seen,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Closing stale connection: session_id=%s, last_seen=%s",
+                        self._safe(session_id),
+                        self._connections.get(websocket, None)
+                        and self._connections[websocket].last_seen,
+                    )
                 try:
                     await websocket.close(code=1000, reason="Heartbeat timeout")
                 except Exception as e:
-                    logger.error(
-                        "Error closing stale connection %s: %s",
-                        self._safe(session_id),
-                        str(e),
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Error closing stale connection %s: %s",
+                            self._safe(session_id),
+                            str(e),
+                            exc_info=True,
+                        )
                 finally:
                     # Always clean up the connection state, even if close() failed
                     # This ensures we don't leak connections when websocket.close() fails
                     try:
                         self._disconnect_locked(websocket)
                     except Exception as e:
-                        logger.error(
-                            "Error disconnecting stale connection %s: %s",
-                            self._safe(session_id),
-                            str(e),
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                "Error disconnecting stale connection %s: %s",
+                                self._safe(session_id),
+                                str(e),
+                                exc_info=True,
+                            )
                         # Force removal from dicts if disconnect() fails
                         if websocket in self._connections:
                             session = self._connections[websocket]
@@ -376,19 +397,23 @@ class ConnectionManager:
                                         del self._subscriptions[topic]
 
             if stale_connections:
-                logger.info("Cleaned up %d stale connections", len(stale_connections))
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Cleaned up %d stale connections", len(stale_connections)
+                    )
 
             # Enforce max_connections limit strictly after cleanup
             # This prevents growth beyond limit even if some connections couldn't be cleaned
             if len(self._connections) > self._max_connections:
                 excess = len(self._connections) - self._max_connections
-                logger.warning(
-                    "Connection count (%d) exceeds max_connections (%d) after cleanup. "
-                    "Evicting %d oldest connections.",
-                    len(self._connections),
-                    self._max_connections,
-                    excess,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Connection count (%d) exceeds max_connections (%d) after cleanup. "
+                        "Evicting %d oldest connections.",
+                        len(self._connections),
+                        self._max_connections,
+                        excess,
+                    )
                 # Evict oldest connections by last_seen
                 connections_by_age = sorted(
                     self._connections.items(), key=lambda x: x[1].last_seen
