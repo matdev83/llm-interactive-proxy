@@ -84,7 +84,8 @@ class LoopDetectionProcessor(IStreamProcessor):
 
         detector = self.loop_detector_factory()
         self._session_detectors[session_id] = detector
-        logger.debug(f"Created new loop detector for session {session_id}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Created new loop detector for session %s", session_id)
         return detector
 
     def cleanup_session(self, session_id: str) -> None:
@@ -95,7 +96,8 @@ class LoopDetectionProcessor(IStreamProcessor):
         """
         if session_id in self._session_detectors:
             del self._session_detectors[session_id]
-            logger.debug(f"Cleaned up loop detector for session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Cleaned up loop detector for session %s", session_id)
         self._cancelled_sessions.discard(session_id)
         self._stream_chunk_counts.pop(session_id, None)
 
@@ -184,15 +186,20 @@ class LoopDetectionProcessor(IStreamProcessor):
                 return content
 
             logger.warning(
-                f"Loop detected in streaming response by LoopDetectionProcessor: pattern='{detection_event.pattern[:50]}...', "
-                f"repetitions={detection_event.repetition_count}, total_length={detection_event.total_length}"
+                "Loop detected in streaming response by LoopDetectionProcessor: pattern='%s...', repetitions=%s, total_length=%s",
+                detection_event.pattern[:50],
+                detection_event.repetition_count,
+                detection_event.total_length,
             )
 
             # Trigger API cancellation if callback is available
             if self.cancel_callback is not None:
-                logger.info(
-                    f"Triggering API cancellation due to loop detection: pattern='{detection_event.pattern[:50]}', repetitions={detection_event.repetition_count}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Triggering API cancellation due to loop detection: pattern='%s', repetitions=%s",
+                        detection_event.pattern[:50],
+                        detection_event.repetition_count,
+                    )
                 try:
                     await self.cancel_callback()
                 except Exception as e:
