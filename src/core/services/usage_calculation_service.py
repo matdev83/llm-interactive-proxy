@@ -13,6 +13,7 @@ Key responsibilities:
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 from src.core.domain.openrouter_usage import (
@@ -455,19 +456,19 @@ class UsageCalculationService:
 
         # No usage provided - calculate from accumulated content
         completion_tokens = self.calculate_completion_tokens(accumulated_content, model)
-        return OpenRouterUsage.from_basic_usage(
-            completion_tokens=completion_tokens
-        )
-
+        return OpenRouterUsage.from_basic_usage(completion_tokens=completion_tokens)
 
 
 # Global service instance for convenience
 _usage_calculation_service: UsageCalculationService | None = None
+_usage_calculation_service_lock = threading.Lock()
 
 
 def get_usage_calculation_service() -> UsageCalculationService:
     """Get or create the global usage calculation service instance."""
     global _usage_calculation_service
     if _usage_calculation_service is None:
-        _usage_calculation_service = UsageCalculationService()
+        with _usage_calculation_service_lock:
+            if _usage_calculation_service is None:
+                _usage_calculation_service = UsageCalculationService()
     return _usage_calculation_service

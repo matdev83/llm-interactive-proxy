@@ -6,6 +6,7 @@ This module handles OAuth2 and SAML authentication flows using Authlib.
 
 import base64
 import logging
+import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET  # noqa: N817
@@ -151,6 +152,10 @@ class JWKSCache:
     Caches JWKS for each provider to avoid fetching on every request.
     Keys are automatically refreshed after TTL expires.
     Uses LRU eviction to prevent unbounded memory growth.
+
+    Thread Safety:
+        All methods are protected by threading.Lock for concurrent access
+        from async contexts (SSO requests may be concurrent).
     """
 
     DEFAULT_TTL = 3600  # 1 hour
@@ -167,6 +172,7 @@ class JWKSCache:
         self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._ttl = ttl
         self._max_size = max_size
+        self._lock = threading.Lock()
 
     def get(self, jwks_uri: str) -> JWKS | None:
         """
@@ -178,18 +184,19 @@ class JWKSCache:
         Returns:
             Cached JWKS data or None if not cached or expired
         """
-        entry = self._cache.get(jwks_uri)
-        if entry is None:
-            return None
+        with self._lock:
+            entry = self._cache.get(jwks_uri)
+            if entry is None:
+                return None
 
-        if time.time() > entry.get("expires_at", 0):
-            # Expired
-            del self._cache[jwks_uri]
-            return None
+            if time.time() > entry.get("expires_at", 0):
+                # Expired
+                del self._cache[jwks_uri]
+                return None
 
-        # Move to end for LRU eviction
-        self._cache.move_to_end(jwks_uri)
-        return entry.get("jwks")
+            # Move to end for LRU eviction
+            self._cache.move_to_end(jwks_uri)
+            return entry.get("jwks")
 
     def set(self, jwks_uri: str, jwks: JWKS) -> None:
         """
@@ -199,29 +206,31 @@ class JWKSCache:
             jwks_uri: The JWKS endpoint URI
             jwks: The JWKS data to cache
         """
-        # Remove existing entry if present (will be re-added at end)
-        if jwks_uri in self._cache:
-            del self._cache[jwks_uri]
+        with self._lock:
+            # Remove existing entry if present (will be re-added at end)
+            if jwks_uri in self._cache:
+                del self._cache[jwks_uri]
 
-        # Add new entry at end (most recently used)
-        self._cache[jwks_uri] = {
-            "jwks": jwks,
-            "expires_at": time.time() + self._ttl,
-        }
+            # Add new entry at end (most recently used)
+            self._cache[jwks_uri] = {
+                "jwks": jwks,
+                "expires_at": time.time() + self._ttl,
+            }
 
-        # Enforce size limit using LRU eviction
-        while len(self._cache) > self._max_size:
-            oldest_uri, _ = self._cache.popitem(last=False)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted JWKS cache entry for %s (max_size=%d reached)",
-                    oldest_uri,
-                    self._max_size,
-                )
+            # Enforce size limit using LRU eviction
+            while len(self._cache) > self._max_size:
+                oldest_uri, _ = self._cache.popitem(last=False)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted JWKS cache entry for %s (max_size=%d reached)",
+                        oldest_uri,
+                        self._max_size,
+                    )
 
     def clear(self) -> None:
         """Clear all cached JWKS."""
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
 
 class SSOService:
@@ -267,6 +276,7 @@ class SSOService:
         self._jwks_cache = jwks_cache or JWKSCache(max_size=JWKSCache.DEFAULT_MAX_SIZE)
         # Use OrderedDict for LRU eviction to prevent unbounded memory growth
         self._saml_metadata_cache: OrderedDict[str, SAMLMetadata] = OrderedDict()
+        self._saml_lock = threading.Lock()
 
     def get_supported_providers(self) -> list[str]:
         """
@@ -943,12 +953,14 @@ class SSOService:
         Fetch and parse SAML IdP metadata to extract endpoints and certificate.
 
         Uses LRU cache with size limit to prevent unbounded memory growth.
+        Thread-safe for concurrent SAML authentication requests.
         """
         # Use cache if available (move to end for LRU)
-        if metadata_url in self._saml_metadata_cache:
-            # Move to end to mark as recently used
-            self._saml_metadata_cache.move_to_end(metadata_url)
-            return self._saml_metadata_cache[metadata_url]
+        with self._saml_lock:
+            if metadata_url in self._saml_metadata_cache:
+                # Move to end to mark as recently used
+                self._saml_metadata_cache.move_to_end(metadata_url)
+                return self._saml_metadata_cache[metadata_url]
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -997,22 +1009,23 @@ class SSOService:
                 entity_id=root.attrib.get("entityID"),
             )
             # Add to cache with LRU eviction if size limit exceeded
-            if metadata_url in self._saml_metadata_cache:
-                # Update existing entry and move to end
-                self._saml_metadata_cache[metadata_url] = parsed
-                self._saml_metadata_cache.move_to_end(metadata_url)
-            else:
-                # Add new entry
-                self._saml_metadata_cache[metadata_url] = parsed
-                # Evict oldest entries if cache exceeds size limit
-                while len(self._saml_metadata_cache) > MAX_SAML_METADATA_CACHE_SIZE:
-                    oldest_url, _ = self._saml_metadata_cache.popitem(last=False)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Evicted SAML metadata cache entry for %s (cache size limit: %d)",
-                            oldest_url,
-                            MAX_SAML_METADATA_CACHE_SIZE,
-                        )
+            with self._saml_lock:
+                if metadata_url in self._saml_metadata_cache:
+                    # Update existing entry and move to end
+                    self._saml_metadata_cache[metadata_url] = parsed
+                    self._saml_metadata_cache.move_to_end(metadata_url)
+                else:
+                    # Add new entry
+                    self._saml_metadata_cache[metadata_url] = parsed
+                    # Evict oldest entries if cache exceeds size limit
+                    while len(self._saml_metadata_cache) > MAX_SAML_METADATA_CACHE_SIZE:
+                        oldest_url, _ = self._saml_metadata_cache.popitem(last=False)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Evicted SAML metadata cache entry for %s (cache size limit: %d)",
+                                oldest_url,
+                                MAX_SAML_METADATA_CACHE_SIZE,
+                            )
             return parsed
         except Exception as e:
             raise AuthenticationError(
@@ -1073,9 +1086,10 @@ class SSOService:
         # Enforce signing certificate match (basic binding)
         metadata = None
         if provider_config.metadata_url:
-            metadata = self._saml_metadata_cache.get(provider_config.metadata_url) or (
-                await self._load_saml_metadata(provider_config.metadata_url)
-            )
+            with self._saml_lock:
+                metadata = self._saml_metadata_cache.get(provider_config.metadata_url)
+            if metadata is None:
+                metadata = await self._load_saml_metadata(provider_config.metadata_url)
         signing_cert_expected = metadata.signing_cert if metadata else None
 
         sig_ns = {"ds": "http://www.w3.org/2000/09/xmldsig#"}

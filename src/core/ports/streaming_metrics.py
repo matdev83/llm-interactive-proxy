@@ -9,6 +9,7 @@ hot-path performance.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
@@ -227,6 +228,7 @@ class StreamingMetrics:
 
 # Global metrics instance
 _global_metrics_instance: StreamingMetrics | None = None
+_global_metrics_lock = threading.Lock()
 
 
 def get_metrics_instance() -> StreamingMetrics:
@@ -237,7 +239,9 @@ def get_metrics_instance() -> StreamingMetrics:
     """
     global _global_metrics_instance
     if _global_metrics_instance is None:
-        _global_metrics_instance = StreamingMetrics()
+        with _global_metrics_lock:
+            if _global_metrics_instance is None:
+                _global_metrics_instance = StreamingMetrics()
     return _global_metrics_instance
 
 
@@ -346,6 +350,7 @@ class StreamingSampler:
 
 # Global sampler instance
 _global_sampler_instance: StreamingSampler | None = None
+_global_sampler_lock = threading.Lock()
 
 
 def get_sampler_instance() -> StreamingSampler:
@@ -356,7 +361,9 @@ def get_sampler_instance() -> StreamingSampler:
     """
     global _global_sampler_instance
     if _global_sampler_instance is None:
-        _global_sampler_instance = StreamingSampler()
+        with _global_sampler_lock:
+            if _global_sampler_instance is None:
+                _global_sampler_instance = StreamingSampler()
     return _global_sampler_instance
 
 
@@ -380,21 +387,22 @@ def configure_sampler(
     """
     global _global_sampler_instance
 
-    # Create new instance with configured settings
-    _global_sampler_instance = StreamingSampler(
-        sample_rate=sample_rate if enabled else 0.0,
-        max_samples=max_samples,
-    )
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "Configured streaming sampler: enabled=%s, sample_rate=%s, max_samples=%s",
-            enabled,
-            sample_rate,
-            max_samples,
+    with _global_sampler_lock:
+        # Create new instance with configured settings
+        _global_sampler_instance = StreamingSampler(
+            sample_rate=sample_rate if enabled else 0.0,
+            max_samples=max_samples,
         )
 
-    return _global_sampler_instance
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Configured streaming sampler: enabled=%s, sample_rate=%s, max_samples=%s",
+                enabled,
+                sample_rate,
+                max_samples,
+            )
+
+        return _global_sampler_instance
 
 
 def reset_sampler() -> None:
@@ -403,5 +411,6 @@ def reset_sampler() -> None:
     This is primarily useful for testing.
     """
     global _global_sampler_instance
-    if _global_sampler_instance is not None:
-        _global_sampler_instance.clear_samples()
+    with _global_sampler_lock:
+        if _global_sampler_instance is not None:
+            _global_sampler_instance.clear_samples()
