@@ -1195,8 +1195,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 )
             return None
         except json.JSONDecodeError as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to parse Antigravity auth status JSON: {exc}")
+            logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):
@@ -1269,8 +1268,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         for path in candidate_paths:
             try:
                 if not path.exists():
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Path does not exist: {path}")
+                    logger.debug("Path does not exist: %s", path)
                     continue
 
                 current_modified = None
