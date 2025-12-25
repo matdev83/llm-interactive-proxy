@@ -70,6 +70,7 @@ from src.connectors.openai_codex.tools import ToolExecutionService
 from src.connectors.openai_codex.utils import build_codex_user_agent, message_to_text
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
+from src.core.domain.model_utils import parse_model_with_params
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
@@ -939,23 +940,25 @@ class OpenAICodexConnector(OpenAIConnector):
             effort = self.DEFAULT_REASONING_EFFORT
 
         if effort not in self.REASONING_EFFORT_LEVELS:
-            logger.warning(
-                "Invalid reasoning_effort '%s', falling back to '%s'. Supported levels: %s",
-                effort,
-                self.DEFAULT_REASONING_EFFORT,
-                ", ".join(self.REASONING_EFFORT_LEVELS),
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Invalid reasoning_effort '%s', falling back to '%s'. Supported levels: %s",
+                    effort,
+                    self.DEFAULT_REASONING_EFFORT,
+                    ", ".join(self.REASONING_EFFORT_LEVELS),
+                )
             effort = self.DEFAULT_REASONING_EFFORT
 
         if effort == "xhigh" and model.lower() not in (
             m.lower() for m in self.XHIGH_SUPPORTED_MODELS
         ):
-            logger.info(
-                "Model '%s' does not support 'xhigh' reasoning effort. "
-                "Downgrading to 'high'. Only %s support 'xhigh'.",
-                model,
-                ", ".join(self.XHIGH_SUPPORTED_MODELS),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Model '%s' does not support 'xhigh' reasoning effort. "
+                    "Downgrading to 'high'. Only %s support 'xhigh'.",
+                    model,
+                    ", ".join(self.XHIGH_SUPPORTED_MODELS),
+                )
             effort = "high"
 
         return effort
@@ -1361,11 +1364,12 @@ class OpenAICodexConnector(OpenAIConnector):
                     body = exc.response.json()
                 except json.JSONDecodeError:
                     body = exc.response.text
-                logger.warning(
-                    "Codex API request failed with status %s: %s",
-                    exc.response.status_code,
-                    body,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Codex API request failed with status %s: %s",
+                        exc.response.status_code,
+                        body,
+                    )
                 raise HTTPException(status_code=exc.response.status_code, detail=body)
             except HTTPException as exc:
                 if exc.status_code == 401 and attempt == 0:
@@ -1401,12 +1405,14 @@ class OpenAICodexConnector(OpenAIConnector):
         self._initialization_failed = True
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.error("OpenAI Codex initialization failed: %s", "; ".join(errors))
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error("OpenAI Codex initialization failed: %s", "; ".join(errors))
 
     def _degrade(self, errors: list[str]) -> None:
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.warning("OpenAI Codex backend degraded: %s", "; ".join(errors))
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("OpenAI Codex backend degraded: %s", "; ".join(errors))
 
     def _recover(self) -> None:
         self.is_functional = True
@@ -1469,6 +1475,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
         try:
             self._file_observer = Observer()
+            self._file_observer.daemon = True
             handler = OpenAICredentialsFileHandler(self)
             watch_dir = self._auth_path.parent
             self._file_observer.schedule(handler, str(watch_dir), recursive=False)
