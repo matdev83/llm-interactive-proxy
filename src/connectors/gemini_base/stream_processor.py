@@ -15,8 +15,10 @@ from typing import Any
 
 from src.connectors.gemini_base.models import RateLimitErrorDetails, TokenUsage
 from src.core.common.exceptions import BackendError
+from src.core.domain.streaming.contracts import OpenAIErrorChunk
 
 logger = logging.getLogger(__name__)
+
 
 
 def build_error_chunk(
@@ -50,14 +52,14 @@ def build_error_chunk(
     }
 
 
-def build_auth_error_chunk(model: str = "unknown") -> dict[str, Any]:
+def build_auth_error_chunk(model: str = "unknown") -> OpenAIErrorChunk:
     """Build an authentication error chunk.
 
     Args:
         model: The model name for the response.
 
     Returns:
-        A dict representing an auth error chunk.
+        A model representing an auth error chunk.
     """
     return build_error_chunk(
         message="Authentication failed. Please check your credentials.",
@@ -67,14 +69,14 @@ def build_auth_error_chunk(model: str = "unknown") -> dict[str, Any]:
     )
 
 
-def build_timeout_error_chunk(model: str = "unknown") -> dict[str, Any]:
+def build_timeout_error_chunk(model: str = "unknown") -> OpenAIErrorChunk:
     """Build a timeout error chunk.
 
     Args:
         model: The model name for the response.
 
     Returns:
-        A dict representing a timeout error chunk.
+        A model representing a timeout error chunk.
     """
     return build_error_chunk(
         message="Gateway timeout reaching Code Assist streaming endpoint.",
@@ -84,14 +86,14 @@ def build_timeout_error_chunk(model: str = "unknown") -> dict[str, Any]:
     )
 
 
-def build_connection_error_chunk(model: str = "unknown") -> dict[str, Any]:
+def build_connection_error_chunk(model: str = "unknown") -> OpenAIErrorChunk:
     """Build a connection error chunk.
 
     Args:
         model: The model name for the response.
 
     Returns:
-        A dict representing a connection error chunk.
+        A model representing a connection error chunk.
     """
     return build_error_chunk(
         message="Connection error reaching Code Assist streaming endpoint.",
@@ -105,7 +107,7 @@ def build_rate_limit_chunk(
     message: str,
     model: str = "unknown",
     is_quota_error: bool = False,
-) -> dict[str, Any]:
+) -> OpenAIErrorChunk:
     """Build a rate limit error chunk.
 
     Args:
@@ -114,7 +116,7 @@ def build_rate_limit_chunk(
         is_quota_error: If True, use quota_exceeded type and 503 code.
 
     Returns:
-        A dict representing a rate limit error chunk.
+        A model representing a rate limit error chunk.
     """
     error_type = "quota_exceeded" if is_quota_error else "rate_limit_exceeded"
     code = 503 if is_quota_error else 429
@@ -124,6 +126,7 @@ def build_rate_limit_chunk(
         model=model,
         error_type=error_type,
     )
+
 
 
 def build_rate_limit_backend_error(

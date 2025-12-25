@@ -101,7 +101,8 @@ class TestErrorResponseFormatting:
         error = CodebuffValidationError(
             message="Invalid prompt format", message_type="prompt"
         )
-        response = format_error_response(error, txid=123)
+        response_model = format_error_response(error, txid=123)
+        response = response_model.model_dump()
 
         assert response["type"] == "ack"
         assert response["txid"] == 123
@@ -111,7 +112,8 @@ class TestErrorResponseFormatting:
     def test_format_error_as_prompt_error_with_user_input_id(self) -> None:
         """Test formatting an error as a prompt-error action."""
         error = CodebuffError(message="Backend unavailable")
-        response = format_error_response(error, user_input_id="prompt-123")
+        response_model = format_error_response(error, user_input_id="prompt-123")
+        response = response_model.model_dump(by_alias=True)
 
         assert response["type"] == "action"
         assert response["data"]["type"] == "prompt-error"
@@ -124,7 +126,8 @@ class TestErrorResponseFormatting:
         error = CodebuffSessionError(
             message="Session not found", session_id="session-789"
         )
-        response = format_error_response(error)
+        response_model = format_error_response(error)
+        response = response_model.model_dump()
 
         assert response["type"] == "action"
         assert response["data"]["type"] == "action-error"
@@ -134,7 +137,8 @@ class TestErrorResponseFormatting:
     def test_format_generic_exception(self) -> None:
         """Test formatting a generic Python exception."""
         error = ValueError("Something went wrong")
-        response = format_error_response(error)
+        response_model = format_error_response(error)
+        response = response_model.model_dump()
 
         assert response["type"] == "action"
         assert response["data"]["type"] == "action-error"
@@ -143,11 +147,13 @@ class TestErrorResponseFormatting:
     def test_format_error_with_details(self) -> None:
         """Test formatting an error with details."""
         error = CodebuffError(message="Operation failed", details={"reason": "timeout"})
-        response = format_error_response(error, user_input_id="prompt-456")
+        response_model = format_error_response(error, user_input_id="prompt-456")
+        response = response_model.model_dump()
 
         assert response["type"] == "action"
         assert response["data"]["type"] == "prompt-error"
         assert response["data"]["error"] == "{'reason': 'timeout'}"
+
 
 
 class TestErrorPropagation:

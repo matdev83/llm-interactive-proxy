@@ -78,10 +78,49 @@ class StreamingChunk(BaseModel):
     is_cancellation: bool = False
 
 
+class OpenAIError(BaseModel):
+    """OpenAI-compatible error object."""
+
+    message: str
+    type: str
+    code: str | int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OpenAIErrorChoice(BaseModel):
+    """Choice object for OpenAI error chunks."""
+
+    index: int = 0
+    delta: dict[str, Any] = Field(default_factory=dict)
+    finish_reason: str = "error"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OpenAIErrorChunk(BaseModel):
+    """Standard OpenAI-compatible error chunk for streaming responses."""
+
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[OpenAIErrorChoice] = Field(
+        default_factory=lambda: [OpenAIErrorChoice()]
+    )
+    error: OpenAIError
+
+    model_config = ConfigDict(extra="forbid")
+
+
 __all__ = [
     "StreamingErrorInfo",
     "StreamingUsage",
     "StreamingMetadata",
     "StreamingPayload",
     "StreamingChunk",
+    "OpenAIError",
+    "OpenAIErrorChoice",
+    "OpenAIErrorChunk",
 ]
+

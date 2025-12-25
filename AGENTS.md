@@ -77,7 +77,6 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | Test (Default) | `./.venv/Scripts/python.exe -m pytest` (uses `pyproject.toml` addopts) |
 | Test (Unit) | `./.venv/Scripts/python.exe -m pytest tests/unit` |
 | Test (Integration) | `./.venv/Scripts/python.exe -m pytest tests/integration` |
-| **Test (Full Suite, no testmon)** | `./.venv/Scripts/python.exe -m pytest -m "not testmon_cache"` (forces full run, disables testmon cache) |
 | **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff check --fix .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
 | **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
@@ -89,8 +88,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 3. **Regression**: Run full suite after multi-file changes.
 4. **Style**: PEP 8, Async/Await correctness, Exception Hierarchy (`LLMProxyError`).
 5. **Safety**: Never remove features without explicit request.
-6. **Full Test Suite**: To force running the entire test suite with testmon cache disabled, use `-m "not testmon_cache"`. This works because testmon disables its selection when the `-m` option is used, allowing you to bypass testmon's cached test selection.
-7. **Post-edit QA**: After each Python file edit, run:
+6. **Post-edit QA**: After each Python file edit, run:
 
    ```powershell
    ./.venv/Scripts/python.exe -m ruff check --fix <file> && ./.venv/Scripts/python.exe -m black <file> && ./.venv/Scripts/python.exe -m mypy <file>

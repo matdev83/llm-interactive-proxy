@@ -96,11 +96,12 @@ class BackendProcessor(IBackendProcessor):
                 ):
                     session_routes = backend_config.failover_routes
                     if isinstance(session_routes, dict) and session_routes:
-                        failover_routes = [
-                            {"name": name, **data}
-                            for name, data in session_routes.items()
-                            if isinstance(data, dict)
-                        ]
+                        failover_routes = []
+                        for name, data in session_routes.items():
+                            if hasattr(data, "model_dump"):
+                                failover_routes.append(data)
+                            elif isinstance(data, dict):
+                                failover_routes.append({"name": name, **data})
                     elif isinstance(session_routes, list) and session_routes:
                         # Some tests provide pre-normalised lists; accept them as-is.
                         failover_routes = list(session_routes)
@@ -115,7 +116,12 @@ class BackendProcessor(IBackendProcessor):
                     failover_routes = None
 
             if failover_routes:
-                extra_body_dict["failover_routes"] = failover_routes
+                # Convert models back to dicts for backend compatibility if they are models
+                serializable_routes = [
+                    r.model_dump() if hasattr(r, "model_dump") else r
+                    for r in failover_routes
+                ]
+                extra_body_dict["failover_routes"] = serializable_routes
 
             # Call the backend (preserve tools/tool_choice and other fields)
             call_request = request.model_copy(update={"extra_body": extra_body_dict})

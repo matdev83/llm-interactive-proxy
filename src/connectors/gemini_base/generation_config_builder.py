@@ -1,16 +1,27 @@
 """
 Generation config building for Gemini Code Assist API.
 
-This module handles building the generationConfig including thinkingConfig
+This module handles building generationConfig including thinkingConfig
 for models that support thinking/reasoning.
 """
 
 import logging
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
+
 from src.core.domain.gemini_metadata import create_gemini_generation_config
 
 logger = logging.getLogger(__name__)
+
+
+class ThinkingConfig(BaseModel):
+    """Thinking configuration for models that support reasoning."""
+
+    thinkingBudget: int
+    includeThoughts: bool = True
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GenerationConfigBuilder:
@@ -70,14 +81,14 @@ class GenerationConfigBuilder:
 
         return cfg
 
-    def _build_thinking_config(self, request_data: Any) -> dict[str, Any]:
+    def _build_thinking_config(self, request_data: Any) -> ThinkingConfig:
         """Build thinkingConfig for thinking/reasoning support.
 
         Args:
             request_data: The request data containing thinking parameters
 
         Returns:
-            thinkingConfig dictionary
+            ThinkingConfig model
         """
         thinking_budget = getattr(request_data, "thinking_budget", None)
         reasoning_effort = getattr(request_data, "reasoning_effort", None)
@@ -93,10 +104,11 @@ class GenerationConfigBuilder:
         if thinking_budget is None:
             thinking_budget = self.DEFAULT_THINKING_BUDGET
 
-        return {
-            "thinkingBudget": thinking_budget,
-            "includeThoughts": True,
-        }
+        return ThinkingConfig(
+            thinkingBudget=thinking_budget,
+            includeThoughts=True,
+        )
+
 
 
 def build_code_assist_request_format(

@@ -61,7 +61,11 @@ class InjectionPolicy:
                 role_value = dumped.get("role")
                 if isinstance(role_value, str):
                     return role_value
-            except Exception:
+            except (AttributeError, TypeError, ValueError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract role via model_dump: %s", e, exc_info=True
+                    )
                 return None
 
         if hasattr(message, "get") and callable(message.get):
@@ -69,7 +73,11 @@ class InjectionPolicy:
                 role_value = message.get("role")
                 if isinstance(role_value, str):
                     return role_value
-            except Exception:
+            except (AttributeError, TypeError, KeyError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract role via get method: %s", e, exc_info=True
+                    )
                 return None
 
         return None

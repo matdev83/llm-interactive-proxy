@@ -211,9 +211,9 @@ class TestResponsesApiTranslation:
         domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
 
         tool_calls = domain_chunk.choices[0].delta.tool_calls
-        # tool_calls is a list of dicts for now
-        assert tool_calls[0]["function"]["name"] == "do_work"
-        assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
+        # tool_calls is now a list of StreamingToolCall objects
+        assert tool_calls[0].function.name == "do_work"
+        assert tool_calls[0].function.arguments == '{"value": 1}'
 
     def test_responses_tool_call_indexes_are_zero_based(self):
         """Codex tool calls should stream with zero-based indexes."""
@@ -235,8 +235,8 @@ class TestResponsesApiTranslation:
         )
         delta_domain = self.service.to_domain_stream_chunk(delta_chunk, "responses")
         tool_delta = delta_domain.choices[0].delta.tool_calls[0]
-        assert tool_delta["index"] == 0
-        assert tool_delta["id"] == "fc_1"
+        assert tool_delta.index == 0
+        assert tool_delta.id == "fc_1"
 
         # Mock the render_tool_call to return expected XML content for done events
         with patch("src.core.domain.translation.render_tool_call") as mock_render:
@@ -257,7 +257,7 @@ class TestResponsesApiTranslation:
             )
             done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
             done_tool = done_domain.choices[0].delta.tool_calls[0]
-            assert done_tool["index"] == 0
+            assert done_tool.index == 0
             assert done_domain.choices[0].finish_reason == "tool_calls"
 
             final_payload = {
@@ -277,7 +277,7 @@ class TestResponsesApiTranslation:
             )
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
             final_tool = final_domain.choices[0].delta.tool_calls[0]
-            assert final_tool["index"] == 0
+            assert final_tool.index == 0
             assert final_domain.choices[0].finish_reason == "tool_calls"
 
             # Access extra field via dict access
@@ -332,7 +332,7 @@ class TestResponsesApiTranslation:
         # Verify extra field is not present
         assert "_tool_call_text" not in delta
         tool_calls = delta.tool_calls
-        assert tool_calls[0]["function"]["name"] == "shell"
+        assert tool_calls[0].function.name == "shell"
 
     def test_to_domain_stream_chunk_responses_completed_event(self):
         """Completed events should mark finish_reason 'stop'."""
@@ -369,7 +369,7 @@ class TestResponsesApiTranslation:
             '"model": "gpt-4", "choices": [{"index": 0, "delta": '
             '{"content": [{"type": "output_text", "text": "Hello"}, '
             '{"type": "output_text", "text": " world"}], '
-            '"tool_calls": [{"id": "call_1", "type": "function", '
+            '"tool_calls": [{"index": 0, "id": "call_1", "type": "function", '
             '"function": {"name": "foo", "arguments": {"value": 1}}}]}}]}\n\n'
         )
 
@@ -381,7 +381,7 @@ class TestResponsesApiTranslation:
         assert delta.content == "Hello world"
         tool_calls = delta.tool_calls
         assert isinstance(tool_calls, list) and tool_calls
-        assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
+        assert tool_calls[0].function.arguments == '{"value": 1}'
 
     def test_from_domain_to_responses_response_basic(self):
         """Test converting a ChatResponse to Responses API response format."""

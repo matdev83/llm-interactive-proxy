@@ -1,8 +1,9 @@
 """
-A command handler for the failover commands.
+A command handler for failover commands.
 """
 
 import contextlib
+import threading
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from src.core.commands.handler import ICommandHandler
@@ -19,9 +20,9 @@ from src.core.domain.commands.failover_commands import (
     RoutePrependCommand,
 )
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.model_utils import ModelDefaults
 from src.core.domain.session import Session
-
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -40,6 +41,7 @@ class SessionStateApplicationStateAdapter(
     def __init__(self, session: Session):
         self._session = session
         self._local_state: dict[str, Any] = {}
+        self._lock = threading.Lock()
 
     def get_command_prefix(self) -> str | None:
         prefix = None
@@ -49,125 +51,117 @@ class SessionStateApplicationStateAdapter(
             prefix = None
         if isinstance(prefix, str) and prefix:
             return prefix
-        return self._local_state.get("command_prefix")
+        with self._lock:
+            return self._local_state.get("command_prefix")
 
     def get_api_key_redaction_enabled(self) -> bool:
-        return bool(self._local_state.get("api_key_redaction_enabled", False))
+        with self._lock:
+            return bool(self._local_state.get("api_key_redaction_enabled", False))
 
     def get_disable_interactive_commands(self) -> bool:
-        return bool(self._local_state.get("disable_interactive_commands", False))
+        with self._lock:
+            return bool(self._local_state.get("disable_interactive_commands", False))
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         routes_dict = self._session.state.backend_config.failover_routes
         if routes_dict:
-            return [{"name": name, **data} for name, data in routes_dict.items()]
+            return [
+                FailoverRoute(name=name, **data) for name, data in routes_dict.items()
+            ]
         return None
 
     def set_command_prefix(self, prefix: str) -> None:
-        self._local_state["command_prefix"] = prefix
+        with self._lock:
+            self._local_state["command_prefix"] = prefix
         with contextlib.suppress(Exception):
             self._session.state = self._session.state.with_command_prefix_override(
                 prefix
             )
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
-        self._local_state["api_key_redaction_enabled"] = enabled
+        with self._lock:
+            self._local_state["api_key_redaction_enabled"] = enabled
 
     def set_default_api_key_redaction_enabled(self, enabled: bool) -> None:
-        """Set the default for whether API key redaction is enabled."""
-        self._local_state["default_api_key_redaction_enabled"] = enabled
+        """Set default for whether API key redaction is enabled."""
+        with self._lock:
+            self._local_state["default_api_key_redaction_enabled"] = enabled
 
     def set_disable_interactive_commands(self, disabled: bool) -> None:
-        self._local_state["disable_interactive_commands"] = disabled
-
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
-        # Start with a clean backend config
-        current_backend_config = cast(
-            BackendConfiguration, self._session.state.backend_config
-        )
-        new_backend_config = current_backend_config
-        # Add each route one by one
-        for route in routes:
-            if "name" in route and "policy" in route:
-                name = route["name"]
-                policy = route["policy"]
-                # Create a new config with this route
-                new_backend_config = cast(
-                    BackendConfiguration,
-                    new_backend_config.with_failover_route(name, policy),
-                )
-
-                # If the route has elements, we need to add them
-                if "elements" in route:
-                    elements = route["elements"]
-                    if isinstance(elements, list):
-                        for element in elements:
-                            new_backend_config = cast(
-                                BackendConfiguration,
-                                new_backend_config.with_appended_route_element(
-                                    name, element
-                                ),
-                            )
-
-        self._session.state = self._session.state.with_backend_config(
-            new_backend_config
-        )
+        with self._lock:
+            self._local_state["disable_interactive_commands"] = disabled
 
     def get_disable_commands(self) -> bool:
-        return bool(self._local_state.get("disable_commands", False))
+        with self._lock:
+            return bool(self._local_state.get("disable_commands", False))
 
     def set_disable_commands(self, disabled: bool) -> None:
-        self._local_state["disable_commands"] = disabled
+        with self._lock:
+            self._local_state["disable_commands"] = disabled
 
     def get_setting(self, key: str, default: Any = None) -> Any:
-        return self._local_state.get(key, default)
+        with self._lock:
+            return self._local_state.get(key, default)
 
     def set_setting(self, key: str, value: Any) -> None:
-        self._local_state[key] = value
+        with self._lock:
+            self._local_state[key] = value
 
     def get_use_failover_strategy(self) -> bool:
-        return bool(self._local_state.get("PROXY_USE_FAILOVER_STRATEGY", False))
+        with self._lock:
+            return bool(self._local_state.get("PROXY_USE_FAILOVER_STRATEGY", False))
 
     def set_use_failover_strategy(self, enabled: bool) -> None:
-        self._local_state["PROXY_USE_FAILOVER_STRATEGY"] = enabled
+        with self._lock:
+            self._local_state["PROXY_USE_FAILOVER_STRATEGY"] = enabled
 
     def get_use_streaming_pipeline(self) -> bool:
-        return bool(self._local_state.get("PROXY_USE_STREAMING_PIPELINE", False))
+        with self._lock:
+            return bool(self._local_state.get("PROXY_USE_STREAMING_PIPELINE", False))
 
     def set_use_streaming_pipeline(self, enabled: bool) -> None:
-        self._local_state["PROXY_USE_STREAMING_PIPELINE"] = enabled
+        with self._lock:
+            self._local_state["PROXY_USE_STREAMING_PIPELINE"] = enabled
 
     def get_functional_backends(self) -> list[str]:
-        val = self._local_state.get("functional_backends", [])
-        return val if isinstance(val, list) else []
+        with self._lock:
+            val = self._local_state.get("functional_backends", [])
+            return val if isinstance(val, list) else []
 
     def set_functional_backends(self, backends: list[str]) -> None:
-        self._local_state["functional_backends"] = backends
+        with self._lock:
+            self._local_state["functional_backends"] = backends
 
     def get_backend_type(self) -> str | None:
-        bt = self._local_state.get("backend_type")
-        return bt if isinstance(bt, str) else None
+        with self._lock:
+            bt = self._local_state.get("backend_type")
+            return bt if isinstance(bt, str) else None
 
     def set_backend_type(self, backend_type: str | None) -> None:
-        self._local_state["backend_type"] = backend_type
+        with self._lock:
+            self._local_state["backend_type"] = backend_type
 
     def get_backend(self) -> Any:
-        return self._local_state.get("backend")
+        with self._lock:
+            return self._local_state.get("backend")
 
     def set_backend(self, backend: Any) -> None:
-        self._local_state["backend"] = backend
+        with self._lock:
+            self._local_state["backend"] = backend
 
     def get_model_defaults(self) -> dict[str, ModelDefaults]:
-        md = self._local_state.get("model_defaults", {})
-        return cast(dict[str, ModelDefaults], md if isinstance(md, dict) else {})
+        with self._lock:
+            md = self._local_state.get("model_defaults", {})
+            return cast(dict[str, ModelDefaults], md if isinstance(md, dict) else {})
 
     def set_model_defaults(self, defaults: dict[str, ModelDefaults]) -> None:
-        self._local_state["model_defaults"] = defaults
+        with self._lock:
+            self._local_state["model_defaults"] = defaults
 
     def get_service(self, service_type: type[_T_co]) -> _T_co | None:
-
-        provider = self._local_state.get("service_provider")
-        getter = getattr(provider, "get_service", None) if provider else None
+        with self._lock:
+            provider = self._local_state.get("service_provider")
+            getter = getattr(provider, "get_service", None) if provider else None
         if getter is None or not callable(getter):
             return None
         try:
@@ -213,9 +207,25 @@ class SessionStateApplicationStateAdapter(
         """Update interactive commands setting with validation."""
         self.set_disable_interactive_commands(disabled)
 
-    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def update_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Update failover routes with validation."""
         self.set_failover_routes(routes)
+
+    def set_failover_routes(self, routes: list[FailoverRoute]) -> None:
+        """Set multiple failover routes."""
+        with self._lock:
+            self._local_state["failover_routes"] = {}
+            for route in routes:
+                if isinstance(route, dict):
+                    if "name" in route:
+                        name = route["name"]
+                        route_config = {k: v for k, v in route.items() if k != "name"}
+                        self._local_state["failover_routes"][name] = route_config
+                    continue
+
+                name = route.name
+                route_config = route.model_dump(exclude={"name"})
+                self._local_state["failover_routes"][name] = route_config
 
 
 @command("create-failover-route")

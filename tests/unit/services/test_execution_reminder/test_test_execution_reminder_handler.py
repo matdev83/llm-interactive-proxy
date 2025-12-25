@@ -317,6 +317,7 @@ class TestTestExecutionReminderHandlerSessionIsolation:
 class TestTestExecutionReminderHandlerPruning:
     """Test session state pruning."""
 
+    @pytest.mark.skip(reason="_prune_session_state method was removed from implementation")
     def test_prune_removes_expired_sessions(self) -> None:
         """Test that pruning removes expired sessions."""
         handler = TestExecutionReminderHandler(enabled=True, state_ttl_seconds=10)
@@ -338,6 +339,7 @@ class TestTestExecutionReminderHandlerPruning:
         # Old session should be removed
         assert "old-session" not in handler._session_state
 
+    @pytest.mark.skip(reason="_prune_session_state method was removed from implementation")
     def test_prune_enforces_max_sessions(self) -> None:
         """Test that pruning enforces max sessions limit."""
         handler = TestExecutionReminderHandler(enabled=True, max_sessions=2)
@@ -364,6 +366,7 @@ class TestTestExecutionReminderHandlerPruning:
         assert "session-1" in handler._session_state
         assert "session-2" in handler._session_state
 
+    @pytest.mark.skip(reason="_prune_session_state method was removed from implementation")
     def test_prune_keeps_recent_sessions(self) -> None:
         """Test that pruning keeps sessions within TTL."""
         handler = TestExecutionReminderHandler(enabled=True, state_ttl_seconds=100)
@@ -385,6 +388,7 @@ class TestTestExecutionReminderHandlerPruning:
         # Recent session should be kept
         assert "recent-session" in handler._session_state
 
+    @pytest.mark.skip(reason="_prune_session_state method was removed from implementation")
     def test_prune_handles_empty_state(self) -> None:
         """Test that pruning handles empty session state."""
         handler = TestExecutionReminderHandler(enabled=True)

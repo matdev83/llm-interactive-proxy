@@ -382,7 +382,9 @@ class UniversalToolExecutor:
 
         return translated
 
-    async def _execute_read_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
+    async def _execute_read_file(
+        self, arguments: dict[str, Any]
+    ) -> UniversalToolResult:
         """Execute read_file tool with error handling for invalid paths."""
         # Support both 'file_path' and 'path' parameter names
         file_path = arguments.get("file_path") or arguments.get("path")
@@ -425,7 +427,9 @@ class UniversalToolExecutor:
                 )
 
             # Read file content
-            content = resolved_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(
+                lambda: resolved_path.read_text(encoding="utf-8", errors="replace")
+            )
 
             # Handle line range if specified
             start_line = arguments.get("start_line")
@@ -573,7 +577,9 @@ class UniversalToolExecutor:
                 tool_name="list_dir",
             )
 
-    async def _execute_grep_files(self, arguments: dict[str, Any]) -> UniversalToolResult:
+    async def _execute_grep_files(
+        self, arguments: dict[str, Any]
+    ) -> UniversalToolResult:
         """Execute grep_files tool with include/exclude glob pattern support."""
         pattern = arguments.get("pattern")
         if not pattern:
@@ -625,7 +631,7 @@ class UniversalToolExecutor:
                 if self._should_include_file(
                     resolved_path, include_pattern, exclude_pattern
                 ):
-                    matches.extend(self._search_file(resolved_path, regex))
+                    matches.extend(await self._search_file(resolved_path, regex))
             else:
                 # Search in directory
                 if recursive:
@@ -642,7 +648,7 @@ class UniversalToolExecutor:
                             continue
 
                         try:
-                            matches.extend(self._search_file(file_path, regex))
+                            matches.extend(await self._search_file(file_path, regex))
                         except (UnicodeDecodeError, PermissionError):
                             # Skip binary files or files we can't read
                             continue
@@ -669,11 +675,13 @@ class UniversalToolExecutor:
                 tool_name="grep_files",
             )
 
-    def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
+    async def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
         """Search for pattern in a single file."""
         matches = []
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(
+                lambda: file_path.read_text(encoding="utf-8", errors="replace")
+            )
             lines = content.splitlines()
 
             for line_num, line in enumerate(lines, 1):
@@ -990,7 +998,9 @@ class UniversalToolExecutor:
                 )
 
             # Read file content
-            content = resolved_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(
+                lambda: resolved_path.read_text(encoding="utf-8", errors="replace")
+            )
 
             # Perform replacement
             if search_text not in content:
@@ -1009,7 +1019,9 @@ class UniversalToolExecutor:
             new_content = content.replace(search_text, replace_text)
 
             # Write back to file
-            resolved_path.write_text(new_content, encoding="utf-8")
+            await asyncio.to_thread(
+                lambda: resolved_path.write_text(new_content, encoding="utf-8")
+            )
 
             output = f"Successfully replaced {occurrences} occurrence(s) in {file_path}"
 
@@ -1038,7 +1050,9 @@ class UniversalToolExecutor:
                 tool_name="search_and_replace",
             )
 
-    async def _execute_write_to_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
+    async def _execute_write_to_file(
+        self, arguments: dict[str, Any]
+    ) -> UniversalToolResult:
         """Execute write_to_file tool to write content to a file.
 
         Args:
@@ -1079,7 +1093,9 @@ class UniversalToolExecutor:
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write content to file
-            resolved_path.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(
+                lambda: resolved_path.write_text(content, encoding="utf-8")
+            )
 
             output = f"Successfully wrote {len(content)} bytes to {file_path}"
 
@@ -1168,8 +1184,8 @@ class UniversalToolExecutor:
                 )
 
             # Read file content
-            existing_content = resolved_path.read_text(
-                encoding="utf-8", errors="replace"
+            existing_content = await asyncio.to_thread(
+                lambda: resolved_path.read_text(encoding="utf-8", errors="replace")
             )
             lines = existing_content.splitlines(keepends=True)
 
@@ -1190,7 +1206,9 @@ class UniversalToolExecutor:
 
             # Write back to file
             new_content = "".join(lines)
-            resolved_path.write_text(new_content, encoding="utf-8")
+            await asyncio.to_thread(
+                lambda: resolved_path.write_text(new_content, encoding="utf-8")
+            )
 
             return self._format_result(
                 output=output,
@@ -1217,7 +1235,9 @@ class UniversalToolExecutor:
                 tool_name="insert_content",
             )
 
-    async def _execute_edit_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
+    async def _execute_edit_file(
+        self, arguments: dict[str, Any]
+    ) -> UniversalToolResult:
         """Execute edit_file tool to edit a file.
 
         This is a generic editing tool that can perform various operations.
@@ -1268,7 +1288,9 @@ class UniversalToolExecutor:
 
             if content is not None:
                 # Replace entire file content
-                resolved_path.write_text(content, encoding="utf-8")
+                await asyncio.to_thread(
+                    lambda: resolved_path.write_text(content, encoding="utf-8")
+                )
                 output = f"Successfully edited {file_path} ({len(content)} bytes)"
             else:
                 # No content provided - just verify file exists

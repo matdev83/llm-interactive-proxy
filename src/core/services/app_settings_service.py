@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Any
 
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.interfaces.app_settings_interface import IAppSettings
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ class AppSettings(IAppSettings):
 
         return all_settings
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes.
 
         Returns:
@@ -180,12 +181,18 @@ class AppSettings(IAppSettings):
         routes = self.get_setting("failover_routes")
         if routes is None:
             return None
-        # Ensure we return the correct type
+
         if isinstance(routes, list):
-            return routes
+            result = []
+            for item in routes:
+                if isinstance(item, dict):
+                    result.append(FailoverRoute(**item))
+                elif isinstance(item, FailoverRoute):
+                    result.append(item)
+            return result if result else None
         return None
 
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def set_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Set failover routes.
 
         Args:

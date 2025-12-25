@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -57,9 +58,10 @@ class KiloCodeToolExecutor:
                     error=f"Tool '{tool_name}' is not supported",
                 )
         except Exception as e:
-            logger.error(
-                f"Error executing KiloCode tool {tool_name}: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error executing KiloCode tool {tool_name}: {e}", exc_info=True
+                )
             return KiloCodeToolResult(
                 output=f"Error executing {tool_name}: {e!s}",
                 exit_code=1,
@@ -102,7 +104,9 @@ class KiloCodeToolExecutor:
                 )
 
             # Read file content
-            content = resolved_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(
+                lambda: resolved_path.read_text(encoding="utf-8", errors="replace")
+            )
 
             # Handle line range if specified
             start_line = arguments.get("start_line")
@@ -219,7 +223,9 @@ class KiloCodeToolExecutor:
                 error=str(e),
             )
 
-    async def _execute_grep_files(self, arguments: dict[str, Any]) -> KiloCodeToolResult:
+    async def _execute_grep_files(
+        self, arguments: dict[str, Any]
+    ) -> KiloCodeToolResult:
         """Execute grep_files tool."""
         pattern = arguments.get("pattern")
         if not pattern:
@@ -260,7 +266,7 @@ class KiloCodeToolExecutor:
 
             if resolved_path.is_file():
                 # Search in single file
-                matches.extend(self._search_file(resolved_path, regex))
+                matches.extend(await self._search_file(resolved_path, regex))
             else:
                 # Search in directory
                 if recursive:
@@ -271,7 +277,7 @@ class KiloCodeToolExecutor:
                 for file_path in resolved_path.glob(pattern_glob):
                     if file_path.is_file() and not file_path.name.startswith("."):
                         try:
-                            matches.extend(self._search_file(file_path, regex))
+                            matches.extend(await self._search_file(file_path, regex))
                         except (UnicodeDecodeError, PermissionError):
                             # Skip binary files or files we can't read
                             continue
@@ -295,11 +301,13 @@ class KiloCodeToolExecutor:
                 error=str(e),
             )
 
-    def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
+    async def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
         """Search for pattern in a single file."""
         matches = []
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(
+                lambda: file_path.read_text(encoding="utf-8", errors="replace")
+            )
             lines = content.splitlines()
 
             for line_num, line in enumerate(lines, 1):
@@ -313,7 +321,9 @@ class KiloCodeToolExecutor:
 
         return matches
 
-    async def _execute_use_mcp_tool(self, arguments: dict[str, Any]) -> KiloCodeToolResult:
+    async def _execute_use_mcp_tool(
+        self, arguments: dict[str, Any]
+    ) -> KiloCodeToolResult:
         """Execute use_mcp_tool (placeholder implementation)."""
         tool_name = arguments.get("tool_name")
         tool_arguments = arguments.get("arguments", "{}")

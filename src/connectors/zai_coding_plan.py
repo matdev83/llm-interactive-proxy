@@ -22,7 +22,9 @@ from src.core.domain.responses import StreamingResponseHandle
 from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.domain.models_listing import ModelsListingResponse, ModelInfo
 from src.core.services.backend_registry import backend_registry
+
 
 logger = logging.getLogger(__name__)
 
@@ -119,21 +121,21 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
     async def list_models(
         self, api_base_url: str | None = None, **kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> ModelsListingResponse:
         """Return available models for ZAI coding plan."""
         models = self.available_models or list(self._SUPPORTED_MODELS)
-        return {
-            "data": [
-                {
-                    "id": model,
-                    "name": model,
-                    "object": "model",
-                    "created": index,
-                    "owned_by": "zai",
-                }
-                for index, model in enumerate(models, start=1)
-            ]
-        }
+        model_infos = [
+            ModelInfo(
+                id=model,
+                name=model,
+                object="model",
+                created=index,
+                owned_by="zai",
+            )
+            for index, model in enumerate(models, start=1)
+        ]
+        return ModelsListingResponse(object="list", data=model_infos)
+
 
     async def get_available_models_async(self) -> list[str]:
         """Return list of available model IDs."""

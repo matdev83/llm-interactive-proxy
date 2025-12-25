@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
+from src.core.domain.configuration.failover_models import FailoverRoute
+
 
 @runtime_checkable
 class IStateProvider(Protocol):
@@ -40,7 +42,7 @@ class ISecureStateAccess(ABC):
         """Get interactive commands disabled setting through secure access."""
 
     @abstractmethod
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes through secure access."""
 
 
@@ -60,7 +62,7 @@ class ISecureStateModification(ABC):
         """Update interactive commands setting with validation."""
 
     @abstractmethod
-    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def update_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Update failover routes with validation."""
 
 

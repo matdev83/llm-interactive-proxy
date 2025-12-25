@@ -7,6 +7,7 @@ replicating the response format and state management from gemini-cli.
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts
 """
 
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -127,6 +128,9 @@ class SessionAssessmentState:
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 
+    def __post_init__(self):
+        self._lock = threading.Lock()
+
     def update_timestamp(self):
         """Update the last_updated timestamp."""
         new_timestamp = time.time()
@@ -137,12 +141,13 @@ class SessionAssessmentState:
 
     def add_assessment_result(self, result: AssessmentResult):
         """Add an assessment result to the history."""
-        self.assessment_history.append(result)
-        self.update_timestamp()
+        with self._lock:
+            self.assessment_history.append(result)
+            self.update_timestamp()
 
-        # Keep only recent assessments to prevent memory bloat
-        if len(self.assessment_history) > 10:
-            self.assessment_history = self.assessment_history[-10:]
+            # Keep only recent assessments to prevent memory bloat
+            if len(self.assessment_history) > 10:
+                self.assessment_history = self.assessment_history[-10:]
 
     def should_trigger_assessment(self, turn_threshold: int) -> bool:
         """
@@ -179,46 +184,51 @@ class SessionAssessmentState:
 
     def mark_assessment_performed(self):
         """Mark that an assessment was performed at the current turn."""
-        self.last_check_turn = self.turn_count
-        # Add a placeholder assessment result to track the assessment
-        placeholder_result = AssessmentResult(
-            reasoning="Assessment performed",
-            confidence=0.0,  # Placeholder value
-            session_id=self.session_id,
-            turn_count=self.turn_count,
-        )
-        # Directly add to history without timestamp update (repository will handle it)
-        self.assessment_history.append(placeholder_result)
-        # Keep only recent assessments to prevent memory bloat
-        if len(self.assessment_history) > 10:
-            self.assessment_history = self.assessment_history[-10:]
+        with self._lock:
+            self.last_check_turn = self.turn_count
+            # Add a placeholder assessment result to track the assessment
+            placeholder_result = AssessmentResult(
+                reasoning="Assessment performed",
+                confidence=0.0,  # Placeholder value
+                session_id=self.session_id,
+                turn_count=self.turn_count,
+            )
+            # Directly add to history without timestamp update (repository will handle it)
+            self.assessment_history.append(placeholder_result)
+            # Keep only recent assessments to prevent memory bloat
+            if len(self.assessment_history) > 10:
+                self.assessment_history = self.assessment_history[-10:]
 
     def increment_turn(self) -> int:
         """Increment turn count and return new count."""
-        self.turn_count += 1
-        self.update_timestamp()
-        return self.turn_count
+        with self._lock:
+            self.turn_count += 1
+            self.update_timestamp()
+            return self.turn_count
 
     def is_expired(self, max_age_seconds: int = 3600) -> bool:
         """Check if session state is expired and should be cleaned up."""
-        return time.time() - self.last_updated > max_age_seconds
+        with self._lock:
+            return time.time() - self.last_updated > max_age_seconds
 
     def len(self) -> int:
         """Get length of assessment_history."""
-        return len(self.assessment_history)
+        with self._lock:
+            return len(self.assessment_history)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging and debugging."""
-        return {
-            "session_id": self.session_id,
-            "turn_count": self.turn_count,
-            "last_check_turn": self.last_check_turn,
-            "current_check_interval": self.current_check_interval,
-            "disabled_for_session": self.disabled_for_session,
-            "assessment_count": len(self.assessment_history),
-            "created_at": self.created_at,
-            "last_updated": self.last_updated,
-        }
+        with self._lock:
+            return {
+                "session_id": self.session_id,
+                "turn_count": self.turn_count,
+                "last_check_turn": self.last_check_turn,
+                "current_check_interval": self.current_check_interval,
+                "disabled_for_session": self.disabled_for_session,
+                "assessment_count": len(self.assessment_history),
+                "created_at": self.created_at,
+                "last_updated": self.last_updated,
+            }
 
 
 @dataclass

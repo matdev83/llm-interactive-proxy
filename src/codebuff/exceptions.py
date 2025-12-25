@@ -7,11 +7,17 @@ to maintain consistency with the rest of the application.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.core.common.exceptions import (
     AuthenticationError,
     LLMProxyError,
     ValidationError,
 )
+
+if TYPE_CHECKING:
+    from src.codebuff.schemas import ServerMessage
+
 
 
 class CodebuffError(LLMProxyError):
@@ -128,7 +134,7 @@ def format_error_response(
     error: Exception,
     txid: int | None = None,
     user_input_id: str | None = None,
-) -> dict:
+) -> ServerMessage:
     """
     Format an exception into a Codebuff error response.
 
@@ -138,8 +144,15 @@ def format_error_response(
         user_input_id: Optional user input ID for prompt errors
 
     Returns:
-        A dictionary representing the error response in Codebuff format
+        A model representing the error response in Codebuff format
     """
+    from src.codebuff.schemas import (
+        AckMessage,
+        ActionErrorAction,
+        PromptErrorAction,
+        ServerActionMessage,
+    )
+
     # Determine error message
     if isinstance(error, LLMProxyError):
         error_message = error.message
@@ -152,33 +165,34 @@ def format_error_response(
     if isinstance(
         error, CodebuffValidationError | CodebuffMessageError | ValidationError
     ) or (txid is not None and not user_input_id):
-        return {
-            "type": "ack",
-            "txid": txid,
-            "success": False,
-            "error": error_message,
-        }
+        return AckMessage(
+            type="ack",
+            txid=txid,
+            success=False,
+            error=error_message,
+        )
 
     # For prompt-related errors with user_input_id, return prompt-error action
     if user_input_id:
-        return {
-            "type": "action",
-            "data": {
-                "type": "prompt-error",
-                "userInputId": user_input_id,
-                "message": error_message,
-                "error": error_details,
-                "remainingBalance": 0.0,
-            },
-        }
+        return ServerActionMessage(
+            type="action",
+            data=PromptErrorAction(
+                type="prompt-error",
+                userInputId=user_input_id,
+                message=error_message,
+                error=error_details,
+                remainingBalance=0.0,
+            ),
+        )
 
     # For general action errors, return action-error
-    return {
-        "type": "action",
-        "data": {
-            "type": "action-error",
-            "message": error_message,
-            "error": error_details,
-            "remainingBalance": 0.0,
-        },
-    }
+    return ServerActionMessage(
+        type="action",
+        data=ActionErrorAction(
+            type="action-error",
+            message=error_message,
+            error=error_details,
+            remainingBalance=0.0,
+        ),
+    )
+

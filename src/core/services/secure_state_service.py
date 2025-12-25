@@ -11,6 +11,7 @@ import logging
 from collections import deque
 from typing import Any
 
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -64,7 +65,7 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
         self._log_access("get_disable_interactive_commands", "read")
         return self._application_state.get_disable_interactive_commands()
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes through secure access."""
         self._log_access("get_failover_routes", "read")
         return self._application_state.get_failover_routes()
@@ -109,7 +110,7 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
         self._log_access("update_interactive_commands", "write", {"disabled": disabled})
         self._application_state.set_disable_interactive_commands(disabled)
 
-    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def update_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Update failover routes with validation."""
         if not isinstance(routes, list):
             raise StateAccessViolationError(
@@ -119,13 +120,13 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
 
         # Validate route structure
         for i, route in enumerate(routes):
-            if not isinstance(route, dict):
+            if not isinstance(route, (dict, FailoverRoute)):
                 raise StateAccessViolationError(
-                    f"Route {i} must be a dictionary",
+                    f"Route {i} must be a dictionary or FailoverRoute model",
                     "ISecureStateModification.update_failover_routes",
                 )
 
-            if "name" not in route:
+            if isinstance(route, dict) and "name" not in route:
                 raise StateAccessViolationError(
                     f"Route {i} must have a 'name' field",
                     "ISecureStateModification.update_failover_routes",

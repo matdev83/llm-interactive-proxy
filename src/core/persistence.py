@@ -535,10 +535,12 @@ class ConfigManager:
         self.app_state.app_config.failover_routes = {
             name: route
             for name, route in self.app_state.app_config.failover_routes.items()
-            if route.get("elements")
+            if (route.elements if hasattr(route, "elements") else route.get("elements"))
             and all(
                 self.app_state.app_config.model_is_functional(element)
-                for element in route["elements"]
+                for element in (
+                    route.elements if hasattr(route, "elements") else route.get("elements", [])
+                )
             )
         }
 
@@ -661,11 +663,23 @@ class ConfigManager:
                 else:
                     model_defaults_data[model_name] = model_defaults_obj
 
+        # Get failover routes and convert to dict for persistence
+        failover_routes_data = {}
+        routes_list = self.app_state.get_failover_routes()
+        if routes_list:
+            for route in routes_list:
+                if hasattr(route, "model_dump"):
+                    failover_routes_data[route.name] = route.model_dump(exclude={"name"})
+                elif isinstance(route, dict) and "name" in route:
+                    failover_routes_data[route["name"]] = {
+                        k: v for k, v in route.items() if k != "name"
+                    }
+
         config_data: dict[str, Any] = {
             "backends": backends_data,
             "session": session_data,
             "auth": auth_data,
-            "failover_routes": self.app_state.get_failover_routes() or {},
+            "failover_routes": failover_routes_data,
             "command_prefix": self.app_state.get_command_prefix(),
             "model_defaults": model_defaults_data,
         }

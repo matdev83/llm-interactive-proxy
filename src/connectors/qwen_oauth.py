@@ -662,9 +662,15 @@ class QwenOAuthConnector(OpenAIConnector):
             # Some mocked responses provide a synchronous json() helper
             try:
                 data = response.json()  # type: ignore[call-arg]
-            except Exception:
+            except (json.JSONDecodeError, ValueError, AttributeError) as e:
+                logger.debug(
+                    "Synchronous JSON parse failed during token refresh: %s",
+                    e,
+                    exc_info=True,
+                )
                 data = None
-        except Exception:
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
+            logger.debug("JSON parse failed during token refresh: %s", e, exc_info=True)
             data = None
 
         if data is None:

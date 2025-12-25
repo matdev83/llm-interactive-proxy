@@ -19,7 +19,6 @@ from src.connectors.utils.reasoning_models import (
     ReasoningDetectionMetadata,
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import StreamingContent
 
@@ -370,7 +369,6 @@ class ReasoningStreamProcessor:
             metadata=detection_metadata,
         )
 
-
     def _parse_chunk(self, chunk_bytes: bytes) -> dict[str, Any] | None:
         """
         Parse a chunk from bytes to dictionary.
@@ -677,7 +675,13 @@ class ReasoningStreamProcessor:
                 single_item_stream(), provider
             ):
                 return normalized
-        except Exception as e:
+        except (
+            json.JSONDecodeError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+        ) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Error normalizing via provider normalizer: %s",

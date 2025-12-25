@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 _T_co = TypeVar("_T_co")
 
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.model_utils import ModelDefaults
 from src.core.domain.session import Session
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -40,10 +41,12 @@ class SessionStateAdapter(
     def get_disable_interactive_commands(self) -> bool:
         return bool(self._local_state.get("disable_interactive_commands", False))
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         routes_dict = self._session.state.backend_config.failover_routes
         if routes_dict:
-            return [{"name": name, **data} for name, data in routes_dict.items()]
+            return [
+                FailoverRoute(name=name, **data) for name, data in routes_dict.items()
+            ]
         return None
 
     def set_command_prefix(self, prefix: str) -> None:
@@ -63,21 +66,21 @@ class SessionStateAdapter(
     def set_disable_interactive_commands(self, disabled: bool) -> None:
         self._local_state["disable_interactive_commands"] = disabled
 
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def set_failover_routes(self, routes: list[FailoverRoute]) -> None:
         current_backend_config = cast(
             BackendConfiguration, self._session.state.backend_config
         )
         new_backend_config = current_backend_config
         for route in routes:
-            if "name" in route and "policy" in route:
-                name = route["name"]
-                policy = route["policy"]
-                new_backend_config = cast(
-                    BackendConfiguration,
-                    new_backend_config.with_failover_route(name, policy),
-                )
-                if "elements" in route:
-                    elements = route["elements"]
+            if isinstance(route, dict):
+                if "name" in route and "policy" in route:
+                    name = route["name"]
+                    policy = route["policy"]
+                    new_backend_config = cast(
+                        BackendConfiguration,
+                        new_backend_config.with_failover_route(name, policy),
+                    )
+                    elements = route.get("elements", [])
                     if isinstance(elements, list):
                         for element in elements:
                             new_backend_config = cast(
@@ -86,10 +89,23 @@ class SessionStateAdapter(
                                     name, element
                                 ),
                             )
+                continue
 
-        self._session.state = self._session.state.with_backend_config(
-            new_backend_config
-        )
+            name = route.name
+            policy = route.policy
+            new_backend_config = cast(
+                BackendConfiguration,
+                new_backend_config.with_failover_route(name, policy),
+            )
+            elements = route.elements
+            if isinstance(elements, list):
+                for element in elements:
+                    new_backend_config = cast(
+                        BackendConfiguration,
+                        new_backend_config.with_appended_route_element(name, element),
+                    )
+
+        self._session.state = self._session.state.with_backend_config(new_backend_config)
 
     def get_disable_commands(self) -> bool:
         return bool(self._local_state.get("disable_commands", False))
@@ -189,6 +205,6 @@ class SessionStateAdapter(
         """Update interactive commands setting with validation."""
         self.set_disable_interactive_commands(disabled)
 
-    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def update_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Update failover routes with validation."""
         self.set_failover_routes(routes)

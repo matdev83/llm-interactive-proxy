@@ -7,7 +7,10 @@ This module defines interfaces for accessing configuration in a type-safe manner
 from __future__ import annotations
 
 import abc
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.core.domain.configuration.failover_models import FailoverRoute
 
 
 class IConfig(abc.ABC):
@@ -138,7 +141,7 @@ class IBackendConfig(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def failover_routes(self) -> dict[str, dict[str, Any]]:
+    def failover_routes(self) -> dict[str, FailoverRoute]:
         """Get the failover routes."""
 
 

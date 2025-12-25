@@ -299,7 +299,12 @@ async def backend_simulator(temp_capture_dir):
 
 @pytest_asyncio.fixture
 async def client_simulator_fixture(temp_capture_dir):
-    """Create a ClientSimulator with a test capture."""
+    """Create a ClientSimulator with a test capture.
+
+    This fixture returns a simulator that must be used as an async context manager:
+        async with client_simulator_fixture as simulator:
+            await simulator.replay_request(...)
+    """
     path = temp_capture_dir / "client_test.cbor"
     entries = create_simple_request_response(
         request_data=b'{"test": "request"}',

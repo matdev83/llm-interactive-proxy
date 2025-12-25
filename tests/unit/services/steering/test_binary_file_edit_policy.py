@@ -333,7 +333,7 @@ class TestBinaryFileEditPolicyProperties:
     @given(
         extension=st.text(
             alphabet=st.characters(
-                blacklist_characters=".", blacklist_categories=("Cs",)
+                blacklist_characters=".\\/", blacklist_categories=("Cs",)  # Also exclude path separators
             ),
             min_size=1,
             max_size=10,

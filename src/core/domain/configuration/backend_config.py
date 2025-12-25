@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from src.core.domain.base import ValueObject
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.interfaces.configuration import IBackendConfig
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     model_value: str | None = Field(default=None, alias="model")
     api_url_value: str | None = Field(default=None, alias="api_url")
     interactive_mode_value: bool = Field(default=True, alias="interactive_mode")
-    failover_routes_data: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    failover_routes_data: dict[str, FailoverRoute] = Field(default_factory=dict)
     openai_url_value: str | None = Field(default=None, alias="openai_url")
 
     @property
@@ -52,7 +53,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
         return self.interactive_mode_value
 
     @property
-    def failover_routes(self) -> dict[str, dict[str, Any]]:
+    def failover_routes(self) -> dict[str, FailoverRoute]:
         """Get the failover routes."""
         return self.failover_routes_data
 
@@ -160,53 +161,60 @@ class BackendConfiguration(ValueObject, IBackendConfig):
     # Failover route management
     def with_failover_route(self, name: str, policy: str) -> IBackendConfig:
         """Create a new config with a new failover route."""
-        new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
-        new_routes[name] = {"policy": policy, "elements": []}
+        new_routes = dict(self.failover_routes_data)
+        new_routes[name] = FailoverRoute(name=name, policy=policy, elements=[])
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     def without_failover_route(self, name: str) -> IBackendConfig:
         """Create a new config with a failover route removed."""
-        new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
+        new_routes = dict(self.failover_routes_data)
         new_routes.pop(name, None)
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     def with_cleared_route(self, name: str) -> IBackendConfig:
         """Create a new config with a cleared failover route."""
-        new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
+        new_routes = dict(self.failover_routes_data)
         if name in new_routes:
-            new_routes[name] = {**new_routes[name], "elements": []}
+            route = new_routes[name].model_copy(update={"elements": []})
+            new_routes[name] = route
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     def with_appended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element appended to a failover route."""
-        new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
-        route: dict[str, Any] = new_routes.setdefault(
-            name, {"policy": "k", "elements": []}
-        )
-        elements: list[str] = list(route.get("elements", []))
-        elements.append(element)
-        route["elements"] = elements
+        new_routes = dict(self.failover_routes_data)
+        route = new_routes.get(name)
+        if route:
+            new_elements = list(route.elements)
+            new_elements.append(element)
+            new_routes[name] = route.model_copy(update={"elements": new_elements})
+        else:
+            new_routes[name] = FailoverRoute(
+                name=name, policy="k", elements=[element]
+            )
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     def with_prepended_route_element(self, name: str, element: str) -> IBackendConfig:
         """Create a new config with an element prepended to a failover route."""
-        new_routes: dict[str, dict[str, Any]] = dict(self.failover_routes_data)
-        route: dict[str, Any] = new_routes.setdefault(
-            name, {"policy": "k", "elements": []}
-        )
-        elements: list[str] = list(route.get("elements", []))
-        elements.insert(0, element)
-        route["elements"] = elements
+        new_routes = dict(self.failover_routes_data)
+        route = new_routes.get(name)
+        if route:
+            new_elements = list(route.elements)
+            new_elements.insert(0, element)
+            new_routes[name] = route.model_copy(update={"elements": new_elements})
+        else:
+            new_routes[name] = FailoverRoute(
+                name=name, policy="k", elements=[element]
+            )
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     # Utility methods
     def get_route_elements(self, name: str) -> list[str]:
         """Get elements of a failover route."""
-        route: dict[str, Any] | None = self.failover_routes_data.get(name)
+        route = self.failover_routes_data.get(name)
         if route is None:
             return []
-        return list(route.get("elements", []))
+        return list(route.elements)
 
     def get_routes(self) -> dict[str, str]:
         """Get all route names and policies."""
-        return {n: r.get("policy", "") for n, r in self.failover_routes_data.items()}
+        return {n: r.policy for n, r in self.failover_routes_data.items()}

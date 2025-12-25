@@ -9,6 +9,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.core.domain.configuration.failover_models import FailoverRoute
+
 
 class IAppSettings(ABC):
     """Interface for accessing application-wide settings."""
@@ -54,7 +56,7 @@ class IAppSettings(ABC):
         """
 
     @abstractmethod
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes.
 
         Returns:
@@ -62,7 +64,7 @@ class IAppSettings(ABC):
         """
 
     @abstractmethod
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def set_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Set failover routes.
 
         Args:

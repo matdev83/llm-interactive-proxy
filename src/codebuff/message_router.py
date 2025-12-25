@@ -191,7 +191,11 @@ class MessageRouter:
         except (CodebuffMessageError, CodebuffValidationError) as e:
             # Create error ack using format_error_response
             error_response = format_error_response(e, txid=txid)
-            ack = AckMessage(**error_response)
+            if isinstance(error_response, AckMessage):
+                ack = error_response
+            else:
+                # Should not happen given current format_error_response logic
+                ack = self.create_ack(txid=txid, success=False, error=str(e))
             return None, ack
 
         except Exception as e:
@@ -200,5 +204,8 @@ class MessageRouter:
             error_response = format_error_response(
                 Exception(f"Internal error: {e!s}"), txid=txid
             )
-            ack = AckMessage(**error_response)
+            if isinstance(error_response, AckMessage):
+                ack = error_response
+            else:
+                ack = self.create_ack(txid=txid, success=False, error=str(e))
             return None, ack

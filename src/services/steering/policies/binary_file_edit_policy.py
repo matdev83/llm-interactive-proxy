@@ -382,13 +382,23 @@ class BinaryFileEditPolicy(ISteeringPolicy):
             path_obj = Path(file_path)
             ext = path_obj.suffix
             if ext:
-                return ext.lower()
+                # Validate extension doesn't contain path separators or other invalid chars
+                # This handles edge cases like "file.a\\" where backslash could be interpreted
+                # as path separator on Windows
+                ext_lower = ext.lower()
+                if "/" in ext_lower or "\\" in ext_lower:
+                    return None
+                return ext_lower
         except Exception:
             # Fallback for edge cases
             if "." in file_path:
                 parts = file_path.rsplit(".", 1)
                 if len(parts) == 2:
-                    return "." + parts[1].lower()
+                    ext = "." + parts[1].lower()
+                    # Same validation as above
+                    if "/" in ext or "\\" in ext:
+                        return None
+                    return ext
 
         return None
 

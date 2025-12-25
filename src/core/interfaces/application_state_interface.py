@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
 from src.core.config.app_config import AppConfig
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.model_utils import ModelDefaults
 
 _T = TypeVar("_T")
@@ -215,7 +216,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         """Get failover routes.
 
         Returns:
@@ -232,7 +233,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def set_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def set_failover_routes(self, routes: list[FailoverRoute]) -> None:
         """Set multiple failover routes.
 
         Args:
