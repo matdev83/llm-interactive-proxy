@@ -93,7 +93,8 @@ class SecureCommandFactory:
             # Cache the command
             self._created_commands[command_name] = command
 
-            logger.info(f"Successfully created command: {command_name}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Successfully created command: %s", command_name)
             from typing import cast
 
             return cast(T, command)
