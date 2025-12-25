@@ -40,7 +40,8 @@ class SubscriptionHandler:
             connection_manager: Manager for WebSocket connections
         """
         self._connection_manager = connection_manager
-        logger.info("SubscriptionHandler initialized")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("SubscriptionHandler initialized")
 
     async def handle_subscribe(
         self,
@@ -65,11 +66,12 @@ class SubscriptionHandler:
                 details={"error": "Connection not registered"},
             )
 
-        logger.info(
-            "Handling subscribe: session_id=%s, topics=%s",
-            session.session_id,
-            ", ".join(topics),
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Handling subscribe: session_id=%s, topics=%s",
+                session.session_id,
+                ", ".join(topics),
+            )
 
         try:
             # Validate topics
@@ -133,11 +135,12 @@ class SubscriptionHandler:
                 details={"error": "Connection not registered"},
             )
 
-        logger.info(
-            "Handling unsubscribe: session_id=%s, topics=%s",
-            session.session_id,
-            ", ".join(topics),
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Handling unsubscribe: session_id=%s, topics=%s",
+                session.session_id,
+                ", ".join(topics),
+            )
 
         try:
             # Validate topics
