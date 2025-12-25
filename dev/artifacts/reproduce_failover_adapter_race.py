@@ -6,13 +6,13 @@ _local_state dictionary which lacks lock protection.
 """
 import asyncio
 import sys
+
 sys.path.insert(0, '.')
 
 from src.core.commands.handlers.failover_command_handler import (
     SessionStateApplicationStateAdapter,
 )
 from src.core.domain.session import Session
-from src.core.domain.configuration.backend_config import BackendConfiguration
 
 
 async def test_concurrent_writes():

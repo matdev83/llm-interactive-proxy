@@ -499,7 +499,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                         # Fallback for simple results (e.g. in some tests)
                         event = TaskStatusUpdateEvent(Message=str(response.result))
 
-                    message = event.Message
+                    message = event.message
 
                     # Handle TextPart
                     if isinstance(message, str):
@@ -512,7 +512,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                     elif isinstance(message, TextPart | DataPart):
 
                         if isinstance(message, TextPart):
-                            text = message.TextPart
+                            text = message.text
                             sse_chunk = self._create_sse_chunk(
                                 text, effective_model, chunk_id
                             )
@@ -520,8 +520,8 @@ class GeminiCliAcpConnector(GeminiBackend):
 
                         elif isinstance(message, DataPart):
                             # Handle tool calls or other structured data
-                            if message.ToolCall:
-                                tool_call = message.ToolCall
+                            if message.tool_call:
+                                tool_call = message.tool_call
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(f"Tool call: {tool_call.tool_name}")
                                 # For now, we don't expose tool calls directly
@@ -554,7 +554,6 @@ class GeminiCliAcpConnector(GeminiBackend):
                         message=f"gemini-cli error: {err.message}",
                         details=err.model_dump(),
                     )
-
 
         except asyncio.TimeoutError:
             if logger.isEnabledFor(logging.ERROR):

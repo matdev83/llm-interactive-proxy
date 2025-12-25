@@ -5,18 +5,22 @@ Reproduction script for potential memory leak in TestRunnerRegistry.
 This script tests whether the TestRunnerRegistry accumulates patterns without bounds.
 """
 
-import sys
-import os
-import tracemalloc
 import gc
+import sys
+import tracemalloc
 from pathlib import Path
 
 # Add src to path
 src_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(src_path))
 
-from src.services.test_execution_reminder.test_runner_registry import TestRunnerRegistry, TestRunnerPattern
 import re
+
+from src.services.test_execution_reminder.test_runner_registry import (
+    TestRunnerPattern,
+    TestRunnerRegistry,
+)
+
 
 def test_memory_growth():
     """Test if TestRunnerRegistry shows unbounded memory growth."""
@@ -82,7 +86,7 @@ def test_memory_growth():
         print("The registry accumulates patterns without any cleanup mechanism.")
         return True
     else:
-        print(f"\n[OK] No obvious memory leak detected")
+        print("\n[OK] No obvious memory leak detected")
         return False
 
 if __name__ == "__main__":

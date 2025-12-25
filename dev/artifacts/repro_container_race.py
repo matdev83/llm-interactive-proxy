@@ -26,7 +26,7 @@ async def add_cleanup_tasks_concurrently():
     tasks = [create_and_add_task() for _ in range(100)]
     created_tasks = await asyncio.gather(*tasks)
 
-    print(f"Expected 100 tasks in _cleanup_tasks")
+    print("Expected 100 tasks in _cleanup_tasks")
     print(f"Actual tasks in _cleanup_tasks: {len(collection._cleanup_tasks)}")
 
     # Check for missing tasks

@@ -50,7 +50,7 @@ async def test_concurrent_statistics_updates_no_race():
     async def access_stats():
         for _ in range(100):
             stats = queue.statistics
-            assert isinstance(stats, dict), "Stats should be a dict"
+            assert hasattr(stats, "is_running"), "Stats should have is_running attribute"
 
     tasks = [enqueue_batch(records) for _ in range(10)] + [access_stats() for _ in range(10)]
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -59,8 +59,8 @@ async def test_concurrent_statistics_updates_no_race():
 
     # Verify stats are consistent
     stats = queue.statistics
-    assert stats["total_inserts"] > 0, "Expected some inserts"
-    assert stats["total_batches"] > 0, "Expected some batches"
+    assert stats.total_inserts > 0, "Expected some inserts"
+    assert stats.total_batches > 0, "Expected some batches"
 
 
 if __name__ == "__main__":

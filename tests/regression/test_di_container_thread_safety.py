@@ -5,13 +5,10 @@ instance caching is thread-safe under concurrent access.
 """
 import asyncio
 import threading
-import pytest
-import pytest_asyncio
-from concurrent.futures import ThreadPoolExecutor
 
+import pytest_asyncio
 from src.core.di.container import (
     ServiceCollection,
-    ServiceLifetime,
 )
 
 
@@ -110,7 +107,7 @@ class TestDIContainerThreadSafety:
 
         # Should be different instances
         assert instance1 is not instance2, (
-            f"Different scopes should have independent instances"
+            "Different scopes should have independent instances"
         )
         assert instance1.instance_id != instance2.instance_id
 
@@ -237,7 +234,7 @@ class TestDIContainerThreadSafety:
 
         # Should be different instances
         assert instance1 is not instance2, (
-            f"Different scopes should have independent instances"
+            "Different scopes should have independent instances"
         )
         assert instance1.instance_id != instance2.instance_id
 
@@ -315,7 +312,7 @@ class TestDIContainerThreadSafety:
 
         # Should be different instances
         assert instance1 is not instance2, (
-            f"Different scopes should have independent instances"
+            "Different scopes should have independent instances"
         )
         assert instance1.instance_id != instance2.instance_id
 

@@ -73,7 +73,7 @@ class TestFailoverCommandHandlerRaceCondition:
             for i in range(50):
                 key = f"key_{iter_id}_{i % 10}"
                 adapter.set_setting(key, f"value_{i}")
-                value = adapter.get_setting(key)
+                adapter.get_setting(key)
 
         # Run concurrent mixed operations
         tasks = [asyncio.create_task(mixed_operations(i)) for i in range(10)]

@@ -10,7 +10,7 @@ print(f"Testmon env var: {os.environ.get('TESTMON_DATAFILE')}")
 testmon_file = ".pytest_cache/.testmondata"
 if os.path.exists(testmon_file):
     os.remove(testmon_file)
-    print(f"[CLEAN] Removed existing testmon file")
+    print("[CLEAN] Removed existing testmon file")
 
 # First run - should collect testmon data (no selection = full test suite)
 # Use a very small subset to make it fast

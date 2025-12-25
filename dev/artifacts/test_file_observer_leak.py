@@ -9,10 +9,9 @@ Run from project root:
 """
 import asyncio
 import json
-import os
 import sys
-import time
 import threading
+import time
 from pathlib import Path
 
 # Add current directory to path for imports
@@ -25,9 +24,9 @@ async def main():
     print("="*70 + "\n")
 
     # Import after setting path
+    import httpx
     from src.connectors.qwen_oauth import QwenOAuthConnector
     from src.core.config.app_config import AppConfig
-    import httpx
 
     # Track thread count before
     initial_thread_count = threading.active_count()
@@ -79,7 +78,7 @@ async def main():
                 print("BUG CONFIRMED: File observer thread is still running after shutdown()!")
                 print(f"  - Observer: {connector._file_observer}")
                 print(f"  - Thread count increased by: {after_shutdown_thread_count - initial_thread_count}")
-                print(f"  - This means shutdown() is missing _stop_file_watching() call")
+                print("  - This means shutdown() is missing _stop_file_watching() call")
                 print("!"*70)
             else:
                 print("File observer stopped (but still not cleaned up)")

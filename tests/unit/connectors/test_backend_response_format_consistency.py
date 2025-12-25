@@ -161,8 +161,13 @@ class TestResponseEnvelopeFormatConsistency:
         )
 
         # This should fail - demonstrating the bug
-        assert not has_content or domain_response.choices[0].message.content.startswith(
-            "{"
+        content = (
+            domain_response.choices[0].message.content
+            if domain_response.choices
+            else None
+        )
+        assert not has_content or (
+            isinstance(content, str) and content.startswith("{")
         ), (
             "Wrapped response should NOT produce valid content. "
             "If this passes, the translation layer might be auto-unwrapping, "

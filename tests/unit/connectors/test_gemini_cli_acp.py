@@ -7,27 +7,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-import asyncio
-import json
-import os
-import contextlib
-from unittest.mock import MagicMock, patch, AsyncMock
-from pathlib import Path
-
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.connectors.gemini_cli_acp_types import ACPResponse
+from src.core.common.exceptions import (
+    APITimeoutError,
+    BackendError,
+    ConfigurationError,
+    ServiceUnavailableError,
+)
 from src.core.domain.responses import (
     ProcessedResponse,
-    ResponseEnvelope,
-    StreamingResponseEnvelope,
 )
-from src.core.common.exceptions import (
-    BackendError,
-    ServiceUnavailableError,
-    APITimeoutError,
-    ConfigurationError,
-)
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 

@@ -3,8 +3,8 @@
 Standalone test for XML DoS vulnerability fix.
 """
 
-import sys
 import re
+import sys
 import xml.etree.ElementTree as ET
 
 

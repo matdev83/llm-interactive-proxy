@@ -10,10 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 async def record_request_concurrently():
     """Simulate concurrent record_request calls to expose race condition."""
-    from src.core.services.usage_recording_service import UsageRecordingService
-    from src.core.services.in_memory_usage_store import InMemoryUsageStore
     from src.core.domain.traffic_leg import TrafficLeg
-    import tempfile
+    from src.core.services.in_memory_usage_store import InMemoryUsageStore
+    from src.core.services.usage_recording_service import UsageRecordingService
 
     with tempfile.TemporaryDirectory() as tmpdir:
         store = InMemoryUsageStore(
@@ -50,7 +49,7 @@ async def record_request_concurrently():
         duplicates = [t for t in turn_numbers if turn_numbers.count(t) > 1]
 
         print(f"Total records: {len(records)}")
-        print(f"Expected turn numbers: 1-100")
+        print("Expected turn numbers: 1-100")
         print(f"Actual turn numbers: {sorted(set(turn_numbers))}")
         print(f"Missing: {sorted(missing) if missing else 'None'}")
         print(f"Duplicates: {set(duplicates) if duplicates else 'None'}")
@@ -88,7 +87,7 @@ async def record_request_concurrently():
     duplicates = [t for t in turn_numbers if turn_numbers.count(t) > 1]
 
     print(f"Total records: {len(records)}")
-    print(f"Expected turn numbers: 1-100")
+    print("Expected turn numbers: 1-100")
     print(f"Actual turn numbers: {sorted(set(turn_numbers))}")
     print(f"Missing: {sorted(missing) if missing else 'None'}")
     print(f"Duplicates: {set(duplicates) if duplicates else 'None'}")

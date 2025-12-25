@@ -1,7 +1,7 @@
 """Regression tests for TestExecutionReminderHandler race condition fixes."""
 import asyncio
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -30,14 +30,14 @@ async def test_test_reminder_concurrent_mark_operations_safe():
         async def mark_dirty_operations():
             """Concurrent dirty marking task."""
             nonlocal dirty_ops
-            for i in range(50):
+            for _i in range(50):
                 await handler._mark_session_dirty(session_id, "write_file")
                 dirty_ops += 1
 
         async def mark_clean_operations():
             """Concurrent clean marking task."""
             nonlocal clean_ops
-            for i in range(50):
+            for _i in range(50):
                 await handler._mark_session_clean(
                     session_id, "pytest", "python", "pytest"
                 )

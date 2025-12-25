@@ -2,11 +2,11 @@
 Regression test for race condition in AnthropicOAuthBackend._schedule_credentials_reload
 """
 import asyncio
+import contextlib
 import threading
-import time
-import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from src.connectors.anthropic_oauth import AnthropicOAuthBackend
 
 
@@ -109,7 +109,5 @@ async def test_anthropic_oauth_reload_prevents_duplicate_tasks():
     
     # Clean up
     fake_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await fake_task
-    except asyncio.CancelledError:
-        pass

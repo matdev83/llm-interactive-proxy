@@ -5,7 +5,6 @@ protection to prevent race conditions during concurrent eviction and cleanup.
 """
 
 import asyncio
-import pytest
 
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.repository import IMemoryRepository

@@ -53,7 +53,7 @@ fixed_files = set([
     'src/services/steering/session_state_store.py',
 ])
 
-with open('all_files.txt', 'r') as f:
+with open('all_files.txt') as f:
     all_files = [line.strip() for line in f if line.strip()]
 
 remaining = []

@@ -3,8 +3,8 @@
 Final verification that XML DoS vulnerability is fixed in SSO Service.
 """
 
-import sys
 import os
+import sys
 
 # Add src to path 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,8 +14,8 @@ if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 try:
-    from src.core.auth.sso.sso_service import safe_xml_parse
     from src.core.auth.sso.exceptions import AuthenticationError
+    from src.core.auth.sso.sso_service import safe_xml_parse
     print("[OK] Successfully imported safe_xml_parse from fixed module")
 except ImportError as e:
     print(f"[FAIL] Failed to import: {e}")

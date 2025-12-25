@@ -16,7 +16,6 @@ from src.core.auth.sso.models import SAMLMetadata
 from src.core.auth.sso.sso_service import SSOService
 
 
-
 def _build_saml_response_xml(
     audience: str, name_id: str, email: str, signing_cert: str | None = None
 ) -> str:

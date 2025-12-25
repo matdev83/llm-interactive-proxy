@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from src.core.domain.assessment import AssessmentResult, LLMAssessmentResponse
 from src.core.domain.chat import ChatMessage
-
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.services.assessment_service import AssessmentError, AssessmentService
 

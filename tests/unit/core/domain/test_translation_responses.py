@@ -378,8 +378,8 @@ class TestTranslationResponses(unittest.TestCase):
         delta = result.choices[0].delta
         self.assertIsNotNone(delta.tool_calls)
         self.assertEqual(len(delta.tool_calls), 1)
-        # tool_calls is list[dict] in StreamChunkChoiceDelta for now, until fully typed
-        self.assertEqual(delta.tool_calls[0]["function"]["name"], "call_tool")
+        # tool_calls is list[StreamingToolCall] objects
+        self.assertEqual(delta.tool_calls[0].function.name, "call_tool")
 
     def test_gemini_to_domain_stream_chunk_reasoning(self):
         gemini_chunk = {

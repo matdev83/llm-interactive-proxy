@@ -7,20 +7,18 @@ Tests the actual middleware behavior with malicious payloads.
 import asyncio
 import json
 import sys
-from io import BytesIO
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
 
 # Add the src directory to the path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
-
-from src.core.app.middleware.content_rewriting_middleware import ContentRewritingMiddleware
+from fastapi import Request
+from src.core.app.middleware.content_rewriting_middleware import (
+    ContentRewritingMiddleware,
+)
 from src.core.services.content_rewriter_service import ContentRewriterService
+from starlette.responses import JSONResponse
 
 
 class MockContentRewriterService(ContentRewriterService):

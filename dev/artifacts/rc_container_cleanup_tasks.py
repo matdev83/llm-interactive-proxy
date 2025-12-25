@@ -14,7 +14,7 @@ Line 479: self._cleanup_tasks.clear()  # NO LOCK
 import asyncio
 import threading
 import time
-from unittest.mock import MagicMock
+
 
 # Simulate the ServiceCollection's problematic pattern
 class MockServiceCollection:
@@ -80,7 +80,7 @@ async def simulate_race_condition():
         print(f"\nRACE CONDITION DETECTED: {errors}")
         return True
     elif len(service._cleanup_tasks) == 0:
-        print(f"\nRACE CONDITION DETECTED: Tasks were added during clear and lost!")
+        print("\nRACE CONDITION DETECTED: Tasks were added during clear and lost!")
         return True
     else:
         print(f"\nNo race detected in this run (tasks left: {len(service._cleanup_tasks)})")

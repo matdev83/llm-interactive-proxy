@@ -3,10 +3,10 @@ Regression test for race condition in MemoryService.
 
 Tests that _analysis_in_progress dictionary access is properly synchronized.
 """
-import pytest
 import asyncio
 import time
-from unittest.mock import AsyncMock
+
+import pytest
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
 
@@ -126,7 +126,7 @@ async def test_complete_and_get_concurrent():
     
     async def getter():
         """Get pending sessions"""
-        for i in range(10):
+        for _i in range(10):
             sid = await service.get_pending_analysis_session()
             if sid:
                 results.append(f"got_{sid}")

@@ -3,7 +3,6 @@ Standalone verification that fix for _TextToolCallMatcher memory leak works.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,10 +124,10 @@ def test_matching_still_works():
     print(f"_pending after matches: {len(matcher._pending)}")
 
     if matched_count > 0:
-        print(f"\n[OK] Matching functionality works")
+        print("\n[OK] Matching functionality works")
         return True
     else:
-        print(f"\n[FAIL] Matching functionality broken")
+        print("\n[FAIL] Matching functionality broken")
         return False
 
 

@@ -10,7 +10,9 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.core.domain.connection_activity import ConnectionActivity, ConnectionType
-from src.core.services.connection_activity_tracker import get_activity_tracker, reset_activity_tracker
+from src.core.services.connection_activity_tracker import (
+    get_activity_tracker,
+)
 from src.core.services.connection_tracker_cleanup_scheduler import (
     ConnectionTrackerCleanupScheduler,
 )
@@ -99,7 +101,7 @@ async def test_original_scenario_with_fix():
             # Wait between batches to let cleanup work
             await asyncio.sleep(2)  # Give cleanup time to work
     
-    print(f"\n--- Final State ---")
+    print("\n--- Final State ---")
     print(f"Total connections processed: {connection_counter}")
     print(f"Active connections remaining: {tracker.get_connection_count()}")
     print(f"Memory growth: {memory_samples[-1] / 1024:.1f} KB")
@@ -113,7 +115,7 @@ async def test_original_scenario_with_fix():
     print(f"After final cleanup: {final_count} active connections")
     
     # Analyze results
-    print(f"\n--- Analysis ---")
+    print("\n--- Analysis ---")
     if final_count < 20:  # Very few connections remaining
         print("MEMORY LEAK FIXED!")
         print("  - Cleanup scheduler successfully removed abandoned connections")

@@ -6,8 +6,8 @@ This script tests the safe_xml_parse function to ensure it properly
 defends against various XML-based DoS attacks.
 """
 
-import sys
 import os
+import sys
 
 # Add src to path so we can import the fixed module
 current_dir = os.path.dirname(os.path.abspath(__file__))

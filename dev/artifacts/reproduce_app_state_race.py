@@ -6,6 +6,7 @@ which lacks lock protection.
 """
 import asyncio
 import sys
+
 sys.path.insert(0, '.')
 
 from src.core.services.application_state_service import ApplicationStateService

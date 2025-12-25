@@ -19,7 +19,6 @@ from src.connectors.cline import ClineConnector
 from src.connectors.openai import OpenAIConnector
 from src.connectors.utils.cline_auth_types import ClineTokenData
 from src.core.common.exceptions import AuthenticationError
-
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.translation_service import TranslationService

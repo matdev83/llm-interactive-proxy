@@ -5,8 +5,6 @@ Tests JSON parsing without size limits that could cause memory exhaustion
 """
 import asyncio
 import json
-import sys
-import os
 import re
 import time
 
@@ -53,7 +51,7 @@ async def test_dos_vulnerability():
         # This is the vulnerable pattern from line 1057: auth_data = json.loads(raw_value_str)
         auth_data = json.loads(large_json)
         end_time = time.time()
-        print(f"ERROR: Large JSON was parsed without protection!")
+        print("ERROR: Large JSON was parsed without protection!")
         print(f"Parsing took {end_time - start_time:.2f} seconds")
         print(f"Parsed data type: {type(auth_data)}")
         return True

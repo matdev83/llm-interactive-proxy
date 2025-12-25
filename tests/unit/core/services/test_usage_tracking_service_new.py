@@ -6,7 +6,6 @@ from src.core.database.repositories.usage_repository_types import (
     RepositoryAggregatedStats,
 )
 from src.core.domain.statistics_filter import StatisticsFilter
-
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.services.usage_tracking_service import UsageTrackingService

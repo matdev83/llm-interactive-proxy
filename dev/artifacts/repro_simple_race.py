@@ -4,14 +4,15 @@ Simpler test for the race condition in _maybe_start_flush_task
 
 import asyncio
 import sys
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from src.core.config.app_config import AppConfig
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+
 
 async def simple_race_test():
     """Simple test: start task, then try to start it again."""
@@ -52,7 +53,7 @@ async def simple_race_test():
         flush_tasks = [t for t in tasks if "flush" in str(t).lower()]
 
         print(f"5. Total flush tasks: {len(flush_tasks)}")
-        print(f"   Expected: 1")
+        print("   Expected: 1")
         print(f"   Actual: {len(flush_tasks)}")
         print()
 

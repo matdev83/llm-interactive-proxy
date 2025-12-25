@@ -1,4 +1,5 @@
 import re
+
 from src.core.domain.chat import ToolCall
 
 # Public helpers re-exported for external tests

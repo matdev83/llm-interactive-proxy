@@ -6,11 +6,12 @@ modifies mutable fields without lock protection.
 """
 import asyncio
 import sys
+
 sys.path.insert(0, '.')
 
 from src.core.domain.assessment import (
-    SessionAssessmentState,
     AssessmentResult,
+    SessionAssessmentState,
     ToolCallPattern,
 )
 

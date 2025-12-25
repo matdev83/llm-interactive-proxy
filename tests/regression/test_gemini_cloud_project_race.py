@@ -16,10 +16,10 @@ def test_gemini_cloud_project_has_errors_lock():
     The fix adds _errors_lock to protect _credential_validation_errors,
     _fail_init, _degrade, _recover, and is_backend_functional.
     """
-    from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
-
     # Verify that _errors_lock is in the class __init__
     import inspect
+
+    from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
     init_source = inspect.getsource(GeminiCloudProjectConnector.__init__)
 
     # Check if _errors_lock is being initialized in __init__

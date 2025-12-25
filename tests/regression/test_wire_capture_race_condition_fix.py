@@ -2,9 +2,9 @@
 
 import asyncio
 import os
+import sys
 import tempfile
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -36,7 +36,7 @@ async def test_concurrent_writes_no_cache_corruption():
         
         # Verify cache consistency
         actual_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
-        expected_min_size = 20 * 50 * len("data-0-0\n")  # Rough minimum
+        20 * 50 * len("data-0-0\n")  # Rough minimum
         
         # Cache should be within reasonable bounds of actual size
         size_diff = abs(capture._cached_total_size - actual_size)
@@ -166,7 +166,7 @@ async def main():
         try:
             print(f"\nTesting: {name}...")
             await test_fn()
-            print(f"  PASSED")
+            print("  PASSED")
         except AssertionError as e:
             print(f"  FAILED: {e}")
             failed.append((name, str(e)))

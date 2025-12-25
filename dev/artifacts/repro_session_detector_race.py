@@ -6,6 +6,7 @@ methods access and clear `_cache` WITHOUT acquiring `_cache_lock`, causing race
 conditions when concurrent operations are in progress.
 """
 import asyncio
+
 from src.connectors._openai_codex_session_detector import SessionDetector
 
 

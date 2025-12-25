@@ -5,7 +5,6 @@ is accessed without proper lock protection in some methods.
 """
 
 import asyncio
-import sys
 
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.repository import IMemoryRepository

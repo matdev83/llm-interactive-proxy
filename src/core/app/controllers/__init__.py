@@ -53,7 +53,6 @@ from src.core.domain.health.models import (
     SystemHealthInfo,
 )
 from src.core.interfaces.di_interface import IServiceProvider
-
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.request_adapters import (

@@ -5,10 +5,10 @@ are properly protected by the threading.Lock.
 """
 
 import asyncio
+
 import pytest
 from src.tool_call_loop.lifecycle_registry import (
     ToolCallLifecycleRegistry,
-    ToolCallStreamState,
 )
 
 

@@ -1,5 +1,6 @@
 from src.connectors.gemini_base.models import TierScore
 
+
 def test_tier_score_comparison():
     score1 = TierScore(is_paid=1, context_tokens=1000, is_default=0)
     score2 = TierScore(is_paid=1, context_tokens=2000, is_default=0)

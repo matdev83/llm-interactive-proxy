@@ -35,8 +35,6 @@ from src.core.domain.assessment import (
 )
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 
-
-
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
 from src.core.services.assessment_backend_service import AssessmentBackendService
@@ -326,7 +324,6 @@ class TestAssessmentBackendServiceIntegration:
         backend_service = AssessmentBackendService(mock_backend_service, config)
 
         # Create assessment request
-        from src.core.domain.assessment import AssessmentRequest
         from src.core.domain.chat import ChatMessage
 
         request = AssessmentRequest(

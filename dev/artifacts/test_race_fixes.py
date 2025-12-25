@@ -1,5 +1,6 @@
 """Test that both race condition fixes work correctly."""
 import asyncio
+
 from src.core.di.container import ServiceCollection
 from src.core.services.production_concurrency_guard import ConcurrencyGuard
 
@@ -24,9 +25,9 @@ async def test_di_container():
     
     first = instances[0]
     for inst in instances[1:]:
-        assert inst is first, f"Expected same singleton instance"
+        assert inst is first, "Expected same singleton instance"
     
-    print(f"DI Container OK: Only 1 singleton instance created")
+    print("DI Container OK: Only 1 singleton instance created")
 
 
 async def test_concurrency_guard():
@@ -51,8 +52,8 @@ async def test_concurrency_guard():
     await asyncio.gather(*tasks)
     
     print(f"ConcurrencyGuard OK: success={success_count}, rejected={rejected_count}")
-    assert success_count == 2, f"Expected 2 successes with limit=2"
-    assert rejected_count == 8, f"Expected 8 rejects"
+    assert success_count == 2, "Expected 2 successes with limit=2"
+    assert rejected_count == 8, "Expected 8 rejects"
 
 
 if __name__ == "__main__":

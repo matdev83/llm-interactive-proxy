@@ -1,8 +1,7 @@
 import re
 from re import Pattern
-from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from src.core.domain.tool_constants import ShellExecutionTools
 

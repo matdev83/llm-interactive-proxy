@@ -6,6 +6,7 @@ If configuration can be updated dynamically (parameter reloading), this causes
 race conditions between record(), is_set(), build_report(), and latest_by_source().
 """
 import asyncio
+
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 

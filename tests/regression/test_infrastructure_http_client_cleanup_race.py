@@ -10,7 +10,6 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
-
 from src.core.app.stages.infrastructure import InfrastructureStage
 
 

@@ -4,14 +4,13 @@ Tests that _load_state() properly acquires lock when modifying
 _logged_thresholds, and that logged_thresholds property is thread-safe.
 """
 
+import concurrent.futures
 import json
 import tempfile
-from pathlib import Path
-import pytest
-import concurrent.futures
-import pytz
 from datetime import datetime
+from pathlib import Path
 
+import pytz
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
 
@@ -118,7 +117,7 @@ class TestDailyRequestCounterRaceConditionFix:
             persistence_path = Path(tmpdir) / "counter.json"
 
             # Create counter
-            counter = DailyRequestCounter(persistence_path, 1000)
+            DailyRequestCounter(persistence_path, 1000)
 
             # Update state file externally (use current date to match Pacific timezone)
             # Note: thresholds are filtered to match _thresholds (700, 800, 900 for limit=1000)

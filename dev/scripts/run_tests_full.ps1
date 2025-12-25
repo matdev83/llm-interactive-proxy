@@ -7,16 +7,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
-$python = Join-Path $repoRoot ".venv\\Scripts\\python.exe"
+$python = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
     throw "Python not found at: $python"
 }
 
 function Quote-Arg([string]$arg) {
-    if ($arg -match "[\\s\"&|<>^]") {
+    if ($arg -match '[\s"&|<>^]') {
         return '"' + ($arg -replace '"', '""') + '"'
     }
     return $arg
@@ -41,7 +41,7 @@ function Invoke-CmdWithTimeout([string]$cmdLine, [int]$timeoutSeconds) {
 function Get-TestFiles {
     $testsRoot = Join-Path $repoRoot "tests"
     $files = Get-ChildItem -Path $testsRoot -Recurse -File | Where-Object {
-        ($_.Name -like "test_*.py" -or $_.Name -like "*_test.py") -and ($_.FullName -notmatch "\\\\__pycache__\\\\")
+        ($_.Name -like "test_*.py" -or $_.Name -like "*_test.py") -and ($_.FullName -notmatch "\\__pycache__\\")
     }
     return $files | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($repoRoot.Length + 1) }
 }
@@ -74,10 +74,13 @@ function Run-Pytest([string[]]$paths, [string]$label) {
 
 function Run-BatchRecursive([string[]]$paths, [int]$depth) {
     $label = "batch depth=$depth files=$($paths.Count)"
+    $indent = "  " * $depth
+    Write-Host ("{0}[runner] start: {1}" -f $indent, $label)
     $result = Run-Pytest -paths $paths -label $label
 
     if (-not $result.TimedOut) {
         $script:AnyFailure = $script:AnyFailure -or ($result.ExitCode -ne 0)
+        Write-Host ("{0}[runner] done:  {1} (exit={2})" -f $indent, $label, $result.ExitCode)
         return
     }
 
@@ -85,9 +88,11 @@ function Run-BatchRecursive([string[]]$paths, [int]$depth) {
         Write-Log ("[runner] TIMEOUT: {0}" -f $paths[0])
         $script:TimedOutFiles.Add($paths[0]) | Out-Null
         $script:AnyFailure = $true
+        Write-Host ("{0}[runner] TIMEOUT: {1}" -f $indent, $paths[0])
         return
     }
 
+    Write-Host ("{0}[runner] TIMEOUT -> split: {1} files" -f $indent, $paths.Count)
     $mid = [int][Math]::Floor($paths.Count / 2)
     Run-BatchRecursive -paths $paths[0..($mid - 1)] -depth ($depth + 1)
     Run-BatchRecursive -paths $paths[$mid..($paths.Count - 1)] -depth ($depth + 1)
@@ -113,7 +118,7 @@ Write-Log ("=" * 100)
 
 $collectOutput = & $python -m pytest --collect-only -n 0 -p no:timeout 2>&1
 $collectOutput | Out-File -FilePath $OutputPath -Append -Encoding UTF8
-$collectLine = $collectOutput | Select-String -Pattern "collected\\s+\\d+\\s+items" | Select-Object -Last 1
+$collectLine = $collectOutput | Select-String -Pattern "collected\s+\d+\s+items" | Select-Object -Last 1
 if ($collectLine) {
     Write-Host $collectLine.Line
 } else {
@@ -121,14 +126,23 @@ if ($collectLine) {
 }
 
 $testFiles = @(Get-TestFiles)
-Write-Host ("Discovered {0} test files." -f $testFiles.Count)
+$totalBatches = if ($testFiles.Count -gt 0) { [int][Math]::Ceiling($testFiles.Count / [double]$BatchSize) } else { 0 }
+Write-Host ("Discovered {0} test files (batchSize={1}, batches={2})." -f $testFiles.Count, $BatchSize, $totalBatches)
 
 $script:TimedOutFiles = New-Object System.Collections.Generic.List[string]
 $script:AnyFailure = $false
 
+if ($testFiles.Count -eq 0) {
+    Write-Host "No test files discovered under ./tests; nothing to run."
+    exit 1
+}
+
+$batchIndex = 0
 for ($i = 0; $i -lt $testFiles.Count; $i += $BatchSize) {
+    $batchIndex++
     $end = [Math]::Min($i + $BatchSize - 1, $testFiles.Count - 1)
     $batch = $testFiles[$i..$end]
+    Write-Host ("[runner] batch {0}/{1}: files {2}-{3}" -f $batchIndex, $totalBatches, ($i + 1), ($end + 1))
     Run-BatchRecursive -paths $batch -depth 0
 }
 

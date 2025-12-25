@@ -7,14 +7,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 
 from ..interfaces import ISteeringPolicy
 from ..models import SteeringResult, SteeringRule
 from ..session_state_store import SessionStateStore
-
 
 logger = logging.getLogger(__name__)
 _NON_ALNUM_PATTERN = re.compile(r"[\W_]+")

@@ -6,8 +6,8 @@ This script demonstrates unbounded memory growth in capture_reader
 due to unlimited list size when reading from malicious files.
 """
 
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -17,7 +17,6 @@ def test_capture_reader_vulnerability():
     Test for DoS vulnerability in capture_reader's unbounded entries list
     """
     try:
-        from src.core.simulation.capture_reader import CaptureReader
         print("Successfully imported CaptureFileReader")
         
         # The vulnerability is in load() method where entries list grows without bounds
@@ -53,8 +52,8 @@ def test_capture_reader_vulnerability():
 if __name__ == "__main__":
     success = test_capture_reader_vulnerability()
     if success:
-        print(f"\n=== VULNERABILITY CONFIRMED ===")
+        print("\n=== VULNERABILITY CONFIRMED ===")
         print("Unbounded list growth in capture_reader poses DoS risk")
     else:
-        print(f"\n=== ANALYSIS FAILED ===")
+        print("\n=== ANALYSIS FAILED ===")
         print("Could not confirm vulnerability due to errors")

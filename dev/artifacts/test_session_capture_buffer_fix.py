@@ -6,7 +6,6 @@ with the TTL-based cleanup and max_sessions limit.
 
 import asyncio
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 

@@ -12,10 +12,8 @@ from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.connectors.openai_codex.contracts import (
     CodexPayload,
-    ProcessedMessage,
 )
 from src.core.config.app_config import AppConfig
-
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,

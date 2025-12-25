@@ -3,8 +3,9 @@ Regression test for race condition in SessionDetector.
 
 Tests that cache invalidation methods properly use locks.
 """
-import pytest
 import asyncio
+
+import pytest
 from src.connectors._openai_codex_session_detector import SessionDetector
 
 

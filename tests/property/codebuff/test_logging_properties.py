@@ -115,7 +115,7 @@ def test_property_23_message_logging(session_id, message_type):
         ):
             try:
                 routed = await router.route_message(raw_message)
-                validated_message, ack = routed.validated_message, routed.ack
+                _validated_message, _ack = routed.validated_message, routed.ack
 
                 # For valid messages, check that message type was logged somewhere
 

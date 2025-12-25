@@ -3,8 +3,7 @@ Test that verifies SSE buffer size limit prevents memory leaks in OpenAIConnecto
 """
 
 import pytest
-
-from src.connectors.openai import OpenAIConnector, MAX_SSE_BUFFER_SIZE
+from src.connectors.openai import MAX_SSE_BUFFER_SIZE, OpenAIConnector
 
 
 class MockMalformedSSEResponse:

@@ -11,7 +11,6 @@ from src.services.steering.policies import (
 )
 
 
-
 @pytest.fixture
 def context():
     return ToolCallContext(

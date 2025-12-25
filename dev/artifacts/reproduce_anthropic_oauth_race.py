@@ -2,6 +2,7 @@ import asyncio
 import threading
 import time
 
+
 def test_anthropic_oauth_pending_reload_race():
     """Test race condition in _pending_reload_task in anthropic_oauth.py
     
@@ -46,7 +47,7 @@ def test_anthropic_oauth_pending_reload_race():
             try:
                 future = asyncio.run_coroutine_threadsafe(reload_task(), self._event_loop)
                 self._pending_reload_task = future
-            except RuntimeError as exc:
+            except RuntimeError:
                 pass
 
     # Test race condition
@@ -69,10 +70,10 @@ def test_anthropic_oauth_pending_reload_race():
     print(f"  Race condition version: reload_count={connector_race.reload_count}")
     print(f"  Expected: 1, Actual: {connector_race.reload_count}")
     if connector_race.reload_count != 1:
-        print(f"  RACE CONDITION DETECTED: Multiple reloads occurred!")
+        print("  RACE CONDITION DETECTED: Multiple reloads occurred!")
         loop.call_soon_threadsafe(loop.stop)
         return True
-    print(f"  No race detected in this run")
+    print("  No race detected in this run")
     
     loop.call_soon_threadsafe(loop.stop)
     return False

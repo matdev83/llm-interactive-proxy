@@ -15,7 +15,6 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ class MetricType(Enum):
     UNSUPPORTED_TOOL_TOTAL = "compatibility_layer_unsupported_tool_total"
 
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class DetectionMetricsSummary(BaseModel):

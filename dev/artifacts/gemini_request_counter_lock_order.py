@@ -11,7 +11,6 @@ This means:
 """
 import json
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Thread
 

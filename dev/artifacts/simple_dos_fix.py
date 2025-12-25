@@ -4,10 +4,11 @@ Very targeted fix for DoS vulnerability - just add size checks before json.loads
 """
 import re
 
+
 def fix_dos_vulnerability():
     file_path = r"C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\antigravity_oauth.py"
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         content = f.read()
     
     # Replace each vulnerable json.loads call with a protected version

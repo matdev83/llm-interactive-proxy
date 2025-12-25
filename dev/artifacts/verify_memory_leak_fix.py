@@ -4,9 +4,8 @@ Final verification that memory leak is fixed.
 """
 
 import sys
-from pathlib import Path
-from collections import OrderedDict
 import time
+from pathlib import Path
 
 # Add src to Python path
 project_root = Path(__file__).parent.parent.parent

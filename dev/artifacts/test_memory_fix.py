@@ -4,17 +4,17 @@ Test the fixed memory management in InMemoryToolCallHistoryTracker.
 """
 
 import asyncio
-import psutil
 import os
-import time
-from datetime import datetime, timezone
-from typing import Any
 
 # Add src directory to path
 import sys
+
+import psutil
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from core.services.tool_call_reactor_service import InMemoryToolCallHistoryTracker
+
 
 async def test_fixed_memory_management():
     """Test that memory growth is now controlled."""
@@ -58,7 +58,7 @@ async def test_fixed_memory_management():
     
     # Check internal state
     total_entries = await tracker.get_total_entries_count()
-    print(f"\nInternal state:")
+    print("\nInternal state:")
     print(f"Number of sessions tracked: {len(tracker._history)}")
     print(f"Total tool call entries: {total_entries}")
     
@@ -68,8 +68,8 @@ async def test_fixed_memory_management():
     ) if tracker._history else 0
     
     print(f"Max entries per session: {max_entries_per_session}")
-    print(f"Expected max per session: 50")
-    print(f"Expected max sessions: 500")
+    print("Expected max per session: 50")
+    print("Expected max sessions: 500")
     
     # Wait for TTL to expire and periodic cleanup
     print("\nWaiting for TTL expiration and periodic cleanup...")
@@ -83,7 +83,7 @@ async def test_fixed_memory_management():
     final_memory = process.memory_info().rss / 1024 / 1024  # MB
     final_total_entries = await tracker.get_total_entries_count()
     
-    print(f"\nFinal state:")
+    print("\nFinal state:")
     print(f"Memory after cleanup: {final_memory:.2f} MB")
     print(f"Final memory growth: {final_memory - initial_memory:.2f} MB")
     print(f"Final sessions tracked: {len(tracker._history)}")

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 # Direct imports to avoid circular dependency issues
 from loop_detection.hybrid_detector import HybridLoopDetector
 
+
 def test_unbounded_growth():
     """Test that shows unbounded growth of _loop_events list."""
 
@@ -23,7 +24,7 @@ def test_unbounded_growth():
         long_detector_config={'min_pattern_length': 5, 'max_pattern_length': 100, 'min_repetitions': 2, 'max_history': 5000},
     )
 
-    print(f"Initial state:")
+    print("Initial state:")
     print(f"  Event count: {len(detector.get_loop_history())}")
 
     # Simulate many content chunks - use patterns that might not trigger exact loop detection
@@ -41,7 +42,7 @@ def test_unbounded_growth():
     # Final stats
     final_event_count = len(detector.get_loop_history())
 
-    print(f"\nFinal state:")
+    print("\nFinal state:")
     print(f"  Event count: {final_event_count}")
     print(f"  Event count increase: {final_event_count}")
 

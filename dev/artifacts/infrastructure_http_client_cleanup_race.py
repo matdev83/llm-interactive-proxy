@@ -48,12 +48,12 @@ async def test_http_client_cleanup_race():
 
             # Check task status
             if cleanup_task.done():
-                print(f"✓ Cleanup task completed")
+                print("✓ Cleanup task completed")
                 result = cleanup_task.result()
                 print(f"  Result: {result}")
             else:
-                print(f"❌ Cleanup task still running - will be lost!")
-                print(f"   Task not tracked, no way to await it")
+                print("❌ Cleanup task still running - will be lost!")
+                print("   Task not tracked, no way to await it")
 
             # If an exception occurs in the task, it's unobserved
             # This would trigger Python's "Task exception was never retrieved" warning
@@ -66,9 +66,9 @@ async def test_http_client_cleanup_race():
                     bad_task.result()
                 except Exception as ex:
                     print(f"❌ Unobserved exception in cleanup task: {ex}")
-                    print(f"   This exception would be lost and only show as a warning")
+                    print("   This exception would be lost and only show as a warning")
             else:
-                print(f"❌ Failing cleanup task still running - will be lost!")
+                print("❌ Failing cleanup task still running - will be lost!")
 
 
 async def test_with_actual_infrastructure_stage():
@@ -132,7 +132,7 @@ async def test_loop_closure_scenario():
                 print(f"✓ Cleanup completed: client.is_closed={client.is_closed}")
                 return True
             except asyncio.TimeoutError:
-                print(f"❌ Cleanup timed out")
+                print("❌ Cleanup timed out")
                 return False
 
     async def scenario_without_tracking():
@@ -148,11 +148,11 @@ async def test_loop_closure_scenario():
 
             # Simulate loop closing before cleanup completes
             await asyncio.sleep(0.1)
-            print(f"  Loop would close here (before cleanup completes)")
+            print("  Loop would close here (before cleanup completes)")
             print(f"  Cleanup started: {client.cleanup_started}")
             print(f"  Cleanup finished: {client.cleanup_finished}")
             print(f"  ❌ Client not closed: is_closed={client.is_closed}")
-            print(f"  ❌ Task reference lost, cleanup will be incomplete")
+            print("  ❌ Task reference lost, cleanup will be incomplete")
 
     await scenario_with_tracking()
     await scenario_without_tracking()

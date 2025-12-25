@@ -8,19 +8,19 @@ to demonstrate the memory leak without import dependencies.
 
 import time
 from datetime import datetime, timezone
-from typing import Dict, List
+
 
 class LeakySessionRepository:
     """Reproduction of the memory leak in InMemorySessionRepository."""
     
     def __init__(self) -> None:
         """Initialize the leaky session repository."""
-        self._sessions: Dict[str, "MockSession"] = {}
-        self._user_sessions: Dict[str, List[str]] = {}
-        self._last_accessed: Dict[str, float] = {}
-        self._fingerprints: Dict[str, str] = {}
-        self._client_sessions: Dict[str, List[str]] = {}
-        self._fingerprint_bundles: Dict[str, "ConversationFingerprintBundle"] = {}
+        self._sessions: dict[str, MockSession] = {}
+        self._user_sessions: dict[str, list[str]] = {}
+        self._last_accessed: dict[str, float] = {}
+        self._fingerprints: dict[str, str] = {}
+        self._client_sessions: dict[str, list[str]] = {}
+        self._fingerprint_bundles: dict[str, ConversationFingerprintBundle] = {}
 
     def add(self, session: "MockSession") -> "MockSession":
         """Add a new session - this grows unbounded!"""
@@ -35,7 +35,7 @@ class LeakySessionRepository:
         
         return session
     
-    def get_all(self) -> List["MockSession"]:
+    def get_all(self) -> list["MockSession"]:
         """Get all sessions - grows unbounded!"""
         return list(self._sessions.values())
     
@@ -108,7 +108,7 @@ def main():
     print(f"  Final session count: {final_sessions}")
     
     # Check internal dictionaries sizes
-    print(f"\nInternal state sizes (showing unbounded growth):")
+    print("\nInternal state sizes (showing unbounded growth):")
     print(f"  _sessions: {len(repo._sessions)}")
     print(f"  _user_sessions: {len(repo._user_sessions)}")
     print(f"  _last_accessed: {len(repo._last_accessed)}")
@@ -117,7 +117,7 @@ def main():
     print(f"  _fingerprint_bundles: {len(repo._fingerprint_bundles)}")
     
     # Test cleanup method
-    print(f"\nTesting cleanup (simulating expired sessions with max_age=0)...")
+    print("\nTesting cleanup (simulating expired sessions with max_age=0)...")
     cleaned = repo.cleanup_expired(max_age_seconds=0)
     print(f"Sessions cleaned with max_age=0: {cleaned}")
     
@@ -125,7 +125,7 @@ def main():
     print(f"Sessions remaining: {remaining_sessions}")
     
     # Demonstrate the memory leak
-    print(f"\n=== MEMORY LEAK ANALYSIS ===")
+    print("\n=== MEMORY LEAK ANALYSIS ===")
     if final_sessions == session_count and cleaned == 0:
         print("X MEMORY LEAK CONFIRMED:")
         print("   1. All sessions remain in memory forever")

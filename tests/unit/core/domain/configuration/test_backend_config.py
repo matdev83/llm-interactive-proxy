@@ -176,19 +176,19 @@ class TestBackendConfiguration:
         # Test with_failover_route
         config = config.with_failover_route("route1", "round-robin")
         assert "route1" in config.failover_routes
-        assert config.failover_routes["route1"]["policy"] == "round-robin"
-        assert config.failover_routes["route1"]["elements"] == []
+        assert config.failover_routes["route1"].policy == "round-robin"
+        assert config.failover_routes["route1"].elements == []
 
         # Test with_appended_route_element
         config = config.with_appended_route_element("route1", "backend1")
-        assert config.failover_routes["route1"]["elements"] == ["backend1"]
+        assert config.failover_routes["route1"].elements == ["backend1"]
 
         config = config.with_appended_route_element("route1", "backend2")
-        assert config.failover_routes["route1"]["elements"] == ["backend1", "backend2"]
+        assert config.failover_routes["route1"].elements == ["backend1", "backend2"]
 
         # Test with_prepended_route_element
         config = config.with_prepended_route_element("route1", "backend0")
-        assert config.failover_routes["route1"]["elements"] == [
+        assert config.failover_routes["route1"].elements == [
             "backend0",
             "backend1",
             "backend2",
@@ -196,7 +196,7 @@ class TestBackendConfiguration:
 
         # Test with_cleared_route
         config = config.with_cleared_route("route1")
-        assert config.failover_routes["route1"]["elements"] == []
+        assert config.failover_routes["route1"].elements == []
 
         # Test without_failover_route
         config = config.without_failover_route("route1")

@@ -13,17 +13,17 @@ from datetime import datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from src.core.app.routes.usage_models import (
+    RecentUsageResponse,
+    TimingStatsModel,
+    UsageExportResponse,
+    UsageStatisticsResponse,
+)
 from src.core.domain.aggregated_stats import AggregatedStats
 from src.core.domain.statistics_filter import StatisticsFilter
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.statistics_service_interface import IStatisticsService
-from src.core.app.routes.usage_models import (
-    UsageStatisticsResponse,
-    RecentUsageResponse,
-    UsageExportResponse,
-    TimingStatsModel,
-)
 
 logger = logging.getLogger(__name__)
 

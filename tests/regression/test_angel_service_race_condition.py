@@ -1,13 +1,12 @@
 """Regression tests for angel_service.py race condition fix."""
 
 import threading
-import pytest
 
+import pytest
 from src.core.services.angel_service import (
-    get_prompt_loader,
     AngelService,
+    get_prompt_loader,
 )
-from src.core.services.angel_prompt_loader import AngelPromptLoader
 
 
 def test_get_prompt_loader_lock_exists():

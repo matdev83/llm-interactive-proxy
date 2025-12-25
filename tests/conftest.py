@@ -417,3 +417,7 @@ def _install_global_warning_filters() -> None:
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     warnings.filterwarnings("ignore", category=ImportWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def pytest_cmdline_main(config) -> None:  # type: ignore[no-untyped-def]
+    """No-op: do not rewrite pytest CLI args in tests."""

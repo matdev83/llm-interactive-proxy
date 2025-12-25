@@ -1,8 +1,9 @@
 """Repro script for ResponseCaptureProcessor race condition."""
 
 import asyncio
-from src.core.memory.response_capture_processor import ResponseCaptureProcessor
+
 from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 
 
 class MockMemoryCapture:

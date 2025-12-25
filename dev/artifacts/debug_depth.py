@@ -1,4 +1,5 @@
 import json
+
 from src.core.domain.streaming.parsing.sse_bytes_parser import SSEBytesParser
 
 parser = SSEBytesParser()

@@ -4,8 +4,8 @@ Test script to verify DoS protection allows legitimate large payloads (<10MB).
 """
 
 import json
-import time
 import sys
+import time
 from pathlib import Path
 
 # Add src directory to path
@@ -13,6 +13,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+
 
 def create_large_legitimate_payload(size_mb=8):
     """Create a large but legitimate JSON payload (under 10MB limit)."""
@@ -88,7 +89,7 @@ def test_legitimate_large_payloads():
             if duration > 5.0:
                 print(f"[WARNING] Processing took {duration:.2f} seconds - may indicate performance issue")
             else:
-                print(f"[SUCCESS] Legitimate payload processed successfully")
+                print("[SUCCESS] Legitimate payload processed successfully")
                 
         except Exception as e:
             end_time = time.time()
@@ -96,7 +97,7 @@ def test_legitimate_large_payloads():
             print(f"[ERROR] Failed after {duration:.2f} seconds: {type(e).__name__}: {e}")
     
     # Test edge case: exactly 10MB payload
-    print(f"\n--- Testing 10MB boundary payload ---")
+    print("\n--- Testing 10MB boundary payload ---")
     
     boundary_json = create_large_legitimate_payload(10)
     boundary_size_mb = len(boundary_json.encode('utf-8')) / (1024 * 1024)
@@ -113,7 +114,7 @@ def test_legitimate_large_payloads():
         duration = end_time - start_time
         
         print(f"[OK] 10MB boundary processed in {duration:.2f} seconds")
-        print(f"[SUCCESS] Boundary payload handled correctly")
+        print("[SUCCESS] Boundary payload handled correctly")
         
     except Exception as e:
         end_time = time.time()
@@ -121,7 +122,7 @@ def test_legitimate_large_payloads():
         print(f"[ERROR] 10MB boundary failed after {duration:.2f} seconds: {type(e).__name__}: {e}")
     
     # Test that >10MB is still blocked
-    print(f"\n--- Verifying >10MB is still blocked ---")
+    print("\n--- Verifying >10MB is still blocked ---")
     
     oversized_json = create_large_legitimate_payload(12)  # 12MB should be blocked
     oversized_size_mb = len(oversized_json.encode('utf-8')) / (1024 * 1024)

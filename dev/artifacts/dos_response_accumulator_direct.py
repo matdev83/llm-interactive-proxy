@@ -6,15 +6,16 @@ This script directly tests the vulnerable json.loads() call in _process_chunk
 method without going through the full streaming infrastructure.
 """
 
-import sys
-import os
-import time
 import json
+import os
+import sys
+import time
 
 # Add src to path to import module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.connectors.gemini_base.response_accumulator import StreamingResponseAccumulator
+
 
 def test_direct_vulnerability():
     """Test the vulnerable json.loads() call directly."""
@@ -80,7 +81,7 @@ def test_direct_vulnerability():
         
     except MemoryError:
         end_time = time.time()
-        print(f"MEMORY ERROR: JSON parsing caused memory exhaustion!")
+        print("MEMORY ERROR: JSON parsing caused memory exhaustion!")
         print(f"Error occurred after {end_time - start_time:.4f} seconds")
         return True
         
@@ -204,7 +205,7 @@ def test_repeated_attacks():
             result = json.loads(data_str)
             end = time.time()
             total_time += (end - start)
-        except Exception as e:
+        except Exception:
             failures += 1
             end = time.time()
             total_time += (end - start)

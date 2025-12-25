@@ -1,7 +1,8 @@
 import asyncio
-import sys
 import os
+
 import psutil
+
 
 # Mock class to simulate the objects used in the connector
 class MockChunk:

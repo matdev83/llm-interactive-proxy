@@ -1,7 +1,9 @@
 """Models for dependency injection container."""
 
 from __future__ import annotations
+
 from pydantic import BaseModel
+
 
 class DIContainerStats(BaseModel):
     """Dependency injection container statistics."""

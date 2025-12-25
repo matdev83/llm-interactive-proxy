@@ -7,7 +7,6 @@ from src.services.steering.models import SteeringRule
 from src.services.steering.policies import ConfiguredRulesPolicy
 
 
-
 @pytest.fixture
 def context():
     return ToolCallContext(

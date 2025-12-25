@@ -4,8 +4,8 @@ This script searches for common patterns that could lead to memory leaks.
 """
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 
 def find_unbounded_dicts(file_path: Path) -> Iterator[tuple[int, str]]:
@@ -16,7 +16,7 @@ def find_unbounded_dicts(file_path: Path) -> Iterator[tuple[int, str]]:
         r'self\._[a-zA-Z_]+\s*=\s*dict\(\)'
     )
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         lines = f.readlines()
         for line_num, line in enumerate(lines, 1):
             if pattern.search(line):
@@ -44,7 +44,7 @@ def find_list_append_without_bounds(file_path: Path) -> Iterator[tuple[int, str]
     """Find list append operations that might grow unbounded."""
     pattern = re.compile(r'\.append\(|\.extend\(')
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         lines = f.readlines()
         for line_num, line in enumerate(lines, 1):
             if pattern.search(line):
@@ -79,7 +79,7 @@ def find_event_subscriptions(file_path: Path) -> Iterator[tuple[int, str]]:
     """Find event subscriptions that might not be cleaned up."""
     pattern = re.compile(r'\.subscribe\(|event_bus\.subscribe\(')
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         lines = f.readlines()
         for line_num, line in enumerate(lines, 1):
             if pattern.search(line):
@@ -95,7 +95,7 @@ def find_async_task_creation(file_path: Path) -> Iterator[tuple[int, str]]:
     """Find async task creation that might not be tracked."""
     pattern = re.compile(r'asyncio\.create_task\(')
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         lines = f.readlines()
         for line_num, line in enumerate(lines, 1):
             if pattern.search(line):
@@ -114,7 +114,7 @@ def find_generator_creation(file_path: Path) -> Iterator[tuple[int, str]]:
     """Find generator creation that might not be consumed."""
     pattern = re.compile(r'yield\s+')
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         lines = f.readlines()
         for line_num, line in enumerate(lines, 1):
             if pattern.search(line):

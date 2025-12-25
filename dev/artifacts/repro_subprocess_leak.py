@@ -85,7 +85,7 @@ def demo_leak():
                 
                 # Assignment happens (matching line 279)
                 self._process = process
-                print(f"[SPAWN] Assigned to self._process")
+                print("[SPAWN] Assigned to self._process")
                 
                 # Simulate exception AFTER assignment but BEFORE exception handler
                 # This could be: asyncio.sleep() failing, validation, etc.
@@ -129,7 +129,7 @@ def demo_leak():
                 # Assignment happens
                 self._process = process
                 self._process_assigned = True
-                print(f"[SPAWN] Assigned to self._process, flag set to True")
+                print("[SPAWN] Assigned to self._process, flag set to True")
                 
                 # Simulate exception AFTER assignment
                 print("[SPAWN] Simulating exception after assignment...")

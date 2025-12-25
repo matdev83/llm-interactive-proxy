@@ -1,6 +1,7 @@
 """Repro script for InMemoryConfigRepository race condition."""
 
 import asyncio
+
 from src.core.repositories.in_memory_config_repository import InMemoryConfigRepository
 
 

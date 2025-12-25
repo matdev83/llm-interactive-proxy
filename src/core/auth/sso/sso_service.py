@@ -25,7 +25,6 @@ from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
 from src.core.auth.sso.models import JWK, JWKS, SAMLMetadata, SSOResult
 
-
 logger = logging.getLogger(__name__)
 
 # Maximum number of SAML metadata cache entries to prevent unbounded memory growth.

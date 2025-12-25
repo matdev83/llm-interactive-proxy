@@ -7,17 +7,18 @@ by simulating many sessions with many tool calls.
 """
 
 import asyncio
-import psutil
 import os
-import time
-from datetime import datetime, timezone
-from typing import Any
 
 # Add the src directory to the path
 import sys
+from datetime import datetime, timezone
+
+import psutil
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from core.services.tool_call_reactor_service import InMemoryToolCallHistoryTracker
+
 
 async def test_memory_growth():
     """Test memory growth with many sessions and tool calls."""
@@ -60,7 +61,7 @@ async def test_memory_growth():
     print(f"Memory growth: {memory_growth:.2f} MB")
     
     # Check the internal state sizes
-    print(f"\nInternal state:")
+    print("\nInternal state:")
     print(f"Number of sessions tracked: {len(tracker._history)}")
     
     total_entries = 0
@@ -105,7 +106,7 @@ async def test_memory_growth():
         if len(tracker._history) > 50:
             print(f"  - Sessions not cleaned up: {len(tracker._history)} remaining")
         if any(len(history) > 1000 for history in tracker._history.values()):
-            print(f"  - Per-session limit exceeded")
+            print("  - Per-session limit exceeded")
     else:
         print("\n✅ No significant memory leak detected")
     

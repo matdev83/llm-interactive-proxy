@@ -92,7 +92,6 @@ def test_build_report_concurrent_thread_safe():
     Test that build_report() is thread-safe when called with concurrent writes.
     """
     import threading
-    import time
     
     pr = ParameterResolution()
     
@@ -114,7 +113,7 @@ def test_build_report_concurrent_thread_safe():
             try:
                 report = pr.build_report({"dummy": "config"})
                 reports.append(len(report))
-            except Exception as e:
+            except Exception:
                 reports.append(None)
         return reports
     

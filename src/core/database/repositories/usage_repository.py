@@ -17,14 +17,12 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select, update
 
+from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
+from src.core.database.repositories.base import AsyncRepository
 from src.core.database.repositories.usage_repository_types import (
     RepositoryAggregatedStats,
     RepositoryUsageStats,
 )
-
-
-from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
-from src.core.database.repositories.base import AsyncRepository
 from src.core.domain.statistics_filter import StatisticsFilter
 from src.core.domain.usage_record import UsageRecord
 

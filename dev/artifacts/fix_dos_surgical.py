@@ -5,10 +5,11 @@ This script will add size validation to vulnerable json.loads calls
 """
 import re
 
+
 def fix_dos_vulnerability():
     file_path = r"C:\Users\Mateusz\source\repos\llm-interactive-proxy\src\connectors\antigravity_oauth.py"
     
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         content = f.read()
     
     # Add constant after logger line

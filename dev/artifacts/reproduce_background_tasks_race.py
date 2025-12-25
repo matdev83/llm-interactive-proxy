@@ -2,6 +2,7 @@ import asyncio
 import threading
 import time
 
+
 def test_zai_background_tasks_race():
     """Test potential race condition in ZAI connector _background_tasks pattern"""
     
@@ -61,7 +62,7 @@ def test_zai_background_tasks_race():
             loop.call_soon_threadsafe(loop.stop)
             return True
         
-        print(f"  No race detected")
+        print("  No race detected")
     except Exception as e:
         print(f"  Error: {e}")
     

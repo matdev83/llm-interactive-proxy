@@ -14,6 +14,7 @@ Line 484: _telemetry_instance = None (no protection)
 import threading
 import time
 
+
 # Simulate the problematic pattern
 class MockTelemetry:
     def __init__(self):

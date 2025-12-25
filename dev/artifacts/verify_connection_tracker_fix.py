@@ -9,7 +9,6 @@ import asyncio
 import os
 import sys
 import time
-from unittest.mock import MagicMock
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -72,7 +71,7 @@ async def test_memory_leak_fix():
         # Wait between batches to let cleanup work
         await asyncio.sleep(12)  # Longer than cleanup interval
     
-    print(f"\n--- Final State After All Batches ---")
+    print("\n--- Final State After All Batches ---")
     print(f"Total connections created: {len(connection_batches)}")
     print(f"Active connections remaining: {tracker.get_connection_count()}")
     
@@ -87,7 +86,7 @@ async def test_memory_leak_fix():
     print("Cleanup scheduler stopped")
     
     # Verify fix worked
-    print(f"\n--- Results ---")
+    print("\n--- Results ---")
     if final_count == 0:
         print("MEMORY LEAK FIXED:")
         print("   - All abandoned connections were automatically cleaned up")

@@ -83,7 +83,7 @@ def test_schedule_credentials_reload_race():
     for t in threads:
         t.join(timeout=2)
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Scheduling attempts: {results['scheduling_count']}")
     print(f"  Skipped (due to progress flag): {results['skip_count']}")
     print(f"  Flag resets: {results['reset_count']}")
@@ -149,7 +149,7 @@ def test_validate_runtime_credentials_race():
     for t in threads:
         t.join(timeout=2)
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Total validation calls: {call_count}")
     print(f"  Validation errors recorded: {len(connector._credential_validation_errors)}")
     print(f"  is_functional: {connector.is_functional}")
@@ -198,7 +198,7 @@ def test_fail_init_race():
     for t in threads:
         t.join(timeout=2)
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Total fail_init calls: {fail_count}")
     print(f"  Final validation errors: {len(connector._credential_validation_errors)}")
     print(f"  is_functional: {connector.is_functional}")

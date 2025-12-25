@@ -13,7 +13,7 @@ class ResourceHolder:
         """Simulate resource cleanup."""
         if self.active:
             self.active = False
-            print(f"[LEAK CHECK] Resource cleaned up properly")
+            print("[LEAK CHECK] Resource cleaned up properly")
 
 
 async def generate_upstream_data(resource: ResourceHolder) -> AsyncGenerator[bytes, None]:

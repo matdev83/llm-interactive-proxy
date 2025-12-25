@@ -24,9 +24,8 @@ import httpx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from src.core.domain.validation import ValidationResult
 from src.connectors.openai_codex.interfaces import ICredentialManager
-
+from src.core.domain.validation import ValidationResult
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver

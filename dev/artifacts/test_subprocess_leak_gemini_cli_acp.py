@@ -7,8 +7,6 @@ If an exception occurs during subprocess.Popen() or immediately after, the subpr
 may leak because the exception handler's logic is flawed.
 """
 import subprocess
-import time
-from typing import Any
 
 
 class FakeGeminiCliAcpConnector:

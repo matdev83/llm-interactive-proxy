@@ -6,12 +6,13 @@ This isolates the InMemoryToolCallHistoryTracker class to test for memory leaks.
 """
 
 import asyncio
-import psutil
 import os
-import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from dataclasses import dataclass
+
+import psutil
+
 
 # Simplified version of context for testing
 @dataclass
@@ -92,7 +93,7 @@ async def test_memory_growth():
     print(f"Memory growth: {memory_growth:.2f} MB")
     
     # Check the internal state
-    print(f"\nInternal state:")
+    print("\nInternal state:")
     print(f"Number of sessions tracked: {len(tracker._history)}")
     
     total_entries = 0

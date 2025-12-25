@@ -12,7 +12,6 @@ import os
 import sys
 import time
 import tracemalloc
-from typing import Dict, List
 
 # Add src to path for imports
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src'))

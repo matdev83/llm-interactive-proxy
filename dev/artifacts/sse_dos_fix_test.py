@@ -7,9 +7,9 @@ various attack vectors that should now be mitigated.
 """
 
 import json
-import time
-import sys
 import os
+import sys
+import time
 
 # Add src to path to import the vulnerable code
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))

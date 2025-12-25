@@ -12,6 +12,7 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.model_utils import ModelDefaults
 from src.core.domain.session import Session
+from src.core.domain.state_auditing import StateAccessLogEntry
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -51,6 +52,10 @@ class SessionStateAdapter(
                 FailoverRoute(name=name, **data) for name, data in routes_dict.items()
             ]
         return None
+
+    def get_access_log(self) -> list[StateAccessLogEntry]:
+        """Get the access log for auditing."""
+        return []
 
     def set_command_prefix(self, prefix: str) -> None:
         self._local_state["command_prefix"] = prefix

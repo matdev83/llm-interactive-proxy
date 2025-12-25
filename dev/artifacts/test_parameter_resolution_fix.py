@@ -45,7 +45,7 @@ def main():
     print("Final state:")
     record = resolution._history.get(parameter_name)
     if record:
-        print(f"Total entries stored: 1 (FIXED!)")
+        print("Total entries stored: 1 (FIXED!)")
         print(f"Value: {record.value}")
         print(f"Source: {record.source.value}")
         print(f"Origin: {record.origin}")

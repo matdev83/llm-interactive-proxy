@@ -3,10 +3,8 @@
 Test script to verify that the middleware now blocks DoS attacks.
 """
 
-import asyncio
 import json
 import sys
-import time
 from pathlib import Path
 
 # Add the src directory to the path
@@ -14,7 +12,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from fastapi import HTTPException
-from src.core.app.middleware.content_rewriting_middleware import ContentRewritingMiddleware
+from src.core.app.middleware.content_rewriting_middleware import (
+    ContentRewritingMiddleware,
+)
 from src.core.services.content_rewriter_service import ContentRewriterService
 
 

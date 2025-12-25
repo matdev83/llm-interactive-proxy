@@ -75,7 +75,8 @@ class ServiceScope(IServiceScope):
         self._provider = ScopedServiceProvider(provider, self)
         self._parent_scope = parent_scope
         self._instances: dict[type, Any] = {}
-        self._lock = threading.Lock()
+        # Use a re-entrant lock to avoid deadlocks when resolving nested singletons.
+        self._lock = threading.RLock()
         self._disposed = False
 
     @property
@@ -153,7 +154,8 @@ class ServiceProvider(IServiceProvider):
         """
         self._descriptors = descriptors
         self._singleton_instances: dict[type, Any] = {}
-        self._lock = threading.Lock()
+        # Use a re-entrant lock to avoid deadlocks during nested resolution.
+        self._lock = threading.RLock()
         self._diagnostics = os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
             "true",
             "1",

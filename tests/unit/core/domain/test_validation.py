@@ -1,5 +1,6 @@
 from src.core.domain.validation import ValidationResult
 
+
 def test_validation_result_success():
     res = ValidationResult.success()
     assert res.is_valid is True

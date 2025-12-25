@@ -4,13 +4,10 @@ This test verifies that ConcurrencyGuard's operation counting
 is thread-safe under concurrent access.
 """
 import asyncio
-import pytest
-import pytest_asyncio
 
+import pytest_asyncio
 from src.core.services.production_concurrency_guard import (
     ConcurrencyGuard,
-    RetryConfig,
-    production_retry,
 )
 
 

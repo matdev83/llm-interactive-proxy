@@ -4,7 +4,6 @@ Backend instance created for credential check was never closed,
 causing HTTP client resource leaks.
 """
 
-import re
 
 # Read the file
 with open("src/core/app/controllers/models_controller.py", encoding="utf-8") as f:

@@ -6,11 +6,7 @@ The issue: When schedule_credentials_reload creates tasks, they may not be
 properly cleaned up in all code paths, leading to task accumulation.
 """
 
-import asyncio
-import gc
 import sys
-import threading
-import time
 from pathlib import Path
 
 # Add src directory to Python path

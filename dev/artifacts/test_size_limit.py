@@ -3,7 +3,6 @@
 Simple test to verify 10MB limit is working correctly.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -11,7 +10,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.services.tool_call_repair_service import MAX_JSON_PARSE_SIZE, ToolCallRepairService
+from src.core.services.tool_call_repair_service import (
+    MAX_JSON_PARSE_SIZE,
+    ToolCallRepairService,
+)
+
 
 def test_size_limit():
     """Test that the 10MB limit is working."""

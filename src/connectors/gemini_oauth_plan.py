@@ -22,10 +22,9 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
-from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
-
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.project_discovery import PaidTierProjectDiscovery
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor

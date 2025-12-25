@@ -6,7 +6,6 @@ that are not guarded by isEnabledFor checks.
 
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
 from typing import NamedTuple

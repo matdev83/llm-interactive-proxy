@@ -75,7 +75,7 @@ def test_race_condition_with_threads():
 
     if initialization_count > 1:
         print("❌ RACE CONDITION DETECTED: Multiple initializations occurred!")
-        print(f"   Expected: 1 initialization")
+        print("   Expected: 1 initialization")
         print(f"   Actual: {initialization_count} initializations")
         print(f"   Wasted initialization calls: {initialization_count - 1}")
         return False
@@ -116,7 +116,7 @@ async def test_race_condition_with_async():
 
     if initialization_count > 1:
         print("❌ RACE CONDITION DETECTED: Multiple initializations occurred!")
-        print(f"   Expected: 1 initialization")
+        print("   Expected: 1 initialization")
         print(f"   Actual: {initialization_count} initializations")
         print(f"   Wasted initialization calls: {initialization_count - 1}")
         return False

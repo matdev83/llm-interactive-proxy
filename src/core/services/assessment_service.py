@@ -9,7 +9,6 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 
 import logging
 import time
-from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.assessment import (

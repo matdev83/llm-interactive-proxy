@@ -31,8 +31,9 @@ def test_history_truncation():
     
     # Manually add events to history to test truncation
     # We'll add more than 100 events (the truncation limit)
-    from src.loop_detection.event import LoopDetectionEvent
     import time
+
+    from src.loop_detection.event import LoopDetectionEvent
     
     for i in range(150):
         event = LoopDetectionEvent(

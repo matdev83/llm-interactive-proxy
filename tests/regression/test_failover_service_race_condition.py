@@ -1,11 +1,11 @@
 """Regression tests for failover_service.py race condition fix."""
 
 import threading
-import pytest
 
+import pytest
 from src.core.services.failover_service import (
-    FailoverService,
     FailoverRouteConfig,
+    FailoverService,
 )
 
 
@@ -34,7 +34,7 @@ def test_failover_routes_concurrent_add():
     routes = service.get_all_failover_routes()
     assert len(routes) > 0, "Routes should exist after concurrent additions"
 
-    for key, route in routes.items():
+    for _key, route in routes.items():
         assert isinstance(route, FailoverRouteConfig)
         assert isinstance(route.elements, list)
 

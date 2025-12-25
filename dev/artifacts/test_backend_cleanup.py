@@ -6,9 +6,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config.app_config import AppConfig, BackendSettings, LoggingConfig, LogLevel
-from src.core.services.backend_factory import BackendFactory
+from src.core.config.app_config import (
+    AppConfig,
+    BackendSettings,
+    LoggingConfig,
+    LogLevel,
+)
 from src.core.di.services import get_or_build_service_provider
+from src.core.services.backend_factory import BackendFactory
 
 
 async def test_backend_cleanup():

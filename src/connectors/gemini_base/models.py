@@ -5,10 +5,9 @@ This module defines typed data structures used across Gemini connector services
 to provide type safety and clear data boundaries.
 """
 
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
-
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 

@@ -33,6 +33,7 @@ from src.core.interfaces.state_provider_interface import (
 
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
+    from src.core.domain.state_auditing import StateAccessLogEntry
     from src.core.interfaces.command_service_interface import ICommandService
 
 _T_co = TypeVar("_T_co")
@@ -68,10 +69,19 @@ class SessionStateApplicationStateAdapter(
     def get_failover_routes(self) -> list[FailoverRoute] | None:
         routes_dict = self._session.state.backend_config.failover_routes
         if routes_dict:
-            return [
-                FailoverRoute(name=name, **data) for name, data in routes_dict.items()
-            ]
+            routes: list[FailoverRoute] = []
+            for name, data in routes_dict.items():
+                if isinstance(data, FailoverRoute):
+                    routes.append(data)
+                elif isinstance(data, dict):
+                    routes.append(FailoverRoute(name=name, **data))
+                elif hasattr(data, "model_dump"):
+                    routes.append(FailoverRoute(name=name, **data.model_dump()))
+            return routes
         return None
+
+    def get_access_log(self) -> list[StateAccessLogEntry]:
+        return []
 
     def set_command_prefix(self, prefix: str) -> None:
         with self._lock:
@@ -177,13 +187,6 @@ class SessionStateApplicationStateAdapter(
             BackendConfiguration, self._session.state.backend_config
         )
 
-        routes_dict = (
-            current_backend_config.failover_routes.copy()
-            if current_backend_config.failover_routes
-            else {}
-        )
-        routes_dict[name] = route_config
-
         new_backend_config = current_backend_config.with_failover_route(
             name, route_config.get("policy", "k")
         )
@@ -245,7 +248,7 @@ class FailoverCommandHandler(ICommandHandler):
 
     def __init__(
         self,
-        command_service: "ICommandService | None" = None,
+        command_service: ICommandService | None = None,
         secure_state_access: Any | None = None,
         secure_state_modification: Any | None = None,
     ) -> None:

@@ -7,6 +7,7 @@ from src.core.domain.session import (
     Session,
     SessionState,
 )
+from src.core.domain.state_auditing import StateAccessLogEntry
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -98,6 +99,10 @@ class MockSessionService(ISessionService, ISecureStateAccess, ISecureStateModifi
 
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         return self._failover_routes
+
+    def get_access_log(self) -> list[StateAccessLogEntry]:
+        """Get the access log for auditing."""
+        return []
 
     # ISecureStateModification methods
     def update_command_prefix(self, prefix: str) -> None:

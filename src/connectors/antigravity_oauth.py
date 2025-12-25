@@ -29,15 +29,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.connectors.base import strip_vendor_prefix
-from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.connectors.gemini_base.credential_providers import (
-
     AntigravitySQLiteCredentialProvider,
 )
-from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
-
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
+from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.project_discovery import AntigravityProjectDiscovery
 from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import XmlToolCallPostProcessor
@@ -51,6 +48,7 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session_key import SessionKey
 from src.core.services.backend_registry import backend_registry

@@ -44,7 +44,7 @@ def test_cleanup_edge_case():
     print(f"Secondary index: {_by_tool_call}")
     
     # Now remove session1:tool_a (oldest)
-    print(f"\nRemoving oldest entry: session1:tool_a with sig1")
+    print("\nRemoving oldest entry: session1:tool_a with sig1")
     oldest_key, oldest_value = _cache.popitem(last=False)
     oldest_sig, _ = oldest_value
     
@@ -55,7 +55,7 @@ def test_cleanup_edge_case():
         if v != oldest_sig or any(k2.endswith(f":{k}") for k2 in _cache)
     }
     
-    print(f"\nAfter cleanup:")
+    print("\nAfter cleanup:")
     print("Primary cache:")
     for key, (sig, _) in _cache.items():
         print(f"  {key} -> {sig}")
@@ -70,14 +70,14 @@ def test_cleanup_edge_case():
     print(f"Actual {tc_id} -> {actual_sig}")
     
     if actual_sig != expected_sig:
-        print(f"\nBUG DETECTED!")
-        print(f"Secondary index still points to sig1 which was removed!")
-        print(f"This happens because:")
-        print(f"  1. oldest_sig = 'sig1'")
-        print(f"  2. v != oldest_sig is False (v = 'sig1')")
-        print(f"  3. any(k2.endswith(f':tool_a')) is True (session2:tool_a exists)")
-        print(f"  4. False or True = True, so entry kept")
-        print(f"  5. But v is still the OLD signature!")
+        print("\nBUG DETECTED!")
+        print("Secondary index still points to sig1 which was removed!")
+        print("This happens because:")
+        print("  1. oldest_sig = 'sig1'")
+        print("  2. v != oldest_sig is False (v = 'sig1')")
+        print("  3. any(k2.endswith(f':tool_a')) is True (session2:tool_a exists)")
+        print("  4. False or True = True, so entry kept")
+        print("  5. But v is still the OLD signature!")
         return True
     
     return False
@@ -134,17 +134,17 @@ def test_with_different_values():
         
         stored_sig = _by_tool_call.get(tc_id)
         
-        print(f"\ntool_a analysis:")
+        print("\ntool_a analysis:")
         print(f"  Correct signature (from cache): {correct_sig}")
         print(f"  Stored signature (from index): {stored_sig}")
         
         if stored_sig != correct_sig:
-            print(f"  MISMATCH! This is the memory leak bug!")
+            print("  MISMATCH! This is the memory leak bug!")
             print(f"  The secondary index points to stale signature {stored_sig}")
             print(f"  But cache only contains {correct_sig}")
             return True
         else:
-            print(f"  Signatures match correctly")
+            print("  Signatures match correctly")
     
     return False
 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     bug2 = test_with_different_values()
     
     if bug1 or bug2:
-        print(f"\n*** MEMORY LEAK CONFIRMED ***")
+        print("\n*** MEMORY LEAK CONFIRMED ***")
         print("The secondary index accumulates stale signature references!")
     else:
-        print(f"\nNo memory leak detected in these scenarios")
+        print("\nNo memory leak detected in these scenarios")

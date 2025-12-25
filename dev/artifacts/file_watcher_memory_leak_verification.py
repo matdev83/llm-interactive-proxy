@@ -7,7 +7,7 @@ has been fixed by showing that background tasks are properly cleaned up.
 """
 
 import asyncio
-import time
+
 from src.connectors.gemini_base.file_watcher import FileWatcherState
 
 

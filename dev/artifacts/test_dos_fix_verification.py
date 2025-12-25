@@ -3,15 +3,15 @@
 Test script to verify DoS fix for rate_limit.py and size limits
 """
 
-import sys
 import os
+import sys
 import time
-import json
 
 # Add src to path to import module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.rate_limit import _as_dict
+
 
 def test_size_limits():
     """Test that size limits are now enforced."""
@@ -77,7 +77,7 @@ def test_functional_behavior():
     expected_results = [True, True, False, False]
     passed = 0
     
-    for i, (test_input, expected) in enumerate(zip(test_cases, expected_results)):
+    for i, (test_input, expected) in enumerate(zip(test_cases, expected_results, strict=False)):
         result = _as_dict(test_input)
         actual = result is not None
         

@@ -1,7 +1,6 @@
 """Repro script for failover_service.py race condition in failover_routes dict."""
 
 import threading
-import time
 from dataclasses import dataclass, field
 from typing import Any
 

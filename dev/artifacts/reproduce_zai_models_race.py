@@ -1,8 +1,8 @@
 """
 Repro script for zai connector _default_models list mutation
 """
-import asyncio
 import threading
+
 
 def test_zai_default_models_race():
     """Test potential race condition in _default_models access"""

@@ -6,7 +6,6 @@ protected by locks.
 """
 import asyncio
 import sys
-import threading
 
 sys.path.insert(0, '.')
 
@@ -64,7 +63,7 @@ class TestApplicationStateServiceRaceCondition:
             for i in range(50):
                 key = f"key_{iter_id}_{i % 10}"
                 service.set_setting(key, f"value_{i}")
-                value = service.get_setting(key)
+                service.get_setting(key)
 
         # Run concurrent mixed operations
         tasks = [asyncio.create_task(mixed_operations(i)) for i in range(10)]

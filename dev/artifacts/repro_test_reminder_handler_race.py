@@ -4,10 +4,10 @@ This script demonstrates the race condition in TestExecutionReminderHandler wher
 _concurrent modifications without proper locking can cause inconsistent state.
 """
 import asyncio
+
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
     TestExecutionReminderHandler,
 )
-from time import time
 
 
 async def test_concurrent_mark_operations():

@@ -4,10 +4,8 @@ This test verifies that concurrent file modifications cannot cause
 inconsistent state due to unprotected flag modifications.
 """
 import asyncio
-import threading
-import time
-from unittest.mock import Mock, patch, MagicMock
 import sys
+import threading
 from pathlib import Path
 
 # Create a simple way to import from src
@@ -35,7 +33,6 @@ class MockConfig:
 
 class MockTranslationService:
     """Mock translation service for testing."""
-    pass
 
 
 async def test_concurrent_credentials_reload():
@@ -53,7 +50,6 @@ async def test_concurrent_credentials_reload():
 
     def track_state_changes():
         """Wrapper to track all state transitions."""
-        original = connector._schedule_credentials_reload.__func__.__wrapped__
         state_changes.append(("wrapper_start", threading.current_thread().ident))
 
     connector._schedule_credentials_reload = track_state_changes
@@ -64,7 +60,7 @@ async def test_concurrent_credentials_reload():
         await asyncio.sleep(0.01)  # Small delay
 
         # Simulate file modification events
-        for i in range(10):
+        for _i in range(10):
             # Use a task to avoid blocking
             asyncio.create_task(connector._schedule_credentials_reload())
 
@@ -116,7 +112,6 @@ async def test_flag_cleanup_on_error():
     async def failing_handler():
         raise RuntimeError("Simulated reload error")
 
-    original_handle = connector._handle_credentials_file_change
 
     async def patched_handler():
         try:

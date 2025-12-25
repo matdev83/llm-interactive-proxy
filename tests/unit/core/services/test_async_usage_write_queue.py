@@ -99,11 +99,12 @@ class TestAsyncUsageWriteQueueBasic:
 
         stats = queue.statistics
 
-        assert stats["is_running"] is False
-        assert stats["insert_queue_size"] == 1
-        assert stats["update_queue_size"] == 1
-        assert stats["batch_size"] == 100
-        assert stats["flush_interval_seconds"] == 5.0
+        assert stats.is_running is False
+        assert stats.insert_queue_size == 1
+        assert stats.update_queue_size == 1
+        assert stats.batch_size == 100
+        assert stats.flush_interval_seconds == 5.0
+
 
 
 @pytest.mark.asyncio

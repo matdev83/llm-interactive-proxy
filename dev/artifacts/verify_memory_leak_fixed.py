@@ -4,8 +4,8 @@ Final verification that memory leak is fixed.
 This reproduces the original issue and shows it's resolved.
 """
 
-import sys
 import os
+import sys
 import time
 
 # Add src to path

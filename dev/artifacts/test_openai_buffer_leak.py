@@ -13,7 +13,6 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from httpx import AsyncClient, Response
 
 
 class MalformedSSEMock:
@@ -104,7 +103,7 @@ async def main():
     connector = TestOpenAIConnector()
     buffer_sizes = await connector.stream_completion(None)
 
-    print(f"\nBuffer size progression:")
+    print("\nBuffer size progression:")
     print(f"  After 1 chunk:     {buffer_sizes[0]} bytes")
     print(f"  After 100 chunks:   {buffer_sizes[99]} bytes")
     print(f"  After 1000 chunks:  {buffer_sizes[999]} bytes")

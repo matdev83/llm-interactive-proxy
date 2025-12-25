@@ -39,7 +39,7 @@ async def create_and_track_tasks_concurrently():
     tasks = [create_and_add_task() for _ in range(100)]
     created_tasks = await asyncio.gather(*tasks)
 
-    print(f"Expected 100 tasks in _cancellation_tasks")
+    print("Expected 100 tasks in _cancellation_tasks")
     print(f"Actual tasks in _cancellation_tasks: {len(orchestrator._cancellation_tasks)}")
 
     # Check for missing tasks

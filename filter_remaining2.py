@@ -53,7 +53,7 @@ fixed_files = set([
     'src/services/steering/session_state_store.py',
 ])
 
-with open('all_src_files.txt', 'r', encoding='utf-8') as f:
+with open('all_src_files.txt', encoding='utf-8') as f:
     all_files = [line.strip() for line in f if line.strip()]
 
 remaining = sorted([f for f in all_files if f not in fixed_files])

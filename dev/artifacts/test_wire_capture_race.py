@@ -2,9 +2,9 @@
 
 import asyncio
 import os
+import sys
 import tempfile
 from pathlib import Path
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -183,7 +183,7 @@ async def test_thread_lock_protection():
         # Note: rotation sets _size_cache_valid = False
         assert not capture._size_cache_valid, "Cache should be invalidated after rotation"
         
-        print(f"  PASSED: Thread lock exists and rotation invalidates cache")
+        print("  PASSED: Thread lock exists and rotation invalidates cache")
         
     finally:
         if os.path.exists(temp_path):

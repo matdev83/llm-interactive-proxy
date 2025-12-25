@@ -7,7 +7,6 @@ abstracting backend-specific details and providing structured output.
 
 import json
 import logging
-from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.assessment import AssessmentRequest, LLMAssessmentResponse

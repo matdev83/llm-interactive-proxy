@@ -7,10 +7,11 @@ Tests for:
 3. _fail_init/_degrade/_recover - flag race
 """
 
-import pytest
+import asyncio
 import threading
 import time
-import asyncio
+
+import pytest
 
 
 class TestGeminiCloudProjectConnectorRaceConditions:
@@ -73,7 +74,6 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         # Track actual reloads
         reload_executions = []
 
-        original_create_task = connector._main_loop.create_task
 
         def mock_create_task(coro):
             reload_executions.append(coro)

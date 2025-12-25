@@ -13,14 +13,15 @@ The vulnerability exists in the nested loop structure:
 Total worst-case operations can reach ~2M+ per content addition
 """
 
-import sys
 import os
+import sys
 import time
 
 # Add src to path to import module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.loop_detection.hybrid_detector import RollingHashTracker
+
 
 def create_extreme_case():
     """Create content that maximizes algorithmic complexity."""
@@ -181,7 +182,7 @@ def test_boundary_conditions():
             print(f"{description}: {processing_time:.4f}s")
             
             if processing_time > 0.2:  # 200ms threshold for boundary cases
-                print(f"  WARNING: Slow processing at boundary condition")
+                print("  WARNING: Slow processing at boundary condition")
                 vulnerable_cases += 1
                 
         except Exception as e:

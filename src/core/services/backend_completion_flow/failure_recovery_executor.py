@@ -99,28 +99,6 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             logger.info(f"Using complex failover policy for model {effective_model}")
 
         try:
-            from src.core.domain.configuration.backend_config import (
-                BackendConfiguration,
-            )
-
-            request_failover_routes: dict[str, Any] | None = (
-                request.extra_body.get("failover_routes")
-                if request.extra_body
-                else None
-            )
-            effective_failover_routes: dict[str, Any] = (
-                request_failover_routes
-                if request_failover_routes
-                else self._failover_routes
-            )
-
-            # Instantiate for validation side effects
-            _ = BackendConfiguration(
-                backend_type=backend_type,
-                model=effective_model,
-                failover_routes_data=effective_failover_routes,
-            )
-
             plan: list[tuple[str, str]] = self._failover_planner.get_failover_plan(
                 effective_model, backend_type
             )

@@ -28,7 +28,7 @@ async def create_shutdown_tasks_concurrently():
     tasks = [create_and_add_task() for _ in range(100)]
     created_tasks = await asyncio.gather(*tasks)
 
-    print(f"Expected 100 tasks in _shutdown_tasks")
+    print("Expected 100 tasks in _shutdown_tasks")
     print(f"Actual tasks in _shutdown_tasks: {len(manager._shutdown_tasks)}")
 
     # Check for missing tasks

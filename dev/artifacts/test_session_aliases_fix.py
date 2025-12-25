@@ -9,15 +9,15 @@ The fix should:
 
 import asyncio
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.services.tool_call_reactor_service import ToolCallReactorService
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
+from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
 
 async def test_session_aliases_fix():

@@ -6,11 +6,11 @@ with controlled data to ensure memory usage remains bounded.
 """
 
 import asyncio
-import re
 import json
-import psutil
 import os
-from unittest.mock import AsyncMock, MagicMock
+import re
+
+import psutil
 
 # Import the actual AntigravityOAuthConnector to test the real _intercept_stream logic
 # Removed complex imports to focus on testing the streaming logic directly

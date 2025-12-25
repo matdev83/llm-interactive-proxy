@@ -4,6 +4,7 @@ This script demonstrates that the race condition has been fixed
 by using asyncio.Lock instead of threading.Lock for async operations.
 """
 import asyncio
+
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
     TestExecutionReminderHandler,
 )

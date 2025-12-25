@@ -13,14 +13,13 @@ from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from src.core.domain.chat import CanonicalChatRequest
-from src.core.domain.request_context import RequestContext
 from src.core.common.exceptions import InitializationError, LLMProxyError
-
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
     ClientTerminationReason,
 )
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.responses_api import (
     ResponsesRequest,

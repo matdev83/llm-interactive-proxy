@@ -3,9 +3,7 @@
 import json
 
 import pytest
-from src.connectors.utils.reasoning_models import ReasoningCaptureResult
 from src.connectors.utils.reasoning_stream_processor import ReasoningStreamProcessor
-
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 

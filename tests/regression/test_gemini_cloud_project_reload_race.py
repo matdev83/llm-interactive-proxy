@@ -9,9 +9,9 @@ Race condition: TOCTOU (Time-of-Check to Time-of-Use)
 This test simulates the buggy behavior and verifies the fix works correctly.
 """
 
+import asyncio
 import threading
 import time
-import asyncio
 
 
 def test_schedule_credentials_reload_race_condition():

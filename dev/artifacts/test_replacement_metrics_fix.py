@@ -1,8 +1,7 @@
 """Test script to verify the memory leak fix for ReplacementMetrics timestamp lists."""
-import sys
 import os
-import time
 import random
+import sys
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -27,7 +26,7 @@ def main():
     initial_activation_count = len(metrics.activation_timestamps)
     initial_opt_out_count = len(metrics.opt_out_timestamps)
     
-    print(f"Initial state:")
+    print("Initial state:")
     print(f"  activation_timestamps: {initial_activation_count}")
     print(f"  opt_out_timestamps: {initial_opt_out_count}")
     

@@ -32,12 +32,12 @@ def test_unbounded_growth_fixed():
             print(f"After {i+1} registers: _pending={len(matcher._pending)}")
 
     print(f"\nAfter 1000 registers: _pending={len(matcher._pending)}")
-    print(f"Expected: <= 100 (max_pending)")
+    print("Expected: <= 100 (max_pending)")
     print(f"Actual: {len(matcher._pending)}")
 
     # Verify fix: _pending should be capped at max
     if len(matcher._pending) > matcher._max_pending:
-        print(f"\n!!! MEMORY LEAK STILL EXISTS !!!")
+        print("\n!!! MEMORY LEAK STILL EXISTS !!!")
         print(f"_pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})")
         return False
     else:

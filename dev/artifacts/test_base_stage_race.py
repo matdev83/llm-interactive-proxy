@@ -1,14 +1,15 @@
 """Reproduce race condition in ValidatedTestStage."""
 
 import asyncio
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.testing.base_stage import ValidatedTestStage
-from src.core.di.container import ServiceCollection
 from unittest.mock import MagicMock
+
+from src.core.di.container import ServiceCollection
+from src.core.testing.base_stage import ValidatedTestStage
 
 
 class TestStageImpl(ValidatedTestStage):

@@ -2,6 +2,7 @@
 
 import asyncio
 from unittest.mock import Mock
+
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 
 

@@ -4,7 +4,6 @@ Pydantic models for usage route responses.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from src.core.interfaces.model_bases import DomainModel

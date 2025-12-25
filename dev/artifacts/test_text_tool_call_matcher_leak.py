@@ -35,14 +35,14 @@ def test_unbounded_pending_growth():
             print(f"After {i+1} registers: _pending={len(matcher._pending)}")
 
     print(f"\nAfter 1000 registers: _pending={len(matcher._pending)}")
-    print(f"Expected: small number or zero (if matched)")
+    print("Expected: small number or zero (if matched)")
     print(f"Actual: {len(matcher._pending)}")
 
     # Verify leak: _pending should not grow unbounded
     if len(matcher._pending) > 100:
-        print(f"\n!!! MEMORY LEAK DETECTED !!!")
+        print("\n!!! MEMORY LEAK DETECTED !!!")
         print(f"_pending ({len(matcher._pending)}) grows unbounded")
-        print(f"This happens because unmatched tool calls never get removed")
+        print("This happens because unmatched tool calls never get removed")
         return True
 
     return False
@@ -78,15 +78,15 @@ def test_partial_match_still_leaks():
             )
             matcher.match_textual_result(result)
 
-    print(f"Registered 100 tool calls, matched 50")
+    print("Registered 100 tool calls, matched 50")
     print(f"_pending size: {len(matcher._pending)}")
-    print(f"Expected: 0 (all matched) or small (unmatched)")
+    print("Expected: 0 (all matched) or small (unmatched)")
     print(f"Actual: {len(matcher._pending)}")
 
     if len(matcher._pending) > 50:
-        print(f"\n!!! MEMORY LEAK DETECTED !!!")
+        print("\n!!! MEMORY LEAK DETECTED !!!")
         print(f"_pending ({len(matcher._pending)}) is larger than expected")
-        print(f"Unmatched tool calls are never cleaned up")
+        print("Unmatched tool calls are never cleaned up")
         return True
 
     return False

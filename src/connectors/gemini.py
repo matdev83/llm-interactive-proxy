@@ -28,7 +28,6 @@ from src.core.domain.chat import (
 )
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
-
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
@@ -490,7 +489,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format
         # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
 
         from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
@@ -1011,7 +1009,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             Raw streaming chunks from the backend (opaque provider-specific data)
         """
         # Prepare payload
-        from typing import cast
 
         from src.core.domain.chat import CanonicalChatRequest
 
@@ -1180,7 +1177,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # Apply generation config including temperature clamping
         # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
 
         from src.core.domain.chat import ChatRequest
 

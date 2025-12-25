@@ -6,13 +6,11 @@ This script verifies that the memory leak has been fixed by checking
 that session state is properly cleaned up.
 """
 
+import asyncio
 import gc
 import os
 import sys
 import tracemalloc
-import asyncio
-from typing import Any
-from unittest.mock import Mock
 
 # Add src to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,8 +18,9 @@ project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'src'))
 
-from src.core.ports.streaming_processors import ThinkTagsProcessor
 from src.core.ports.streaming_contracts import StreamingContent
+from src.core.ports.streaming_processors import ThinkTagsProcessor
+
 
 def measure_memory_usage():
     """Get current memory usage in MB."""
@@ -80,7 +79,7 @@ async def main():
     final_memory = measure_memory_usage()
     total_growth = final_memory - initial_memory
     
-    print(f"\n" + "=" * 50)
+    print("\n" + "=" * 50)
     print("RESULTS:")
     print(f"Initial memory: {initial_memory:.2f} MB")
     print(f"Final memory: {final_memory:.2f} MB")
@@ -100,13 +99,13 @@ async def main():
     )
     
     if all_empty:
-        print(f"\n*** MEMORY LEAK FIXED! ***")
-        print(f"All session state dictionaries are properly cleaned up.")
-        print(f"No memory leak detected - fix verified successfully.")
+        print("\n*** MEMORY LEAK FIXED! ***")
+        print("All session state dictionaries are properly cleaned up.")
+        print("No memory leak detected - fix verified successfully.")
         return True
     else:
-        print(f"\n*** MEMORY LEAK NOT FIXED ***")
-        print(f"Some session state dictionaries still contain stale entries.")
+        print("\n*** MEMORY LEAK NOT FIXED ***")
+        print("Some session state dictionaries still contain stale entries.")
         return False
 
 if __name__ == "__main__":

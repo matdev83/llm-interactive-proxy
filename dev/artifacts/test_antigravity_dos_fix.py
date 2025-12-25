@@ -5,10 +5,8 @@ Tests that JSON parsing now has proper size limits
 """
 import asyncio
 import json
-import sys
-import os
 import re
-import time
+
 
 def create_large_json(size_mb: int = 15) -> str:
     """Create a large JSON payload"""

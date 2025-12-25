@@ -14,15 +14,14 @@ sys.path.insert(0, str(project_root))
 
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.events.end_of_session_events import (
-    EndOfSessionSignal,
     EndOfSessionSignalType,
     EndOfSessionTerminationCategory,
     RemoteBackendConnectionEndOfSessionEvent,
 )
-from src.core.services.model_replacement_service import ModelReplacementService
 from src.core.services.model_replacement_eos_subscriber import (
     ModelReplacementEosSubscriber,
 )
+from src.core.services.model_replacement_service import ModelReplacementService
 
 
 class MockEventBus:

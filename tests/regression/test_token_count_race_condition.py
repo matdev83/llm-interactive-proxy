@@ -7,12 +7,10 @@ GitHub Issue: Token count race condition
 File: src/core/utils/token_count.py
 """
 import asyncio
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
-
 from src.core.utils.token_count import count_tokens
 
 
@@ -29,7 +27,6 @@ class TestTokenCountRaceCondition:
         try:
             # Mock tiktoken.get_encoding to track calls
             initialization_count = 0
-            original_get_encoding = None
 
             def mock_get_encoding(name):
                 nonlocal initialization_count

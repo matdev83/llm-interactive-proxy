@@ -4,8 +4,8 @@ Test script to verify DoS vulnerability fix in ToolCallRepairService.
 """
 
 import json
-import time
 import sys
+import time
 from pathlib import Path
 
 # Add src directory to path
@@ -13,6 +13,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+
 
 def create_large_json_payload(multiplier=10):
     """Create a large JSON payload to test DoS protection."""
@@ -89,7 +90,7 @@ def test_dos_protection():
                 print(f"  [ERROR] Failed after {duration:.2f} seconds: {type(e).__name__}: {e}")
     
     # Test with normal-sized payload (should still work)
-    print(f"\n--- Testing normal-sized payload (should work) ---")
+    print("\n--- Testing normal-sized payload (should work) ---")
     
     normal_payload = {
         "function_call": {

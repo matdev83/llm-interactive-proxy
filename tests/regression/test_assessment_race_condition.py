@@ -11,8 +11,8 @@ sys.path.insert(0, '.')
 
 import pytest
 from src.core.domain.assessment import (
-    SessionAssessmentState,
     AssessmentResult,
+    SessionAssessmentState,
     ToolCallPattern,
 )
 
@@ -58,7 +58,7 @@ class TestAssessmentModelsRaceCondition:
         async def increment_turns(iter_id: int):
             nonlocal total_increments
             increments = 0
-            for i in range(100):
+            for _i in range(100):
                 state.increment_turn()
                 increments += 1
             total_increments += increments
@@ -108,7 +108,7 @@ class TestAssessmentModelsRaceCondition:
         async def increment_pattern(iter_id: int):
             nonlocal total_increments
             increments = 0
-            for i in range(100):
+            for _i in range(100):
                 pattern.increment()
                 increments += 1
             total_increments += increments

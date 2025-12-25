@@ -7,11 +7,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.services.streaming.stream_context_registry import (
-    StreamBufferState,
     StreamingContextRegistry,
-    ToolCallBufferState,
-    VTCBufferState,
 )
+
 
 def test_reasoning_chunks_limit():
     """Test that reasoning_chunks deque respects size limit."""

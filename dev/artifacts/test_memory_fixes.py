@@ -3,8 +3,8 @@
 Test script to verify memory leak fixes in ThoughtSignatureManager.
 """
 
-import sys
 import os
+import sys
 import time
 
 # Add src to path

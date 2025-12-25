@@ -45,8 +45,6 @@ REPRODUCTION SCRIPTS CREATED:
 The DoS vulnerability has been successfully mitigated.
 """
 
-import sys
-import os
 
 def main():
     print("=" * 60)

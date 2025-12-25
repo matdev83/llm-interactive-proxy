@@ -13,6 +13,7 @@ sys.path.insert(0, str(project_root / 'src'))
 
 from src.core.domain.streaming.parsing.sse_bytes_parser import SSEBytesParser
 
+
 def test():
     parser = SSEBytesParser()
     

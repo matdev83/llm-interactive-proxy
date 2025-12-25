@@ -11,14 +11,15 @@ The vulnerability is triggered when:
 3. But content is designed to maximize hash collision checks
 """
 
-import sys
 import os
+import sys
 import time
 
 # Add src to path to import module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.loop_detection.hybrid_detector import RollingHashTracker
+
 
 def create_worst_case_content():
     """Create content that triggers worst-case behavior in rolling hash algorithm."""
@@ -109,9 +110,9 @@ def test_detailed_performance():
             
             # Check if this indicates vulnerability
             if avg_time > 0.5:
-                print(f"  WARNING: Slow processing detected!")
+                print("  WARNING: Slow processing detected!")
     
-    print(f"\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print(f"Total processing time: {total_processing_time:.4f}s")
     print(f"Slowest single test: {max_single_time:.4f}s")
     

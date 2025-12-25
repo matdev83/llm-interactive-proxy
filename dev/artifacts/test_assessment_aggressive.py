@@ -3,11 +3,12 @@ More aggressive race condition test to detect lost updates.
 """
 import asyncio
 import sys
+
 sys.path.insert(0, '.')
 
 from src.core.domain.assessment import (
-    SessionAssessmentState,
     AssessmentResult,
+    SessionAssessmentState,
 )
 
 

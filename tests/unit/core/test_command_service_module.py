@@ -1,10 +1,12 @@
+from unittest.mock import MagicMock
+
 import pytest
 from src.core.commands.models import Command, CommandResultWrapper
 from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ensure_command_service
 from src.core.interfaces.command_service_interface import ICommandService
-from unittest.mock import MagicMock
+
 
 class ConcreteCommandService(ICommandService):
     async def process_commands(

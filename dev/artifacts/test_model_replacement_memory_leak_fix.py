@@ -46,12 +46,12 @@ async def main():
     registry = MockBackendRegistry()
     service = ModelReplacementService(config, registry)
 
-    print(f"Size limits:")
+    print("Size limits:")
     print(f"  MAX_SESSION_STATES: {MAX_SESSION_STATES}")
     print(f"  MAX_DISABLED_SESSIONS: {MAX_DISABLED_SESSIONS}")
     print()
 
-    print(f"Initial state:")
+    print("Initial state:")
     print(f"  _session_states size: {len(service._session_states)}")
     print(f"  _disabled_sessions size: {len(service._disabled_sessions)}")
     print()

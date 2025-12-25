@@ -98,7 +98,7 @@ def main():
     print("Testing UNSAFE version (no lock)...")
     unsafe_count = test_unsafe()
     print(f"Result: load_prompts() was called {unsafe_count} times")
-    print(f"Expected: 1 time")
+    print("Expected: 1 time")
     print()
 
     if unsafe_count > 1:
@@ -110,7 +110,7 @@ def main():
         print("Testing SAFE version (with lock)...")
         safe_count = test_safe()
         print(f"Result: load_prompts() was called {safe_count} times")
-        print(f"Expected: 1 time")
+        print("Expected: 1 time")
 
         if safe_count == 1:
             print("\nLock protection successfully prevents race condition!")

@@ -7,7 +7,6 @@ are not atomic.
 """
 import asyncio
 import threading
-from weakref import WeakSet
 
 
 class UnsafeConcurrencyGuard:
@@ -24,7 +23,7 @@ class UnsafeConcurrencyGuard:
         # Race: Check length outside semaphore
         if len(self._active_operations) >= self.max_concurrent:
             self._rejected_operations += 1
-            raise Exception(f"Concurrency limit reached (rejected)")
+            raise Exception("Concurrency limit reached (rejected)")
         
         # Race window: multiple threads can pass check before entering semaphore
         async with self._semaphore:
@@ -54,7 +53,7 @@ class SafeConcurrencyGuard:
         with self._lock:
             if len(self._active_operations) >= self.max_concurrent:
                 self._rejected_operations += 1
-                raise Exception(f"Concurrency limit reached (rejected)")
+                raise Exception("Concurrency limit reached (rejected)")
         
         async with self._semaphore:
             operation_id = f"{operation_name}_{asyncio.get_event_loop().time()}"

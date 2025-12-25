@@ -9,7 +9,7 @@ import gc
 import sys
 import time
 import tracemalloc
-from pathlib import Path
+
 
 # Mock the required classes for testing
 class MockSession:
@@ -84,7 +84,7 @@ async def test_session_cleanup():
     current, peak = tracemalloc.get_traced_memory()
     memory_growth = current - initial_memory
     
-    print(f"\nBefore cleanup:")
+    print("\nBefore cleanup:")
     print(f"Sessions in memory: {len(repo._sessions)}")
     print(f"Memory growth: {memory_growth / 1024:.2f} KB")
     
@@ -96,7 +96,7 @@ async def test_session_cleanup():
     gc.collect()
     current_after, peak_after = tracemalloc.get_traced_memory()
     
-    print(f"\nAfter cleanup:")
+    print("\nAfter cleanup:")
     print(f"Sessions remaining: {len(repo._sessions)}")
     print(f"Memory after cleanup: {current_after / 1024:.2f} KB")
     print(f"Memory retained: {(current_after - initial_memory) / 1024:.2f} KB")

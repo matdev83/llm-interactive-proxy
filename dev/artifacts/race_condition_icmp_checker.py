@@ -5,7 +5,6 @@ The global _ping_executor is accessed without proper synchronization
 across multiple threads.
 """
 
-import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 

@@ -5,7 +5,6 @@ This module contains the built-in tool schemas for OpenAI Codex connector.
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:

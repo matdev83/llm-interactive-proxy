@@ -6,7 +6,6 @@ Uses standalone implementations to avoid import issues.
 
 import time
 from collections import OrderedDict
-from typing import Dict, List
 
 
 class FixedThoughtSignatureManager:

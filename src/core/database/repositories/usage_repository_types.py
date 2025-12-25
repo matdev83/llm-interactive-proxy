@@ -1,8 +1,11 @@
 """Pydantic models for UsageRepository return types."""
 
 from __future__ import annotations
+
 from datetime import datetime
+
 from pydantic import BaseModel
+
 
 class RepositoryAggregatedStats(BaseModel):
     """Aggregated statistics returned by UsageRepository."""

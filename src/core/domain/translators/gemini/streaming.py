@@ -75,11 +75,12 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                                 reasoning_pieces.append(safe_text)
                     elif "functionCall" in part:
                         try:
-                            tool_calls.append(
-                                _process_gemini_function_call(
-                                    part["functionCall"], part=part
-                                ).model_dump()
-                            )
+                            tool_call_dict = _process_gemini_function_call(
+                                part["functionCall"], part=part
+                            ).model_dump()
+                            # Add index field required for streaming tool calls
+                            tool_call_dict["index"] = len(tool_calls)
+                            tool_calls.append(tool_call_dict)
                         except Exception:
                             continue
             if "finishReason" in candidate:

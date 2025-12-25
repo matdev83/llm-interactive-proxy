@@ -6,6 +6,7 @@ Simple test to verify XML DoS vulnerability is fixed.
 import sys
 import xml.etree.ElementTree as ET
 
+
 # Mock AuthenticationError for testing
 class AuthenticationError(Exception):
     def __init__(self, message, details=None, original_error=None):

@@ -11,16 +11,17 @@ leading to:
 
 import asyncio
 import sys
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from src.core.config.app_config import AppConfig
-from src.core.services.cbor_wire_capture_service import CborWireCaptureService
 from src.core.domain.request_context import RequestContext
+from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+
 
 async def demonstrate_race_condition():
     """
@@ -71,7 +72,7 @@ async def demonstrate_race_condition():
         flush_tasks = [t for t in tasks if "flush" in str(t).lower()]
 
         print(f"4. Number of tasks with 'flush' in name: {len(flush_tasks)}")
-        print(f"   Expected: 1")
+        print("   Expected: 1")
         print(f"   Actual: {len(flush_tasks)}")
         print()
 
@@ -129,9 +130,9 @@ async def simulate_remote_attack():
         tasks = asyncio.all_tasks()
         flush_tasks = [t for t in tasks if "flush" in str(t).lower()]
 
-        print(f"After 100 concurrent requests:")
+        print("After 100 concurrent requests:")
         print(f"  Tasks with 'flush' in name: {len(flush_tasks)}")
-        print(f"  Expected: 1")
+        print("  Expected: 1")
         print(f"  Actual: {len(flush_tasks)}")
         print()
 

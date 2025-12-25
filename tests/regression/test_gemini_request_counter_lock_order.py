@@ -10,10 +10,8 @@ import json
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
 
@@ -102,6 +100,7 @@ class TestDailyRequestCounterLockOrder:
     def test_load_state_protected_after_init(self):
         """Test that _load_state is safe to call after initialization."""
         from datetime import datetime
+
         import pytz
 
         # Get current Pacific date to avoid reset
@@ -221,7 +220,7 @@ class TestDailyRequestCounterLockOrder:
             counter = DailyRequestCounter(temp_path, limit=10)
 
             # Increment past thresholds (70%, 80%, 90% of 10 = 7, 8, 9)
-            for i in range(10):
+            for _i in range(10):
                 counter.increment()
 
             # All thresholds should have been logged

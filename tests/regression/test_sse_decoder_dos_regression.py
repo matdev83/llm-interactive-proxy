@@ -38,7 +38,7 @@ class TestSSEDecoderDoSRegression:
         # Test normal payload (should work)
         normal_payload = 'data: {"message": "hello"}'
         res = decoder.decode_payload(normal_payload)
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, metadata, _is_done = res.content, res.metadata, res.is_done
 
         assert isinstance(content, dict), "Normal payload should be accepted"
 
@@ -47,7 +47,7 @@ class TestSSEDecoderDoSRegression:
         large_payload = f"data: {large_data}"
 
         res = decoder.decode_payload(large_payload)
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, metadata, _is_done = res.content, res.metadata, res.is_done
 
         assert "error" in metadata, "Large payload should be rejected"
         assert (
@@ -61,7 +61,7 @@ class TestSSEDecoderDoSRegression:
         normal_payload = f"data: {normal_json}"
 
         res = decoder.decode_payload(normal_payload)
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, metadata, _is_done = res.content, res.metadata, res.is_done
 
         assert isinstance(content, dict), "Normal depth JSON should be accepted"
 
@@ -70,7 +70,7 @@ class TestSSEDecoderDoSRegression:
         deep_payload = f"data: {deep_json}"
 
         res = decoder.decode_payload(deep_payload)
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, metadata, _is_done = res.content, res.metadata, res.is_done
 
         assert "error" in metadata, "Deep nesting should be rejected"
         assert metadata.get("error") in (
@@ -87,7 +87,7 @@ class TestSSEDecoderDoSRegression:
         # Should process if under size limit
         if len(breadth_payload.encode("utf-8")) <= decoder.MAX_PAYLOAD_SIZE:
             res = decoder.decode_payload(breadth_payload)
-            content, metadata, is_done = res.content, res.metadata, res.is_done
+            content, metadata, _is_done = res.content, res.metadata, res.is_done
 
             # Should either succeed or reject with appropriate error
             assert isinstance(content, dict | str) or "error" in metadata
@@ -103,7 +103,7 @@ class TestSSEDecoderDoSRegression:
         for payload in malformed_payloads:
             # Should not crash, may return error or fallback to string
             res = decoder.decode_payload(payload)
-            content, metadata, is_done = res.content, res.metadata, res.is_done
+            content, metadata, _is_done = res.content, res.metadata, res.is_done
 
             assert isinstance(content, dict | str | bytes) or "error" in metadata
 
@@ -124,14 +124,14 @@ class TestSSEDecoderDoSRegression:
         """Test that normal functionality still works."""
         # Test SSE with [DONE]
         res = decoder.decode_payload("data: [DONE]")
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, _metadata, is_done = res.content, res.metadata, res.is_done
 
         assert is_done, "SSE [DONE] marker should be recognized"
 
         # Test SSE with JSON
         test_json = '{"choices": [{"delta": {"content": "hello"}}]}'
         res = decoder.decode_payload(f"data: {test_json}")
-        content, metadata, is_done = res.content, res.metadata, res.is_done
+        content, _metadata, is_done = res.content, res.metadata, res.is_done
 
         assert isinstance(content, dict), "SSE JSON parsing should work"
         assert "choices" in content, "Content should contain 'choices'"
@@ -148,12 +148,12 @@ class TestSSEDecoderDoSRegression:
         # Should be rejected if exceeds limit
         if len(payload.encode("utf-8")) > decoder.MAX_PAYLOAD_SIZE:
             res = decoder.decode_payload(payload)
-            content, metadata, is_done = res.content, res.metadata, res.is_done
+            content, metadata, _is_done = res.content, res.metadata, res.is_done
 
             assert "error" in metadata, "Payload over limit should be rejected"
         else:
             # Should work if under limit
             res = decoder.decode_payload(payload)
-            content, metadata, is_done = res.content, res.metadata, res.is_done
+            content, metadata, _is_done = res.content, res.metadata, res.is_done
 
             assert isinstance(content, dict | str) or "error" in metadata

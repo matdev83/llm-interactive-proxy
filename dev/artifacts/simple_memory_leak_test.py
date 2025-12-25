@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Simplified memory leak test for ConnectionActivityTracker."""
 
-import gc
 import os
 import sys
 import time
@@ -10,7 +9,10 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from src.core.domain.connection_activity import ConnectionActivity, ConnectionType
-from src.core.services.connection_activity_tracker import get_activity_tracker, reset_activity_tracker
+from src.core.services.connection_activity_tracker import (
+    get_activity_tracker,
+    reset_activity_tracker,
+)
 
 
 def test_memory_leak():

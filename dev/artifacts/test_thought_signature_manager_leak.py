@@ -10,7 +10,6 @@ The _by_tool_call dict can grow unbounded because:
 
 import asyncio
 import sys
-import time
 from pathlib import Path
 
 # Add src to path
@@ -28,7 +27,7 @@ async def test_unbounded_growth():
     # Simulate storing signatures for different sessions with the same tool_call_id
     # In real scenarios, a tool_call_id can appear in different sessions
     for i in range(200):
-        tool_calls = [{"id": f"tool_1", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
+        tool_calls = [{"id": "tool_1", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
         if i % 50 == 0:
@@ -40,7 +39,7 @@ async def test_unbounded_growth():
 
     # Verify the leak: _by_tool_call should not exceed max_cache_size
     if len(manager._by_tool_call) > manager._max_cache_size:
-        print(f"\n!!! MEMORY LEAK DETECTED !!!")
+        print("\n!!! MEMORY LEAK DETECTED !!!")
         print(f"_by_tool_call ({len(manager._by_tool_call)}) exceeds max_cache_size ({manager._max_cache_size})")
         return True
 
@@ -67,7 +66,7 @@ async def test_same_tc_id_multiple_sessions():
         tool_calls = [{"id": f"tool_{i % 10}", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
-    print(f"Stored tool calls for 100 sessions (10 unique tool IDs)")
+    print("Stored tool calls for 100 sessions (10 unique tool IDs)")
     print(f"_cache size: {len(manager._cache)} (should be <= 100)")
     print(f"_by_tool_call size: {len(manager._by_tool_call)} (should be <= 10)")
 
@@ -76,9 +75,9 @@ async def test_same_tc_id_multiple_sessions():
     # But in reality, _by_tool_call can grow due to stale entries
 
     if len(manager._by_tool_call) > 10:
-        print(f"\n!!! MEMORY LEAK DETECTED !!!")
+        print("\n!!! MEMORY LEAK DETECTED !!!")
         print(f"_by_tool_call ({len(manager._by_tool_call)}) has more entries than expected (10)")
-        print(f"This indicates stale entries that weren't cleaned up")
+        print("This indicates stale entries that weren't cleaned up")
         return True
 
     return False
@@ -99,7 +98,7 @@ async def test_scenario_with_expiration():
         tool_calls = [{"id": f"tool_{i}", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
-    print(f"After storing 200 tool calls:")
+    print("After storing 200 tool calls:")
     print(f"  _cache: {len(manager._cache)}")
     print(f"  _by_tool_call: {len(manager._by_tool_call)}")
 
@@ -110,15 +109,15 @@ async def test_scenario_with_expiration():
     # Clean expired entries
     manager._clean_expired_entries()
 
-    print(f"\nAfter cleanup:")
+    print("\nAfter cleanup:")
     print(f"  _cache: {len(manager._cache)}")
     print(f"  _by_tool_call: {len(manager._by_tool_call)}")
 
     # After cleaning expired entries, _by_tool_call should also be small
     if len(manager._by_tool_call) > len(manager._cache):
-        print(f"\n!!! MEMORY LEAK DETECTED !!!")
+        print("\n!!! MEMORY LEAK DETECTED !!!")
         print(f"_by_tool_call ({len(manager._by_tool_call)}) is larger than _cache ({len(manager._cache)})")
-        print(f"Stale entries remain in _by_tool_call after cache cleanup")
+        print("Stale entries remain in _by_tool_call after cache cleanup")
         return True
 
     return False

@@ -5,9 +5,8 @@ access to _cleanup_tasks to prevent task loss.
 """
 
 import asyncio
-import threading
-import pytest
 
+import pytest
 from src.core.di.container import ServiceCollection
 
 

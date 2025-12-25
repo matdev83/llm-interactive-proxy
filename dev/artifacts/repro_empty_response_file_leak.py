@@ -4,10 +4,8 @@ This script demonstrates how an exception during file reading can cause
 a file handle leak because the file is opened without using a 'with' statement.
 """
 
-import tempfile
 import os
-import sys
-from pathlib import Path
+import tempfile
 
 
 def simulate_file_read_error():
@@ -43,16 +41,16 @@ def simulate_file_read_error():
 
             # Simulate an error during reading (e.g., partial read causing an error)
             # In real scenarios this could be caused by I/O errors, encoding issues, etc.
-            raise IOError("Simulated I/O error during file read")
+            raise OSError("Simulated I/O error during file read")
 
             # This line never reached - file never closed!
             content = f.read().strip()
             f.close()  # This would close the file, but we never get here
 
-        except IOError as e:
+        except OSError as e:
             print(f"Exception occurred: {e}")
             print(f"File handle leaked! File is still open: {test_file}")
-            print(f"Check if file is locked/cannot be deleted on Windows...")
+            print("Check if file is locked/cannot be deleted on Windows...")
 
             # Try to delete the file to demonstrate the leak
             try:
@@ -78,9 +76,9 @@ def simulate_file_read_error():
         try:
             # Safe pattern with 'with' statement
             with open(test_file2, encoding="utf-8") as f:
-                raise IOError("Simulated I/O error during file read")
+                raise OSError("Simulated I/O error during file read")
                 content = f.read().strip()
-        except IOError as e:
+        except OSError as e:
             print(f"Exception occurred: {e}")
             print("File was properly closed despite exception due to 'with' statement")
 

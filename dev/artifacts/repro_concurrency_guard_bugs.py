@@ -4,7 +4,6 @@ import asyncio
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
 from weakref import WeakSet
 
 
@@ -140,7 +139,7 @@ async def main():
     for err in errors[:5]:
         print(f"  - {err}")
 
-    print(f"\nGuard stats:")
+    print("\nGuard stats:")
     print(f"  Total operations: {guard._total_operations}")
     print(f"  Rejected operations: {guard._rejected_operations}")
 
