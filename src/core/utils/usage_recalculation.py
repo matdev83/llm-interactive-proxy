@@ -67,19 +67,23 @@ def recalculate_usage_after_transformation(
         reduction_pct = (
             (reduction / original_completion * 100) if original_completion > 0 else 0
         )
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Usage recalculated after content transformation: "
-                f"completion_tokens: {original_completion} -> {completion_tokens} "
-                f"({reduction} tokens / {reduction_pct:.1f}% reduction), "
-                f"total_tokens: {base_usage.total_tokens} -> {prompt_tokens + completion_tokens}"
-            )
+        logger.info(
+            "Usage recalculated after content transformation: "
+            "completion_tokens: %s -> %s "
+            "(%s tokens / %.1f%% reduction), "
+            "total_tokens: %s -> %s",
+            original_completion,
+            completion_tokens,
+            reduction,
+            reduction_pct,
+            base_usage.total_tokens,
+            prompt_tokens + completion_tokens,
+        )
 
     return base_usage.with_recalculated_tokens(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )
-
 
 
 def should_recalculate_usage(content: Any) -> bool:
@@ -188,7 +192,7 @@ def calculate_outbound_tokens(
             messages = request_data.get("messages", [])
         else:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Unknown request format: {type(request_data)}")
+                logger.debug("Unknown request format: %s", type(request_data))
             return 0
 
         # Extract and count tokens from messages
@@ -197,7 +201,7 @@ def calculate_outbound_tokens(
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Calculated outbound tokens for {model}: {token_count} tokens"
+                "Calculated outbound tokens for %s: %s tokens", model, token_count
             )
 
         return token_count
@@ -226,4 +230,3 @@ def calculate_request_usage(
         prompt_tokens=prompt_tokens,
         completion_tokens=0,  # Not yet known
     )
-
