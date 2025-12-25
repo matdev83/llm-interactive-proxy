@@ -296,8 +296,8 @@ class InMemorySessionRepository(ISessionRepository):
             if await self.delete(session_id):
                 count += 1
 
-        if count > 0:
-            logger.info(f"Cleaned up {count} expired sessions")
+        if count > 0 and logger.isEnabledFor(logging.INFO):
+            logger.info("Cleaned up %d expired sessions", count)
 
         return count
 
