@@ -12,7 +12,6 @@ from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.utils.cline_auth import ClineAuthMixin, _ClineTokenStore
 from src.connectors.utils.cline_auth_types import ClineTokenData
-
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -158,10 +157,11 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         if isinstance(data_val, dict) and (
             "choices" in data_val or "id" in data_val or "model" in data_val
         ):
-            logger.debug(
-                "Unwrapping Cline 'data' envelope - found keys: %s",
-                list(data_val.keys())[:5],
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unwrapping Cline 'data' envelope - found keys: %s",
+                    list(data_val.keys())[:5],
+                )
             return data_val
         return response_json
 
@@ -191,7 +191,8 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
                 url, json=payload, headers=guarded_headers
             )
         except httpx.RequestError as e:
-            logger.error(f"Cline request failed to {url}. Error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Cline request failed to {url}. Error: {e}")
             raise ServiceUnavailableError(
                 message=f"Could not connect to Cline backend ({e})"
             )
@@ -311,10 +312,11 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         if "cline" in haystack:
             return
 
-        logger.warning(
-            "Rejected request to Cline backend: missing 'Cline' marker in User-Agent/X-Title. "
-            "To bypass for local debugging use --enable-cline-backend-debugging-override."
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Rejected request to Cline backend: missing 'Cline' marker in User-Agent/X-Title. "
+                "To bypass for local debugging use --enable-cline-backend-debugging-override."
+            )
         raise HTTPException(
             status_code=403,
             detail=(
