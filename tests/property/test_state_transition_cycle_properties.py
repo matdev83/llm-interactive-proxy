@@ -127,7 +127,7 @@ async def test_property_14_state_transition_cycle(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Initial state: clean (no state exists yet)
-    state_initial = handler._get_session_state(session_id)
+    state_initial = await handler._get_session_state(session_id)
     is_clean_initial = state_initial is None or state_initial.is_dirty is False
     assert is_clean_initial, "Initial state should be clean"
 
@@ -142,7 +142,7 @@ async def test_property_14_state_transition_cycle(
     )
     await handler.can_handle(context_modify_1)
 
-    state_after_modify_1 = handler._get_session_state(session_id)
+    state_after_modify_1 = await handler._get_session_state(session_id)
     assert (
         state_after_modify_1 is not None
     ), "State should exist after first modification"
@@ -161,7 +161,7 @@ async def test_property_14_state_transition_cycle(
     )
     await handler.can_handle(context_test)
 
-    state_after_test = handler._get_session_state(session_id)
+    state_after_test = await handler._get_session_state(session_id)
     assert state_after_test is not None, "State should exist after test execution"
     assert (
         state_after_test.is_dirty is False
@@ -181,7 +181,7 @@ async def test_property_14_state_transition_cycle(
     )
     await handler.can_handle(context_modify_2)
 
-    state_after_modify_2 = handler._get_session_state(session_id)
+    state_after_modify_2 = await handler._get_session_state(session_id)
     assert (
         state_after_modify_2 is not None
     ), "State should exist after second modification"
@@ -229,7 +229,7 @@ async def test_property_14_extended_cycle_with_multiple_operations(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Initial state: clean
-    state_initial = handler._get_session_state(session_id)
+    state_initial = await handler._get_session_state(session_id)
     is_clean_initial = state_initial is None or state_initial.is_dirty is False
     assert is_clean_initial, "Initial state should be clean"
 
@@ -246,7 +246,7 @@ async def test_property_14_extended_cycle_with_multiple_operations(
         )
         await handler.can_handle(context_modify)
 
-        state_after_modify = handler._get_session_state(session_id)
+        state_after_modify = await handler._get_session_state(session_id)
         assert state_after_modify is not None
         assert (
             state_after_modify.is_dirty is True
@@ -264,7 +264,7 @@ async def test_property_14_extended_cycle_with_multiple_operations(
         )
         await handler.can_handle(context_test)
 
-        state_after_test = handler._get_session_state(session_id)
+        state_after_test = await handler._get_session_state(session_id)
         assert state_after_test is not None
         assert (
             state_after_test.is_dirty is False
@@ -282,7 +282,7 @@ async def test_property_14_extended_cycle_with_multiple_operations(
     )
     await handler.can_handle(context_final_modify)
 
-    state_final = handler._get_session_state(session_id)
+    state_final = await handler._get_session_state(session_id)
     assert state_final is not None
     assert (
         state_final.is_dirty is True
@@ -332,7 +332,7 @@ async def test_property_14_clean_to_dirty_transition_after_test(
     await handler.can_handle(context_test)
 
     # Verify we're in clean state
-    state_after_test = handler._get_session_state(session_id)
+    state_after_test = await handler._get_session_state(session_id)
     assert state_after_test is not None
     assert state_after_test.is_dirty is False, "State should be clean after test"
 
@@ -348,7 +348,7 @@ async def test_property_14_clean_to_dirty_transition_after_test(
     await handler.can_handle(context_modify_2)
 
     # Verify we correctly transitioned back to dirty state
-    state_after_second_modify = handler._get_session_state(session_id)
+    state_after_second_modify = await handler._get_session_state(session_id)
     assert state_after_second_modify is not None
     assert (
         state_after_second_modify.is_dirty is True

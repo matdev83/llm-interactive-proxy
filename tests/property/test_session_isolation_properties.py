@@ -39,7 +39,7 @@ file_modification_tools = st.sampled_from(
     session2_id=session_ids,
     tool_name=file_modification_tools,
 )
-def test_session_isolation_file_modifications(
+async def test_session_isolation_file_modifications(
     session1_id: str,
     session2_id: str,
     tool_name: str,
@@ -60,7 +60,7 @@ def test_session_isolation_file_modifications(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Mark session 1 as dirty
-    handler._mark_session_dirty(session1_id)
+    await handler._mark_session_dirty(session1_id)
 
     # Get state for both sessions
     state1 = handler._get_session_state(session1_id)
@@ -104,11 +104,11 @@ def test_session_isolation_multiple_sessions(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Session 1: mark dirty
-    handler._mark_session_dirty(session1_id)
+    await handler._mark_session_dirty(session1_id)
 
     # Session 2: mark dirty then clean
-    handler._mark_session_dirty(session2_id)
-    handler._mark_session_clean(session2_id, "pytest", "python", "pytest")
+    await handler._mark_session_dirty(session2_id)
+    await handler._mark_session_clean(session2_id, "pytest", "python", "pytest")
 
     # Session 3: don't touch
 
@@ -163,11 +163,11 @@ def test_session_isolation_modification_counts(
 
     # Mark session 1 dirty multiple times
     for _ in range(modifications1):
-        handler._mark_session_dirty(session1_id)
+        await handler._mark_session_dirty(session1_id)
 
     # Mark session 2 dirty multiple times
     for _ in range(modifications2):
-        handler._mark_session_dirty(session2_id)
+        await handler._mark_session_dirty(session2_id)
 
     # Get states
     state1 = handler._get_session_state(session1_id)
@@ -206,8 +206,8 @@ def test_session_isolation_clean_dirty_transitions(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Both sessions start dirty
-    handler._mark_session_dirty(session1_id)
-    handler._mark_session_dirty(session2_id)
+    await handler._mark_session_dirty(session1_id)
+    await handler._mark_session_dirty(session2_id)
 
     # Verify both are dirty
     state1 = handler._get_session_state(session1_id)
@@ -216,7 +216,7 @@ def test_session_isolation_clean_dirty_transitions(
     assert state2 is not None and state2.is_dirty is True
 
     # Clean session 1
-    handler._mark_session_clean(session1_id, "pytest", "python", "pytest")
+    await handler._mark_session_clean(session1_id, "pytest", "python", "pytest")
 
     # Get states again
     state1 = handler._get_session_state(session1_id)

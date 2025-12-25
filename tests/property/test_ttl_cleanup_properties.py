@@ -57,7 +57,7 @@ def test_ttl_cleanup_removes_expired_sessions(
     )
 
     # Create a session
-    handler._mark_session_dirty(session_id)
+    await handler._mark_session_dirty(session_id)
 
     # Verify session exists (without updating last_seen)
     assert session_id in handler._session_state
@@ -106,10 +106,10 @@ def test_ttl_cleanup_preserves_recent_sessions(
     )
 
     # Create a session
-    handler._mark_session_dirty(session_id)
+    await handler._mark_session_dirty(session_id)
 
     # Access the session (updates last_seen)
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
 
     # Run cleanup immediately (session was just accessed)
@@ -150,8 +150,8 @@ def test_ttl_cleanup_selective_removal(
     )
 
     # Create two sessions
-    handler._mark_session_dirty(session1_id)
-    handler._mark_session_dirty(session2_id)
+    await handler._mark_session_dirty(session1_id)
+    await handler._mark_session_dirty(session2_id)
 
     # Verify both exist
     assert session1_id in handler._session_state
@@ -200,7 +200,7 @@ def test_ttl_cleanup_multiple_sessions(
     # Create multiple sessions with unique IDs
     session_ids = [f"session_{i}" for i in range(num_sessions)]
     for session_id in session_ids:
-        handler._mark_session_dirty(session_id)
+        await handler._mark_session_dirty(session_id)
 
     # Verify all sessions exist
     assert len(handler._session_state) == num_sessions
@@ -262,7 +262,7 @@ def test_max_sessions_limit_enforcement(
     session_ids = [f"session_{i}" for i in range(num_sessions)]
 
     for session_id in session_ids:
-        handler._mark_session_dirty(session_id)
+        await handler._mark_session_dirty(session_id)
         # Small delay to ensure different last_seen times
         current_time = time()
         handler._prune_session_state(current_time)
@@ -326,10 +326,10 @@ def test_ttl_cleanup_updates_last_seen(
     )
 
     # Create a session
-    handler._mark_session_dirty(session_id)
+    await handler._mark_session_dirty(session_id)
 
     # Get initial last_seen
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
     # initial_last_seen = state.last_seen  # Unused
 
@@ -338,7 +338,7 @@ def test_ttl_cleanup_updates_last_seen(
     handler._session_state[session_id].last_seen = current_time - ttl_seconds + 5
 
     # Access the session (should update last_seen)
-    state = handler._get_session_state(session_id)
+    state = await handler._get_session_state(session_id)
     assert state is not None
 
     # Verify last_seen was updated

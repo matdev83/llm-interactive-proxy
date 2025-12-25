@@ -469,7 +469,7 @@ async def test_property_6_disabled_handler_no_steering(
     handler = TestExecutionReminderHandler(enabled=False)
 
     # Mark session as dirty (even though handler is disabled)
-    handler._mark_session_dirty(session_id)
+    await handler._mark_session_dirty(session_id)
 
     # Send completion signal
     tool_name, tool_arguments, response_text = completion_signal

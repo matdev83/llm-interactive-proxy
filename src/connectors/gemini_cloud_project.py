@@ -236,8 +236,14 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             else:
                 # Fallback: try to get running loop or create task
                 try:
-                    running_loop = asyncio.get_running_loop()
-                    asyncio.create_task(self.connector._schedule_credentials_reload())
+                    # Verify there's a running loop, then create task
+                    asyncio.get_running_loop()
+                    # Store task reference to prevent garbage collection
+                    _reload_task = asyncio.create_task(
+                        self.connector._schedule_credentials_reload()
+                    )
+                    # Task will continue running even if reference goes out of scope
+                    del _reload_task
                 except RuntimeError:
                     # No running loop, can't schedule async operation
                     if logger.isEnabledFor(logging.WARNING):

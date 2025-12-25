@@ -41,11 +41,13 @@ async def test_cache_invalidation_concurrent_access():
                 detector._cache.get(cache_key)
                 detector._cache_hits += 1
 
+    # Wrapper for sync invalidation method to run in task
+    async def invalidate_wrapper():
+        detector.invalidate_cache_for_backend_change("backend_1", "backend_2")
+
     tasks = [asyncio.create_task(concurrent_access()) for _ in range(5)]
     tasks.append(
-        asyncio.create_task(
-            detector.invalidate_cache_for_backend_change("backend_1", "backend_2")
-        )
+        asyncio.create_task(invalidate_wrapper())
     )
 
     # Should complete without errors
@@ -72,16 +74,16 @@ async def test_concurrent_invalidations():
 
     assert len(detector._cache) == 50
 
-    # Run concurrent invalidations
-    task1 = asyncio.create_task(
-        detector.invalidate_cache_for_backend_change("backend_1", "backend_2")
-    )
-    task2 = asyncio.create_task(
-        detector.invalidate_cache_for_agent_change("agent_1", "agent_2")
-    )
-    task3 = asyncio.create_task(
-        detector.invalidate_cache_for_backend_change("backend_1", "backend_3")
-    )
+    # Run concurrent invalidations (wrapped in async functions)
+    async def invalidate_backend(b1, b2):
+        detector.invalidate_cache_for_backend_change(b1, b2)
+
+    async def invalidate_agent(a1, a2):
+        detector.invalidate_cache_for_agent_change(a1, a2)
+
+    task1 = asyncio.create_task(invalidate_backend("backend_1", "backend_2"))
+    task2 = asyncio.create_task(invalidate_agent("agent_1", "agent_2"))
+    task3 = asyncio.create_task(invalidate_backend("backend_1", "backend_3"))
 
     # Should complete without errors
     await asyncio.gather(task1, task2, task3)
