@@ -142,7 +142,8 @@ class DroidToolTranslator:
             )
 
         # Unknown tool
-        logger.warning(f"Unknown Droid tool: {tool_name}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("Unknown Droid tool: %s", tool_name)
         raise ValueError(f"Unknown Droid tool: {tool_name}")
 
     def translate_codex_to_droid(
