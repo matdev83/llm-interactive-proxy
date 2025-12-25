@@ -386,7 +386,7 @@ class AnthropicBackend(LLMBackend):
                                 except ValueError:
                                     if logger.isEnabledFor(logging.WARNING):
                                         logger.warning(
-                                            f"Invalid data URI format: {url[:50]}"
+                                            "Invalid data URI format: %s", url[:50]
                                         )
                             elif url.startswith(("http://", "https://")):
                                 # URL source
@@ -589,11 +589,15 @@ class AnthropicBackend(LLMBackend):
                 body_text = body_bytes.decode("utf-8", errors="ignore")
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Anthropic API error {response.status_code}: {body_text}"
+                        "Anthropic API error %s: %s",
+                        response.status_code,
+                        body_text,
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Failed to read Anthropic error response body: {e}")
+                    logger.warning(
+                        "Failed to read Anthropic error response body: %s", e
+                    )
                 body_text = ""
             finally:
                 await response.aclose()
@@ -646,7 +650,7 @@ class AnthropicBackend(LLMBackend):
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 # Best effort capture; ignore expected parsing errors
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Failed to parse message ID from chunk: {e}")
+                    logger.debug("Failed to parse message ID from chunk: %s", e)
                 return
 
         async def cancel_stream() -> None:
@@ -707,7 +711,7 @@ class AnthropicBackend(LLMBackend):
 
                     # Log raw chunk for debugging
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Raw Anthropic chunk: {chunk[:200]}")
+                        logger.debug("Raw Anthropic chunk: %s", chunk[:200])
 
                     # Check for error events from backend
                     if (
@@ -741,7 +745,7 @@ class AnthropicBackend(LLMBackend):
                                         )
                         except (json.JSONDecodeError, KeyError) as e:
                             if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(f"Failed to parse error event: {e}")
+                                logger.warning("Failed to parse error event: %s", e)
 
                     # Translate Anthropic SSE chunk to domain format
                     # The translation function handles both SSE format (with event:/data: lines)
@@ -751,7 +755,8 @@ class AnthropicBackend(LLMBackend):
                     )
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}"
+                            "Translated chunk delta: %s",
+                            domain_chunk.get("choices", [{}])[0].get("delta", {}),
                         )
                     yield ProcessedResponse(content=domain_chunk)
 
@@ -885,7 +890,9 @@ class AnthropicBackend(LLMBackend):
             await self.client.post(url, headers=headers)
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to cancel Anthropic message {message_id}: {e}")
+                logger.warning(
+                    "Failed to cancel Anthropic message %s: %s", message_id, e
+                )
 
     # StreamProducer protocol implementation
     async def stream_completion(
@@ -967,11 +974,15 @@ class AnthropicBackend(LLMBackend):
 
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Anthropic API error {response.status_code}: {body_text}"
+                        "Anthropic API error %s: %s",
+                        response.status_code,
+                        body_text,
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Failed to read Anthropic error response body: {e}")
+                    logger.warning(
+                        "Failed to read Anthropic error response body: %s", e
+                    )
                 body_text = ""
             finally:
                 await response.aclose()
