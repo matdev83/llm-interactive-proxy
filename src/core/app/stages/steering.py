@@ -215,11 +215,12 @@ class SteeringStage(InitializationStage):
                                 override_path,
                             )
                     except Exception:
-                        logger.warning(
-                            "Failed to read apply_diff steering prompt from %s, using default.",
-                            override_path,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to read apply_diff steering prompt from %s, using default.",
+                                override_path,
+                                exc_info=True,
+                            )
 
                 effective_rules.append(
                     SteeringRule(
