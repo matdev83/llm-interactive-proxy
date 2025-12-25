@@ -347,7 +347,6 @@ def test_apply_failover_routes_uses_validator_and_skips_invalid(monkeypatch) -> 
     )
 
 
-
 def test_apply_failover_routes_does_not_invoke_asyncio_run(monkeypatch) -> None:
     app = FastAPI()
     application_state = ApplicationStateService()

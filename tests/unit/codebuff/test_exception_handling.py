@@ -155,7 +155,6 @@ class TestErrorResponseFormatting:
         assert response["data"]["error"] == "{'reason': 'timeout'}"
 
 
-
 class TestErrorPropagation:
     """Test error propagation through exception hierarchy."""
 

@@ -143,6 +143,8 @@ class UniversalToolExecutor:
         output = result.pop("output", "")
         exit_code = result.pop("exit_code", 0)
         error = result.pop("error", None)
+        # Remove tool_name from result if present to avoid conflict
+        result.pop("tool_name", None)
         return self._format_result(
             output=output,
             exit_code=exit_code,
@@ -902,8 +904,9 @@ class UniversalToolExecutor:
             UniversalToolResult containing formatted result
         """
         # Apply KiloCode formatting if enabled
-        if self.result_format == "kilo_standard":
+        if self.result_format == "kilo_standard" and not output.startswith("["):
             # Format output with [tool_name] Result: prefix
+            # Skip if output already has a tool name prefix (e.g., from MCP tools)
             output = f"[{tool_name}] Result:\n{output}"
 
         return UniversalToolResult(

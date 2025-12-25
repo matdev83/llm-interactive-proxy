@@ -266,4 +266,3 @@ async def test_property_33_accounting_integration(action: PromptAction):
 
     # The response contains usage information that can be used for accounting
     assert "usage" in mock_response.response
-

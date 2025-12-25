@@ -165,6 +165,7 @@ def create_test_config() -> AppConfig:
         AuthConfig,
         BackendConfig,
         BackendSettings,
+        UsageTrackingConfig,
     )
 
     return AppConfig(
@@ -174,6 +175,7 @@ def create_test_config() -> AppConfig:
             default_backend="openai", openai=BackendConfig(api_key="test_key")
         ),
         auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
+        usage_tracking=UsageTrackingConfig(enabled=False),
     )
 
 

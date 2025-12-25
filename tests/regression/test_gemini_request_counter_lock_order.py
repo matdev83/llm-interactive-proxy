@@ -6,6 +6,7 @@ state during initialization and concurrent access.
 GitHub Issue: DailyRequestCounter lock creation order race condition
 File: src/connectors/utils/gemini_request_counter.py
 """
+
 import json
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -20,15 +21,17 @@ class TestDailyRequestCounterLockOrder:
 
     def test_lock_exists_immediately_after_init(self):
         """Test that _lock exists immediately after initialization."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:
             counter = DailyRequestCounter(temp_path, limit=100)
 
             # Lock should exist immediately
-            assert hasattr(counter, '_lock'), "_lock should exist after initialization"
+            assert hasattr(counter, "_lock"), "_lock should exist after initialization"
             assert counter._lock is not None, "_lock should not be None"
 
             # Lock should be usable
@@ -40,8 +43,10 @@ class TestDailyRequestCounterLockOrder:
     @pytest.mark.asyncio
     async def test_concurrent_increments_with_threading(self):
         """Test that concurrent increments are properly protected."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -62,16 +67,18 @@ class TestDailyRequestCounterLockOrder:
 
             # All increments should be counted
             expected_count = num_threads * increments_per_thread
-            assert counter.count == expected_count, (
-                f"Expected {expected_count} increments, got {counter.count}"
-            )
+            assert (
+                counter.count == expected_count
+            ), f"Expected {expected_count} increments, got {counter.count}"
         finally:
             temp_path.unlink(missing_ok=True)
 
     def test_increment_protects_shared_state(self):
         """Test that increment() properly protects shared state."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -107,8 +114,12 @@ class TestDailyRequestCounterLockOrder:
         pacific_tz = pytz.timezone("America/Los_Angeles")
         current_date = datetime.now(pacific_tz).strftime("%Y-%m-%d")
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            initial_data = {"count": 42, "last_reset_date": current_date, "logged_thresholds": [70, 80]}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            initial_data = {
+                "count": 42,
+                "last_reset_date": current_date,
+                "logged_thresholds": [70, 80],
+            }
             json.dump(initial_data, f)
             temp_path = Path(f.name)
 
@@ -129,7 +140,7 @@ class TestDailyRequestCounterLockOrder:
 
     def test_load_state_with_corrupted_file(self):
         """Test that _load_state handles corrupted JSON gracefully."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write('{"count": "not a number", "last_reset_date": "2025-01-01"}')
             temp_path = Path(f.name)
 
@@ -139,14 +150,16 @@ class TestDailyRequestCounterLockOrder:
 
             # Should have default values
             assert counter.count == 0  # Failed to load, uses default
-            assert hasattr(counter, '_lock')
+            assert hasattr(counter, "_lock")
         finally:
             temp_path.unlink(missing_ok=True)
 
     def test_save_state_protected(self):
         """Test that _save_state works correctly with persistence."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -167,9 +180,11 @@ class TestDailyRequestCounterLockOrder:
 
     def test_reset_if_needed_updates_state(self):
         """Test that _reset_if_needed correctly updates state."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             # Set old date to trigger reset
-            f.write('{"count": 99, "last_reset_date": "2024-12-31", "logged_thresholds": [70, 80]}')
+            f.write(
+                '{"count": 99, "last_reset_date": "2024-12-31", "logged_thresholds": [70, 80]}'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -177,7 +192,9 @@ class TestDailyRequestCounterLockOrder:
 
             # Should have been reset
             assert counter.count == 0, "Count should be reset to 0"
-            assert len(counter.logged_thresholds) == 0, "Logged thresholds should be cleared"
+            assert (
+                len(counter.logged_thresholds) == 0
+            ), "Logged thresholds should be cleared"
 
             # Verify persistence
             with open(temp_path, encoding="utf-8") as f:
@@ -190,8 +207,10 @@ class TestDailyRequestCounterLockOrder:
 
     def test_lock_reusability(self):
         """Test that the same lock instance is reused for all operations."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -211,8 +230,10 @@ class TestDailyRequestCounterLockOrder:
 
     def test_threshold_logging_with_lock(self):
         """Test that threshold logging works correctly with lock protection."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write('{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(
+                '{"count": 0, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+            )
             temp_path = Path(f.name)
 
         try:

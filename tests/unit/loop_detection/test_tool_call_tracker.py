@@ -198,9 +198,7 @@ class TestToolCallTracker:
         config.enabled = False
         tracker = ToolCallTracker(config)
 
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -212,9 +210,7 @@ class TestToolCallTracker:
         """Test tracking the first call."""
         tracker = ToolCallTracker(config)
 
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -225,7 +221,6 @@ class TestToolCallTracker:
         # Consecutive count should be initialized
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
-
 
 
 class TestToolCallLoopConfig:
@@ -312,9 +307,7 @@ class TestToolCallTrackerFunctionality:
 
         # Make repeated calls but not enough to trigger blocking
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call(
-                "test_tool", '{"arg": "value"}'
-            )
+            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # Check that the consecutive count is correct
@@ -329,46 +322,34 @@ class TestToolCallTrackerFunctionality:
 
         # Make repeated calls to trigger blocking
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call(
-                "test_tool", '{"arg": "value"}'
-            )
+            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # The last call should be blocked
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
         assert "Tool call loop detected" in result.reason
         assert result.repeat_count == config.max_repeats
 
-
     def test_track_tool_call_repeated_at_threshold_chance_mode(self, config) -> None:
-
         """Test tracking repeated calls at the threshold with chance_then_break mode."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
 
         # Make repeated calls to trigger the chance
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call(
-                "test_tool", '{"arg": "value"}'
-            )
+            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # The call at the threshold should be blocked with a chance
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
-
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
         assert "Tool call loop warning" in result.reason
         assert result.repeat_count == config.max_repeats
-
 
         # Check that chance was given
         full_sig = tracker.signatures[0].get_full_signature()
@@ -400,9 +381,7 @@ class TestToolCallTrackerFunctionality:
         assert tracker.consecutive_repeats[full_sig] == 1
 
         # The next identical call should be treated as the second repeat, not blocked
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -419,9 +398,7 @@ class TestToolCallTrackerFunctionality:
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Now make a different call
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "different"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "different"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -443,9 +420,7 @@ class TestToolCallTrackerFunctionality:
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Now make the same call again
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
@@ -471,9 +446,7 @@ class TestToolCallTrackerFunctionality:
 
         # Now make the original call again
         # Total count is now initial_calls + 1 = max_repeats - 1, should not block
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -526,9 +499,7 @@ class TestToolCallTrackerFunctionality:
             ) - datetime.timedelta(seconds=config.ttl_seconds + 10)
 
         # Make the same call again - should not block due to TTL expiry
-        result = tracker.track_tool_call(
-            "test_tool", '{"arg": "value"}'
-        )
+        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -539,7 +510,6 @@ class TestToolCallTrackerFunctionality:
         # Check that the consecutive count was reset
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
-
 
 
 class TestToolCallLoopConfigParsing:

@@ -413,10 +413,18 @@ def test_property_5_gemini_text_and_tool_calls_both_preserved(
 
     # Tool calls should be preserved in delta.tool_calls
     actual_tool_calls = delta.tool_calls or []
-    actual_tool_call_names = [
-        tc.get("function", {}).get("name", "") if isinstance(tc, dict) else ""
-        for tc in actual_tool_calls
-    ]
+    actual_tool_call_names = []
+    for tc in actual_tool_calls:
+        if isinstance(tc, dict):
+            name = tc.get("function", {}).get("name", "")
+        else:
+            # Handle Pydantic model (StreamingToolCall)
+            func = getattr(tc, "function", None)
+            if isinstance(func, dict):
+                name = func.get("name", "")
+            else:
+                name = getattr(func, "name", "") if func else ""
+        actual_tool_call_names.append(name)
 
     assert len(actual_tool_call_names) == len(expected_tool_call_names), (
         f"Number of tool calls should match. "
@@ -559,5 +567,14 @@ def test_property_5_gemini_mixed_parts_order_independent(
     tc1 = result_text_first.choices[0].delta.tool_calls[0]
     tc2 = result_tool_first.choices[0].delta.tool_calls[0]
 
-    assert tc1.get("function", {}).get("name") == function_name
-    assert tc2.get("function", {}).get("name") == function_name
+    def get_func_name(tc):
+        if isinstance(tc, dict):
+            return tc.get("function", {}).get("name")
+        # Handle StreamingToolCall
+        func = getattr(tc, "function", None)
+        if isinstance(func, dict):
+            return func.get("name")
+        return getattr(func, "name", None) if func else None
+
+    assert get_func_name(tc1) == function_name
+    assert get_func_name(tc2) == function_name

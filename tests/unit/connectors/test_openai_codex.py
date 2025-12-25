@@ -314,12 +314,14 @@ async def test_schedule_credentials_reload_invalid_file(auth_dir: Path):
             await backend.initialize(openai_codex_path=str(auth_dir))
 
         # Mock validation to return failure
+        from src.core.domain.validation import ValidationResult
+
         with (
             patch.object(backend, "_load_auth", return_value=True),
             patch.object(
                 backend,
                 "_validate_credentials_structure",
-                return_value=(False, ["Missing required fields"]),
+                return_value=ValidationResult.failure(["Missing required fields"]),
             ),
         ):
             backend._auth_credentials = {}

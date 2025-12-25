@@ -6,6 +6,8 @@ import logging
 import re
 from dataclasses import dataclass
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
 
 # Maximum number of patterns to prevent unbounded memory growth
@@ -35,6 +37,24 @@ class TestRunnerPattern:
     """Priority for pattern matching (higher = more specific)."""
 
 
+class TestRunnerMatch(BaseModel):
+    """Result of a test runner pattern match."""
+
+    is_match: bool = Field(description="True if command matches a test runner pattern")
+    language: str | None = Field(
+        default=None, description="The programming language or None"
+    )
+    framework: str | None = Field(
+        default=None, description="The test framework or None"
+    )
+
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.is_match
+        yield self.language
+        yield self.framework
+
+
 class TestRunnerRegistry:
     """Registry of test runner patterns for multiple languages.
 
@@ -53,7 +73,7 @@ class TestRunnerRegistry:
         self._max_patterns = max_patterns
         self._load_default_patterns()
 
-    def match_command(self, command: str) -> tuple[bool, str | None, str | None]:
+    def match_command(self, command: str) -> TestRunnerMatch:
         """Match command against registered patterns.
 
         Attempts to match the given command against all registered test runner
@@ -64,22 +84,20 @@ class TestRunnerRegistry:
             command: The command string to match
 
         Returns:
-            Tuple of (is_match, language, framework) where:
-            - is_match: True if command matches a test runner pattern
-            - language: The programming language (e.g., 'python') or None
-            - framework: The test framework (e.g., 'pytest') or None
+            TestRunnerMatch object containing match status and metadata.
 
         Examples:
             >>> registry = TestRunnerRegistry()
-            >>> registry.match_command("pytest tests/")
-            (True, 'python', 'pytest')
-            >>> registry.match_command("python -m pytest")
-            (True, 'python', 'pytest')
-            >>> registry.match_command("npm test")
-            (False, None, None)  # Not loaded yet in this example
+            >>> match = registry.match_command("pytest tests/")
+            >>> match.is_match
+            True
+            >>> match.language
+            'python'
+            >>> match.framework
+            'pytest'
         """
         if not command:
-            return (False, None, None)
+            return TestRunnerMatch(is_match=False)
 
         # Sort patterns by priority (highest first)
         sorted_patterns = sorted(self._patterns, key=lambda p: p.priority, reverse=True)
@@ -87,9 +105,13 @@ class TestRunnerRegistry:
         for pattern_def in sorted_patterns:
             for pattern in pattern_def.patterns:
                 if pattern.search(command):
-                    return (True, pattern_def.language, pattern_def.framework)
+                    return TestRunnerMatch(
+                        is_match=True,
+                        language=pattern_def.language,
+                        framework=pattern_def.framework,
+                    )
 
-        return (False, None, None)
+        return TestRunnerMatch(is_match=False)
 
     def register_pattern(self, pattern: TestRunnerPattern) -> None:
         """Register a new test runner pattern.

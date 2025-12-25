@@ -9,10 +9,11 @@ from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 class MockMemoryService:
     """Mock memory service for testing."""
 
-    def __init__(self):
+    def __init__(self, sleep_time=0.01):
         self.enabled_sessions = {}
         self.enable_count = 0
         self.enable_lock = asyncio.Lock()
+        self.sleep_time = sleep_time
 
     def is_available(self):
         return True
@@ -23,9 +24,9 @@ class MockMemoryService:
         async with self.enable_lock:
             return session_id in self.enabled_sessions
 
-    async def enable_for_session(self, session_id, **kwargs):
+    async def enable_for_session(self, session_id, user_id=None, **kwargs):
         # Simulate slow async operation to create race window
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(self.sleep_time)
         async with self.enable_lock:
             if session_id not in self.enabled_sessions:
                 self.enabled_sessions[session_id] = True
@@ -48,9 +49,7 @@ async def test_concurrent_auto_enable_prevents_duplicates():
         request = Mock()
         request.messages = []
         await middleware.capture_request(
-            session_id=session_id,
-            request=request,
-            user_id="test-user"
+            session_id=session_id, request=request, user_id="test-user"
         )
 
     # Create many concurrent requests for same session
@@ -76,9 +75,7 @@ async def test_different_sessions_can_enable_concurrently():
         request = Mock()
         request.messages = []
         await middleware.capture_request(
-            session_id=session_id,
-            request=request,
-            user_id="test-user"
+            session_id=session_id, request=request, user_id="test-user"
         )
 
     # Create concurrent requests for different sessions
@@ -87,21 +84,21 @@ async def test_different_sessions_can_enable_concurrently():
     await asyncio.gather(*tasks)
 
     # Each session should be enabled once
-    assert mock_service.enable_count == 10, (
-        f"Expected 10 enables (one per session), got {mock_service.enable_count}"
-    )
+    assert (
+        mock_service.enable_count == 10
+    ), f"Expected 10 enables (one per session), got {mock_service.enable_count}"
 
     for session_id in session_ids:
-        assert session_id in mock_service.enabled_sessions, (
-            f"Session {session_id} was not enabled"
-        )
+        assert (
+            session_id in mock_service.enabled_sessions
+        ), f"Session {session_id} was not enabled"
 
 
 async def test_ttlcache_respects_max_size():
     """Test that TTLCache prevents unbounded growth."""
     config = Mock()
     config.default_enabled = True
-    mock_service = MockMemoryService()
+    mock_service = MockMemoryService(sleep_time=0)
     middleware = MemoryCaptureMiddleware(mock_service, config)
 
     # Enable more sessions than TTLCache maxsize (10000)
@@ -111,7 +108,7 @@ async def test_ttlcache_respects_max_size():
         await middleware.capture_request(
             session_id=f"session-{i}",
             request=request,
-            user_id=f"user-{i % 100}"  # 100 users
+            user_id=f"user-{i % 100}",  # 100 users
         )
 
     # Try to enable 15000 sessions (more than maxsize)
@@ -120,9 +117,9 @@ async def test_ttlcache_respects_max_size():
 
     # Cache should not grow unbounded (cachetools TTLCache handles this)
     cache_size = len(middleware._auto_enabled_sessions)
-    assert cache_size <= 10000, (
-        f"TTLCache grew to {cache_size}, exceeding maxsize of 10000"
-    )
+    assert (
+        cache_size <= 10000
+    ), f"TTLCache grew to {cache_size}, exceeding maxsize of 10000"
 
 
 async def test_already_enabled_session_not_re_enabled():
@@ -141,15 +138,11 @@ async def test_already_enabled_session_not_re_enabled():
     request = Mock()
     request.messages = []
     await middleware.capture_request(
-        session_id="pre-enabled",
-        request=request,
-        user_id="test-user"
+        session_id="pre-enabled", request=request, user_id="test-user"
     )
 
     # Should not re-enable already-enabled session
-    assert mock_service.enable_count == 1, (
-        "Already-enabled session was re-enabled!"
-    )
+    assert mock_service.enable_count == 1, "Already-enabled session was re-enabled!"
 
 
 async def test_no_auto_enable_when_default_disabled():
@@ -165,16 +158,16 @@ async def test_no_auto_enable_when_default_disabled():
         await middleware.capture_request(
             session_id=f"session-{asyncio.current_task().get_name()}",
             request=request,
-            user_id="test-user"
+            user_id="test-user",
         )
 
     tasks = [request_handler() for _ in range(10)]
     await asyncio.gather(*tasks)
 
     # No sessions should be auto-enabled
-    assert mock_service.enable_count == 0, (
-        f"Expected 0 enables with default_enabled=False, got {mock_service.enable_count}"
-    )
+    assert (
+        mock_service.enable_count == 0
+    ), f"Expected 0 enables with default_enabled=False, got {mock_service.enable_count}"
 
 
 if __name__ == "__main__":

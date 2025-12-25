@@ -27,7 +27,6 @@ async def test_resolve_gemini_api_config_uses_custom_header_name() -> None:
     assert api_config.headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
 
 
-
 @pytest.mark.asyncio
 async def test_list_models_respects_key_name(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = GeminiBackend(
@@ -51,4 +50,3 @@ async def test_list_models_respects_key_name(monkeypatch: pytest.MonkeyPatch) ->
     assert captured_headers["X-Alt-Key"] == "another-secret"
     assert captured_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
     assert result.data == []
-

@@ -9,6 +9,7 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 
 import logging
 import time
+from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.assessment import (
@@ -227,7 +228,10 @@ class AssessmentService(IAssessmentService):
         )
 
     def _parse_assessment_response(
-        self, response: LLMAssessmentResponse, session_id: str, turn_count: int
+        self,
+        response: LLMAssessmentResponse | dict[str, Any] | Any,
+        session_id: str,
+        turn_count: int,
     ) -> AssessmentResult:
         """
         Parse and validate assessment response from backend.
@@ -244,8 +248,9 @@ class AssessmentService(IAssessmentService):
             AssessmentError: If response is invalid
         """
         try:
-            reasoning = response.reasoning
-            confidence = response.confidence
+            response_model = self._coerce_assessment_response(response)
+            reasoning = response_model.reasoning
+            confidence = response_model.confidence
 
             # Validate reasoning
             if not reasoning.strip():
@@ -259,7 +264,7 @@ class AssessmentService(IAssessmentService):
 
             # Create result
             result = AssessmentResult.from_llm_response(
-                response.model_dump(), session_id, turn_count
+                response_model.model_dump(), session_id, turn_count
             )
 
             if is_log_level_enabled(logger, logging.DEBUG):
@@ -272,6 +277,28 @@ class AssessmentService(IAssessmentService):
 
         except (ValueError, TypeError, KeyError) as e:
             raise AssessmentError(f"Failed to parse assessment response: {e}") from e
+
+    def _coerce_assessment_response(
+        self, response: LLMAssessmentResponse | dict[str, Any] | Any
+    ) -> LLMAssessmentResponse:
+        if isinstance(response, LLMAssessmentResponse):
+            return response
+
+        if isinstance(response, dict):
+            return LLMAssessmentResponse(**response)
+
+        if hasattr(response, "model_dump") and callable(response.model_dump):
+            return LLMAssessmentResponse(**response.model_dump())
+
+        if hasattr(response, "reasoning") and hasattr(response, "confidence"):
+            return LLMAssessmentResponse(
+                reasoning=str(response.reasoning),
+                confidence=float(response.confidence),
+            )
+
+        raise AssessmentError(
+            f"Invalid assessment response type: {type(response).__name__}"
+        )
 
     def _validate_history(self, history: list[ChatMessage]) -> bool:
         """

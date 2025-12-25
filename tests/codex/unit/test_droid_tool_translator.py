@@ -100,9 +100,7 @@ class TestDroidToolTranslatorLS:
         )
 
         translator = DroidToolTranslator()
-        result = translator.translate_tool_call(
-            "LS", {"directory_path": "/src"}
-        )
+        result = translator.translate_tool_call("LS", {"directory_path": "/src"})
         tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "list_dir"
         assert args["path"] == "/src"
@@ -232,9 +230,7 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        result = translator.translate_tool_call(
-            "Grep", {"pattern": "def test_"}
-        )
+        result = translator.translate_tool_call("Grep", {"pattern": "def test_"})
         tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "def test_"

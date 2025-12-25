@@ -312,7 +312,7 @@ async def test_kilocode_complete_workflow(
         completion_xml, session_id
     )
     assert completion_result is not None
-    assert completion_result[0] == "__proxy_attempt_completion"
+    assert completion_result.tool_name == "__proxy_attempt_completion"
 
 
 @pytest.mark.integration

@@ -396,11 +396,10 @@ class ConnectionManager:
                                     if not self._subscriptions[topic]:
                                         del self._subscriptions[topic]
 
-            if stale_connections:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Cleaned up %d stale connections", len(stale_connections)
-                    )
+            if stale_connections and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Cleaned up %d stale connections", len(stale_connections)
+                )
 
             # Enforce max_connections limit strictly after cleanup
             # This prevents growth beyond limit even if some connections couldn't be cleaned

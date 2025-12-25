@@ -27,10 +27,7 @@ class ConcreteCommandService(ICommandService):
         mock_result = MagicMock()
         mock_result.message = f"executed {command.name}"
         mock_result.success = True
-        return CommandResultWrapper(
-            command.name,
-            mock_result
-        )
+        return CommandResultWrapper(command.name, mock_result)
 
 
 @pytest.mark.asyncio
@@ -55,7 +52,10 @@ async def test_ensure_command_service_wraps_async_callable() -> None:
         mock_result.message = "success"
         mock_result.success = True
         return ProcessedResult(
-            modified_messages=[ChatMessage(role=m.role, content=f"{session_id}:{m.content}") for m in messages],
+            modified_messages=[
+                ChatMessage(role=m.role, content=f"{session_id}:{m.content}")
+                for m in messages
+            ],
             command_executed=bool(messages),
             command_results=[CommandResultWrapper("test", mock_result)],
         )
@@ -78,7 +78,11 @@ async def test_ensure_command_service_wraps_sync_callable() -> None:
         mock_result.message = "success"
         mock_result.success = True
         return ProcessedResult(
-            modified_messages=[ChatMessage(role=m.role, content=m.content.upper()) for m in messages if isinstance(m.content, str)],
+            modified_messages=[
+                ChatMessage(role=m.role, content=m.content.upper())
+                for m in messages
+                if isinstance(m.content, str)
+            ],
             command_executed=True,
             command_results=[CommandResultWrapper("test", mock_result)],
         )
@@ -90,7 +94,6 @@ async def test_ensure_command_service_wraps_sync_callable() -> None:
     assert result.modified_messages[0].content == "HELLO"
     assert result.command_executed is True
     assert len(result.command_results) == 1
-
 
 
 def test_ensure_command_service_rejects_none() -> None:

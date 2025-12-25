@@ -253,6 +253,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
         try:
             self._file_observer = Observer()
+            self._file_observer.daemon = True
             handler = AnthropicCredentialsFileHandler(self)
             watch_dir = self._credentials_path.parent
             self._file_observer.schedule(handler, str(watch_dir), recursive=False)

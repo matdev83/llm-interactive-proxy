@@ -124,7 +124,6 @@ class TestAssessmentService:
         )
         mock_backend_service.perform_assessment.return_value = mock_response
 
-
         # Act
         result = await assessment_service.assess_conversation(
             sample_conversation, "test_session"
@@ -202,7 +201,6 @@ class TestAssessmentService:
             await assessment_service.assess_conversation(
                 sample_conversation, "test_session"
             )
-
 
     def test_trim_recent_history_within_window(
         self, assessment_service, sample_conversation

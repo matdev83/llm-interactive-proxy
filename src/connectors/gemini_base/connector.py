@@ -1349,9 +1349,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         object="model",
                         owned_by="google",
                     )
-                    if isinstance(model_info, dict):
-                        if "displayName" in model_info:
-                            model_entry.name = model_info["displayName"]
+                    if isinstance(model_info, dict) and "displayName" in model_info:
+                        model_entry.name = model_info["displayName"]
 
                     model_infos.append(model_entry)
 

@@ -56,13 +56,11 @@ Search rules (must follow)
 
 Completion gates (must be satisfied before reporting success)
 - Progress tracking: Use a TODO/Task List tool to track: scan -> pick file -> baseline tests -> implement -> run tests -> commit -> final report.
-- Start clean: Run `git status --porcelain` before editing. If it is not empty, STOP and report back (do not stash/reset/checkout the whole tree).
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
   - Forbidden examples: `git checkout -b`, `git switch -c`, `git checkout <branch>`, `git switch <branch>`, `git pull`, `git push`, `git fetch`, `git remote ...`, `git submodule ...`, `git tag ...`.
 - Tests (required): Identify ALL test files directly related to the file you plan to change, then run them at baseline (pre-change) and again after your changes.
   - Find related tests by searching `tests/` for imports/references to the changed module(s) and key symbols.
-  - Baseline (pre-change): run BEFORE editing any file; they must be green. If they fail at baseline, do NOT proceed on this target; pick a different target or STOP and report.
   - Post-change: re-run the same tests after your changes; if any fail, keep fixing and re-run until all pass.
   - Run with: `./.venv/Scripts/python.exe -m pytest <test_file1> <test_file2> ...`
   - Abort protocol: if you cannot get the post-change tests green after 3 fix->test cycles, restore only the files you changed (explicit paths, no globs) until `git status --porcelain` is clean, then report.
@@ -93,7 +91,6 @@ Orchestrator instructions (READ-ONLY)
 
 Per-iteration checklist (for i = 1..50)
 1) If the stop file exists: break.
-2) (Read-only) Before spawning, record current branch: `git rev-parse --abbrev-ref HEAD` (must not be `HEAD`), record current HEAD: `git rev-parse HEAD`, and confirm the working tree is clean: `git status --porcelain` is empty. If not clean, STOP iterating.
 3) Spawn exactly ONE subagent with the task prompt (replace `{list-of-fixed-files}` with your accumulated list).
 4) After the subagent reports back, verify (read-only checks + report review):
    - Branch/HEAD safety: `git rev-parse --abbrev-ref HEAD` is unchanged and not `HEAD`.

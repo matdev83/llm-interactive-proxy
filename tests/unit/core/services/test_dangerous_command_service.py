@@ -68,7 +68,6 @@ def test_scan_tool_call_detects_dangerous_commands(
     assert matched_command == command
 
 
-
 def test_scan_tool_call_ignores_safe_commands(
     dangerous_command_service: DangerousCommandService,
 ):
@@ -122,7 +121,6 @@ def test_scan_tool_call_handles_mixed_case_tool_names(
     assert matched_rule.name == "git-reset-hard"
 
 
-
 def test_scan_tool_call_extracts_command_from_json_arguments(
     dangerous_command_service: DangerousCommandService,
 ):
@@ -144,7 +142,6 @@ def test_scan_tool_call_extracts_command_from_json_arguments(
     matched_command = result.command
     assert matched_rule.name == "git-reset-hard"
     assert matched_command == "git reset --hard"
-
 
 
 def test_clean_with_dry_run_is_ignored(
@@ -250,4 +247,3 @@ def test_whitespace_and_quotes_variants(
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
     assert result.rule.name == expected_rule
-

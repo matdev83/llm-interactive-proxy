@@ -124,6 +124,7 @@ class TestBackendAutoDiscovery:
             "streaming_utils",
             "gemini_request_counter",
             "gemini_oauth_base",
+            "gemini_cli_acp_types",
             "openai_codex_config",  # Configuration file, not a backend
         )
         backend_files = [

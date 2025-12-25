@@ -483,7 +483,6 @@ class TestBug4NoneFinishReasonWithToolCalls:
         result_model = openai_to_anthropic_response(openai_response)
         result = result_model.model_dump(exclude_none=True)
 
-
         # CRITICAL: stop_reason must be "tool_use", NOT None
         assert result["stop_reason"] == "tool_use", (
             f"Bug regression: Tool call response has stop_reason={result['stop_reason']!r} "
@@ -526,7 +525,6 @@ class TestBug4NoneFinishReasonWithToolCalls:
         result_model = openai_to_anthropic_response(openai_response)
         result = result_model.model_dump(exclude_none=True)
 
-
         assert result["stop_reason"] == "tool_use"
 
     def test_normal_response_with_none_finish_reason_remains_none(self) -> None:
@@ -553,7 +551,6 @@ class TestBug4NoneFinishReasonWithToolCalls:
 
         # For non-tool responses, None finish_reason should remain None stop_reason
         assert result.stop_reason is None
-
 
 
 class TestCombinedBugScenario:

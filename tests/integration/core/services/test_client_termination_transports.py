@@ -290,12 +290,17 @@ class TestCodebuffDisconnect:
         connection_manager = ConnectionManager()
         message_router = MessageRouter()
 
+        # Create mock config with max_message_size_bytes
+        mock_config = MagicMock()
+        mock_config.max_message_size_bytes = 1024 * 1024  # 1MB
+
         server = CodebuffWebSocketServer(
             connection_manager=connection_manager,
             message_router=message_router,
             prompt_handler=MagicMock(),
             init_handler=MagicMock(),
             subscription_handler=MagicMock(),
+            config=mock_config,
             metrics_initializer=mock_metrics_initializer,
             client_eos_service=mock_client_eos_service,
         )

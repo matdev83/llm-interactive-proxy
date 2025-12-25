@@ -72,6 +72,24 @@ def _truncate_text(value: str | None, limit: int) -> str | None:
     return value[:limit] + "\n...[truncated]"
 
 
+def _normalize_tool_calls(tool_calls: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for tool_call in tool_calls:
+        if hasattr(tool_call, "model_dump") and callable(tool_call.model_dump):
+            normalized.append(tool_call.model_dump(exclude_none=True))
+        elif isinstance(tool_call, dict):
+            normalized.append(tool_call)
+    return normalized
+
+
+def _tool_call_name(tool_call: Any) -> str:
+    if hasattr(tool_call, "function"):
+        return str(tool_call.function.name)
+    if isinstance(tool_call, dict):
+        return str(tool_call.get("function", {}).get("name", "unknown"))
+    return "unknown"
+
+
 class VTCResponseStreamWrapper:
     """
     Wraps ProcessedResponse streams with VTC (Virtual Tool Calling) processing.
@@ -400,7 +418,6 @@ class VTCResponseStreamWrapper:
                     tool_name = func_info.get("name", "unknown")
                     raw_tool_args = func_info.get("arguments", "{}")
 
-
                 # Use standardized argument parsing/fixup pipeline if available
                 if self._arguments_parser and self._arguments_fixup_pipeline:
                     from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
@@ -518,19 +535,16 @@ class VTCResponseStreamWrapper:
         tool_calls, cleaned_content = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
                 "VTC wrapper detected %d tool call(s): %s",
                 len(tool_calls),
-                [
-                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
-                    for tc in tool_calls
-                ],
+                [_tool_call_name(tc) for tc in tool_calls],
             )
             # Invoke reactor for detected tool calls and handle swallowing
             non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
-                tool_calls
+                normalized_tool_calls
             )
-
 
             # If any tool calls were swallowed, strip tool XML and mark for backend retry.
             # IMPORTANT: Never inject steering/replacement messages into client-visible output.
@@ -555,7 +569,7 @@ class VTCResponseStreamWrapper:
                             and replacement_msg.strip()
                             else _DEFAULT_BACKEND_STEERING_MESSAGE
                         ),
-                        "swallowed_tool_calls": tool_calls,
+                        "swallowed_tool_calls": normalized_tool_calls,
                         "swallowed_original_content": _truncate_text(
                             buffer_content,
                             _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
@@ -565,12 +579,14 @@ class VTCResponseStreamWrapper:
                 )
 
             # No tool calls were swallowed - return original content unchanged
-            return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+            return self._create_chunk_with_text(
+                buffer_content, tool_calls=normalized_tool_calls
+            )
         else:
             logger.debug("VTC wrapper found no tool calls in complete pattern")
 
         # No tool calls found - return original content unchanged
-        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+        return self._create_chunk_with_text(buffer_content, tool_calls=None)
 
     def _process_complete_pattern(self) -> ProcessedResponse:
         """
@@ -591,13 +607,11 @@ class VTCResponseStreamWrapper:
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
                 "VTC wrapper detected %d tool call(s): %s",
                 len(tool_calls),
-                [
-                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
-                    for tc in tool_calls
-                ],
+                [_tool_call_name(tc) for tc in tool_calls],
             )
         else:
 
@@ -605,7 +619,9 @@ class VTCResponseStreamWrapper:
 
         # Return original content unchanged - VTC clients expect their original format
         # Tool calls are added to metadata for reactor processing
-        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+        return self._create_chunk_with_text(
+            buffer_content, tool_calls=normalized_tool_calls if tool_calls else None
+        )
 
     async def _flush_buffer_async(self) -> ProcessedResponse | None:
         """
@@ -629,19 +645,16 @@ class VTCResponseStreamWrapper:
         tool_calls, cleaned_content = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
                 "VTC wrapper detected %d tool call(s) on flush: %s",
                 len(tool_calls),
-                [
-                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
-                    for tc in tool_calls
-                ],
+                [_tool_call_name(tc) for tc in tool_calls],
             )
             # Invoke reactor for detected tool calls and handle swallowing
             non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
-                tool_calls
+                normalized_tool_calls
             )
-
 
             # If any tool calls were swallowed, strip tool XML and mark for backend retry.
             # IMPORTANT: Never inject steering/replacement messages into client-visible output.
@@ -666,7 +679,7 @@ class VTCResponseStreamWrapper:
                             and replacement_msg.strip()
                             else _DEFAULT_BACKEND_STEERING_MESSAGE
                         ),
-                        "swallowed_tool_calls": tool_calls,
+                        "swallowed_tool_calls": normalized_tool_calls,
                         "swallowed_original_content": _truncate_text(
                             buffer_content,
                             _MAX_SWALLOWED_ORIGINAL_CONTENT_CHARS,
@@ -676,10 +689,12 @@ class VTCResponseStreamWrapper:
                 )
 
             # No tool calls were swallowed - return original content unchanged
-            return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+            return self._create_chunk_with_text(
+                buffer_content, tool_calls=normalized_tool_calls
+            )
 
         # No tool calls found - return original content unchanged
-        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+        return self._create_chunk_with_text(buffer_content, tool_calls=None)
 
     def _flush_buffer(self) -> ProcessedResponse | None:
         """
@@ -702,19 +717,18 @@ class VTCResponseStreamWrapper:
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
                 "VTC wrapper detected %d tool call(s) on flush: %s",
                 len(tool_calls),
-                [
-                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
-                    for tc in tool_calls
-                ],
+                [_tool_call_name(tc) for tc in tool_calls],
             )
-
 
         # Return original content unchanged - VTC clients expect their original format
         # Tool calls are added to metadata for reactor processing
-        return self._create_chunk_with_text(buffer_content, tool_calls=tool_calls)
+        return self._create_chunk_with_text(
+            buffer_content, tool_calls=normalized_tool_calls if tool_calls else None
+        )
 
     def _create_chunk_with_text(
         self,
@@ -739,7 +753,7 @@ class VTCResponseStreamWrapper:
         # Build metadata with tool calls for reactor processing
         metadata: dict[str, Any] = {}
         if tool_calls:
-            metadata["tool_calls"] = tool_calls
+            metadata["tool_calls"] = _normalize_tool_calls(tool_calls)
             # Mark as VTC-sourced so reactors know these came from XML parsing
             metadata["vtc_tool_calls"] = True
 
@@ -749,6 +763,12 @@ class VTCResponseStreamWrapper:
             metadata["vtc_swallowed_count"] = swallowed_count
 
         if extra_metadata:
+            extra_metadata = dict(extra_metadata)
+            swallowed_calls = extra_metadata.get("swallowed_tool_calls")
+            if isinstance(swallowed_calls, list):
+                extra_metadata["swallowed_tool_calls"] = _normalize_tool_calls(
+                    swallowed_calls
+                )
             metadata.update(extra_metadata)
 
         if self._last_chunk_template is not None:

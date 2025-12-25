@@ -26,6 +26,16 @@ from src.core.services.vtc_xml_parser import (
 logger = logging.getLogger(__name__)
 
 
+def _normalize_tool_calls(tool_calls: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for tool_call in tool_calls:
+        if hasattr(tool_call, "model_dump") and callable(tool_call.model_dump):
+            normalized.append(tool_call.model_dump(exclude_none=True))
+        elif isinstance(tool_call, dict):
+            normalized.append(tool_call)
+    return normalized
+
+
 @dataclass
 class VTCPreProcessorConfig:
     """Configuration for VTC pre-processor."""
@@ -179,11 +189,12 @@ class VTCPreProcessor(IStreamProcessor):
         # Build new metadata with tool calls if found
         new_metadata = content.metadata.copy()
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             existing_calls = new_metadata.get("tool_calls", [])
             if isinstance(existing_calls, list):
-                new_metadata["tool_calls"] = existing_calls + tool_calls
+                new_metadata["tool_calls"] = existing_calls + normalized_tool_calls
             else:
-                new_metadata["tool_calls"] = tool_calls
+                new_metadata["tool_calls"] = normalized_tool_calls
 
             logger.debug(
                 "VTC pre-processor extracted %d tool calls on flush", len(tool_calls)
@@ -226,11 +237,12 @@ class VTCPreProcessor(IStreamProcessor):
         # Build new metadata with tool calls
         new_metadata = content.metadata.copy()
         if tool_calls:
+            normalized_tool_calls = _normalize_tool_calls(tool_calls)
             existing_calls = new_metadata.get("tool_calls", [])
             if isinstance(existing_calls, list):
-                new_metadata["tool_calls"] = existing_calls + tool_calls
+                new_metadata["tool_calls"] = existing_calls + normalized_tool_calls
             else:
-                new_metadata["tool_calls"] = tool_calls
+                new_metadata["tool_calls"] = normalized_tool_calls
 
             logger.debug("VTC pre-processor extracted %d tool calls", len(tool_calls))
 

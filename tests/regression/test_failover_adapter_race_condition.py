@@ -4,10 +4,11 @@ Regression test for failover_command_handler race condition fix.
 This test verifies that concurrent access to _local_state in
 SessionStateApplicationStateAdapter is properly protected by locks.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 import pytest
 from src.core.commands.handlers.failover_command_handler import (
@@ -35,6 +36,7 @@ class TestFailoverCommandHandlerRaceCondition:
     @pytest.mark.asyncio
     async def test_concurrent_set_setting_operations(self, adapter):
         """Test that concurrent set_setting operations are thread-safe."""
+
         async def set_values(iter_id: int):
             for i in range(100):
                 adapter.set_setting(f"key_{iter_id}_{i}", f"value_{i}")
@@ -69,6 +71,7 @@ class TestFailoverCommandHandlerRaceCondition:
     @pytest.mark.asyncio
     async def test_concurrent_get_set_operations(self, adapter):
         """Test that concurrent get/set operations are thread-safe."""
+
         async def mixed_operations(iter_id: int):
             for i in range(50):
                 key = f"key_{iter_id}_{i % 10}"
@@ -83,11 +86,14 @@ class TestFailoverCommandHandlerRaceCondition:
         with adapter._lock:
             for key in adapter._local_state:
                 value = adapter._local_state[key]
-                assert isinstance(value, str), f"Expected string value, got {type(value)}"
+                assert isinstance(
+                    value, str
+                ), f"Expected string value, got {type(value)}"
 
     @pytest.mark.asyncio
     async def test_concurrent_command_prefix_operations(self, adapter):
         """Test that concurrent command_prefix operations are thread-safe."""
+
         async def set_prefix(iter_id: int):
             for i in range(100):
                 adapter.set_command_prefix(f"prefix_{iter_id}_{i}")
@@ -106,6 +112,7 @@ class TestFailoverCommandHandlerRaceCondition:
     @pytest.mark.asyncio
     async def test_concurrent_api_key_redaction_operations(self, adapter):
         """Test that concurrent API key redaction operations are thread-safe."""
+
         async def set_enabled(iter_id: int):
             for i in range(100):
                 adapter.set_api_key_redaction_enabled(i % 2 == 0)
@@ -124,6 +131,7 @@ class TestFailoverCommandHandlerRaceCondition:
     @pytest.mark.asyncio
     async def test_concurrent_disable_commands_operations(self, adapter):
         """Test that concurrent disable_commands operations are thread-safe."""
+
         async def set_disabled(iter_id: int):
             for i in range(100):
                 adapter.set_disable_commands(i % 2 == 0)

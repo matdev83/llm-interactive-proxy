@@ -548,12 +548,14 @@ async def test_list_models(
     )
 
     # Call list_models
-    models_data = await anthropic_backend.list_models()
+    models_response = await anthropic_backend.list_models()
 
     # Verify the models data
+    assert hasattr(models_response, "data")
+    models_data = models_response.data
     assert isinstance(models_data, list)
     assert len(models_data) == 3
-    assert models_data[0]["name"] == "claude-3-opus-20240229"
+    assert models_data[0].name == "claude-3-opus-20240229"
 
     # Verify that available_models is populated
     # Note: get_available_models() returns vendor-prefixed model names

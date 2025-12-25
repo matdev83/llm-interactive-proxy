@@ -6,7 +6,9 @@ to prevent resource leaks and unobserved exceptions.
 GitHub Issue: InfrastructureStage HTTP client cleanup race condition
 File: src/core/app/stages/infrastructure.py
 """
+
 import asyncio
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -31,25 +33,33 @@ class TestInfrastructureStageHttpClientCleanup:
 
         mock_client = MockHttpxClient()
 
-        with patch('httpx.AsyncClient', side_effect=[mock_client, Exception("Registration failed")]):
-            services = type('ServiceCollection', (), {
-                'build_service_provider': lambda self: type('Provider', (), {
-                    'get_service': lambda self, cls: None
-                })()
-            })()
+        with patch(
+            "httpx.AsyncClient",
+            side_effect=[mock_client, Exception("Registration failed")],
+        ):
+            services = type(
+                "ServiceCollection",
+                (),
+                {
+                    "build_service_provider": lambda self: type(
+                        "Provider", (), {"get_service": lambda self, cls: None}
+                    )()
+                },
+            )()
 
             from src.core.config.app_config import AppConfig
+
             config = AppConfig()
 
-            try:
-                await stage.execute(services, config)
-            except Exception:
+            with contextlib.suppress(Exception):
                 # Expected to fail due to side_effect
-                pass
+                await stage.execute(services, config)
 
             # Verify client cleanup was called
             await asyncio.sleep(0.1)
-            assert mock_client.is_closed, "HTTP client should be closed on registration failure"
+            assert (
+                mock_client.is_closed
+            ), "HTTP client should be closed on registration failure"
 
     @pytest.mark.asyncio
     async def test_multiple_cleanup_tasks_are_tracked(self):
@@ -82,7 +92,9 @@ class TestInfrastructureStageHttpClientCleanup:
             assert client.is_closed, f"Client {client.index} should be closed"
 
         # Cleanup tasks set should be empty (all tasks completed and removed)
-        assert len(stage._cleanup_tasks) == 0, "All cleanup tasks should be completed and removed"
+        assert (
+            len(stage._cleanup_tasks) == 0
+        ), "All cleanup tasks should be completed and removed"
 
     @pytest.mark.asyncio
     async def test_cleanup_with_failing_tasks(self):
@@ -149,7 +161,7 @@ class TestInfrastructureStageHttpClientCleanup:
             # Use very short timeout for testing
             return await original_wait_for(coro, 0.1)
 
-        with patch.object(asyncio, 'wait_for', short_wait_for):
+        with patch.object(asyncio, "wait_for", short_wait_for):
             # Call cleanup method - should timeout and cancel
             await stage._cleanup_http_client()
 
@@ -158,7 +170,9 @@ class TestInfrastructureStageHttpClientCleanup:
 
         # Verify tasks were cancelled (clients not closed due to timeout)
         closed_count = sum(1 for client in slow_clients if client.is_closed)
-        assert closed_count == 0, "Clients should not have closed due to timeout/cancellation"
+        assert (
+            closed_count == 0
+        ), "Clients should not have closed due to timeout/cancellation"
 
     @pytest.mark.asyncio
     async def test_no_cleanup_tasks_initially(self):

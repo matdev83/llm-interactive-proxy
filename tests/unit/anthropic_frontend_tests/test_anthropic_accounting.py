@@ -34,7 +34,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.completion_tokens == 0
         assert billing_info.usage.total_tokens == 0
 
-
     def test_extract_billing_info_from_response_anthropic_dict(self) -> None:
         """Test billing info extraction from Anthropic response dictionary."""
         response = {
@@ -51,7 +50,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.prompt_tokens == 25
         assert billing_info.usage.completion_tokens == 15
         assert billing_info.usage.total_tokens == 40
-
 
     def test_extract_billing_info_from_response_anthropic_object(self) -> None:
         """Test billing info extraction from Anthropic response object."""
@@ -70,7 +68,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.completion_tokens == 20
         assert billing_info.usage.total_tokens == 50
 
-
     def test_extract_billing_info_from_response_anthropic_no_usage(self) -> None:
         """Test billing info extraction when no usage info is available."""
         response = {
@@ -87,7 +84,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.prompt_tokens == 0
         assert billing_info.usage.completion_tokens == 0
         assert billing_info.usage.total_tokens == 0
-
 
     def test_extract_anthropic_usage_from_dict(self) -> None:
         """Test extract_anthropic_usage function with dictionary."""
@@ -162,7 +158,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.completion_tokens == 30
         assert billing_info.usage.total_tokens == 80
 
-
     def test_billing_info_structure_anthropic(self) -> None:
         """Test the structure of billing info for Anthropic."""
         headers: dict[str, str] = {}
@@ -189,7 +184,6 @@ class TestAnthropicFrontendAccounting:
             assert hasattr(billing.usage, "completion_tokens")
             assert hasattr(billing.usage, "total_tokens")
 
-
     def test_anthropic_vs_other_backends(self) -> None:
         """Test that Anthropic billing differs from other backends."""
         headers = {"x-request-id": "123"}
@@ -204,14 +198,13 @@ class TestAnthropicFrontendAccounting:
         extract_billing_info_from_response(response, "openrouter")
 
         # Should have different provider info
-        assert anthropic_header.provider_info["note"] != openrouter_header.provider_info.get(
-            "note", ""
-        )
+        assert anthropic_header.provider_info[
+            "note"
+        ] != openrouter_header.provider_info.get("note", "")
 
         # Anthropic should extract usage from response, OpenRouter might not
         assert anthropic_response.usage.prompt_tokens == 10
         assert anthropic_response.usage.completion_tokens == 5
-
 
     def test_streaming_response_billing(self):
         """Test billing info extraction from streaming responses."""
@@ -233,7 +226,6 @@ class TestAnthropicFrontendAccounting:
         assert billing_info.usage.prompt_tokens == 0
         assert billing_info.usage.completion_tokens == 0
 
-
     def test_cost_calculation_placeholder(self):
         """Test cost calculation (placeholder for future implementation)."""
         response = {"usage": {"input_tokens": 100, "output_tokens": 50}}
@@ -242,7 +234,6 @@ class TestAnthropicFrontendAccounting:
 
         # Cost should be 0.0 for now (not implemented)
         assert billing_info.cost == 0.0
-
 
         # Future implementation could calculate based on Anthropic pricing:
         # Claude-3 Sonnet: $3/1M input tokens, $15/1M output tokens

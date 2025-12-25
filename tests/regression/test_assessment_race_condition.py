@@ -4,10 +4,11 @@ Regression test for assessment domain models race condition fix.
 This test verifies that concurrent access to SessionAssessmentState
 is properly protected by locks.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 import pytest
 from src.core.domain.assessment import (

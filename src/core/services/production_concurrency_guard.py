@@ -19,7 +19,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar, cast
-from weakref import WeakSet
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -318,7 +317,8 @@ class ConcurrencyGuard:
         self.max_concurrent = max_concurrent
         self.name = name
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._active_operations: WeakSet[object] = WeakSet()
+        self._active_operations: set[str] = set()  # Use regular set since we clean up in finally
+        self._active_count = 0
         self._total_operations = 0
         self._rejected_operations = 0
         self._operation_counter = 0
@@ -330,26 +330,33 @@ class ConcurrencyGuard:
         
         operation_id = None
         
+        # Check count first for immediate rejection (atomic check-and-increment)
         with self._lock:
-            if len(self._active_operations) >= self.max_concurrent:
+            if self._active_count >= self.max_concurrent:
                 self._rejected_operations += 1
                 production_metrics.record_race_condition_warning(
                     f"{self.name}:{operation_name}"
                 )
                 raise Exception(f"Concurrency limit reached for {self.name}")
             
+            # Reserve slot
+            self._active_count += 1
             self._operation_counter += 1
             operation_id = f"{operation_name}_{self._operation_counter}"
             self._active_operations.add(operation_id)
             self._total_operations += 1
+        
+        # Acquire semaphore (should always succeed since we checked count, but use for actual concurrency)
+        await self._semaphore.acquire()
 
         try:
-            await asyncio.wait_for(self._semaphore.acquire(), timeout=5.0)
+            yield operation_id
         finally:
             with self._lock:
-                if operation_id in self._active_operations:
+                self._active_count -= 1
+                if operation_id is not None and operation_id in self._active_operations:
                     self._active_operations.discard(operation_id)
-                self._semaphore.release()
+            self._semaphore.release()
 
 
 def get_production_metrics() -> dict[str, Any]:

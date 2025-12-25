@@ -12,6 +12,7 @@ from src.core.services.angel_service import (
 def test_get_prompt_loader_lock_exists():
     """Test that lock for protecting prompt loader exists."""
     from src.core.services import angel_service
+
     assert hasattr(angel_service, "_prompt_loader_lock")
     assert angel_service._prompt_loader_lock is not None
 

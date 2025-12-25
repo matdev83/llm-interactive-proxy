@@ -6,6 +6,7 @@ protected against concurrent access to avoid redundant initializations.
 GitHub Issue: Token count race condition
 File: src/core/utils/token_count.py
 """
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -21,6 +22,7 @@ class TestTokenCountRaceCondition:
         """Test that concurrent token counting from threads doesn't cause multiple initializations."""
         # Reset the cached encoding
         import src.core.utils.token_count as tc
+
         original_encoding = tc._tiktoken_encoding
         tc._tiktoken_encoding = None
 
@@ -33,7 +35,9 @@ class TestTokenCountRaceCondition:
                 initialization_count += 1
                 # Add a small delay to make the race more likely
                 import time
+
                 time.sleep(0.001)
+
                 # Return a simple mock that has an encode method
                 class MockEncoding:
                     def encode(self, text):
@@ -42,7 +46,7 @@ class TestTokenCountRaceCondition:
                 return MockEncoding()
 
             # Patch tiktoken.get_encoding
-            with patch('tiktoken.get_encoding', side_effect=mock_get_encoding):
+            with patch("tiktoken.get_encoding", side_effect=mock_get_encoding):
                 # Test text
                 test_text = "Hello world"
 
@@ -77,6 +81,7 @@ class TestTokenCountRaceCondition:
         """Test that concurrent token counting from async tasks doesn't cause multiple initializations."""
         # Reset the cached encoding
         import src.core.utils.token_count as tc
+
         original_encoding = tc._tiktoken_encoding
         tc._tiktoken_encoding = None
 
@@ -89,7 +94,9 @@ class TestTokenCountRaceCondition:
                 initialization_count += 1
                 # Add a small delay to make the race more likely
                 import time
+
                 time.sleep(0.001)
+
                 # Return a simple mock that has an encode method
                 class MockEncoding:
                     def encode(self, text):
@@ -98,7 +105,7 @@ class TestTokenCountRaceCondition:
                 return MockEncoding()
 
             # Patch tiktoken.get_encoding
-            with patch('tiktoken.get_encoding', side_effect=mock_get_encoding):
+            with patch("tiktoken.get_encoding", side_effect=mock_get_encoding):
                 # Test text
                 test_text = "Hello world"
 

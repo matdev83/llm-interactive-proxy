@@ -117,11 +117,20 @@ class TestContentRewritingMiddlewareDoSRegression:
             response
         )
 
-        # Should be at or just under the limit
+        # Should be at or just under the limit, and limit should not be exceeded
         max_size = ContentRewritingMiddleware.MAX_RESPONSE_BODY_SIZE
         assert accumulated_size <= max_size, (
             f"Accumulated size ({accumulated_size}) should not exceed limit "
             f"({max_size})"
+        )
+        assert (
+            not limit_exceeded
+        ), "Response exactly at limit should not trigger limit exceeded flag"
+        # Verify we accumulated exactly the expected size
+        expected_size = limit_mb * 1024 * 1024
+        assert accumulated_size == expected_size, (
+            f"Accumulated size ({accumulated_size}) should match expected "
+            f"({expected_size}) for exact limit size response"
         )
 
     @pytest.mark.asyncio

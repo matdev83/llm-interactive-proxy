@@ -1,4 +1,5 @@
 """Regression tests for TestExecutionReminderHandler race condition fixes."""
+
 import asyncio
 import os
 import sys
@@ -58,13 +59,16 @@ async def test_test_reminder_concurrent_mark_operations_safe():
 
     # The race condition should be fixed - state should be valid
     # Either is_dirty=True (last was dirty) or False (last was clean)
-    assert state.is_dirty in (True, False), \
-        f"is_dirty should be True or False, got {state.is_dirty}"
+    assert state.is_dirty in (
+        True,
+        False,
+    ), f"is_dirty should be True or False, got {state.is_dirty}"
 
     # Modification count should be the difference between dirty and clean ops
     expected_count = max(0, dirty_ops - clean_ops)
-    assert state.modification_count == expected_count, \
-        f"Expected {expected_count} modifications, got {state.modification_count}"
+    assert (
+        state.modification_count == expected_count
+    ), f"Expected {expected_count} modifications, got {state.modification_count}"
 
 
 @pytest.mark.asyncio

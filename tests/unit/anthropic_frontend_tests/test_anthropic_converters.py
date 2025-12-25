@@ -288,7 +288,6 @@ class TestAnthropicConverters:
         anthropic_response_model = openai_to_anthropic_response(openai_response)
         anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
 
-
         assert anthropic_response["id"] == "chatcmpl-123"
         assert anthropic_response["type"] == "message"
         assert anthropic_response["role"] == "assistant"
@@ -324,7 +323,6 @@ class TestAnthropicConverters:
 
         anthropic_response_model = openai_to_anthropic_response(openai_response)
         anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
-
 
         assert anthropic_response["content"][0]["text"] == "Hello world"
 
@@ -372,7 +370,6 @@ class TestAnthropicConverters:
         anthropic_response_model = openai_to_anthropic_response(openai_response)
         anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
 
-
         content_blocks = anthropic_response["content"]
         assert len(content_blocks) == 3
         # First block is text
@@ -408,7 +405,6 @@ class TestAnthropicConverters:
 
         anthropic_response_model = openai_to_anthropic_response(DummyResponse())
         anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
-
 
         assert anthropic_response["id"] == "chatcmpl-empty"
         # Empty choices now return a clear message instead of empty string
@@ -597,7 +593,6 @@ class TestAnthropicConverters:
         result_model = openai_to_anthropic_response(openai_response)
         result = result_model.model_dump(exclude_none=True)
 
-
         assert result["type"] == "message"
         assert result["content"][0]["text"] == "Hello!"
         # Usage should be zeroed out when None
@@ -616,7 +611,6 @@ class TestAnthropicConverters:
         # Should not raise AttributeError
         result_model = openai_to_anthropic_response(openai_response)
         result = result_model.model_dump(exclude_none=True)
-
 
         # Should return empty response message format
         assert result["type"] == "message"

@@ -316,10 +316,10 @@ def test_concurrent_increments_thread_safety(
         for _ in range(num_iterations_per_thread):
             counter.increment()
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=num_threads
-    ) as executor:
-        futures = [executor.submit(increment_multiple_times) for _ in range(num_threads)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [
+            executor.submit(increment_multiple_times) for _ in range(num_threads)
+        ]
         concurrent.futures.wait(futures)
 
     assert counter.count == expected_total, (
@@ -355,17 +355,17 @@ def test_concurrent_threshold_logging_thread_safety(
             for _ in range(num_increments):
                 counter.increment()
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=num_threads
-        ) as executor:
-            futures = [executor.submit(increment_multiple_times) for _ in range(num_threads)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [
+                executor.submit(increment_multiple_times) for _ in range(num_threads)
+            ]
             concurrent.futures.wait(futures)
 
         # Expected count: 50 threads * 95 increments each = 4750
         expected_count = num_threads * num_increments
-        assert counter.count == expected_count, (
-            f"Expected {expected_count} increments but got {counter.count}"
-        )
+        assert (
+            counter.count == expected_count
+        ), f"Expected {expected_count} increments but got {counter.count}"
 
         # All thresholds should be logged exactly once
         expected_thresholds = {70, 80, 90}

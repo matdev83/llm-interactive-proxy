@@ -4,10 +4,11 @@ Regression test for ApplicationStateService race condition fix.
 This test verifies that concurrent access to _local_state is properly
 protected by locks.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 import pytest
 from src.core.services.application_state_service import ApplicationStateService
@@ -73,7 +74,9 @@ class TestApplicationStateServiceRaceCondition:
         with service._lock:
             for key in service._local_state:
                 value = service._local_state[key]
-                assert isinstance(value, str), f"Expected string value, got {type(value)}"
+                assert isinstance(
+                    value, str
+                ), f"Expected string value, got {type(value)}"
 
     @pytest.mark.asyncio
     async def test_concurrent_command_prefix_operations(self):

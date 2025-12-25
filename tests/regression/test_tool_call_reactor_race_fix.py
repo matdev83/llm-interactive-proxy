@@ -50,15 +50,15 @@ def test_concurrent_tool_argument_repair_stats():
     expected_failed = num_threads * increments_per_thread
     expected_recovered = num_threads * increments_per_thread
 
-    assert stats["success"] == expected_success, (
-        f"Expected {expected_success} success counts, got {stats['success']}"
-    )
-    assert stats["failed"] == expected_failed, (
-        f"Expected {expected_failed} failed counts, got {stats['failed']}"
-    )
-    assert stats["recovered"] == expected_recovered, (
-        f"Expected {expected_recovered} recovered counts, got {stats['recovered']}"
-    )
+    assert (
+        stats["success"] == expected_success
+    ), f"Expected {expected_success} success counts, got {stats['success']}"
+    assert (
+        stats["failed"] == expected_failed
+    ), f"Expected {expected_failed} failed counts, got {stats['failed']}"
+    assert (
+        stats["recovered"] == expected_recovered
+    ), f"Expected {expected_recovered} recovered counts, got {stats['recovered']}"
 
 
 def test_concurrent_telemetry_counters():
@@ -101,12 +101,12 @@ def test_concurrent_telemetry_counters():
     expected_blocked = num_threads * increments_per_thread
     expected_allowed = num_threads * increments_per_thread
 
-    assert telemetry["tool_definitions_filtered"] == expected_filtered, (
-        f"Expected {expected_filtered} filtered, got {telemetry['tool_definitions_filtered']}"
-    )
-    assert telemetry["tool_calls_blocked"] == expected_blocked, (
-        f"Expected {expected_blocked} blocked, got {telemetry['tool_calls_blocked']}"
-    )
-    assert telemetry["tool_calls_allowed"] == expected_allowed, (
-        f"Expected {expected_allowed} allowed, got {telemetry['tool_calls_allowed']}"
-    )
+    assert (
+        telemetry["tool_definitions_filtered"] == expected_filtered
+    ), f"Expected {expected_filtered} filtered, got {telemetry['tool_definitions_filtered']}"
+    assert (
+        telemetry["tool_calls_blocked"] == expected_blocked
+    ), f"Expected {expected_blocked} blocked, got {telemetry['tool_calls_blocked']}"
+    assert (
+        telemetry["tool_calls_allowed"] == expected_allowed
+    ), f"Expected {expected_allowed} allowed, got {telemetry['tool_calls_allowed']}"

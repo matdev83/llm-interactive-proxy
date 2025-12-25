@@ -258,4 +258,3 @@ class TestCreateInitResponse:
         assert result.data.agentNames == agent_names
         assert result.data.usage == 5.0
         assert result.data.remainingBalance == 95.0
-

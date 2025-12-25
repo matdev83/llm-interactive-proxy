@@ -193,7 +193,6 @@ class ChatMessage(DomainModel):
 
         return data
 
-
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary."""
         result: dict[str, Any] = {"role": self.role}
@@ -471,6 +470,20 @@ class StreamingToolCall(DomainModel):
     type: str | None = "function"
     function: StreamingFunctionCall | None = None
 
+    def __getitem__(self, key: str) -> Any:
+        """Support dict-style access for extra fields."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Support dict-style get() for extra fields."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            return default
+
 
 class StreamingChatCompletionChoiceDelta(DomainModel):
     """Represents the delta content within a streaming chat completion choice."""
@@ -494,7 +507,6 @@ class StreamingChatCompletionChoiceDelta(DomainModel):
         setattr(self, key, value)
 
     def __contains__(self, key: str) -> bool:
-
         """Support 'in' operator for checking field existence."""
         return hasattr(self, key)
 
@@ -520,4 +532,3 @@ class CanonicalStreamChunk(ValueObject):
     choices: list[StreamingChatCompletionChoice]
     usage: UsageSummary | None = None
     system_fingerprint: str | None = None
-

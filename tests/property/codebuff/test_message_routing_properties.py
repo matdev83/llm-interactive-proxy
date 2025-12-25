@@ -445,7 +445,6 @@ async def test_property_10_unknown_message_type_acknowledgment_failure(
     routed = await router.route_message(message_json)
     validated_message, ack = routed.validated_message, routed.ack
 
-
     # Verify message was not validated
     assert validated_message is None
 

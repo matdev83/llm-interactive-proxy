@@ -277,8 +277,11 @@ class TestCompatibilityLayer:
         # Mock DroidToolTranslator
         mock_droid_translator = MagicMock()
         # Mock translate_codex_to_droid to return Droid format
+        trans_result = MagicMock()
+        trans_result.droid_tool_name = "Execute"
+        trans_result.droid_arguments = {"command": "ls -la"}
         mock_droid_translator.translate_codex_to_droid = MagicMock(
-            return_value=("Execute", {"command": "ls -la"})
+            return_value=trans_result
         )
         layer._droid_translator = mock_droid_translator
 

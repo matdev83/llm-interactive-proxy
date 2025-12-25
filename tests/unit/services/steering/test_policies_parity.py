@@ -93,7 +93,6 @@ async def test_configured_rules_policy(context):
         )
     ]
 
-
     policy = ConfiguredRulesPolicy(
         session_store=SessionStateStore(), rules=rules, enabled=True
     )

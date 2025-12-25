@@ -3,6 +3,7 @@
 This test verifies that ConcurrencyGuard's operation counting
 is thread-safe under concurrent access.
 """
+
 import asyncio
 
 import pytest_asyncio
@@ -47,24 +48,22 @@ class TestConcurrencyGuardThreadSafety:
 
         # Due to race condition in original code, results may vary
         # The fixed code should ensure exactly 2 successes and 8 rejects
-        print(f"Success: {success_count}, Rejected: {reject_count}, Total: {guard._total_operations}")
+        print(
+            f"Success: {success_count}, Rejected: {reject_count}, Total: {guard._total_operations}"
+        )
 
         # With limit of 2, we should get exactly 2 successes, 8 rejects
-        assert success_count == 2, (
-            f"Expected 2 successful acquires, got {success_count}"
-        )
-        assert reject_count == 8, (
-            f"Expected 8 rejected acquires, got {reject_count}"
-        )
-        assert guard._total_operations == 2, (
-            f"Expected 2 total operations tracked, got {guard._total_operations}"
-        )
-        assert guard._rejected_operations == 8, (
-            f"Expected 8 rejected operations, got {guard._rejected_operations}"
-        )
-        assert completed_count == 10, (
-            f"Expected 10 completions, got {completed_count}"
-        )
+        assert (
+            success_count == 2
+        ), f"Expected 2 successful acquires, got {success_count}"
+        assert reject_count == 8, f"Expected 8 rejected acquires, got {reject_count}"
+        assert (
+            guard._total_operations == 2
+        ), f"Expected 2 total operations tracked, got {guard._total_operations}"
+        assert (
+            guard._rejected_operations == 8
+        ), f"Expected 8 rejected operations, got {guard._rejected_operations}"
+        assert completed_count == 10, f"Expected 10 completions, got {completed_count}"
 
     async def test_active_operations_accounting(self):
         """Test that active operations are properly tracked."""
@@ -74,20 +73,21 @@ class TestConcurrencyGuardThreadSafety:
             async with guard.acquire(f"op_{i}"):
                 await asyncio.sleep(0.01)
                 # Verify operation is in active set
-                assert len([x for x in guard._active_operations if f"op_{i}" in str(x)]) <= 1, (
-                    f"Duplicate operation IDs found for op_{i}"
-                )
+                assert (
+                    len([x for x in guard._active_operations if f"op_{i}" in str(x)])
+                    <= 1
+                ), f"Duplicate operation IDs found for op_{i}"
 
         # Run 5 operations with limit of 3
         tasks = [operation(i) for i in range(5)]
         await asyncio.gather(*tasks)
 
-        assert guard._total_operations == 5, (
-            f"Expected 5 total operations, got {guard._total_operations}"
-        )
-        assert guard._rejected_operations == 0, (
-            f"Expected 0 rejected, got {guard._rejected_operations}"
-        )
+        assert (
+            guard._total_operations == 5
+        ), f"Expected 5 total operations, got {guard._total_operations}"
+        assert (
+            guard._rejected_operations == 0
+        ), f"Expected 0 rejected, got {guard._rejected_operations}"
 
     async def test_concurrent_operations_cleanup(self):
         """Test that operations are cleaned up after completion."""
@@ -99,7 +99,7 @@ class TestConcurrencyGuardThreadSafety:
                 await asyncio.sleep(0.01)
 
         # All operations should be cleaned up
-        assert len(list(guard._active_operations)) == 0, (
-            f"Expected 0 active operations, got {len(list(guard._active_operations))}"
-        )
+        assert (
+            len(list(guard._active_operations)) == 0
+        ), f"Expected 0 active operations, got {len(list(guard._active_operations))}"
         assert guard._total_operations == 3

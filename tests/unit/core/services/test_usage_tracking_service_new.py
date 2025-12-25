@@ -17,13 +17,10 @@ def mock_usage_repo():
     repo.batch_insert = AsyncMock()
     repo.batch_update = AsyncMock()
     repo.get_by_id_domain = AsyncMock()
-    repo.get_aggregated_stats = AsyncMock(
-        return_value=RepositoryAggregatedStats()
-    )
+    repo.get_aggregated_stats = AsyncMock(return_value=RepositoryAggregatedStats())
     repo.get_status_code_breakdown = AsyncMock(return_value={})
     repo.query_with_filter = AsyncMock(return_value=[])
     return repo
-
 
 
 @pytest.fixture
@@ -119,4 +116,3 @@ async def test_get_usage_stats(service, mock_usage_repo):
     assert stats.request_count == 10
     assert stats.total_tokens == 1000
     mock_usage_repo.get_aggregated_stats.assert_called_once_with(filters)
-

@@ -50,7 +50,6 @@ class TestParseVtcXml:
         assert args["command"] == "ls -la"
         assert cleaned == ""
 
-
     def test_parse_invoke_format_multiple_params(self) -> None:
         """Test parsing invoke format with multiple parameters."""
         content = """<function_calls>
@@ -246,7 +245,6 @@ I should check the git status first.
         assert len(tool_calls) == 1
         assert tool_calls[0].id.startswith("vtc_")
         assert len(tool_calls[0].id) == 16  # vtc_ + 12 hex chars
-
 
 
 class TestSerializeToolCallsToXml:
@@ -485,4 +483,3 @@ class TestRoundTrip:
         assert orig_args["path"] == new_args["path"]
         assert orig_args["content"] == new_args["content"]
         assert orig_args["overwrite"] == new_args["overwrite"]
-

@@ -234,6 +234,11 @@ class TestRequestFlowIntegration:
             ],
         }
 
+        # Create payload mock
+        payload_mock = MagicMock()
+        payload_mock.model_dump.return_value = {"input": []}
+        payload_mock.prompt_cache_key = "test_key"
+
         with (
             patch.object(
                 codex_connector_compat_enabled.client,
@@ -244,7 +249,7 @@ class TestRequestFlowIntegration:
             patch.object(
                 codex_connector_compat_enabled,
                 "_build_codex_payload",
-                return_value=({"input": []}, "conv_123"),
+                return_value=(payload_mock, "conv_cache"),
             ),
         ):
             # Call the method
@@ -341,6 +346,11 @@ class TestRequestFlowIntegration:
             ],
         }
 
+        # Create payload mock
+        payload_mock = MagicMock()
+        payload_mock.model_dump.return_value = {"input": []}
+        payload_mock.prompt_cache_key = "test_key"
+
         with (
             patch.object(
                 codex_connector_compat_enabled.client,
@@ -351,7 +361,7 @@ class TestRequestFlowIntegration:
             patch.object(
                 codex_connector_compat_enabled,
                 "_build_codex_payload",
-                return_value=({"input": []}, "conv_456"),
+                return_value=(payload_mock, "conv_456"),
             ),
         ):
             # Call the method
@@ -402,6 +412,11 @@ class TestRequestFlowIntegration:
             ],
         }
 
+        # Create payload mock
+        payload_mock = MagicMock()
+        payload_mock.model_dump.return_value = {"input": []}
+        payload_mock.prompt_cache_key = "test_key"
+
         with (
             patch.object(
                 codex_connector_compat_disabled.client,
@@ -412,7 +427,7 @@ class TestRequestFlowIntegration:
             patch.object(
                 codex_connector_compat_disabled,
                 "_build_codex_payload",
-                return_value=({"input": []}, "conv_789"),
+                return_value=(payload_mock, "conv_789"),
             ),
         ):
             # Call the method
@@ -465,6 +480,11 @@ class TestRequestFlowIntegration:
             ],
         }
 
+        # Create payload mock
+        payload_mock = MagicMock()
+        payload_mock.model_dump.return_value = {"input": []}
+        payload_mock.prompt_cache_key = "test_key"
+
         with (
             patch.object(
                 codex_connector_compat_enabled.client,
@@ -475,7 +495,7 @@ class TestRequestFlowIntegration:
             patch.object(
                 codex_connector_compat_enabled,
                 "_build_codex_payload",
-                return_value=({"input": []}, "conv_cache"),
+                return_value=(payload_mock, "conv_cache"),
             ),
         ):
             # First request

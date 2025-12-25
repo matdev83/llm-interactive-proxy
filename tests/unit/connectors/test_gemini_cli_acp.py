@@ -18,7 +18,6 @@ from src.core.common.exceptions import (
 from src.core.domain.responses import (
     ProcessedResponse,
 )
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 @pytest.fixture
@@ -310,7 +309,6 @@ class TestGeminiCliAcpConnectorCommunication:
 
         assert response.result == "success"
 
-
     async def test_read_jsonrpc_response_invalid_json(self, connector, temp_workspace):
         """Test reading invalid JSON raises error."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
@@ -532,7 +530,6 @@ class TestGeminiCliAcpConnectorStreaming:
         async def mock_read_slow():
             await asyncio.sleep(1)  # Sleep longer than timeout
             return ACPResponse(result={})
-
 
         with (
             patch.object(

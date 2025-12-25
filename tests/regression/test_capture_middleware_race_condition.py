@@ -59,4 +59,6 @@ async def test_capture_request_auto_enable_no_race_condition() -> None:
     assert is_enabled, "Session should be enabled"
 
     # Verify that the session is tracked in auto-enabled sessions
-    assert session_id in middleware._auto_enabled_sessions, "Session should be in auto-enabled cache"
+    assert (
+        session_id in middleware._auto_enabled_sessions
+    ), "Session should be in auto-enabled cache"

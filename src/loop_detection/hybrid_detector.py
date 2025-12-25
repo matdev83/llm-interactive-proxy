@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.interfaces.loop_detector_interface import (
@@ -36,6 +37,19 @@ MIN_LONG_PATTERN_LENGTH = 60  # Minimum length to consider as "long pattern"
 MAX_LONG_PATTERN_LENGTH = 500  # Maximum pattern length to check (performance limit)
 LONG_PATTERN_MIN_REPETITIONS = 3  # Fewer repetitions needed for long patterns
 MAX_ROLLING_HISTORY = 2000  # Maximum content to keep for rolling hash analysis
+
+
+@dataclass(frozen=True)
+class LongPatternMatch:
+    """Result of a long pattern match detection."""
+
+    pattern: str
+    repetitions: int
+
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.pattern
+        yield self.repetitions
 
 
 class RollingHashTracker:
@@ -70,12 +84,12 @@ class RollingHashTracker:
         for _ in range(1, max_pattern_length + 1):
             self._powers.append((self._powers[-1] * HASH_BASE) % HASH_MOD)
 
-    def add_content(self, new_content: str) -> tuple[str, int] | None:
+    def add_content(self, new_content: str) -> LongPatternMatch | None:
         """
         Add new content and check for long pattern repetitions.
 
         Returns:
-            (pattern, repetitions) if a loop is detected, None otherwise
+            LongPatternMatch if a loop is detected, None otherwise
         """
         if not new_content:
             return None
@@ -112,7 +126,7 @@ class RollingHashTracker:
 
         return None
 
-    def _check_pattern_length(self, pattern_length: int) -> tuple[str, int] | None:
+    def _check_pattern_length(self, pattern_length: int) -> LongPatternMatch | None:
         """Check for repeated patterns of a specific length."""
         if len(self.content) < pattern_length * self.min_repetitions:
             return None
@@ -150,7 +164,7 @@ class RollingHashTracker:
                 pattern = self.content[
                     filtered_positions[0] : filtered_positions[0] + pattern_length
                 ]
-                return pattern, len(filtered_positions)
+                return LongPatternMatch(pattern=pattern, repetitions=len(filtered_positions))
 
         return None
 
@@ -308,9 +322,10 @@ class HybridLoopDetector(ILoopDetector):
             return short_event
 
         # Check long patterns (only if short patterns didn't trigger)
-        long_result = self.long_detector.add_content(chunk)
-        if long_result:
-            pattern, repetitions = long_result
+        long_match = self.long_detector.add_content(chunk)
+        if long_match:
+            pattern = long_match.pattern
+            repetitions = long_match.repetitions
             pattern_length = len(pattern)
             display_pattern = (
                 pattern

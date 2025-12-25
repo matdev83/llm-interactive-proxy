@@ -337,7 +337,6 @@ class TestConvertTools:
         assert result[0].type == "function"
         assert result[0].function.name == "get_weather"
 
-
     def test_convert_existing_tool_definitions(self) -> None:
         """Test conversion with existing ToolDefinition objects."""
         tool_def = ToolDefinition(
@@ -356,7 +355,6 @@ class TestConvertTools:
         assert isinstance(result[0], ToolDefinition)
         assert result[0].type == "function"
         assert result[0].function.name == "get_weather"
-
 
     def test_convert_legacy_model_tools(self) -> None:
         """Test conversion from legacy model objects."""
@@ -381,4 +379,3 @@ class TestConvertTools:
         assert isinstance(result[0], ToolDefinition)
         assert result[0].type == "function"
         assert result[0].function.name == "get_weather"
-

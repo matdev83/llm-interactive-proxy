@@ -7,6 +7,7 @@ in a thread pool to avoid blocking the event loop.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
 import threading
 import time
@@ -45,6 +46,9 @@ def _shutdown_ping_executor() -> None:
         if _ping_executor is not None:
             _ping_executor.shutdown(wait=False)
             _ping_executor = None
+
+
+atexit.register(_shutdown_ping_executor)
 
 
 class ICMPHealthChecker:

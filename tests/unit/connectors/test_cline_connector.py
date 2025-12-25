@@ -203,7 +203,6 @@ async def test_initialize_uses_codex_auth_when_secrets_missing(
     assert cline_payload == refreshed_payload.model_dump(by_alias=True)
 
 
-
 @pytest.mark.asyncio
 async def test_initialize_uses_vscode_secrets_when_available(
     http_client, config, translation_service, tmp_path
@@ -220,7 +219,6 @@ async def test_initialize_uses_vscode_secrets_when_available(
         userInfo={"id": "vscode-user"},
         provider="cline",
     )
-
 
     connector = ClineConnector(http_client, config, translation_service)
     with patch.object(

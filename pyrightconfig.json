@@ -1,0 +1,48 @@
+{
+  "include": ["src", "tests", "scripts"],
+  "exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/.venv",
+    "**/build",
+    "**/dist",
+    "**/htmlcov",
+    "**/node_modules",
+    "var",
+    "logs",
+    "docs",
+    "dev"
+  ],
+  "stubPath": "stubs",
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.10",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "strict",
+  "useLibraryCodeForTypes": true,
+  "reportMissingTypeStubs": "warning",
+  "reportMissingParameterType": "warning",
+  "reportMissingTypeArgument": "warning",
+  "reportUnknownArgumentType": "warning",
+  "reportUnknownLambdaType": "warning",
+  "reportUnknownMemberType": "warning",
+  "reportUnknownParameterType": "warning",
+  "reportUnknownVariableType": "warning",
+  "reportDeprecated": "warning",
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": ["src"]
+    },
+    {
+      "root": "tests",
+      "extraPaths": ["src"]
+    },
+    {
+      "root": "scripts",
+      "extraPaths": ["src"]
+    }
+  ]
+}

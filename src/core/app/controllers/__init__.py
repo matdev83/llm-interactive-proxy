@@ -421,8 +421,12 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
                 EndpointHealthStateInfo(
                     api_url=str(state_dict.get("api_url", "")),
                     is_healthy=bool(state_dict.get("is_healthy", False)),
-                    ping_check_success=bool(state_dict.get("ping_check_success", False)),
-                    http_check_success=bool(state_dict.get("http_check_success", False)),
+                    ping_check_success=bool(
+                        state_dict.get("ping_check_success", False)
+                    ),
+                    http_check_success=bool(
+                        state_dict.get("http_check_success", False)
+                    ),
                     last_ping_check_timestamp=state_dict.get(
                         "last_ping_check_timestamp"
                     ),
@@ -486,7 +490,6 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
         health_info.error = f"Error getting health info: {e}"
 
     return health_info
-
 
 
 def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
@@ -1098,12 +1101,12 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
 
             # Convert to Anthropic format
             anthropic_models = []
-            for model in models_response.get("data", []):
+            for model in models_response.data:
                 anthropic_models.append(
                     {
-                        "id": model["id"],
+                        "id": model.id,
                         "object": "model",
-                        "created": model.get("created", 0),
+                        "created": model.created if model.created is not None else 0,
                         "owned_by": "anthropic",
                     }
                 )

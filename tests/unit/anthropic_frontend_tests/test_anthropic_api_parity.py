@@ -202,7 +202,12 @@ class TestStopSequenceResponse:
 
         anthropic_response = openai_to_anthropic_response(openai_response)
 
-        assert "stop_sequence" in anthropic_response
+        # Check if stop_sequence is present in the response (Pydantic model)
+        assert (
+            hasattr(anthropic_response, "stop_sequence")
+            or "stop_sequence" in anthropic_response.model_dump()
+        )
+        assert anthropic_response.stop_sequence == "END"
         # Note: stop_sequence is extracted from the choice if present
 
 

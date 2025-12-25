@@ -126,7 +126,6 @@ async def test_handle_saml_callback_parses_assertion_success():
         entity_id="https://idp.example.com/metadata",
     )
 
-
     response_xml = _build_saml_response_xml(
         audience="my-client-id",
         name_id="user-123",
@@ -170,7 +169,6 @@ async def test_handle_saml_callback_rejects_audience_mismatch():
         entity_id="https://idp.example.com/metadata",
     )
 
-
     bad_response = _build_saml_response_xml(
         audience="other-audience",
         name_id="user-123",
@@ -210,7 +208,6 @@ async def test_handle_saml_callback_rejects_cert_mismatch():
         signing_cert="ABC123",
         entity_id="https://idp.example.com/metadata",
     )
-
 
     response_xml = _build_saml_response_xml(
         audience="my-client-id",

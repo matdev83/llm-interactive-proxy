@@ -130,7 +130,6 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
     assert names_by_type["apply_patch"] == "custom"
 
 
-
 @pytest.mark.asyncio
 async def test_build_codex_payload_custom_prompt_mode(
     connector: OpenAICodexConnector,
@@ -167,7 +166,6 @@ async def test_build_codex_payload_custom_prompt_mode(
         for part in (item.content if isinstance(item.content, list) else [])
         if isinstance(part, dict) and part.get("type") == "input_text"
     )
-
 
 
 @pytest.mark.asyncio
@@ -225,7 +223,6 @@ async def test_codex_default_mode_merges_client_system_prompt(
     assert "Prioritize security fixes." in user_block.content[0]["text"]
     env_block = input_items[1]
     assert env_block.content[0]["text"].startswith("<environment_context>")
-
 
 
 @pytest.mark.asyncio
@@ -442,7 +439,6 @@ async def test_codex_passthrough_skips_translation(
     assert payload.model == "gpt-5.1-codex"
     assert payload.stream is True
     assert payload.input[0].role == "user"
-
 
     # The key assertion: translation was bypassed
     build_input_items_mock.assert_not_called()

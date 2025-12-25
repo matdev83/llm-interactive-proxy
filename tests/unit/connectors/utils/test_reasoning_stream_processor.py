@@ -600,7 +600,9 @@ class TestStreamCancellation:
                     content=f"data: {json.dumps(chunk_data)}\n\n".encode()
                 )
 
-        result = await processor.capture_reasoning_stream(mock_stream(), max_tokens=4096)
+        result = await processor.capture_reasoning_stream(
+            mock_stream(), max_tokens=4096
+        )
         reasoning_complete = result.reasoning_complete
         metadata = result.metadata
 
@@ -676,7 +678,6 @@ class TestStreamCancellation:
         assert reasoning_complete is True
         assert metadata.method.startswith("explicit_tag")
         assert "Step 1" in reasoning_text
-
 
 
 class TestChunkParsing:
@@ -854,4 +855,3 @@ class TestMetadataTracking:
         metadata = result.metadata
 
         assert metadata.method == "explicit_tag:</thinking>"
-

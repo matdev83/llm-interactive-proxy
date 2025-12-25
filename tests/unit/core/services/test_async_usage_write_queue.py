@@ -106,7 +106,6 @@ class TestAsyncUsageWriteQueueBasic:
         assert stats.flush_interval_seconds == 5.0
 
 
-
 @pytest.mark.asyncio
 class TestAsyncUsageWriteQueueAsync:
     """Async tests for AsyncUsageWriteQueue."""

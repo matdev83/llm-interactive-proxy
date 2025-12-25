@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 class ThinkingConfig(BaseModel):
     """Thinking configuration for models that support reasoning."""
 
-    thinkingBudget: int
-    includeThoughts: bool = True
+    thinkingBudget: int  # noqa: N815
+    includeThoughts: bool = True  # noqa: N815
 
     model_config = ConfigDict(populate_by_name=True)
 

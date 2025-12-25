@@ -153,6 +153,18 @@ def mcp_client(mock_mcp_server):
 
     client.read_resource = mock_read_resource
 
+    # Mock is_mcp_tool to return True for registered tools
+    original_is_mcp_tool = client.is_mcp_tool
+
+    def mock_is_mcp_tool(tool_name: str) -> bool:
+        # Check if tool is in discovered tools (registered by fixture)
+        if tool_name in client._discovered_tools:
+            return True
+        # Fall back to original implementation
+        return original_is_mcp_tool(tool_name)
+
+    client.is_mcp_tool = mock_is_mcp_tool
+
     return client
 
 

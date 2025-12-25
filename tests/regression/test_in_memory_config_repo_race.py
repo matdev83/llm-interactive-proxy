@@ -20,9 +20,9 @@ async def test_concurrent_set_config_is_thread_safe():
 
     # Should have approximately 1000 configs
     # With lock protection, should have exactly 1000
-    assert len(repo._configs) == 1000, (
-        f"Expected 1000 configs, got {len(repo._configs)} - race condition!"
-    )
+    assert (
+        len(repo._configs) == 1000
+    ), f"Expected 1000 configs, got {len(repo._configs)} - race condition!"
 
 
 async def test_concurrent_set_and_delete_is_thread_safe():
@@ -40,9 +40,9 @@ async def test_concurrent_set_and_delete_is_thread_safe():
 
     # All deletes should have happened
     # Final state should be empty (all configs set then deleted)
-    assert len(repo._configs) == 0, (
-        f"Expected 0 configs after all deletes, got {len(repo._configs)}"
-    )
+    assert (
+        len(repo._configs) == 0
+    ), f"Expected 0 configs after all deletes, got {len(repo._configs)}"
 
 
 async def test_concurrent_get_and_set_is_thread_safe():
@@ -64,9 +64,7 @@ async def test_concurrent_get_and_set_is_thread_safe():
     await asyncio.gather(*tasks)
 
     # Should have 1 (pre-existing) + 5 * 50 = 251 configs
-    assert len(repo._configs) == 251, (
-        f"Expected 251 configs, got {len(repo._configs)}"
-    )
+    assert len(repo._configs) == 251, f"Expected 251 configs, got {len(repo._configs)}"
 
 
 async def test_concurrent_delete_is_thread_safe():
@@ -85,9 +83,9 @@ async def test_concurrent_delete_is_thread_safe():
     await asyncio.gather(*tasks)
 
     # Should have 100 - 100 = 0 configs remaining
-    assert len(repo._configs) == 0, (
-        f"Expected 0 configs after deletes, got {len(repo._configs)}"
-    )
+    assert (
+        len(repo._configs) == 0
+    ), f"Expected 0 configs after deletes, got {len(repo._configs)}"
 
 
 async def test_delete_nonexistent_does_not_error():

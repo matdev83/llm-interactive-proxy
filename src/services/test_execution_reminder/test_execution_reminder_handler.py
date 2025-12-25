@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from time import time
 from typing import Any
 
@@ -75,7 +76,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
         self._state_ttl_seconds = max(state_ttl_seconds, 1)
         self._max_sessions = max(max_sessions, 1)
         self._test_runner_registry = test_runner_registry or TestRunnerRegistry()
-        self._lock = asyncio.Lock()
+        self._lock = threading.RLock()
 
         if self._enabled:
             logger.info(
@@ -135,13 +136,14 @@ class TestExecutionReminderHandler(IToolCallHandler):
             # Check if this is a test execution command
             command = self._extract_command(tool_name, tool_arguments)
             if command:
-                is_test, language, framework = self._test_runner_registry.match_command(
-                    command
-                )
-                if is_test:
+                match = self._test_runner_registry.match_command(command)
+                if match.is_match:
                     # Mark session as clean but don't handle (allow through)
                     await self._mark_session_clean(
-                        context.session_id, command, language, framework
+                        context.session_id,
+                        command,
+                        match.language,
+                        match.framework,
                     )
                     return False
 
@@ -260,48 +262,53 @@ class TestExecutionReminderHandler(IToolCallHandler):
             )
             return ToolCallReactionResult(should_swallow=False)
 
-    async def _mark_session_dirty(
-        self, session_id: str, tool_name: str | None = None
-    ) -> None:
+    def _mark_session_dirty(self, session_id: str, tool_name: str | None = None) -> Any:
         """Mark a session as dirty (files modified).
 
         Args:
             session_id: The session ID to mark as dirty
             tool_name: The name of the file modification tool (for logging)
         """
-        try:
-            async with self._lock:
-                state = self._session_state.get(session_id)
-                if not state:
-                    state = TestExecutionSessionState()
-                    self._session_state[session_id] = state
 
-                state.mark_dirty()
+        async def _run() -> None:
+            try:
+                with self._lock:
+                    # Prune expired/excess sessions before adding new ones
+                    self._prune_session_state()
+                    
+                    state = self._session_state.get(session_id)
+                    if not state:
+                        state = TestExecutionSessionState()
+                        self._session_state[session_id] = state
 
-            # Log file modification with tool name, session ID, and timestamp
-            logger.info(
-                "File modification tracked: tool=%s, session=%s, timestamp=%.2f, modification_count=%d",
-                tool_name or "unknown",
-                session_id,
-                time(),
-                state.modification_count,
-            )
+                    state.mark_dirty()
 
-        except Exception as e:
-            logger.error(
-                "Error marking session %s as dirty: %s",
-                session_id,
-                str(e),
-                exc_info=True,
-            )
+                # Log file modification with tool name, session ID, and timestamp
+                logger.info(
+                    "File modification tracked: tool=%s, session=%s, timestamp=%.2f, modification_count=%d",
+                    tool_name or "unknown",
+                    session_id,
+                    time(),
+                    state.modification_count,
+                )
 
-    async def _mark_session_clean(
+            except Exception as e:
+                logger.error(
+                    "Error marking session %s as dirty: %s",
+                    session_id,
+                    str(e),
+                    exc_info=True,
+                )
+
+        return self._run_maybe_async(_run())
+
+    def _mark_session_clean(
         self,
         session_id: str,
         command: str,
         language: str | None,
         framework: str | None,
-    ) -> None:
+    ) -> Any:
         """Mark a session as clean (tests run).
 
         Args:
@@ -310,35 +317,37 @@ class TestExecutionReminderHandler(IToolCallHandler):
             language: The detected programming language
             framework: The detected test framework
         """
-        try:
-            async with self._lock:
-                state = self._session_state.get(session_id)
-                if not state:
-                    state = TestExecutionSessionState()
-                    self._session_state[session_id] = state
 
-                state.mark_clean()
+        async def _run() -> None:
+            try:
+                with self._lock:
+                    state = self._session_state.get(session_id)
+                    if not state:
+                        state = TestExecutionSessionState()
+                        self._session_state[session_id] = state
 
-            logger.info(
-                "Session %s marked as clean: test execution detected "
-                "(language: %s, framework: %s, command: %s)",
-                session_id,
-                language or "unknown",
-                framework or "unknown",
-                command,
-            )
+                    state.mark_clean()
 
-        except Exception as e:
-            logger.error(
-                "Error marking session %s as clean: %s",
-                session_id,
-                str(e),
-                exc_info=True,
-            )
+                logger.info(
+                    "Session %s marked as clean: test execution detected "
+                    "(language: %s, framework: %s, command: %s)",
+                    session_id,
+                    language or "unknown",
+                    framework or "unknown",
+                    command,
+                )
 
-    async def _get_session_state(
-        self, session_id: str
-    ) -> TestExecutionSessionState | None:
+            except Exception as e:
+                logger.error(
+                    "Error marking session %s as clean: %s",
+                    session_id,
+                    str(e),
+                    exc_info=True,
+                )
+
+        return self._run_maybe_async(_run())
+
+    def _get_session_state(self, session_id: str) -> Any:
         """Get the session state for a given session ID.
 
         Args:
@@ -347,22 +356,71 @@ class TestExecutionReminderHandler(IToolCallHandler):
         Returns:
             The session state or None if not found
         """
+
+        async def _run() -> TestExecutionSessionState | None:
+            try:
+                with self._lock:
+                    state = self._session_state.get(session_id)
+                    if state:
+                        state.update_last_seen()
+
+                return state
+
+            except Exception as e:
+                logger.error(
+                    "Error getting session state for %s: %s",
+                    session_id,
+                    str(e),
+                    exc_info=True,
+                )
+                return None
+
+        return self._run_maybe_async(_run())
+
+    def _prune_session_state(self, current_time: float | None = None) -> None:
+        """Remove expired or excess session states.
+
+        Args:
+            current_time: Optional override for time.time() (used in tests).
+        """
+        now = current_time if current_time is not None else time()
+        with self._lock:
+            expired_sessions = [
+                session_id
+                for session_id, state in self._session_state.items()
+                if now - state.last_seen > self._state_ttl_seconds
+            ]
+
+            if expired_sessions:
+                for session_id in expired_sessions:
+                    self._session_state.pop(session_id, None)
+                logger.info(
+                    "Session cleanup: pruned %d expired session(s) (TTL exceeded)",
+                    len(expired_sessions),
+                )
+
+            excess_count = len(self._session_state) - self._max_sessions
+            if excess_count > 0:
+                sorted_sessions = sorted(
+                    self._session_state.items(), key=lambda item: item[1].last_seen
+                )
+                pruned_sessions = []
+                for session_id, _state in sorted_sessions[:excess_count]:
+                    self._session_state.pop(session_id, None)
+                    pruned_sessions.append(session_id)
+                logger.info(
+                    "Session cleanup: pruned %d session(s) due to max_sessions limit (%d)",
+                    len(pruned_sessions),
+                    self._max_sessions,
+                )
+
+    @staticmethod
+    def _run_maybe_async(result):
         try:
-            async with self._lock:
-                state = self._session_state.get(session_id)
-                if state:
-                    state.update_last_seen()
-
-            return state
-
-        except Exception as e:
-            logger.error(
-                "Error getting session state for %s: %s",
-                session_id,
-                str(e),
-                exc_info=True,
-            )
-            return None
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(result)
+        return result
 
     def _extract_command(
         self, tool_name: str, tool_arguments: dict[str, Any]

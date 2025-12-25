@@ -105,6 +105,7 @@ class CredentialWatcher:
 
         try:
             self._observer = Observer()
+            self._observer.daemon = True
             handler = OpenAICredentialsFileHandler(self._credential_manager)
             watch_dir = auth_path.parent
             self._observer.schedule(handler, str(watch_dir), recursive=False)
@@ -171,10 +172,8 @@ class CredentialWatcher:
                 loaded = await self._credential_manager._load_auth(force_reload=True)
                 if loaded:
                     if self._credential_manager._auth_credentials is not None:
-                        res = (
-                            self._credential_manager._validate_credentials_structure(
-                                self._credential_manager._auth_credentials
-                            )
+                        res = self._credential_manager._validate_credentials_structure(
+                            self._credential_manager._auth_credentials
                         )
                         if not res:
                             logger.warning(
@@ -380,12 +379,13 @@ class CredentialManager(ICredentialManager):
                 f"No permission to read OAuth credentials file: {auth_path}"
             )
         except Exception as e:
-            return ValidationResult.failure(f"Error reading OAuth credentials file: {e}")
+            return ValidationResult.failure(
+                f"Error reading OAuth credentials file: {e}"
+            )
 
         return ValidationResult.success()
 
     def _robust_replace(
-
         self, src: str, dst: str, retries: int = 5, delay: float = 0.1
     ) -> None:
         """Attempt to replace a file with retries to handle Windows file locking.
@@ -432,7 +432,6 @@ class CredentialManager(ICredentialManager):
 
         return ValidationResult.success()
 
-
     async def initialize(self, auth_path: Path | None = None) -> None:
         """Load initial credentials and start watcher.
 
@@ -475,7 +474,6 @@ class CredentialManager(ICredentialManager):
         else:
             logger.error("OAuth credentials are None after loading")
             return
-
 
         # 4) Start file watching
         if self._auth_path is not None:

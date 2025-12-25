@@ -11,15 +11,16 @@ from src.core.services.failover_service import (
 
 def test_failover_routes_concurrent_add():
     """Test that concurrent add_failover_route calls don't corrupt data."""
-    service = FailoverService({
-        "openai": {"policy": "k", "elements": ["gpt-4"]},
-    })
+    service = FailoverService(
+        {
+            "openai": {"policy": "k", "elements": ["gpt-4"]},
+        }
+    )
 
     def add_route(thread_id: int):
         for i in range(10):
             service.add_failover_route(
-                f"backend_{thread_id}_{i}",
-                {"policy": "k", "elements": [f"model_{i}"]}
+                f"backend_{thread_id}_{i}", {"policy": "k", "elements": [f"model_{i}"]}
             )
 
     threads = []
@@ -41,9 +42,11 @@ def test_failover_routes_concurrent_add():
 
 def test_failover_routes_concurrent_get_and_add():
     """Test concurrent reads and writes don't cause errors."""
-    service = FailoverService({
-        "openai": {"policy": "k", "elements": ["gpt-4"]},
-    })
+    service = FailoverService(
+        {
+            "openai": {"policy": "k", "elements": ["gpt-4"]},
+        }
+    )
 
     errors = []
 
@@ -61,7 +64,7 @@ def test_failover_routes_concurrent_get_and_add():
             for i in range(50):
                 service.add_failover_route(
                     f"backend_{thread_id}_{i}",
-                    {"policy": "k", "elements": [f"model_{i}"]}
+                    {"policy": "k", "elements": [f"model_{i}"]},
                 )
         except Exception as e:
             errors.append(f"Writer {thread_id}: {e}")
@@ -82,9 +85,11 @@ def test_failover_routes_concurrent_get_and_add():
 
 def test_get_all_failover_routes_returns_copy():
     """Test that get_all_failover_routes returns a copy, not reference."""
-    service = FailoverService({
-        "openai": {"policy": "k", "elements": ["gpt-4"]},
-    })
+    service = FailoverService(
+        {
+            "openai": {"policy": "k", "elements": ["gpt-4"]},
+        }
+    )
 
     routes1 = service.get_all_failover_routes()
     routes2 = service.get_all_failover_routes()

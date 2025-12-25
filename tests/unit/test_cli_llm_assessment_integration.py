@@ -488,7 +488,6 @@ class TestAssessmentServiceValidationInvocation:
             )
         )
 
-
         # Create assessment service
         config = AssessmentConfig(enabled=True)
         service = AssessmentService(mock_backend_service, config)
@@ -529,7 +528,6 @@ class TestAssessmentServiceValidationInvocation:
             )
         )
 
-
         # Create assessment service
         config = AssessmentConfig(enabled=True)
         service = AssessmentService(mock_backend_service, config)
@@ -564,7 +562,6 @@ class TestAssessmentServiceValidationInvocation:
                 reasoning="Test assessment result", confidence=0.2
             )
         )
-
 
         # Load prompts first
         from src.core.services.assessment_prompts import initialize_prompts
@@ -719,7 +716,6 @@ class TestEndToEndCLIIntegration:
                     ).model_dump_json()
                 )
             )
-
 
             # Create application builder
             builder = ApplicationBuilder()

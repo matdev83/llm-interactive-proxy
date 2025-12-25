@@ -486,6 +486,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 from watchdog.observers import Observer
 
                 self._file_observer = Observer()
+                self._file_observer.daemon = True
                 handler = _create_file_handler(self)
                 # Watch the directory containing the credentials file
                 watch_dir = self._credentials_path.parent

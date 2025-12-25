@@ -31,11 +31,14 @@ class TestDailyRequestCounterRaceConditionFix:
             # Pre-populate with some state (use current date to match Pacific timezone)
             current_date = _get_current_pacific_date()
             with open(persistence_path, "w") as f:
-                json.dump({
-                    "count":100,
-                    "last_reset_date": current_date,
-                    "logged_thresholds": [700, 800, 900]
-                }, f)
+                json.dump(
+                    {
+                        "count": 100,
+                        "last_reset_date": current_date,
+                        "logged_thresholds": [700, 800, 900],
+                    },
+                    f,
+                )
 
             counter = DailyRequestCounter(persistence_path, 1000)
 
@@ -74,11 +77,16 @@ class TestDailyRequestCounterRaceConditionFix:
 
             # Run threads concurrently
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(read_thread), executor.submit(increment_thread)]
+                futures = [
+                    executor.submit(read_thread),
+                    executor.submit(increment_thread),
+                ]
                 concurrent.futures.wait(futures)
 
             # Should have no exceptions
-            assert not exceptions, f"Exceptions occurred during concurrent access: {exceptions}"
+            assert (
+                not exceptions
+            ), f"Exceptions occurred during concurrent access: {exceptions}"
             # Should have read some values
             assert len(logged_values) > 0
 
@@ -102,14 +110,18 @@ class TestDailyRequestCounterRaceConditionFix:
                 for _ in range(increments_per_thread):
                     counter.increment()
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-                futures = [executor.submit(increment_worker, i) for i in range(num_threads)]
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=num_threads
+            ) as executor:
+                futures = [
+                    executor.submit(increment_worker, i) for i in range(num_threads)
+                ]
                 concurrent.futures.wait(futures)
 
             # All increments should be accounted for
-            assert counter.count == expected_count, (
-                f"Expected {expected_count} but got {counter.count}"
-            )
+            assert (
+                counter.count == expected_count
+            ), f"Expected {expected_count} but got {counter.count}"
 
     def test_load_state_modifies_state_under_lock(self):
         """Test that _load_state() only modifies state while holding lock."""
@@ -123,11 +135,14 @@ class TestDailyRequestCounterRaceConditionFix:
             # Note: thresholds are filtered to match _thresholds (700, 800, 900 for limit=1000)
             current_date = _get_current_pacific_date()
             with open(persistence_path, "w") as f:
-                json.dump({
-                    "count": 500,
-                    "last_reset_date": current_date,
-                    "logged_thresholds": [700, 800, 900]
-                }, f)
+                json.dump(
+                    {
+                        "count": 500,
+                        "last_reset_date": current_date,
+                        "logged_thresholds": [700, 800, 900],
+                    },
+                    f,
+                )
 
             # Create new instance which will load state
             counter2 = DailyRequestCounter(persistence_path, 1000)

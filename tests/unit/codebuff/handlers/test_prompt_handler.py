@@ -119,7 +119,6 @@ class TestMessageExtraction:
         assert messages[0].role == "user"
         assert messages[0].content == "Previous message"
 
-
     def test_extract_empty_raises_error(self, prompt_handler):
         """Test that extracting from empty action raises error."""
         action = PromptAction(

@@ -1,4 +1,5 @@
 """Regression tests for SessionStateStore race condition fixes."""
+
 import asyncio
 import os
 import sys
@@ -46,8 +47,9 @@ async def test_session_state_store_concurrent_get_set_no_race():
     final_val = await store.get(session_id, "key_0_42", default=None)
 
     # The value should be from the last set operation on that key
-    assert success_count == 100 or final_val == "value_42", \
-        f"Data integrity check failed: {success_count}/100 values correct"
+    assert (
+        success_count == 100 or final_val == "value_42"
+    ), f"Data integrity check failed: {success_count}/100 values correct"
 
 
 @pytest.mark.asyncio
@@ -69,7 +71,9 @@ async def test_session_state_store_concurrent_prune_safe():
                 expected = f"value-{sid.split('-')[1]}"
                 # Sessions may be pruned, so only check if exists
                 if val is not None:
-                    assert val == expected, f"Value mismatch for {sid}: got {val}, expected {expected}"
+                    assert (
+                        val == expected
+                    ), f"Value mismatch for {sid}: got {val}, expected {expected}"
 
     # Launch concurrent accesses that may trigger pruning
     tasks = [asyncio.create_task(concurrent_access(s)) for s in range(5)]
@@ -91,12 +95,7 @@ async def test_session_state_store_update_atomic():
     # Concurrent increments using update
     async def increment():
         for _ in range(10):
-            await store.update(
-                session_id,
-                "counter",
-                lambda x: (x or 0) + 1,
-                default=0
-            )
+            await store.update(session_id, "counter", lambda x: (x or 0) + 1, default=0)
 
     # Launch multiple concurrent increment tasks
     tasks = [asyncio.create_task(increment()) for _ in range(3)]
@@ -105,8 +104,9 @@ async def test_session_state_store_update_atomic():
     # Final value should be 30 (3 tasks * 10 increments each)
     # Not lost updates due to race condition
     final_value = await store.get(session_id, "counter", default=0)
-    assert final_value == 30, \
-        f"Expected counter to be 30, got {final_value} - indicates lost update"
+    assert (
+        final_value == 30
+    ), f"Expected counter to be 30, got {final_value} - indicates lost update"
 
 
 if __name__ == "__main__":

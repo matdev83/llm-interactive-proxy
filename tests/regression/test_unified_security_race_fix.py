@@ -27,8 +27,10 @@ def test_concurrent_metrics_protection():
     class DummyPathValidator:
         def extract_paths_from_arguments(self, args, param_names):
             return []
+
         def normalize_path(self, path, root):
             return path
+
         def is_within_boundary(self, path, root, allow_parent=False):
             return True
 
@@ -36,8 +38,10 @@ def test_concurrent_metrics_protection():
         async def get_session(self, session_id):
             class DummyState:
                 project_dir = None
+
             class DummySession:
                 state = DummyState()
+
             return DummySession()
 
     check = FileSandboxingCheck(config, DummyPathValidator(), DummySessionService())
@@ -92,8 +96,10 @@ def test_concurrent_get_metrics_locking():
     class DummyPathValidator:
         def extract_paths_from_arguments(self, args, param_names):
             return []
+
         def normalize_path(self, path, root):
             return path
+
         def is_within_boundary(self, path, root, allow_parent=False):
             return True
 
@@ -101,8 +107,10 @@ def test_concurrent_get_metrics_locking():
         async def get_session(self, session_id):
             class DummyState:
                 project_dir = None
+
             class DummySession:
                 state = DummyState()
+
             return DummySession()
 
     check = FileSandboxingCheck(config, DummyPathValidator(), DummySessionService())

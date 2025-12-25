@@ -36,7 +36,6 @@ async def test_dry_run_no_side_effects(context):
         )
     ]
 
-
     policy = ConfiguredRulesPolicy(session_store=store, rules=rules, enabled=True)
 
     # 1. Evaluate with dry_run=True (e.g. can_handle check)

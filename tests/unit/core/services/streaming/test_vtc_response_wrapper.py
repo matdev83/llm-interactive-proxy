@@ -160,7 +160,14 @@ class TestVTCResponseStreamWrapperXMLExtraction:
                 tool_calls_found = True
                 tool_calls = chunk.metadata["tool_calls"]
                 assert len(tool_calls) == 1
-                assert tool_calls[0].function.name == "execute_command"
+                # Tool calls are normalized to dicts
+                tool_call = tool_calls[0]
+                if isinstance(tool_call, dict):
+                    assert (
+                        tool_call.get("function", {}).get("name") == "execute_command"
+                    )
+                else:
+                    assert tool_call.function.name == "execute_command"
                 # Verify VTC marker is set
                 assert chunk.metadata.get("vtc_tool_calls") is True
                 break

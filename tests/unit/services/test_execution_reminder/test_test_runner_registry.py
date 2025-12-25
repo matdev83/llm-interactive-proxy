@@ -55,77 +55,75 @@ class TestTestRunnerRegistry:
         registry = TestRunnerRegistry()
 
         # Direct pytest
-        is_match, language, framework = registry.match_command("pytest")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "pytest"
+        match = registry.match_command("pytest")
+
+        assert match.is_match is True
+
+        assert match.language == "python"
+        assert match.framework == "pytest"
 
         # pytest with arguments
-        is_match, language, framework = registry.match_command("pytest tests/")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "pytest"
+        match = registry.match_command("pytest tests/")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "pytest"
 
         # Python module invocation
-        is_match, language, framework = registry.match_command("python -m pytest")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "pytest"
+        match = registry.match_command("python -m pytest")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "pytest"
 
         # Wrapper invocation
-        is_match, language, framework = registry.match_command("pipenv run pytest")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "pytest"
+        match = registry.match_command("pipenv run pytest")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "pytest"
 
     def test_unittest_command_detection(self) -> None:
         """Test detection of unittest commands."""
         registry = TestRunnerRegistry()
 
         # Python module invocation
-        is_match, language, framework = registry.match_command("python -m unittest")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "unittest"
+        match = registry.match_command("python -m unittest")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "unittest"
 
         # unittest with arguments
-        is_match, language, framework = registry.match_command(
-            "python -m unittest discover"
-        )
-        assert is_match is True
-        assert language == "python"
-        assert framework == "unittest"
+        match = registry.match_command("python -m unittest discover")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "unittest"
 
     def test_non_test_command_rejection(self) -> None:
         """Test that non-test commands are not detected."""
         registry = TestRunnerRegistry()
 
         # Python script execution
-        is_match, language, framework = registry.match_command("python script.py")
-        assert is_match is False
-        assert language is None
-        assert framework is None
+        match = registry.match_command("python script.py")
+        assert match.is_match is False
+        assert match.language is None
+        assert match.framework is None
 
         # Package installation
-        is_match, language, framework = registry.match_command(
-            "python -m pip install pytest"
-        )
-        assert is_match is False
-        assert language is None
-        assert framework is None
+        match = registry.match_command("python -m pip install pytest")
+        assert match.is_match is False
+        assert match.language is None
+        assert match.framework is None
 
         # Other commands
-        is_match, language, framework = registry.match_command("npm install")
-        assert is_match is False
+        match = registry.match_command("npm install")
+        assert match.is_match is False
 
     def test_empty_command_handling(self) -> None:
         """Test handling of empty commands."""
         registry = TestRunnerRegistry()
 
-        is_match, language, framework = registry.match_command("")
-        assert is_match is False
-        assert language is None
-        assert framework is None
+        match = registry.match_command("")
+        assert match.is_match is False
+        assert match.language is None
+        assert match.framework is None
 
     def test_register_custom_pattern(self) -> None:
         """Test registering a custom pattern."""
@@ -141,10 +139,10 @@ class TestTestRunnerRegistry:
         registry.register_pattern(custom_pattern)
 
         # Should match the custom pattern
-        is_match, language, framework = registry.match_command("custom_test")
-        assert is_match is True
-        assert language == "custom"
-        assert framework == "custom_test"
+        match = registry.match_command("custom_test")
+        assert match.is_match is True
+        assert match.language == "custom"
+        assert match.framework == "custom_test"
 
     def test_pattern_priority(self) -> None:
         """Test that higher priority patterns are matched first."""
@@ -170,10 +168,10 @@ class TestTestRunnerRegistry:
         registry.register_pattern(high_priority)
 
         # Should match the higher priority pattern
-        is_match, language, framework = registry.match_command("test")
-        assert is_match is True
-        assert language == "lang2"
-        assert framework == "framework2"
+        match = registry.match_command("test")
+        assert match.is_match is True
+        assert match.language == "lang2"
+        assert match.framework == "framework2"
 
     def test_pytest_variations(self) -> None:
         """Test various pytest command variations."""
@@ -193,10 +191,10 @@ class TestTestRunnerRegistry:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "python", f"Wrong language for: {command}"
-            assert framework == "pytest", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "python", f"Wrong language for: {command}"
+            assert match.framework == "pytest", f"Wrong framework for: {command}"
 
     def test_unittest_variations(self) -> None:
         """Test various unittest command variations."""
@@ -211,10 +209,10 @@ class TestTestRunnerRegistry:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "python", f"Wrong language for: {command}"
-            assert framework == "unittest", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "python", f"Wrong language for: {command}"
+            assert match.framework == "unittest", f"Wrong framework for: {command}"
 
     def test_false_positives(self) -> None:
         """Test that commands mentioning pytest/unittest are not false positives."""
@@ -234,10 +232,10 @@ class TestTestRunnerRegistry:
         ]
 
         for command in false_positive_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is False, f"False positive for: {command}"
-            assert language is None, f"Should have no language for: {command}"
-            assert framework is None, f"Should have no framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is False, f"False positive for: {command}"
+            assert match.language is None, f"Should have no language for: {command}"
+            assert match.framework is None, f"Should have no framework for: {command}"
 
 
 class TestJavaScriptTestRunners:
@@ -263,10 +261,10 @@ class TestJavaScriptTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "javascript", f"Wrong language for: {command}"
-            assert framework == "jest", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "javascript", f"Wrong language for: {command}"
+            assert match.framework == "jest", f"Wrong framework for: {command}"
 
     def test_vitest_variations(self) -> None:
         """Test various vitest command variations."""
@@ -283,10 +281,10 @@ class TestJavaScriptTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "javascript", f"Wrong language for: {command}"
-            assert framework == "vitest", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "javascript", f"Wrong language for: {command}"
+            assert match.framework == "vitest", f"Wrong framework for: {command}"
 
     def test_mocha_variations(self) -> None:
         """Test various mocha command variations."""
@@ -303,10 +301,10 @@ class TestJavaScriptTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "javascript", f"Wrong language for: {command}"
-            assert framework == "mocha", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "javascript", f"Wrong language for: {command}"
+            assert match.framework == "mocha", f"Wrong framework for: {command}"
 
     def test_ava_variations(self) -> None:
         """Test various ava command variations."""
@@ -323,10 +321,10 @@ class TestJavaScriptTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "javascript", f"Wrong language for: {command}"
-            assert framework == "ava", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "javascript", f"Wrong language for: {command}"
+            assert match.framework == "ava", f"Wrong framework for: {command}"
 
 
 class TestRustTestRunners:
@@ -346,10 +344,10 @@ class TestRustTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "rust", f"Wrong language for: {command}"
-            assert framework == "cargo", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "rust", f"Wrong language for: {command}"
+            assert match.framework == "cargo", f"Wrong framework for: {command}"
 
 
 class TestGoTestRunners:
@@ -369,10 +367,10 @@ class TestGoTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "go", f"Wrong language for: {command}"
-            assert framework == "go test", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "go", f"Wrong language for: {command}"
+            assert match.framework == "go test", f"Wrong framework for: {command}"
 
 
 class TestJavaTestRunners:
@@ -393,10 +391,10 @@ class TestJavaTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "java", f"Wrong language for: {command}"
-            assert framework == "maven", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "java", f"Wrong language for: {command}"
+            assert match.framework == "maven", f"Wrong framework for: {command}"
 
     def test_gradle_variations(self) -> None:
         """Test various Gradle test command variations."""
@@ -412,10 +410,10 @@ class TestJavaTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "java", f"Wrong language for: {command}"
-            assert framework == "gradle", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "java", f"Wrong language for: {command}"
+            assert match.framework == "gradle", f"Wrong framework for: {command}"
 
 
 class TestCSharpTestRunners:
@@ -434,10 +432,10 @@ class TestCSharpTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "csharp", f"Wrong language for: {command}"
-            assert framework == "dotnet", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "csharp", f"Wrong language for: {command}"
+            assert match.framework == "dotnet", f"Wrong framework for: {command}"
 
 
 class TestRubyTestRunners:
@@ -460,10 +458,10 @@ class TestRubyTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "ruby", f"Wrong language for: {command}"
-            assert framework == "rspec", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "ruby", f"Wrong language for: {command}"
+            assert match.framework == "rspec", f"Wrong framework for: {command}"
 
 
 class TestPHPTestRunners:
@@ -484,10 +482,10 @@ class TestPHPTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "php", f"Wrong language for: {command}"
-            assert framework == "phpunit", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "php", f"Wrong language for: {command}"
+            assert match.framework == "phpunit", f"Wrong framework for: {command}"
 
 
 class TestCppTestRunners:
@@ -506,10 +504,10 @@ class TestCppTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "cpp", f"Wrong language for: {command}"
-            assert framework == "ctest", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "cpp", f"Wrong language for: {command}"
+            assert match.framework == "ctest", f"Wrong framework for: {command}"
 
 
 class TestSwiftTestRunners:
@@ -526,10 +524,10 @@ class TestSwiftTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "swift", f"Wrong language for: {command}"
-            assert framework == "swift test", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "swift", f"Wrong language for: {command}"
+            assert match.framework == "swift test", f"Wrong framework for: {command}"
 
 
 class TestScalaTestRunners:
@@ -547,10 +545,10 @@ class TestScalaTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "scala", f"Wrong language for: {command}"
-            assert framework == "sbt", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "scala", f"Wrong language for: {command}"
+            assert match.framework == "sbt", f"Wrong framework for: {command}"
 
 
 class TestElixirTestRunners:
@@ -568,10 +566,10 @@ class TestElixirTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "elixir", f"Wrong language for: {command}"
-            assert framework == "mix", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "elixir", f"Wrong language for: {command}"
+            assert match.framework == "mix", f"Wrong framework for: {command}"
 
 
 class TestDartTestRunners:
@@ -590,10 +588,10 @@ class TestDartTestRunners:
         ]
 
         for command in test_cases:
-            is_match, language, framework = registry.match_command(command)
-            assert is_match is True, f"Failed to match: {command}"
-            assert language == "dart", f"Wrong language for: {command}"
-            assert framework == "dart test", f"Wrong framework for: {command}"
+            match = registry.match_command(command)
+            assert match.is_match is True, f"Failed to match: {command}"
+            assert match.language == "dart", f"Wrong language for: {command}"
+            assert match.framework == "dart test", f"Wrong framework for: {command}"
 
 
 class TestPatternLoading:
@@ -692,10 +690,10 @@ class TestExtensibility:
         registry.register_pattern(custom_pattern)
 
         # Should match the custom pattern
-        is_match, language, framework = registry.match_command("stack test")
-        assert is_match is True
-        assert language == "haskell"
-        assert framework == "hspec"
+        match = registry.match_command("stack test")
+        assert match.is_match is True
+        assert match.language == "haskell"
+        assert match.framework == "hspec"
 
     def test_register_new_framework_for_existing_language(self) -> None:
         """Test registering a new framework for an existing language."""
@@ -711,10 +709,10 @@ class TestExtensibility:
         registry.register_pattern(custom_pattern)
 
         # Should match the custom pattern
-        is_match, language, framework = registry.match_command("nose2")
-        assert is_match is True
-        assert language == "python"
-        assert framework == "nose2"
+        match = registry.match_command("nose2")
+        assert match.is_match is True
+        assert match.language == "python"
+        assert match.framework == "nose2"
 
     def test_override_with_higher_priority(self) -> None:
         """Test that higher priority patterns override lower priority ones."""
@@ -739,7 +737,7 @@ class TestExtensibility:
         registry.register_pattern(high_priority)
 
         # Should match the higher priority pattern
-        is_match, language, framework = registry.match_command("customtest")
-        assert is_match is True
-        assert language == "custom2"
-        assert framework == "framework2"
+        match = registry.match_command("customtest")
+        assert match.is_match is True
+        assert match.language == "custom2"
+        assert match.framework == "framework2"

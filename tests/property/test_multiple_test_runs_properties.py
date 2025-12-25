@@ -101,7 +101,7 @@ async def test_property_13_multiple_test_runs_maintain_clean_state(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Verify initial state is clean (no state exists yet)
-    initial_state = handler._get_session_state(session_id)
+    initial_state = await handler._get_session_state(session_id)
     assert (
         initial_state is None or initial_state.is_dirty is False
     ), "Initial state should be clean"
@@ -127,7 +127,7 @@ async def test_property_13_multiple_test_runs_maintain_clean_state(
         )
 
         # Verify state remains clean after each test
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None, (
             f"State should exist after test execution {i + 1}. "
             f"Command: '{test_command}'"
@@ -143,7 +143,7 @@ async def test_property_13_multiple_test_runs_maintain_clean_state(
         )
 
     # Final verification: state should still be clean
-    final_state = handler._get_session_state(session_id)
+    final_state = await handler._get_session_state(session_id)
     assert final_state is not None, "Final state should exist"
     assert final_state.is_dirty is False, (
         f"Session should be clean after all {len(test_commands)} test executions. "
@@ -195,7 +195,7 @@ async def test_property_13_many_identical_test_runs_maintain_clean_state(
         assert can_handle_result is False
 
         # Verify state remains clean
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None
         assert (
             state.is_dirty is False
@@ -240,7 +240,7 @@ async def test_property_13_test_runs_with_different_languages_maintain_clean_sta
         await handler.can_handle(context)
 
         # Verify state remains clean
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None
         assert (
             state.is_dirty is False
@@ -285,7 +285,7 @@ async def test_property_13_no_errors_during_multiple_test_runs(
             await handler.can_handle(context)
 
             # Verify state exists and is clean
-            state = handler._get_session_state(session_id)
+            state = await handler._get_session_state(session_id)
             assert state is not None
             assert state.is_dirty is False
 
@@ -336,7 +336,7 @@ async def test_property_13_test_timestamps_update_correctly(
         await handler.can_handle(context)
 
         # Verify timestamp was updated
-        state = handler._get_session_state(session_id)
+        state = await handler._get_session_state(session_id)
         assert state is not None
         assert state.last_test_time >= previous_test_time, (
             f"Test timestamp should be updated or remain the same. "

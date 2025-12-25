@@ -287,11 +287,14 @@ class JSONResponseBuilder:
             )
 
             # Apply prompt tokens hint if we got one from metadata
-            if prompt_tokens_hint is not None and prompt_tokens_hint > 0:
-                if prompt_tokens_hint > usage_obj.prompt_tokens:
-                    usage_obj = usage_obj.with_recalculated_tokens(
-                        prompt_tokens=prompt_tokens_hint
-                    )
+            if (
+                prompt_tokens_hint is not None
+                and prompt_tokens_hint > 0
+                and prompt_tokens_hint > usage_obj.prompt_tokens
+            ):
+                usage_obj = usage_obj.with_recalculated_tokens(
+                    prompt_tokens=prompt_tokens_hint
+                )
             usage = usage_obj.to_openrouter_dict()
         else:
 

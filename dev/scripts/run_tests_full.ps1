@@ -2,6 +2,7 @@ param(
     [int]$Workers = 4,
     [int]$BatchSize = 40,
     [int]$BatchTimeoutSeconds = 900,
+    [int]$MaxBatches = 0,
     [string]$OutputPath = "test_output_full.txt"
 )
 
@@ -24,17 +25,26 @@ function Quote-Arg([string]$arg) {
 
 function Invoke-CmdWithTimeout([string]$cmdLine, [int]$timeoutSeconds) {
     $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmdLine -PassThru -NoNewWindow
-    $exited = $proc.WaitForExit($timeoutSeconds * 1000)
-    if (-not $exited) {
+    try {
+        Wait-Process -Id $proc.Id -Timeout $timeoutSeconds -ErrorAction Stop
+    } catch {
         & taskkill /PID $proc.Id /T /F | Out-Null
         return @{
             TimedOut = $true
             ExitCode = 124
         }
     }
+
+    $proc.Refresh()
+    $exitCode = $null
+    try {
+        $exitCode = [int]$proc.ExitCode
+    } catch {
+        $exitCode = $null
+    }
     return @{
         TimedOut = $false
-        ExitCode = $proc.ExitCode
+        ExitCode = $exitCode
     }
 }
 
@@ -80,7 +90,8 @@ function Run-BatchRecursive([string[]]$paths, [int]$depth) {
 
     if (-not $result.TimedOut) {
         $script:AnyFailure = $script:AnyFailure -or ($result.ExitCode -ne 0)
-        Write-Host ("{0}[runner] done:  {1} (exit={2})" -f $indent, $label, $result.ExitCode)
+        $exitText = if ($null -eq $result.ExitCode) { "unknown" } else { $result.ExitCode }
+        Write-Host ("{0}[runner] done:  {1} (exit={2})" -f $indent, $label, $exitText)
         return
     }
 
@@ -99,9 +110,10 @@ function Run-BatchRecursive([string[]]$paths, [int]$depth) {
 }
 
 Remove-Item -Path $OutputPath -ErrorAction SilentlyContinue
+Write-Host ("[runner] output: {0}" -f $OutputPath)
 Write-Log ("[runner] repoRoot: {0}" -f $repoRoot)
 Write-Log ("[runner] python: {0}" -f $python)
-Write-Log ("[runner] workers: {0}, batchSize: {1}, batchTimeoutSeconds: {2}" -f $Workers, $BatchSize, $BatchTimeoutSeconds)
+Write-Log ("[runner] workers: {0}, batchSize: {1}, batchTimeoutSeconds: {2}, maxBatches: {3}" -f $Workers, $BatchSize, $BatchTimeoutSeconds, $MaxBatches)
 
 $collectArgs = @(
     "-m", "pytest",
@@ -140,6 +152,10 @@ if ($testFiles.Count -eq 0) {
 $batchIndex = 0
 for ($i = 0; $i -lt $testFiles.Count; $i += $BatchSize) {
     $batchIndex++
+    if ($MaxBatches -gt 0 -and $batchIndex -gt $MaxBatches) {
+        Write-Host ("[runner] stopping after maxBatches={0}" -f $MaxBatches)
+        break
+    }
     $end = [Math]::Min($i + $BatchSize - 1, $testFiles.Count - 1)
     $batch = $testFiles[$i..$end]
     Write-Host ("[runner] batch {0}/{1}: files {2}-{3}" -f $batchIndex, $totalBatches, ($i + 1), ($end + 1))

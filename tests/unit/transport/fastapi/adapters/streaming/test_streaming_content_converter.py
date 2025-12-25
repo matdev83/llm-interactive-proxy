@@ -79,7 +79,6 @@ class TestStreamingContentConverter:
 
         converter = StreamingContentConverter(sse_decoder=mock_decoder)
 
-
         async def raw_stream() -> AsyncIterator[bytes]:
             yield b'data: {"test": "data"}\n\n'
 
@@ -179,7 +178,6 @@ class TestStreamingContentConverter:
         )
 
         converter = StreamingContentConverter(sse_decoder=mock_decoder)
-
 
         async def raw_stream() -> AsyncIterator[bytes]:
             yield b"data: [DONE]\n\n"

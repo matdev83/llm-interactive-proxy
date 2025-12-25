@@ -469,9 +469,13 @@ class TestPreviouslyIdentifiedIssues:
                 result = await translator.translate_tool_invocation(
                     empty_xml, session_id="test_session"
                 )
-                # Should either return None or handle gracefully
+                # Should either return None or KiloTranslationResult
                 # (not crash with unhandled exception)
-                assert result is None or isinstance(result, tuple)
+                from src.connectors._openai_codex_kilo_tool_translator import (
+                    KiloTranslationResult,
+                )
+
+                assert result is None or isinstance(result, KiloTranslationResult)
             except TranslationError:
                 # TranslationError is acceptable for invalid XML
                 pass

@@ -5,7 +5,9 @@ Tests for the Antigravity OAuth connector.
 import pytest
 
 # Skip entire module due to test hangs/crashes
-pytestmark = pytest.mark.skip(reason="Antigravity OAuth tests hang/crash - needs investigation")
+pytestmark = pytest.mark.skip(
+    reason="Antigravity OAuth tests hang/crash - needs investigation"
+)
 
 import json
 import sqlite3
@@ -273,11 +275,7 @@ class TestAntigravityOAuthConnector:
         assert connector.client.get.await_count == 0
         assert result.data
         # Model names now include vendor prefix in public list
-        assert any(
-            model.id == "models/google/gemini-2.5-pro"
-            for model in result.data
-        )
-
+        assert any(model.id == "models/google/gemini-2.5-pro" for model in result.data)
 
     @pytest.mark.asyncio
     async def test_discover_project_id_prefers_paid_tier(self, connector, monkeypatch):

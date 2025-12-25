@@ -10,6 +10,7 @@ Tests for:
 import asyncio
 import threading
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,9 +40,10 @@ class TestGeminiCloudProjectConnectorRaceConditions:
             def _schedule_credentials_reload(self) -> None:
                 """Fixed version with extended lock coverage"""
                 with self._reload_task_lock:
-                    if (
-                        self._pending_reload_task is not None
-                        and (self._pending_reload_task.done() if hasattr(self._pending_reload_task, 'done') else True)
+                    if self._pending_reload_task is not None and (
+                        self._pending_reload_task.done()
+                        if hasattr(self._pending_reload_task, "done")
+                        else True
                     ):
                         return
 
@@ -52,9 +54,11 @@ class TestGeminiCloudProjectConnectorRaceConditions:
                     self._schedule_call_count += 1
 
                     # FIXED: Task assignment happens inside lock
-                    if self._main_loop and hasattr(self._main_loop, 'create_task'):
+                    if self._main_loop and hasattr(self._main_loop, "create_task"):
+
                         async def dummy_reload():
                             pass
+
                         task = self._main_loop.create_task(dummy_reload())
                         self._pending_reload_task = task
                         self._reload_exec_count += 1
@@ -73,7 +77,6 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         # Track actual reloads
         reload_executions = []
-
 
         def mock_create_task(coro):
             reload_executions.append(coro)
@@ -98,14 +101,14 @@ class TestGeminiCloudProjectConnectorRaceConditions:
             t.join(timeout=2)
 
         # Only 1 scheduling should have occurred, all others should return early
-        assert connector._schedule_call_count == 1, (
-            f"Expected 1 scheduling attempt, got {connector._schedule_call_count}"
-        )
+        assert (
+            connector._schedule_call_count == 1
+        ), f"Expected 1 scheduling attempt, got {connector._schedule_call_count}"
 
         # Only 1 reload task should have been created
-        assert len(reload_executions) == 1, (
-            f"Expected 1 reload task, got {len(reload_executions)}"
-        )
+        assert (
+            len(reload_executions) == 1
+        ), f"Expected 1 reload task, got {len(reload_executions)}"
 
     def test_validate_runtime_credentials_state_race(self):
         """
@@ -160,8 +163,7 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         threads = []
         for i in range(10):
             t = threading.Thread(
-                target=connector._validate_runtime_credentials,
-                name=f"Validator-{i}"
+                target=connector._validate_runtime_credentials, name=f"Validator-{i}"
             )
             threads.append(t)
 
@@ -173,14 +175,14 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         # With the bug, only the last call would modify errors
         # With the fix, intermediate modifications should be visible
-        assert connector._fail_init_call_count > 0, (
-            "Expected at least one _fail_init call"
-        )
+        assert (
+            connector._fail_init_call_count > 0
+        ), "Expected at least one _fail_init call"
 
         # All calls should see consistent state
-        assert connector.is_backend_functional(), (
-            "Backend functional state should reflect current state"
-        )
+        assert (
+            connector.is_backend_functional()
+        ), "Backend functional state should reflect current state"
 
     def test_fail_init_degrade_recover_flag_race(self):
         """
@@ -220,8 +222,8 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         threads = []
         for i in range(10):
             t = threading.Thread(
-                target=lambda: connector._fail_init([f"error-{i}"]),
-                name=f"Failer-{i}"
+                target=lambda idx=i: connector._fail_init([f"error-{idx}"]),
+                name=f"Failer-{i}",
             )
             threads.append(t)
 
@@ -234,9 +236,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         # With the bug, some _fail_init calls would be lost
         # We should have at least 5 errors recorded (10 threads)
         # The last call would win with direct assignment
-        assert len(connector._credential_validation_errors) >= 5, (
-            f"Expected at least 5 errors, got {len(connector._credential_validation_errors)}"
-        )
+        assert (
+            len(connector._credential_validation_errors) >= 5
+        ), f"Expected at least 5 errors, got {len(connector._credential_validation_errors)}"
 
 
 if __name__ == "__main__":

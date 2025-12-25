@@ -51,7 +51,6 @@ def test_recalculate_usage_none_input():
     assert result is None
 
 
-
 def test_should_recalculate_usage_valid_response():
     """Test that recalculation is triggered for valid chat completion responses."""
     response = {
@@ -192,4 +191,3 @@ def test_recalculate_usage_with_zero_original():
     assert result.prompt_tokens == 50
     assert result.completion_tokens > 0  # Should now have tokens
     assert result.total_tokens == 50 + result.completion_tokens
-

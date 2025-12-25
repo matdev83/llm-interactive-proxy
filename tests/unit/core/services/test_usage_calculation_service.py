@@ -346,7 +346,6 @@ class TestUsageCalculationWithContext:
         assert result.total_tokens == 150
 
 
-
 class TestGlobalServiceInstance:
     """Test the global service instance."""
 
@@ -434,4 +433,3 @@ class TestStreamingUsageMerge:
 
         assert result.completion_tokens > 0
         assert result.total_tokens == result.completion_tokens
-

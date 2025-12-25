@@ -11,7 +11,10 @@ capabilities but don't contain business logic:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+from typing import TYPE_CHECKING
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -19,6 +22,9 @@ from src.core.di.container import ServiceCollection
 from .base import InitializationStage
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class InfrastructureStage(InitializationStage):
@@ -32,6 +38,11 @@ class InfrastructureStage(InitializationStage):
     - Other infrastructure utilities
     """
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._http_client: httpx.AsyncClient | None = None
+
     @property
     def name(self) -> str:
         return "infrastructure"
@@ -44,23 +55,27 @@ class InfrastructureStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register infrastructure services."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Initializing infrastructure services...")
+        try:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Initializing infrastructure services...")
 
-        # Register shared HTTP client
-        self._register_http_client(services)
+            # Register shared HTTP client
+            self._register_http_client(services)
 
-        # Register rate limiter
-        self._register_rate_limiter(services)
+            # Register rate limiter
+            self._register_rate_limiter(services)
 
-        # Register loop detector
-        self._register_loop_detector(services)
+            # Register loop detector
+            self._register_loop_detector(services)
 
-        # Configure streaming sampler
-        self._configure_streaming_sampler(config)
+            # Configure streaming sampler
+            self._configure_streaming_sampler(config)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Infrastructure services initialized successfully")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Infrastructure services initialized successfully")
+        except Exception:
+            await self._cleanup_http_client()
+            raise
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""
@@ -98,6 +113,7 @@ class InfrastructureStage(InitializationStage):
                 return
 
             # Create shared HTTP client instance with http2 fallback
+            shared_httpx_client: httpx.AsyncClient | None = None
             try:
                 shared_httpx_client = httpx.AsyncClient(
                     http2=True,
@@ -109,7 +125,7 @@ class InfrastructureStage(InitializationStage):
                     ),
                     trust_env=False,
                 )
-            except ImportError:
+            except Exception:
                 shared_httpx_client = httpx.AsyncClient(
                     http2=False,
                     timeout=httpx.Timeout(
@@ -121,8 +137,18 @@ class InfrastructureStage(InitializationStage):
                     trust_env=False,
                 )
 
+            if shared_httpx_client is None:
+                raise RuntimeError("Failed to create shared HTTP client")
+
+            self._http_client = shared_httpx_client
+
             # Register as singleton instance
-            services.add_instance(httpx.AsyncClient, shared_httpx_client)
+            try:
+                services.add_instance(httpx.AsyncClient, shared_httpx_client)
+            except Exception:
+                self._schedule_http_client_cleanup(shared_httpx_client)
+                self._http_client = None
+                raise
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered shared HTTP client")
@@ -240,3 +266,56 @@ class InfrastructureStage(InitializationStage):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Infrastructure services validation failed: {e}")
             return False
+
+    async def _cleanup_http_client(self) -> None:
+        if self._http_client is not None:
+            client = self._http_client
+            self._http_client = None
+            self._schedule_http_client_cleanup(client)
+
+        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        if pending_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Timeout waiting for HTTP client cleanup tasks")
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                with contextlib.suppress(Exception):
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Cleanup task gather failed: %s", e)
+                for task in pending_tasks:
+                    if not task.done():
+                        task.cancel()
+                with contextlib.suppress(Exception):
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+        self._cleanup_tasks.clear()
+
+    def _schedule_http_client_cleanup(self, client: httpx.AsyncClient) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is None or not loop.is_running():
+            try:
+                asyncio.run(client.aclose())
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(client.aclose())
+                except Exception:
+                    pass
+            return
+
+        cleanup_task = loop.create_task(client.aclose())
+        self._cleanup_tasks.add(cleanup_task)
+        cleanup_task.add_done_callback(self._cleanup_tasks.discard)

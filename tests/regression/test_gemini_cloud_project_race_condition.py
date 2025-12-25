@@ -3,6 +3,7 @@
 This test verifies that concurrent file modifications cannot cause
 inconsistent state due to unprotected flag modifications.
 """
+
 import asyncio
 import sys
 import threading
@@ -15,6 +16,7 @@ from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
 
 class MockClient:
     """Mock httpx client for testing."""
+
     def __init__(self):
         self.is_closed = False
 
@@ -24,6 +26,7 @@ class MockClient:
 
 class MockConfig:
     """Mock app config for testing."""
+
     def __init__(self):
         self.disable_health_checks = False
 
@@ -41,9 +44,7 @@ async def test_concurrent_credentials_reload():
     mock_config = MockConfig()
     mock_translation = MockTranslationService()
 
-    connector = GeminiCloudProjectConnector(
-        mock_client, mock_config, mock_translation
-    )
+    connector = GeminiCloudProjectConnector(mock_client, mock_config, mock_translation)
 
     # Track state changes
     state_changes = []
@@ -60,9 +61,11 @@ async def test_concurrent_credentials_reload():
         await asyncio.sleep(0.01)  # Small delay
 
         # Simulate file modification events
+        tasks = []
         for _i in range(10):
             # Use a task to avoid blocking
-            asyncio.create_task(connector._schedule_credentials_reload())
+            task = asyncio.create_task(connector._schedule_credentials_reload())
+            tasks.append(task)
 
     # Run the test
     await trigger_modifications()
@@ -79,9 +82,7 @@ async def test_single_reload_protection():
     mock_config = MockConfig()
     mock_translation = MockTranslationService()
 
-    connector = GeminiCloudProjectConnector(
-        mock_client, mock_config, mock_translation
-    )
+    connector = GeminiCloudProjectConnector(mock_client, mock_config, mock_translation)
 
     # Start a reload task
     task1 = asyncio.create_task(connector._schedule_credentials_reload())
@@ -104,14 +105,11 @@ async def test_flag_cleanup_on_error():
     mock_config = MockConfig()
     mock_translation = MockTranslationService()
 
-    connector = GeminiCloudProjectConnector(
-        mock_client, mock_config, mock_translation
-    )
+    connector = GeminiCloudProjectConnector(mock_client, mock_config, mock_translation)
 
     # Patch _handle_credentials_file_change to raise error
     async def failing_handler():
         raise RuntimeError("Simulated reload error")
-
 
     async def patched_handler():
         try:

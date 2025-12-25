@@ -35,12 +35,12 @@ def test_concurrent_record_activation():
 
     # Verify all activations were recorded
     expected_activations = num_threads * sessions_per_thread
-    assert metrics.total_activations == expected_activations, (
-        f"Expected {expected_activations} total activations, got {metrics.total_activations}"
-    )
-    assert len(metrics.activation_timestamps) == expected_activations, (
-        f"Expected {expected_activations} timestamps, got {len(metrics.activation_timestamps)}"
-    )
+    assert (
+        metrics.total_activations == expected_activations
+    ), f"Expected {expected_activations} total activations, got {metrics.total_activations}"
+    assert (
+        len(metrics.activation_timestamps) == expected_activations
+    ), f"Expected {expected_activations} timestamps, got {len(metrics.activation_timestamps)}"
 
 
 def test_concurrent_record_opt_out():
@@ -69,20 +69,24 @@ def test_concurrent_record_opt_out():
 
     # Verify all opt-outs were recorded
     expected_opt_outs = num_threads * sessions_per_thread
-    assert metrics.total_opt_outs == expected_opt_outs, (
-        f"Expected {expected_opt_outs} total opt-outs, got {metrics.total_opt_outs}"
+    assert (
+        metrics.total_opt_outs == expected_opt_outs
+    ), f"Expected {expected_opt_outs} total opt-outs, got {metrics.total_opt_outs}"
+    assert (
+        len(metrics.opt_out_timestamps) == expected_opt_outs
+    ), f"Expected {expected_opt_outs} timestamps, got {len(metrics.opt_out_timestamps)}"
+    expected_header = (
+        sum(1 for i in range(sessions_per_thread) if i % 2 == 0) * num_threads
     )
-    assert len(metrics.opt_out_timestamps) == expected_opt_outs, (
-        f"Expected {expected_opt_outs} timestamps, got {len(metrics.opt_out_timestamps)}"
+    expected_session = (
+        sum(1 for i in range(sessions_per_thread) if i % 2 == 1) * num_threads
     )
-    expected_header = sum(1 for i in range(sessions_per_thread) if i % 2 == 0) * num_threads
-    expected_session = sum(1 for i in range(sessions_per_thread) if i % 2 == 1) * num_threads
-    assert metrics.header_opt_outs == expected_header, (
-        f"Expected {expected_header} header opt-outs, got {metrics.header_opt_outs}"
-    )
-    assert metrics.session_opt_outs == expected_session, (
-        f"Expected {expected_session} session opt-outs, got {metrics.session_opt_outs}"
-    )
+    assert (
+        metrics.header_opt_outs == expected_header
+    ), f"Expected {expected_header} header opt-outs, got {metrics.header_opt_outs}"
+    assert (
+        metrics.session_opt_outs == expected_session
+    ), f"Expected {expected_session} session opt-outs, got {metrics.session_opt_outs}"
 
 
 def test_concurrent_mixed_operations():
@@ -120,12 +124,12 @@ def test_concurrent_mixed_operations():
         operations_per_thread - (operations_per_thread // 3) * 2
     ) * num_threads
 
-    assert metrics.total_activations == expected_activations, (
-        f"Expected {expected_activations} activations, got {metrics.total_activations}"
-    )
-    assert metrics.total_opt_outs == expected_opt_outs, (
-        f"Expected {expected_opt_outs} opt-outs, got {metrics.total_opt_outs}"
-    )
+    assert (
+        metrics.total_activations == expected_activations
+    ), f"Expected {expected_activations} activations, got {metrics.total_activations}"
+    assert (
+        metrics.total_opt_outs == expected_opt_outs
+    ), f"Expected {expected_opt_outs} opt-outs, got {metrics.total_opt_outs}"
     assert metrics.total_turns_completed == expected_turn_completions, (
         f"Expected {expected_turn_completions} turn completions, "
         f"got {metrics.total_turns_completed}"
@@ -164,9 +168,9 @@ def test_concurrent_get_rates():
     expected_activations = num_threads * records_per_thread
     expected_opt_outs = num_threads * records_per_thread
 
-    assert metrics.total_activations == expected_activations, (
-        f"Expected {expected_activations} activations, got {metrics.total_activations}"
-    )
-    assert metrics.total_opt_outs == expected_opt_outs, (
-        f"Expected {expected_opt_outs} opt-outs, got {metrics.total_opt_outs}"
-    )
+    assert (
+        metrics.total_activations == expected_activations
+    ), f"Expected {expected_activations} activations, got {metrics.total_activations}"
+    assert (
+        metrics.total_opt_outs == expected_opt_outs
+    ), f"Expected {expected_opt_outs} opt-outs, got {metrics.total_opt_outs}"

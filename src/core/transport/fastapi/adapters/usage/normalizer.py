@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from src.core.domain.openrouter_usage import OpenRouterUsage
     from src.core.services.usage_calculation_service import UsageCalculationService
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,9 @@ class UsageNormalizer:
         """
         self._usage_service = usage_service
 
-    def normalize(self, usage: dict[str, Any] | OpenRouterUsage | None) -> dict[str, int]:
+    def normalize(
+        self, usage: dict[str, Any] | OpenRouterUsage | None
+    ) -> dict[str, int]:
         """Normalize usage to standard format.
 
         Args:

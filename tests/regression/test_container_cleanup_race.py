@@ -36,6 +36,7 @@ async def test_service_collection_cleanup_tasks_race_condition():
         """Simulate adding cleanup tasks"""
         for i in range(5):
             await asyncio.sleep(0.001)
+
             # Create a mock httpx.AsyncClient-like object
             class MockClient:
                 async def aclose(self):

@@ -133,7 +133,6 @@ class TestProtocolContracts:
         assert isinstance(res.metadata, dict)
         assert isinstance(res.is_done, bool)
 
-
     def test_reasoning_injector_contract(self) -> None:
         """Test IReasoningInjector contract compliance."""
 

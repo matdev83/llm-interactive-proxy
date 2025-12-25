@@ -20,17 +20,18 @@ def test_gemini_cloud_project_has_errors_lock():
     import inspect
 
     from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
+
     init_source = inspect.getsource(GeminiCloudProjectConnector.__init__)
 
     # Check if _errors_lock is being initialized in __init__
-    assert '_errors_lock' in init_source, (
-        "Class should have _errors_lock initialization in __init__"
-    )
+    assert (
+        "_errors_lock" in init_source
+    ), "Class should have _errors_lock initialization in __init__"
 
     # Check if lock type is correct
-    assert 'threading.Lock()' in init_source, (
-        "_errors_lock should be a threading.Lock type"
-    )
+    assert (
+        "threading.Lock()" in init_source
+    ), "_errors_lock should be a threading.Lock type"
 
     # Verify that the methods use the lock by checking source code
     # The actual concurrent access tests would require complex setup

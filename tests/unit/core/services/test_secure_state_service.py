@@ -39,7 +39,6 @@ def test_secure_state_service_limits_access_log_growth() -> None:
 
     operations = [entry.operation for entry in service.get_access_log()]
 
-
     assert len(operations) == 3
     assert operations == [
         "get_disable_interactive_commands",

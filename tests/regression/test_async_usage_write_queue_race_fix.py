@@ -50,9 +50,13 @@ async def test_concurrent_statistics_updates_no_race():
     async def access_stats():
         for _ in range(100):
             stats = queue.statistics
-            assert hasattr(stats, "is_running"), "Stats should have is_running attribute"
+            assert hasattr(
+                stats, "is_running"
+            ), "Stats should have is_running attribute"
 
-    tasks = [enqueue_batch(records) for _ in range(10)] + [access_stats() for _ in range(10)]
+    tasks = [enqueue_batch(records) for _ in range(10)] + [
+        access_stats() for _ in range(10)
+    ]
     await asyncio.gather(*tasks, return_exceptions=True)
 
     await queue.stop()

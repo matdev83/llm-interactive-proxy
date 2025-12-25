@@ -124,7 +124,16 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
         "prompt": draw(st.one_of(st.none(), st.text(min_size=1, max_size=500))),
         "content": draw(
             st.one_of(
-                st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+                st.none(),
+                st.lists(
+                    st.fixed_dictionaries(
+                        {
+                            "role": st.sampled_from(["user", "assistant", "system"]),
+                            "content": st.text(min_size=1, max_size=100),
+                        }
+                    ),
+                    max_size=5,
+                ),
             )
         ),
         "promptParams": draw(
@@ -141,7 +150,9 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
         ),
         "authToken": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
         "costMode": draw(st.sampled_from(["normal", "fast", "premium"])),
-        "sessionState": draw(st.dictionaries(st.text(), st.text(), max_size=10)),
+        "sessionState": draw(
+            st.dictionaries(st.text(), st.text(), min_size=1, max_size=10)
+        ),
         "toolResults": draw(
             st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
         ),
@@ -234,10 +245,41 @@ def valid_prompt_response_action_strategy(draw: Any) -> dict[str, Any]:
                 max_size=50,
             )
         ),
-        "sessionState": draw(st.dictionaries(st.text(), st.text(), max_size=10)),
+        "sessionState": draw(
+            st.dictionaries(st.text(), st.text(), min_size=0, max_size=10)
+        ),
         "toolCalls": draw(
             st.one_of(
-                st.none(), st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+                st.none(),
+                st.lists(
+                    st.fixed_dictionaries(
+                        {
+                            "id": st.text(
+                                alphabet=st.characters(
+                                    whitelist_categories=("Lu", "Ll", "Nd"),
+                                    whitelist_characters="-_",
+                                ),
+                                min_size=1,
+                                max_size=50,
+                            ),
+                            "type": st.just("function"),
+                            "function": st.fixed_dictionaries(
+                                {
+                                    "name": st.text(
+                                        alphabet=st.characters(
+                                            whitelist_categories=("Lu", "Ll", "Nd"),
+                                            whitelist_characters="-_",
+                                        ),
+                                        min_size=1,
+                                        max_size=50,
+                                    ),
+                                    "arguments": st.text(min_size=1, max_size=100),
+                                }
+                            ),
+                        }
+                    ),
+                    max_size=5,
+                ),
             )
         ),
         "toolResults": draw(

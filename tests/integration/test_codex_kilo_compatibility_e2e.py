@@ -815,7 +815,9 @@ class TestConversationControlTools:
             "<attempt_completion>Done</attempt_completion>", "test_session"
         )
         assert completion_result is not None
-        assert completion_result[0] == "__proxy_attempt_completion"
+        # KiloTranslationResult can be unpacked as tuple for backward compatibility
+        tool_name, _ = completion_result
+        assert tool_name == "__proxy_attempt_completion"
 
         # Test ask_followup_question
         followup_result = await translator.translate_tool_invocation(
@@ -823,12 +825,14 @@ class TestConversationControlTools:
             "test_session",
         )
         assert followup_result is not None
-        assert followup_result[0] == "__proxy_ask_followup_question"
+        tool_name, _ = followup_result
+        assert tool_name == "__proxy_ask_followup_question"
 
         # Test regular tool (read_file) does NOT have __proxy_ prefix
         read_result = await translator.translate_tool_invocation(
             '<read_file path="test.py" />', "test_session"
         )
         assert read_result is not None
-        assert read_result[0] == "read_file"
-        assert not read_result[0].startswith("__proxy_")
+        tool_name, _ = read_result
+        assert tool_name == "read_file"
+        assert not tool_name.startswith("__proxy_")

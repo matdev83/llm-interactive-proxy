@@ -63,6 +63,7 @@ import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from google.auth.exceptions import RefreshError
+from pydantic import BaseModel, Field
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -89,9 +90,37 @@ from .gemini import GeminiBackend
 from .gemini_base.models import TokenUsage
 from .mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 
+# Code Assist API endpoint (same as personal OAuth)
+
+CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
+# Code Assist API version: v1internal (documented for clarity)
+
+# Scopes for Code Assist API (used with Google ADC)
+CODE_ASSIST_SCOPES: list[str] = [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
+
+
+class GeminiOAuthClientConfig(BaseModel):
+    """Configuration for Gemini OAuth client."""
+
+    client_id: str = Field(description="OAuth client ID")
+    client_secret: str | None = Field(default=None, description="OAuth client secret")
+    scopes: list[str] = Field(
+        default_factory=lambda: list(CODE_ASSIST_SCOPES), description="OAuth scopes"
+    )
+
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.client_id
+        yield self.client_secret
+        yield self.scopes
+
 
 # Gemini CLI OAuth configuration loader (reads from ~/.gemini or env)
-def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
+def _load_gemini_oauth_client_config() -> GeminiOAuthClientConfig:
     """Load OAuth client config from ~/.gemini files or environment.
 
     Order of precedence:
@@ -100,7 +129,7 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
     3) Environment variables: GEMINI_CLI_CLIENT_ID, GEMINI_CLI_CLIENT_SECRET, GEMINI_CLI_OAUTH_SCOPES
 
     Returns:
-        (client_id, client_secret, scopes)
+        GeminiOAuthClientConfig object.
     """
     home_dir = Path.home()
     candidates = [
@@ -124,17 +153,11 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
                         s.strip() for s in scopes_val.split(",") if s.strip()
                     ]
                 if client_id:
-                    return (
-                        str(client_id),
-                        (str(client_secret) if client_secret else None),
-                        (
-                            loaded_scopes
-                            if loaded_scopes
-                            else [
-                                "https://www.googleapis.com/auth/cloud-platform",
-                                "https://www.googleapis.com/auth/userinfo.email",
-                                "https://www.googleapis.com/auth/userinfo.profile",
-                            ]
+                    return GeminiOAuthClientConfig(
+                        client_id=str(client_id),
+                        client_secret=(str(client_secret) if client_secret else None),
+                        scopes=(
+                            loaded_scopes if loaded_scopes else list(CODE_ASSIST_SCOPES)
                         ),
                     )
         except (ValueError, KeyError, TypeError):
@@ -144,17 +167,17 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
     env_client_id = os.getenv("GEMINI_CLI_CLIENT_ID")
     env_client_secret = os.getenv("GEMINI_CLI_CLIENT_SECRET")
     env_scopes = os.getenv("GEMINI_CLI_OAUTH_SCOPES")
-    default_scopes: list[str] = [
-        "https://www.googleapis.com/auth/cloud-platform",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile",
-    ]
-    resolved_scopes: list[str] = default_scopes
+
+    resolved_scopes: list[str] = list(CODE_ASSIST_SCOPES)
     if env_scopes:
         resolved_scopes = [s.strip() for s in env_scopes.split(",") if s.strip()]
 
     if env_client_id:
-        return env_client_id, env_client_secret, resolved_scopes
+        return GeminiOAuthClientConfig(
+            client_id=env_client_id,
+            client_secret=env_client_secret,
+            scopes=resolved_scopes,
+        )
 
     # As a last resort, raise a clear error to avoid embedding any client credentials in source
     raise AuthenticationError(
@@ -166,13 +189,6 @@ def _load_gemini_oauth_client_config() -> tuple[str, str | None, list[str]]:
 # Code Assist API endpoint (same as personal OAuth)
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 # Code Assist API version: v1internal (documented for clarity)
-
-# Scopes for Code Assist API (used with Google ADC)
-CODE_ASSIST_SCOPES: list[str] = [
-    "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-]
 
 # Tier IDs for standard and enterprise
 STANDARD_TIER_ID = "standard-tier"
@@ -261,11 +277,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         # Optional: Allow custom credentials path
         self.credentials_path = (
-            kwargs.get("credentials_path") or config.gemini_credentials_path
+            kwargs.get("credentials_path") or getattr(config, "gemini_credentials_path", None)
         )
 
         # Check if health checks should be disabled
-        self._health_checked: bool = config.disable_health_checks
+        self._health_checked: bool = getattr(config, "disable_health_checks", False)
+
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -418,6 +435,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         try:
             event_handler = GeminiCredentialsFileHandler(self)
             self._file_observer = Observer()
+            self._file_observer.daemon = True
             # Watch the parent directory of the credentials file
             watch_dir = self._credentials_path.parent
             self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
@@ -691,16 +709,17 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 if "expiry_date" in creds_dict:
                     creds_dict["expiry"] = creds_dict.pop("expiry_date") / 1000
 
-                client_id, client_secret, scopes = _load_gemini_oauth_client_config()
+                oauth_config = _load_gemini_oauth_client_config()
 
                 credentials = google.oauth2.credentials.Credentials(
                     token=creds_dict.get("access_token"),
                     refresh_token=creds_dict.get("refresh_token"),
                     token_uri="https://oauth2.googleapis.com/token",
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    scopes=scopes,
+                    client_id=oauth_config.client_id,
+                    client_secret=oauth_config.client_secret,
+                    scopes=oauth_config.scopes,
                 )
+
 
                 request = google.auth.transport.requests.Request()
                 credentials.refresh(request)

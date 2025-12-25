@@ -638,7 +638,6 @@ class TestSessionDetectorCacheInvalidation:
         stats_after = detector.get_cache_stats()
         assert stats_after.total_entries == 0
 
-
     @pytest.mark.asyncio
     async def test_cache_invalidated_on_agent_change(self):
         """Verify cache is cleared when agent changes."""
@@ -667,7 +666,6 @@ class TestSessionDetectorCacheInvalidation:
         # Verify cache is cleared
         stats_after = detector.get_cache_stats()
         assert stats_after.total_entries == 0
-
 
     @pytest.mark.asyncio
     async def test_cache_stats_accurate(self):
@@ -707,7 +705,6 @@ class TestSessionDetectorCacheInvalidation:
         assert stats4.misses == 2
         assert stats4.total_entries == 2
 
-
     @pytest.mark.asyncio
     async def test_cache_hit_rate_calculation(self):
         """Verify hit rate formula is correct."""
@@ -742,7 +739,6 @@ class TestSessionDetectorCacheInvalidation:
         stats4 = detector.get_cache_stats()
         assert stats4.hit_rate == 0.5
 
-
     @pytest.mark.asyncio
     async def test_cache_key_includes_backend_and_agent(self):
         """Verify cache keys are unique for different backend/agent combinations."""
@@ -768,4 +764,3 @@ class TestSessionDetectorCacheInvalidation:
         stats2 = detector.get_cache_stats()
         assert stats2.total_entries == 4
         assert stats2.misses == 4  # All should be cache misses
-
