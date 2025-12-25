@@ -108,7 +108,9 @@ class AssessmentPromptLoader:
                     self._system_prompt = FALLBACK_SYSTEM_PROMPT
             else:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("System prompt file not found: %s", system_prompt_path)
+                    logger.warning(
+                        "System prompt file not found: %s", system_prompt_path
+                    )
                 logger.warning("Using fallback system prompt (hardcoded default)")
                 self._system_prompt = FALLBACK_SYSTEM_PROMPT
 
@@ -217,7 +219,8 @@ class AssessmentPromptLoader:
             else:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Steering message template file not found: %s", steering_template_path
+                        "Steering message template file not found: %s",
+                        steering_template_path,
                     )
                 logger.warning("Using fallback steering template (hardcoded default)")
                 self._steering_template = FALLBACK_STEERING_TEMPLATE
@@ -225,13 +228,18 @@ class AssessmentPromptLoader:
             self._loaded = True
 
             schema_properties = self._response_schema.get("properties", {})
-            logger.info(
-                f"Successfully loaded assessment prompts: "
-                f"system_prompt={len(self._system_prompt)} chars, "
-                f"task_prompt={len(self._task_prompt)} chars, "
-                f"steering_template={len(self._steering_template)} chars, "
-                f"schema_properties={len(schema_properties)}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Successfully loaded assessment prompts: "
+                    "system_prompt=%d chars, "
+                    "task_prompt=%d chars, "
+                    "steering_template=%d chars, "
+                    "schema_properties=%d",
+                    len(self._system_prompt),
+                    len(self._task_prompt),
+                    len(self._steering_template),
+                    len(schema_properties),
+                )
 
         except Exception as e:
             logger.error(f"Failed to load assessment prompts: {e}")
