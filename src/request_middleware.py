@@ -39,7 +39,7 @@ class CustomHeaderMiddleware(BaseHTTPMiddleware):
             # Store the session ID in the request state
             request.state.session_id = session_id
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Session ID from headers: {session_id}")
+                logger.debug("Session ID from headers: %s", session_id)
 
         # Call the next middleware or route handler
         response = await call_next(request)
