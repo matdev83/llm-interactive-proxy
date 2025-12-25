@@ -223,7 +223,25 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Credentials file modified: {event.src_path}")
             # Schedule credential reload in the connector's event loop
-            self.connector._schedule_credentials_reload()
+            # Since _schedule_credentials_reload is now async, we need to schedule it on the loop
+            loop = self.connector._main_loop
+            if loop and not loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self.connector._schedule_credentials_reload(), loop
+                    )
+                except Exception as exc:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Failed to schedule credentials reload: {exc}")
+            else:
+                # Fallback: try to get running loop or create task
+                try:
+                    running_loop = asyncio.get_running_loop()
+                    asyncio.create_task(self.connector._schedule_credentials_reload())
+                except RuntimeError:
+                    # No running loop, can't schedule async operation
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Cannot schedule credentials reload: no event loop available")
 
 
 class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
@@ -448,7 +466,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to start file watching: {e}")
 
-    def _schedule_credentials_reload(self) -> None:
+    async def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
         with self._reload_task_lock:
             if (

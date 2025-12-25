@@ -75,7 +75,7 @@ class TestExecutionReminderEosSubscriber:
         """
         try:
             # Check if session is dirty using reminder handler's state
-            state = self._reminder_handler._get_session_state(event.session_id)
+            state = await self._reminder_handler._get_session_state(event.session_id)
             if state and state.is_dirty:
                 # Session is dirty - emit reminder notification per Requirement 7.4
                 # Since the session has ended, we log the reminder prominently

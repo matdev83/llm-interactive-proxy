@@ -262,53 +262,49 @@ class TestExecutionReminderHandler(IToolCallHandler):
             )
             return ToolCallReactionResult(should_swallow=False)
 
-    def _mark_session_dirty(self, session_id: str, tool_name: str | None = None) -> Any:
+    async def _mark_session_dirty(self, session_id: str, tool_name: str | None = None) -> None:
         """Mark a session as dirty (files modified).
 
         Args:
             session_id: The session ID to mark as dirty
             tool_name: The name of the file modification tool (for logging)
         """
+        try:
+            with self._lock:
+                # Prune expired/excess sessions before adding new ones
+                self._prune_session_state()
+                
+                state = self._session_state.get(session_id)
+                if not state:
+                    state = TestExecutionSessionState()
+                    self._session_state[session_id] = state
 
-        async def _run() -> None:
-            try:
-                with self._lock:
-                    # Prune expired/excess sessions before adding new ones
-                    self._prune_session_state()
-                    
-                    state = self._session_state.get(session_id)
-                    if not state:
-                        state = TestExecutionSessionState()
-                        self._session_state[session_id] = state
+                state.mark_dirty()
 
-                    state.mark_dirty()
+            # Log file modification with tool name, session ID, and timestamp
+            logger.info(
+                "File modification tracked: tool=%s, session=%s, timestamp=%.2f, modification_count=%d",
+                tool_name or "unknown",
+                session_id,
+                time(),
+                state.modification_count,
+            )
 
-                # Log file modification with tool name, session ID, and timestamp
-                logger.info(
-                    "File modification tracked: tool=%s, session=%s, timestamp=%.2f, modification_count=%d",
-                    tool_name or "unknown",
-                    session_id,
-                    time(),
-                    state.modification_count,
-                )
+        except Exception as e:
+            logger.error(
+                "Error marking session %s as dirty: %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
 
-            except Exception as e:
-                logger.error(
-                    "Error marking session %s as dirty: %s",
-                    session_id,
-                    str(e),
-                    exc_info=True,
-                )
-
-        return self._run_maybe_async(_run())
-
-    def _mark_session_clean(
+    async def _mark_session_clean(
         self,
         session_id: str,
         command: str,
         language: str | None,
         framework: str | None,
-    ) -> Any:
+    ) -> None:
         """Mark a session as clean (tests run).
 
         Args:
@@ -317,37 +313,33 @@ class TestExecutionReminderHandler(IToolCallHandler):
             language: The detected programming language
             framework: The detected test framework
         """
+        try:
+            with self._lock:
+                state = self._session_state.get(session_id)
+                if not state:
+                    state = TestExecutionSessionState()
+                    self._session_state[session_id] = state
 
-        async def _run() -> None:
-            try:
-                with self._lock:
-                    state = self._session_state.get(session_id)
-                    if not state:
-                        state = TestExecutionSessionState()
-                        self._session_state[session_id] = state
+                state.mark_clean()
 
-                    state.mark_clean()
+            logger.info(
+                "Session %s marked as clean: test execution detected "
+                "(language: %s, framework: %s, command: %s)",
+                session_id,
+                language or "unknown",
+                framework or "unknown",
+                command,
+            )
 
-                logger.info(
-                    "Session %s marked as clean: test execution detected "
-                    "(language: %s, framework: %s, command: %s)",
-                    session_id,
-                    language or "unknown",
-                    framework or "unknown",
-                    command,
-                )
+        except Exception as e:
+            logger.error(
+                "Error marking session %s as clean: %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
 
-            except Exception as e:
-                logger.error(
-                    "Error marking session %s as clean: %s",
-                    session_id,
-                    str(e),
-                    exc_info=True,
-                )
-
-        return self._run_maybe_async(_run())
-
-    def _get_session_state(self, session_id: str) -> Any:
+    async def _get_session_state(self, session_id: str) -> TestExecutionSessionState | None:
         """Get the session state for a given session ID.
 
         Args:
@@ -356,26 +348,22 @@ class TestExecutionReminderHandler(IToolCallHandler):
         Returns:
             The session state or None if not found
         """
+        try:
+            with self._lock:
+                state = self._session_state.get(session_id)
+                if state:
+                    state.update_last_seen()
 
-        async def _run() -> TestExecutionSessionState | None:
-            try:
-                with self._lock:
-                    state = self._session_state.get(session_id)
-                    if state:
-                        state.update_last_seen()
+            return state
 
-                return state
-
-            except Exception as e:
-                logger.error(
-                    "Error getting session state for %s: %s",
-                    session_id,
-                    str(e),
-                    exc_info=True,
-                )
-                return None
-
-        return self._run_maybe_async(_run())
+        except Exception as e:
+            logger.error(
+                "Error getting session state for %s: %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
+            return None
 
     def _prune_session_state(self, current_time: float | None = None) -> None:
         """Remove expired or excess session states.
@@ -413,14 +401,6 @@ class TestExecutionReminderHandler(IToolCallHandler):
                     len(pruned_sessions),
                     self._max_sessions,
                 )
-
-    @staticmethod
-    def _run_maybe_async(result):
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(result)
-        return result
 
     def _extract_command(
         self, tool_name: str, tool_arguments: dict[str, Any]

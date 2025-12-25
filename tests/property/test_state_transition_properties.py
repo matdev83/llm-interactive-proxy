@@ -190,7 +190,7 @@ async def test_property_1_file_modification_marks_dirty(
     )
 
     # Verify session is marked as dirty
-    state = await handler._get_session_state(session_id)
+    state = handler._get_session_state(session_id)
     assert state is not None, f"Session state should exist for session {session_id}"
     assert state.is_dirty is True, (
         f"Session should be marked as dirty after file modification "
@@ -225,7 +225,7 @@ async def test_property_1_test_execution_marks_clean(
     await handler._mark_session_dirty(session_id)
 
     # Verify it's dirty
-    state_before = await handler._get_session_state(session_id)
+    state_before = handler._get_session_state(session_id)
     assert state_before is not None
     assert state_before.is_dirty is True
 
@@ -250,7 +250,7 @@ async def test_property_1_test_execution_marks_clean(
     )
 
     # Verify session is marked as clean
-    state_after = await handler._get_session_state(session_id)
+    state_after = handler._get_session_state(session_id)
     assert (
         state_after is not None
     ), f"Session state should exist for session {session_id}"
@@ -285,7 +285,7 @@ async def test_property_1_state_transition_cycle(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Initial state should be clean (no state exists yet)
-    state_initial = await handler._get_session_state(session_id)
+    state_initial = handler._get_session_state(session_id)
     assert state_initial is None or state_initial.is_dirty is False
 
     # Step 1: File modification -> dirty
@@ -299,7 +299,7 @@ async def test_property_1_state_transition_cycle(
     )
     await handler.can_handle(context_modify)
 
-    state_after_modify = await handler._get_session_state(session_id)
+    state_after_modify = handler._get_session_state(session_id)
     assert state_after_modify is not None
     assert (
         state_after_modify.is_dirty is True
@@ -316,7 +316,7 @@ async def test_property_1_state_transition_cycle(
     )
     await handler.can_handle(context_test)
 
-    state_after_test = await handler._get_session_state(session_id)
+    state_after_test = handler._get_session_state(session_id)
     assert state_after_test is not None
     assert (
         state_after_test.is_dirty is False
@@ -325,7 +325,7 @@ async def test_property_1_state_transition_cycle(
     # Step 3: Another file modification -> dirty again
     await handler.can_handle(context_modify)
 
-    state_after_second_modify = await handler._get_session_state(session_id)
+    state_after_second_modify = handler._get_session_state(session_id)
     assert state_after_second_modify is not None
     assert (
         state_after_second_modify.is_dirty is True
@@ -352,7 +352,7 @@ async def test_property_1_non_modification_preserves_state(
     handler = TestExecutionReminderHandler(enabled=True)
 
     # Get initial state (should be None or clean)
-    state_before = await handler._get_session_state(session_id)
+    state_before = handler._get_session_state(session_id)
     initial_dirty = state_before.is_dirty if state_before else False
 
     # Create context for non-modification tool
@@ -369,7 +369,7 @@ async def test_property_1_non_modification_preserves_state(
     await handler.can_handle(context)
 
     # Verify state hasn't changed
-    state_after = await handler._get_session_state(session_id)
+    state_after = handler._get_session_state(session_id)
     final_dirty = state_after.is_dirty if state_after else False
 
     assert initial_dirty == final_dirty, (
@@ -410,7 +410,7 @@ async def test_property_1_multiple_modifications_accumulate(
         await handler.can_handle(context)
 
         # Verify state after each modification
-        state = await handler._get_session_state(session_id)
+        state = handler._get_session_state(session_id)
         assert state is not None
         assert (
             state.is_dirty is True
@@ -420,7 +420,7 @@ async def test_property_1_multiple_modifications_accumulate(
         ), f"Modification count should be {i + 1}, got {state.modification_count}"
 
     # Final verification
-    final_state = await handler._get_session_state(session_id)
+    final_state = handler._get_session_state(session_id)
     assert final_state is not None
     assert final_state.modification_count == modification_count
     assert final_state.is_dirty is True
