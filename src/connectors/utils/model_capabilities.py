@@ -5,10 +5,10 @@ reasoning parameters for different LLM backends. It supports the hybrid
 backend's adaptive placement strategy and reasoning parameter management.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 from pydantic.types import JsonValue
-
-from typing import Any
 
 
 class BackendParameters(BaseModel):
@@ -96,6 +96,7 @@ class BackendParameters(BaseModel):
         if key in self.model_fields and key != "extra_params":
             return getattr(self, key, None) is not None
         return key in self.extra_params
+
 
 # Models that support system messages
 SYSTEM_MESSAGE_SUPPORT: dict[str, bool] = {

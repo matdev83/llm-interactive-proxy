@@ -57,6 +57,8 @@ class AnthropicUsageSummary(BaseModel):
     def __contains__(self, key: object) -> bool:
         """Check if key exists (backward compatible)."""
         return key in {"input_tokens", "output_tokens", "total_tokens"}
+
+
 from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 

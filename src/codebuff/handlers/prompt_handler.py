@@ -75,6 +75,12 @@ class PromptHandler:
                     .decode("utf-8", errors="replace")
                 )
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "_safe() conversion failed for value type %s",
+                        type(value).__name__,
+                        exc_info=True,
+                    )
                 return repr(value)
 
         """Process a prompt action and stream the response.
@@ -201,7 +207,6 @@ class PromptHandler:
         model: str,
         session_state: dict[str, Any],
     ) -> None:
-
         """Stream LLM response with task tracking for cancellation support.
 
         This method wraps _stream_response in a task and ensures proper cleanup
@@ -292,8 +297,8 @@ class PromptHandler:
             backend = await self._get_backend_for_model(model)
 
             # Call the backend
-            # Note: processed_messages expects list of dicts for some backends, 
-            # but we can convert them here if needed. 
+            # Note: processed_messages expects list of dicts for some backends,
+            # but we can convert them here if needed.
             # Most backends just use request_data.messages which is list[ChatMessage].
             response = await backend.chat_completions(
                 request_data=request,
@@ -329,7 +334,6 @@ class PromptHandler:
                     session_state=session_state,
                 )
                 await websocket.send_json(final_msg.model_dump(by_alias=True))
-
 
         except Exception as e:
             logger.error(
@@ -404,7 +408,6 @@ class PromptHandler:
                 error_message=f"Streaming error: {e!s}",
             )
             await websocket.send_json(error_msg.model_dump(by_alias=True))
-
 
     async def _get_backend_for_model(self, model: str) -> Any:
         """Get the appropriate backend for a model.
