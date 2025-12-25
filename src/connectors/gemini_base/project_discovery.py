@@ -14,6 +14,7 @@ from typing import Any
 from src.connectors.gemini_base.models import TierScore
 from src.core.common.exceptions import BackendError
 
+from .project_discovery_types import Tier
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,10 @@ class FreeTierProjectDiscovery:
             return self._cached_project_id
 
         if not auth_session:
-            logger.warning(
-                "auth_session required for free-tier project discovery but missing"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "auth_session required for free-tier project discovery but missing"
+                )
             return "default"
 
         initial_project_id = "default"
@@ -150,11 +152,13 @@ class FreeTierProjectDiscovery:
             discovered_project_id = cloudai_project.get("id", initial_project_id)
 
             self._cached_project_id = discovered_project_id
-            logger.info(f"Discovered project ID: {self._cached_project_id}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Discovered project ID: {self._cached_project_id}")
             return str(self._cached_project_id)
 
         except Exception as e:
-            logger.error(f"Failed to discover project ID: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to discover project ID: {e}", exc_info=True)
             # Fall back to default
             self._cached_project_id = initial_project_id
             return str(self._cached_project_id)
@@ -246,12 +250,13 @@ class PaidTierProjectDiscovery:
 
         # Determine which tier to use for onboarding
         tier_to_use = self._select_best_tier(load_data)
-        selected_tier_id = tier_to_use.get("id") or "paid-tier"
-        logger.info(
-            "Selected Code Assist tier '%s' (context_limit=%s)",
-            selected_tier_id,
-            self._context_tokens(tier_to_use),
-        )
+        selected_tier_id = tier_to_use.id or tier_to_use.tier_id or "paid-tier"
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Selected Code Assist tier '%s' (context_limit=%s)",
+                selected_tier_id,
+                self._context_tokens(tier_to_use),
+            )
 
         # Perform onboarding with the paid tier
         onboard_request = {
@@ -292,7 +297,8 @@ class PaidTierProjectDiscovery:
                 )
 
                 self._cached_project_id = discovered_project_id
-                logger.info(f"Discovered project ID: {self._cached_project_id}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Discovered project ID: {self._cached_project_id}")
                 return str(self._cached_project_id)
 
             # Operation not done yet, wait and retry
@@ -304,61 +310,55 @@ class PaidTierProjectDiscovery:
             code="onboarding_timeout",
         )
 
-    def _select_best_tier(self, load_data: dict[str, Any]) -> dict[str, Any]:
+    def _select_best_tier(self, load_data: dict[str, Any]) -> Tier:
         """Select the best tier from loadCodeAssist response.
 
         Args:
             load_data: The loadCodeAssist response data.
 
         Returns:
-            The best tier dictionary to use.
+            The best tier model to use.
         """
         allowed_tiers_raw = load_data.get("allowedTiers", [])
-        allowed_tiers: list[dict[str, Any]] = [
-            tier for tier in allowed_tiers_raw if isinstance(tier, dict)
+        allowed_tiers: list[Tier] = [
+            Tier(**tier) for tier in allowed_tiers_raw if isinstance(tier, dict)
         ]
         current_tier = load_data.get("currentTier")
         if isinstance(current_tier, dict):
-            allowed_tiers.append(current_tier)
+            allowed_tiers.append(Tier(**current_tier))
 
         if allowed_tiers:
             return max(allowed_tiers, key=self._tier_score)
 
-        return {"id": "paid-tier"}
+        return Tier.model_validate({"id": "paid-tier"})
 
     @staticmethod
-    def _tier_id(tier: dict[str, Any]) -> str:
-        """Extract tier ID from tier dictionary."""
-        raw_id = tier.get("id") or tier.get("tierId")
-        return str(raw_id or "").lower()
+    def _tier_id(tier: Tier | dict[str, Any]) -> str:
+        """Extract tier ID from tier."""
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+        return tier.canonical_id
 
     @staticmethod
-    def _context_tokens(tier: dict[str, Any]) -> int:
-        """Extract context token limit from tier dictionary."""
-        for key in (
-            "maxContextTokens",
-            "contextTokenLimit",
-            "contextWindowTokens",
-            "tokenLimit",
-            "maxContextWindow",
-        ):
-            value = tier.get(key)
-            if isinstance(value, int | float):
-                return int(value)
-        return 0
+    def _context_tokens(tier: Tier | dict[str, Any]) -> int:
+        """Extract context token limit from tier."""
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+        return tier.context_tokens
 
-    def _tier_score(self, tier: dict[str, Any]) -> TierScore:
+    def _tier_score(self, tier: Tier | dict[str, Any]) -> TierScore:
         """Calculate a score for tier ranking."""
-        tier_id = self._tier_id(tier)
-        is_paid = int(tier_id in {"paid-tier", "google-one-tier", "googleone-tier"})
-        context_tokens = self._context_tokens(tier)
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+
+        is_paid = int(tier.is_paid)
+        context_tokens = tier.context_tokens
         if is_paid and context_tokens == 0:
             context_tokens = 1_000_000
-        is_default = int(bool(tier.get("isDefault")))
+        is_default = int(bool(tier.is_default))
         return TierScore(
             is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
         )
-
 
 
 class AntigravityProjectDiscovery:
@@ -400,9 +400,10 @@ class AntigravityProjectDiscovery:
             return self._cached_project_id
 
         if not auth_session:
-            logger.warning(
-                "auth_session required for Antigravity project discovery but missing"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "auth_session required for Antigravity project discovery but missing"
+                )
             initial = credentials.get("project_id") if credentials else None
             return str(initial or "default")
 
@@ -443,13 +444,15 @@ class AntigravityProjectDiscovery:
 
             # Select the best tier
             tier_to_use = self._select_best_tier(load_data)
-            selected_tier_id = tier_to_use.get("id") or tier_to_use.get("tierId")
+            selected_tier_id = tier_to_use.id or tier_to_use.tier_id
+
             if not selected_tier_id:
                 selected_tier_id = "paid-tier"
 
-            logger.info(
-                "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
+                )
 
             onboard_request = {
                 "tierId": selected_tier_id,
@@ -485,94 +488,85 @@ class AntigravityProjectDiscovery:
                         "id", initial_project_id or "default"
                     )
                     self._cached_project_id = discovered_project_id
-                    logger.info(
-                        "Discovered Antigravity project ID: %s", self._cached_project_id
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Discovered Antigravity project ID: %s",
+                            self._cached_project_id,
+                        )
                     return str(self._cached_project_id)
 
                 retry_count += 1
                 await asyncio.sleep(2)
 
-            logger.warning(
-                "Onboarding timed out for Antigravity; falling back to project '%s'",
-                fallback_project_id,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Onboarding timed out for Antigravity; falling back to project '%s'",
+                    fallback_project_id,
+                )
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Antigravity project discovery failed, using fallback project '%s': %s",
-                fallback_project_id,
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Antigravity project discovery failed, using fallback project '%s': %s",
+                    fallback_project_id,
+                    exc,
+                    exc_info=True,
+                )
 
         self._cached_project_id = fallback_project_id
         return str(self._cached_project_id)
 
-    def _select_best_tier(self, load_data: dict[str, Any]) -> dict[str, Any]:
+    def _select_best_tier(self, load_data: dict[str, Any]) -> Tier:
         """Select the best tier with Antigravity-specific scoring.
 
         Args:
             load_data: The loadCodeAssist response data.
 
         Returns:
-            The best tier dictionary to use.
+            The best tier model to use.
         """
         allowed_tiers_raw = load_data.get("allowedTiers", [])
-        allowed_tiers = [tier for tier in allowed_tiers_raw if isinstance(tier, dict)]
+        allowed_tiers: list[Tier] = [
+            Tier(**tier) for tier in allowed_tiers_raw if isinstance(tier, dict)
+        ]
         current_tier = load_data.get("currentTier")
         if isinstance(current_tier, dict):
-            allowed_tiers.append(current_tier)
+            allowed_tiers.append(Tier(**current_tier))
 
         if allowed_tiers:
             return max(allowed_tiers, key=self._tier_score)
 
-        return {"id": "paid-tier"}
+        return Tier.model_validate({"id": "paid-tier"})
 
     @staticmethod
-    def _tier_id(tier: dict[str, Any]) -> str:
-        """Extract tier ID from tier dictionary."""
-        raw_id = tier.get("id") or tier.get("tierId")
-        return str(raw_id or "").lower()
+    def _tier_id(tier: Tier | dict[str, Any]) -> str:
+        """Extract tier ID from tier."""
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+        return tier.canonical_id
 
     @staticmethod
-    def _context_tokens(tier: dict[str, Any]) -> int:
-        """Extract context token limit from tier dictionary."""
-        for key in (
-            "maxContextTokens",
-            "contextTokenLimit",
-            "contextWindowTokens",
-            "tokenLimit",
-            "maxContextWindow",
-        ):
-            value = tier.get(key)
-            if isinstance(value, int | float):
-                return int(value)
-        return 0
+    def _context_tokens(tier: Tier | dict[str, Any]) -> int:
+        """Extract context token limit from tier."""
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+        return tier.context_tokens
 
-    def _tier_score(self, tier: dict[str, Any]) -> TierScore:
+    def _tier_score(self, tier: Tier | dict[str, Any]) -> TierScore:
         """Calculate a score for tier ranking (Antigravity-specific).
 
         Antigravity includes additional tier IDs in its paid tier detection.
         """
-        tier_id = self._tier_id(tier)
-        is_paid = int(
-            tier_id
-            in {
-                "paid-tier",
-                "google-one-tier",
-                "googleone-tier",
-                "googleone",
-                "duet-ai-pro",
-            }
-        )
-        context_tokens = self._context_tokens(tier)
+        if isinstance(tier, dict):
+            tier = Tier(**tier)
+
+        is_paid = int(tier.is_paid)
+        context_tokens = tier.context_tokens
         if is_paid and context_tokens == 0:
             context_tokens = 1_000_000
-        is_default = int(bool(tier.get("isDefault")))
+        is_default = int(bool(tier.is_default))
         return TierScore(
             is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
         )
-
 
 
 # Backward-compatible helper functions
@@ -604,71 +598,52 @@ def build_client_metadata(
     }
 
 
-def calculate_tier_score(tier: dict[str, Any]) -> TierScore:
+def calculate_tier_score(tier: Tier | dict[str, Any]) -> TierScore:
     """Calculate a score for tier ranking.
 
     Args:
-        tier: Tier dictionary from loadCodeAssist response.
+        tier: Tier model or dictionary from loadCodeAssist response.
 
     Returns:
         TierScore object.
     """
-    tier_id = (tier.get("id") or tier.get("tierId") or "").lower()
-    is_paid = int(
-        tier_id
-        in {
-            "paid-tier",
-            "google-one-tier",
-            "googleone-tier",
-            "googleone",
-            "duet-ai-pro",
-        }
-    )
+    if isinstance(tier, dict):
+        tier = Tier(**tier)
 
-    context_tokens = 0
-    for key in (
-        "maxContextTokens",
-        "contextTokenLimit",
-        "contextWindowTokens",
-        "tokenLimit",
-        "maxContextWindow",
-    ):
-        value = tier.get(key)
-        if isinstance(value, int | float):
-            context_tokens = int(value)
-            break
+    is_paid = int(tier.is_paid)
+    context_tokens = tier.context_tokens
 
     if is_paid and context_tokens == 0:
         context_tokens = 1_000_000
 
-    is_default = int(bool(tier.get("isDefault")))
+    is_default = int(bool(tier.is_default))
     return TierScore(
         is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
     )
 
 
-
-def select_best_tier(load_data: dict[str, Any]) -> dict[str, Any]:
+def select_best_tier(load_data: dict[str, Any]) -> Tier:
     """Select the best tier from loadCodeAssist response.
 
     Args:
         load_data: The loadCodeAssist response data.
 
     Returns:
-        The best tier dictionary to use.
+        The best tier model to use.
     """
     allowed_tiers_raw = load_data.get("allowedTiers", [])
-    allowed_tiers: list[dict[str, Any]] = [
-        tier for tier in allowed_tiers_raw if isinstance(tier, dict)
+    allowed_tiers: list[Tier] = [
+        Tier(**tier) for tier in allowed_tiers_raw if isinstance(tier, dict)
     ]
     current_tier = load_data.get("currentTier")
     if isinstance(current_tier, dict):
-        allowed_tiers.append(current_tier)
+        allowed_tiers.append(Tier(**current_tier))
 
     if allowed_tiers:
-        return max(allowed_tiers, key=calculate_tier_score)
+        selected = max(allowed_tiers, key=calculate_tier_score)
+        return selected
 
-    return {"id": "paid-tier"}
+    return Tier.model_validate({"id": "paid-tier"})
 
 
 def extract_project_id_from_response(lro_data: dict[str, Any], fallback: str) -> str:
