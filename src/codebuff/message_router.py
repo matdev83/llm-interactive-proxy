@@ -63,11 +63,12 @@ class MessageRouter:
         # DoS protection: Check message size before parsing
         message_size = len(raw_message.encode("utf-8"))
         if message_size > MAX_MESSAGE_SIZE:
-            logger.warning(
-                "Message too large: %d bytes (limit: %d bytes)",
-                message_size,
-                MAX_MESSAGE_SIZE,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Message too large: %d bytes (limit: %d bytes)",
+                    message_size,
+                    MAX_MESSAGE_SIZE,
+                )
             raise CodebuffMessageError(
                 message=f"Message too large: {message_size} bytes (limit: {MAX_MESSAGE_SIZE} bytes)",
                 message_type="unknown",
@@ -81,7 +82,8 @@ class MessageRouter:
         try:
             return cast(dict[str, Any], json.loads(raw_message))
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON message: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to parse JSON message: {e}")
             raise CodebuffMessageError(
                 message=f"Invalid JSON: {e!s}",
                 message_type="unknown",
@@ -129,7 +131,10 @@ class MessageRouter:
                 )
 
         except ValidationError as e:
-            logger.error(f"Message validation failed for type '{message_type}': {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Message validation failed for type '{message_type}': {e}"
+                )
             raise CodebuffValidationError(
                 message=f"Message validation failed: {e!s}",
                 message_type=message_type,
@@ -152,9 +157,7 @@ class MessageRouter:
         """
         return AckMessage(type="ack", txid=txid, success=success, error=error)
 
-    async def route_message(
-        self, raw_message: str
-    ) -> RoutedMessage:
+    async def route_message(self, raw_message: str) -> RoutedMessage:
         """Parse, validate, and route a message.
 
         This is the main entry point for processing incoming messages.
@@ -201,7 +204,8 @@ class MessageRouter:
 
         except Exception as e:
             # Catch any unexpected errors
-            logger.error(f"Unexpected error routing message: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Unexpected error routing message: {e}", exc_info=True)
             error_response = format_error_response(
                 Exception(f"Internal error: {e!s}"), txid=txid
             )
