@@ -234,7 +234,7 @@ class GeminiCliAcpConnector(GeminiBackend):
         # Check if project directory actually changed
         if new_project_dir == self._project_dir:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Project directory already set to {project_dir}")
+                logger.debug("Project directory already set to %s", project_dir)
             return
 
         # Kill existing process
@@ -273,7 +273,7 @@ class GeminiCliAcpConnector(GeminiBackend):
 
             # Spawn process
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
+                logger.debug("Spawning gemini-cli process: %s", " ".join(cmd))
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -333,7 +333,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                     logger.debug("gemini-cli process terminated")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error terminating gemini-cli process: {e}")
+                    logger.warning("Error terminating gemini-cli process: %s", e)
             finally:
                 self._cleanup_process(process)
 
@@ -383,7 +383,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             self._process.stdin.flush()
             self._last_activity = asyncio.get_event_loop().time()
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Sent JSON-RPC message: {method}")
+                logger.debug("Sent JSON-RPC message: %s", method)
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to send JSON-RPC message: {e}")
@@ -523,7 +523,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                             if message.tool_call:
                                 tool_call = message.tool_call
                                 if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(f"Tool call: {tool_call.tool_name}")
+                                    logger.debug("Tool call: %s", tool_call.tool_name)
                                 # For now, we don't expose tool calls directly
                                 # They'll be reflected in the final response text
 
@@ -546,7 +546,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                                     else getattr(tc, "tool_name", "unknown")
                                 )
                                 if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(f"Tool call: {tool_name}")
+                                    logger.debug("Tool call: %s", tool_name)
 
                 elif response.error is not None:
                     err = response.error
