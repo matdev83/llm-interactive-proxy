@@ -103,7 +103,8 @@ def _create_file_handler(connector: "QwenOAuthConnector"):
             if not event.is_directory and event.src_path == str(
                 self.connector._credentials_path
             ):
-                logger.info(f"OAuth credentials file modified: {event.src_path}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("OAuth credentials file modified: %s", event.src_path)
                 self.connector._schedule_credentials_reload()
 
     return QwenCredentialsFileHandler(connector)
@@ -496,7 +497,10 @@ class QwenOAuthConnector(OpenAIConnector):
                     f"Started watching OAuth credentials file: {self._credentials_path}"
                 )
         except Exception as e:
-            logger.warning(f"Failed to start file watching for OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to start file watching for OAuth credentials: %s", e
+                )
 
     def _stop_file_watching(self) -> None:
         """Stop watching the OAuth credentials file."""
@@ -514,7 +518,8 @@ class QwenOAuthConnector(OpenAIConnector):
                     self._file_observer.join(timeout=5.0)
                 logger.info("Stopped watching OAuth credentials file")
             except Exception as e:
-                logger.warning(f"Error stopping file watcher: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Error stopping file watcher: %s", e)
             finally:
                 self._file_observer = None
 
@@ -728,7 +733,8 @@ class QwenOAuthConnector(OpenAIConnector):
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"Qwen OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Qwen OAuth credentials saved to %s", creds_path)
         except Exception as e:
             logger.error(f"Error saving Qwen OAuth credentials: {e}")
 
@@ -740,7 +746,8 @@ class QwenOAuthConnector(OpenAIConnector):
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                logger.warning(f"Qwen OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Qwen OAuth credentials not found at %s", creds_path)
                 return False
 
             # Check if file has been modified since last load
@@ -1123,12 +1130,18 @@ class QwenOAuthConnector(OpenAIConnector):
                         "total_tokens": total_tokens,
                     }
 
-                    logger.info(
-                        f"Calculated streaming token usage for {model_name}: {usage}"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Calculated streaming token usage for %s: %s",
+                            model_name,
+                            usage,
+                        )
 
                 except Exception as e:
-                    logger.warning(f"Failed to calculate streaming token usage: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to calculate streaming token usage: %s", e
+                        )
 
             # Yield the final stop chunk with usage merged in
             # Import the protective wrapper to detect accidental stringification
@@ -1417,11 +1430,16 @@ class QwenOAuthConnector(OpenAIConnector):
 
         except (AuthenticationError, BackendError, ServiceUnavailableError) as e:
             # Re-raise domain exceptions
-            logger.warning(f"DEBUG: Re-raising domain exception: {type(e).__name__}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "DEBUG: Re-raising domain exception: %s",
+                    type(e).__name__,
+                )
             raise
         except HTTPException as e:
             # Re-raise HTTP exceptions (e.g., 400, 404) without wrapping
-            logger.warning(f"DEBUG: Re-raising HTTPException: {e.status_code}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("DEBUG: Re-raising HTTPException: %s", e.status_code)
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
@@ -1499,12 +1517,18 @@ class QwenOAuthConnector(OpenAIConnector):
                 "total_tokens": total_tokens,
             }
 
-            logger.info(f"Calculated token usage for {model_name}: {calculated_usage}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Calculated token usage for %s: %s",
+                    model_name,
+                    calculated_usage,
+                )
 
             return calculated_usage
 
         except Exception as e:
-            logger.warning(f"Failed to calculate token usage: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to calculate token usage: %s", e)
             # Return zero usage as fallback
             return {
                 "prompt_tokens": 0,
