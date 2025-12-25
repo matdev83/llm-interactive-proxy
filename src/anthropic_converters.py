@@ -25,7 +25,8 @@ def anthropic_to_openai_request(
 ) -> CanonicalChatRequest:
     """Convert Anthropic `MessagesRequest` into a CanonicalChatRequest."""
 
-    logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
 
     messages: list[dict[str, Any]] = []
 
@@ -167,9 +168,10 @@ def anthropic_to_openai_request(
                 try:
                     openai_msg["content"] = json.dumps(passthrough_parts)
                 except (TypeError, ValueError) as e:
-                    logger.warning(
-                        f"JSON serialization failed for passthrough_parts: {e}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"JSON serialization failed for passthrough_parts: {e}"
+                        )
                     openai_msg["content"] = str(passthrough_parts)
             else:
                 openai_msg["content"] = ""
@@ -185,7 +187,8 @@ def anthropic_to_openai_request(
                     for tc in msg_tool_calls
                 ]
             except (AttributeError, TypeError) as e:
-                logger.warning(f"Failed to convert tool_calls to dict format: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Failed to convert tool_calls to dict format: {e}")
                 openai_msg["tool_calls"] = list(msg_tool_calls or [])
 
         msg_tool_call_id = getattr(msg, "tool_call_id", None)
@@ -244,7 +247,8 @@ def anthropic_to_openai_request(
                 else dict(anthropic_request.metadata)
             )
         except (TypeError, ValueError) as e:
-            logger.warning(f"Failed to convert metadata to dict: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to convert metadata to dict: {e}")
             metadata_dict = {}
         user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
         if user_id is not None:
@@ -285,7 +289,8 @@ def anthropic_to_openai_request(
         user=user,
         extra_body=extra_body if extra_body else None,
     )
-    logger.debug("Converted Anthropic to OpenAI request: %r", result)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converted Anthropic to OpenAI request: %r", result)
     return result
 
 
@@ -293,7 +298,8 @@ def openai_to_anthropic_response(
     openai_response: Any,
 ) -> AnthropicMessagesResponse | AnthropicErrorResponse:
     """Convert an OpenAI chat completion response into Anthropic format."""
-    logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
@@ -336,9 +342,10 @@ def openai_to_anthropic_response(
                 "output_tokens": usage.get("completion_tokens", 0),
             },
         )
-        logger.warning(
-            "Converting empty OpenAI response to Anthropic format: %r", oai_dict
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Converting empty OpenAI response to Anthropic format: %r", oai_dict
+            )
         return response
 
     choice = choices[0]
@@ -357,9 +364,10 @@ def openai_to_anthropic_response(
         tool_calls = message.get("tool_calls")
         if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
             stop_reason = "tool_use"
-            logger.debug(
-                "Inferred stop_reason='tool_use' from tool_calls (finish_reason was None)"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Inferred stop_reason='tool_use' from tool_calls (finish_reason was None)"
+                )
 
     # Extract stop_sequence if present (used when finish_reason is "stop")
     stop_sequence = None
@@ -379,9 +387,9 @@ def openai_to_anthropic_response(
             "output_tokens": usage.get("completion_tokens", 0),
         },
     )
-    logger.debug("Converted OpenAI to Anthropic response: %r", response)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converted OpenAI to Anthropic response: %r", response)
     return response
-
 
 
 def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
@@ -420,7 +428,8 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
                 tc.model_dump(exclude_none=True) for tc in tool_calls
             ]
         except (AttributeError, TypeError) as e:
-            logger.warning(f"Failed to convert tool_calls using model_dump: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to convert tool_calls using model_dump: {e}")
             msg_obj["tool_calls"] = list(tool_calls or [])
     usage_obj = getattr(openai_response, "usage", None)
     return {
@@ -497,7 +506,8 @@ def _build_content_blocks(
         try:
             args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to parse tool arguments JSON: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to parse tool arguments JSON: {e}")
             args = {"_raw": args_raw}
         content_blocks.append(
             {
@@ -610,7 +620,8 @@ def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
             else arguments_obj or "{}"
         )
     except (TypeError, ValueError) as e:
-        logger.warning(f"Failed to serialize tool arguments: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to serialize tool arguments: {e}")
         arguments_str = json.dumps({"_raw": arguments_obj})
 
     return {
@@ -985,7 +996,8 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         return ""
     except Exception as e:
         # Log for debugging but return empty to keep stream alive
-        logger.debug("Failed to convert stream chunk: %s", e)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Failed to convert stream chunk: %s", e)
         return ""
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive
@@ -1023,7 +1035,8 @@ def extract_anthropic_usage(response: Any) -> dict[str, int]:
         TypeError,
         ValueError,
     ) as e:  # pragma: no cover - never break caller on edge-cases
-        logger.debug(f"Failed to extract anthropic usage: {e}", exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Failed to extract anthropic usage: {e}", exc_info=True)
 
     return {
         "input_tokens": input_tokens,
