@@ -85,6 +85,7 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
+from .gemini_base.models import TokenUsage
 from .mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 
 
@@ -525,7 +526,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 observer.stop()
                 observer.join()
                 self._file_observer = None
-                logger.info("Stopped watching credentials file")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Stopped watching credentials file")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(f"Error stopping file watcher: {e}")
@@ -540,15 +542,17 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             res = self._validate_credentials_file_exists()
             if not res:
                 self._degrade(res.errors)
-                logger.warning(
-                    f"Updated credentials file is invalid: {'; '.join(res.errors)}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Updated credentials file is invalid: {'; '.join(res.errors)}"
+                    )
                 return
 
             # Attempt to reload
             if await self._load_oauth_credentials():
                 self._recover()
-                logger.info("Successfully reloaded credentials from updated file")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Successfully reloaded credentials from updated file")
             else:
                 self._degrade(["Failed to reload credentials after file change"])
                 if logger.isEnabledFor(logging.ERROR):
@@ -604,17 +608,19 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                         sa_path, scopes=CODE_ASSIST_SCOPES
                     )
                 )
-                logger.info("Using service account credentials from %s", sa_path)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Using service account credentials from %s", sa_path)
                 session = google.auth.transport.requests.AuthorizedSession(credentials)
                 session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
                 return session
             except Exception as e:
-                logger.warning(
-                    "Failed to load service account credentials from %s: %s",
-                    sa_path,
-                    e,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to load service account credentials from %s: %s",
+                        sa_path,
+                        e,
+                        exc_info=True,
+                    )
 
         # Fall back to ADC (supports gcloud ADC, workload identity, etc.)
         credentials, adc_project = google.auth.default(scopes=CODE_ASSIST_SCOPES)
@@ -665,7 +671,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if not self._oauth_credentials:
                 loaded = await self._load_oauth_credentials()
                 if not loaded or not self._oauth_credentials:
-                    logger.warning("No OAuth credentials available for refresh.")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("No OAuth credentials available for refresh.")
                     return False
 
             if not self._is_token_expired():
@@ -783,7 +790,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 credentials = json.load(f)
 
             if "access_token" not in credentials:
-                logger.warning("Malformed OAuth credentials: missing access_token")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Malformed OAuth credentials: missing access_token")
                 return False
 
             self._oauth_credentials = credentials
@@ -814,7 +822,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # Ensure we have a project ID
         if not self.gcp_project_id:
             self._fail_init(["GCP Project ID is required for cloud-project backend"])
-            logger.error("GCP Project ID is required for cloud-project backend")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("GCP Project ID is required for cloud-project backend")
             return
 
         # Set the API base URL for Google Code Assist API
@@ -979,20 +988,23 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     )
                 return False
             except httpx.RequestError as rexc:
-                logger.error(
-                    f"Health check connection error calling {url}: {rexc}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Health check connection error calling {url}: {rexc}",
+                        exc_info=True,
+                    )
                 return False
 
             if response.status_code == 200:
-                logger.info("Health check passed - API connectivity verified")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Health check passed - API connectivity verified")
                 self._health_checked = True
                 return True
             else:
-                logger.warning(
-                    f"Health check failed - API returned status {response.status_code}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Health check failed - API returned status {response.status_code}"
+                    )
                 return False
 
         except Exception as e:
@@ -1026,9 +1038,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
     async def _ensure_healthy(self) -> None:
         """Ensure the backend is healthy before use."""
         if not hasattr(self, "_health_checked") or not self._health_checked:
-            logger.info(
-                "Performing first-use health check for Gemini Cloud Project backend"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Performing first-use health check for Gemini Cloud Project backend"
+                )
 
             refreshed = await self._refresh_token_if_needed()
             if not refreshed:
@@ -1191,10 +1204,14 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             response_json = api_response.json()
 
             # Extract usage from Code Assist response (similar to Gemini format)
-            usage_dict = self._extract_code_assist_usage(response_json)
+            usage_model = self._extract_code_assist_usage(response_json)
             from src.core.domain.usage_summary import UsageSummary
 
-            usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
+            usage = (
+                UsageSummary.from_dict(usage_model.model_dump())
+                if usage_model
+                else None
+            )
 
             # Translate the response from Code Assist format to domain format
             domain_response = self.translation_service.to_domain_response(
@@ -1207,9 +1224,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 target_format="openai",
             ).model_dump(exclude_unset=True)
 
-            logger.info(
-                f"Successfully received response from Code Assist API for project {project_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Successfully received response from Code Assist API for project {project_id}"
+                )
             response_envelope = ResponseEnvelope(
                 content=openai_response, headers={}, status_code=200, usage=usage
             )
@@ -1271,9 +1289,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             }
 
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
-            logger.info(
-                f"Making streaming Code Assist API call with project {project_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Making streaming Code Assist API call with project {project_id}"
+                )
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 response = None
@@ -1466,9 +1485,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(
-                f"Unexpected error during streaming API call: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error during streaming API call: {e}", exc_info=True
+                )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
@@ -1607,9 +1627,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
 
         self._onboarded_project_id = confirmed_project_id
-        logger.info(
-            f"Successfully onboarded project {self._onboarded_project_id} to {standard_tier.get('id')}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Successfully onboarded project {self._onboarded_project_id} to {standard_tier.get('id')}"
+            )
         return self._onboarded_project_id
 
     async def _poll_operation(
@@ -1648,7 +1669,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
     def _extract_code_assist_usage(
         self, response_data: dict[str, Any]
-    ) -> dict[str, int] | None:
+    ) -> TokenUsage | None:
         """Extract usage information from Code Assist API response.
 
         Code Assist API wraps the response and may include usageMetadata.
@@ -1657,7 +1678,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             response_data: The response data from Code Assist API
 
         Returns:
-            Usage dictionary or None if not found
+            TokenUsage model or None if not found
         """
         try:
             # Code Assist wraps response in a "response" object
@@ -1675,11 +1696,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if prompt_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
                 return None
 
-            return {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            }
+            return TokenUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Failed to extract Code Assist usage: {e}")
