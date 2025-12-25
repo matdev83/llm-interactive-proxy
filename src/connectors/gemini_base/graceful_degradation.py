@@ -77,7 +77,8 @@ def set_model_cooldown(
     state.attempts = 0  # Reset attempts after cooldown
     state.probe_success_count = 0
 
-    logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("Model %s put in cooldown until %s", model, state.cooldown_until)
 
 
 def calculate_retry_delay(
