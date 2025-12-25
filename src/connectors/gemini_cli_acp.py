@@ -87,8 +87,10 @@ from src.core.services.translation_service import TranslationService
 
 from .base import add_vendor_prefix
 from .gemini import GeminiBackend
+from .gemini_cli_acp_types import ACPResponse, DataPart, TaskStatusUpdateEvent, TextPart
 
 logger = logging.getLogger(__name__)
+
 
 # Default timeout for gemini-cli responses (in seconds)
 DEFAULT_PROCESS_TIMEOUT = 300.0  # 5 minutes for complex operations
@@ -157,10 +159,11 @@ class GeminiCliAcpConnector(GeminiBackend):
 
             self._project_dir = Path(project_dir).resolve()
             if not self._project_dir.exists():
-                logger.warning(
-                    f"Project directory does not exist: {project_dir}, "
-                    f"using current directory instead"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Project directory does not exist: {project_dir}, "
+                        f"using current directory instead"
+                    )
                 self._project_dir = Path(os.getcwd()).resolve()
 
             # Get optional configuration
@@ -182,9 +185,10 @@ class GeminiCliAcpConnector(GeminiBackend):
                 )
 
             self.is_functional = True
-            logger.info(
-                f"Initialized gemini-cli-acp backend with project directory: {self._project_dir}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Initialized gemini-cli-acp backend with project directory: {self._project_dir}"
+                )
 
         except Exception as e:
             self._initialization_failed = True
@@ -243,9 +247,10 @@ class GeminiCliAcpConnector(GeminiBackend):
         # Reset message ID for new process
         self._message_id = 0
 
-        logger.info(
-            f"Project directory changed from {old_project_dir} to {self._project_dir}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Project directory changed from {old_project_dir} to {self._project_dir}"
+            )
 
     async def _spawn_gemini_cli_process(self) -> None:
         """Spawn gemini-cli subprocess with ACP support."""
@@ -298,7 +303,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                 )
 
             self._last_activity = asyncio.get_event_loop().time()
-            logger.info("gemini-cli ACP process started successfully")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("gemini-cli ACP process started successfully")
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -323,7 +329,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-                logger.debug("gemini-cli process terminated")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("gemini-cli process terminated")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(f"Error terminating gemini-cli process: {e}")
@@ -343,9 +350,12 @@ class GeminiCliAcpConnector(GeminiBackend):
             try:
                 stream.close()
             except Exception as stream_error:
-                logger.debug(
-                    "Error closing gemini-cli %s stream: %s", stream_name, stream_error
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error closing gemini-cli %s stream: %s",
+                        stream_name,
+                        stream_error,
+                    )
 
         if proc is self._process:
             self._process = None
@@ -381,7 +391,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 message=f"Failed to communicate with gemini-cli: {e}"
             )
 
-    async def _read_jsonrpc_response(self) -> dict[str, Any] | None:
+    async def _read_jsonrpc_response(self) -> ACPResponse | None:
         """Read a JSON-RPC response from gemini-cli stdout.
 
         Returns:
@@ -412,10 +422,11 @@ class GeminiCliAcpConnector(GeminiBackend):
                 return None  # Stream ended
 
             if len(line) > MAX_RESPONSE_LINE_SIZE:
-                logger.warning(
-                    f"Received oversize response line from gemini-cli ({len(line)} bytes). "
-                    f"Limit is {MAX_RESPONSE_LINE_SIZE} bytes."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Received oversize response line from gemini-cli ({len(line)} bytes). "
+                        f"Limit is {MAX_RESPONSE_LINE_SIZE} bytes."
+                    )
                 # Consume the rest of the line to resync?
                 # Actually, for security, better to terminate connection/process than consume unbounded data.
                 # But here we just reject this message.
@@ -424,10 +435,12 @@ class GeminiCliAcpConnector(GeminiBackend):
             self._last_activity = loop.time()
 
             # Parse JSON
-            response: dict[str, Any] = json.loads(line.decode("utf-8"))
-            logger.debug(
-                f"Received JSON-RPC response: {response.get('method', 'unknown')}"
-            )
+            data = json.loads(line.decode("utf-8"))
+            response = ACPResponse(**data)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Received JSON-RPC response: {response.method or 'unknown'}"
+                )
             return response
 
         except json.JSONDecodeError as e:
@@ -478,10 +491,15 @@ class GeminiCliAcpConnector(GeminiBackend):
                     break  # Stream ended
 
                 # Handle different response types
-                if "result" in response:
+                if response.is_result:
                     # TaskStatusUpdateEvent
-                    event = response["result"]
-                    message = event.get("Message", {})
+                    if isinstance(response.result, dict):
+                        event = TaskStatusUpdateEvent(**response.result)
+                    else:
+                        # Fallback for simple results (e.g. in some tests)
+                        event = TaskStatusUpdateEvent(Message=str(response.result))
+
+                    message = event.Message
 
                     # Handle TextPart
                     if isinstance(message, str):
@@ -490,7 +508,25 @@ class GeminiCliAcpConnector(GeminiBackend):
                         )
                         yield ProcessedResponse(content=sse_chunk)
 
-                    # Handle DataPart with structured data
+                    # Handle DataPart or TextPart model
+                    elif isinstance(message, (TextPart, DataPart)):
+                        if isinstance(message, TextPart):
+                            text = message.TextPart
+                            sse_chunk = self._create_sse_chunk(
+                                text, effective_model, chunk_id
+                            )
+                            yield ProcessedResponse(content=sse_chunk)
+
+                        elif isinstance(message, DataPart):
+                            # Handle tool calls or other structured data
+                            if message.ToolCall:
+                                tool_call = message.ToolCall
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(f"Tool call: {tool_call.tool_name}")
+                                # For now, we don't expose tool calls directly
+                                # They'll be reflected in the final response text
+
+                    # Handle raw dict as fallback
                     elif isinstance(message, dict):
                         if "TextPart" in message:
                             text = message["TextPart"]
@@ -500,26 +536,27 @@ class GeminiCliAcpConnector(GeminiBackend):
                             yield ProcessedResponse(content=sse_chunk)
 
                         elif "DataPart" in message:
-                            # Handle tool calls or other structured data
                             data_part = message["DataPart"]
                             if "ToolCall" in data_part:
                                 tool_call = data_part["ToolCall"]
+                                tool_name = (
+                                    tool_call.get("tool_name")
+                                    if isinstance(tool_call, dict)
+                                    else getattr(tool_call, "tool_name", "unknown")
+                                )
                                 if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Tool call: {tool_call.get('tool_name')}"
-                                    )
-                                # For now, we don't expose tool calls directly
-                                # They'll be reflected in the final response text
+                                    logger.debug(f"Tool call: {tool_name}")
 
-                elif "error" in response:
-                    error = response["error"]
+                elif response.is_error:
+                    error = response.error
                     raise BackendError(
-                        message=f"gemini-cli error: {error.get('message', 'Unknown error')}",
-                        details=error,
+                        message=f"gemini-cli error: {error.message}",
+                        details=error.model_dump(),
                     )
 
         except asyncio.TimeoutError:
-            logger.error("Timeout reading from gemini-cli")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Timeout reading from gemini-cli")
             raise APITimeoutError(
                 message="Timeout waiting for gemini-cli response",
                 details={"timeout": self._process_timeout},
@@ -590,9 +627,10 @@ class GeminiCliAcpConnector(GeminiBackend):
             if project_dir_from_session and str(project_dir_from_session) != str(
                 self._project_dir
             ):
-                logger.info(
-                    f"Project directory changed via session to: {project_dir_from_session}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Project directory changed via session to: {project_dir_from_session}"
+                    )
                 await self.change_project_dir(project_dir_from_session)
 
             # Ensure process is running
