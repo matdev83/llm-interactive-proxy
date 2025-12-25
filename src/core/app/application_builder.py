@@ -137,7 +137,7 @@ class ApplicationBuilder:
 
         self._stages[stage.name] = stage
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Added stage: {stage}")
+            logger.debug("Added stage: %s", stage)
         return self
 
     def add_default_stages(self) -> ApplicationBuilder:
@@ -267,17 +267,17 @@ class ApplicationBuilder:
         # Calculate execution order
         execution_order: list[str] = self._get_execution_order()
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Executing stages in order: {execution_order}")
+            logger.info("Executing stages in order: %s", execution_order)
 
         # Execute stages in dependency order
         for stage_name in execution_order:
             stage: InitializationStage = self._stages[stage_name]
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Executing stage: {stage_name}")
+                logger.info("Executing stage: %s", stage_name)
 
             try:
                 await stage.execute(self._services, config)
-                logger.debug(f"Stage '{stage_name}' completed successfully")
+                logger.debug("Stage '%s' completed successfully", stage_name)
             except Exception as e:  # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
                 # Ensure ServiceCollection cleanup tasks are awaited on failure
