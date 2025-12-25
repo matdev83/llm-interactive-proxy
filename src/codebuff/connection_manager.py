@@ -234,7 +234,10 @@ class ConnectionManager:
         async with self._lock:
             session = self._connections.get(websocket)
             if session is None:
-                logger.warning("Attempted to update last_seen for unknown connection")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Attempted to update last_seen for unknown connection"
+                    )
                 raise CodebuffSessionError(
                     "Connection not found",
                     details={"error": "Connection not registered"},
@@ -397,9 +400,7 @@ class ConnectionManager:
                                         del self._subscriptions[topic]
 
             if stale_connections and logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Cleaned up %d stale connections", len(stale_connections)
-                )
+                logger.info("Cleaned up %d stale connections", len(stale_connections))
 
             # Enforce max_connections limit strictly after cleanup
             # This prevents growth beyond limit even if some connections couldn't be cleaned
