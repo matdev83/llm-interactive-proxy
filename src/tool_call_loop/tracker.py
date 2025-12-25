@@ -107,12 +107,13 @@ class ToolCallSignature:
             # DoS protection: Check input size before repair
             input_size = len(arguments.encode("utf-8"))
             if input_size > MAX_JSON_REPAIR_INPUT_SIZE:
-                logger.warning(
-                    "Tool arguments too large for JSON repair (%d bytes, limit: %d bytes). "
-                    "Using hash fallback to prevent DoS attack.",
-                    input_size,
-                    MAX_JSON_REPAIR_INPUT_SIZE,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Tool arguments too large for JSON repair (%d bytes, limit: %d bytes). "
+                        "Using hash fallback to prevent DoS attack.",
+                        input_size,
+                        MAX_JSON_REPAIR_INPUT_SIZE,
+                    )
                 return cls._hash_fallback(arguments)
 
             try:
