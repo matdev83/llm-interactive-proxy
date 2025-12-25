@@ -359,7 +359,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         content = content.replace(match.group(0), "").strip()
 
                     except Exception as e:
-                        logger.warning(f"Failed to parse XML tool call: {e}")
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning("Failed to parse XML tool call: %s", e)
 
             if tool_calls:
                 # Construct CanonicalChatResponse
@@ -469,9 +470,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                     match.group(0), ""
                                 ).strip()
                             except Exception as e:
-                                logger.warning(
-                                    f"Failed to parse XML tool call in stream: {e}"
-                                )
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        "Failed to parse XML tool call in stream: %s", e
+                                    )
 
                 if tool_calls:
                     # Yield tool call chunks
@@ -787,7 +789,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if target_base == sandbox_url:
             await self._ensure_models_loaded()
             model_infos = [
-                ModelInfo(id=f"models/{model}", name=model, object="model", owned_by="google")
+                ModelInfo(
+                    id=f"models/{model}", name=model, object="model", owned_by="google"
+                )
                 for model in self.available_models
             ]
             return ModelsListingResponse(object="list", data=model_infos)
@@ -797,7 +801,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             key_name=key_name,
             api_key=api_key,
         )
-
 
     async def _perform_health_check(self) -> bool:
         """
@@ -923,7 +926,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     context_tokens=context_tokens,
                     is_default=is_default,
                 )
-
 
             tier_to_use = max(allowed_tiers, key=_tier_score) if allowed_tiers else None
             selected_tier_id = (
