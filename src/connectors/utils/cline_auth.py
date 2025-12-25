@@ -64,7 +64,9 @@ class _ClineTokenStore:
             try:
                 return ClineTokenData.model_validate(raw_value)
             except Exception:
-                logger.warning("Failed to validate Cline auth payload from secrets file")
+                logger.warning(
+                    "Failed to validate Cline auth payload from secrets file"
+                )
                 return None
 
         logger.warning(
@@ -130,12 +132,14 @@ class ClineAuthMixin:
     ) -> ClineTokenData:
         async with self._token_lock:
             if force_reload or self._token_cache is None or self._token_file_changed():
-                token_data = self._load_tokens_from_disk()
+                token_data = await self._load_tokens_from_disk()
             else:
                 token_data = self._token_cache
 
             # Convert dict to ClineTokenData if needed (for tests compatibility)
-            if isinstance(token_data, Mapping) and not isinstance(token_data, ClineTokenData):
+            if isinstance(token_data, Mapping) and not isinstance(
+                token_data, ClineTokenData
+            ):
                 token_data = ClineTokenData.model_validate(token_data)
 
             if not token_data:
@@ -153,7 +157,7 @@ class ClineAuthMixin:
             if needs_refresh or needs_conversion:
                 refresh_token = token_data.refresh_token
                 if not refresh_token:
-                    replacement = self._reload_from_secondary_tokens()
+                    replacement = await self._reload_from_secondary_tokens()
                     if not replacement:
                         raise AuthenticationError(
                             "Stored Cline token cannot be refreshed. Please sign into Cline.",
@@ -166,7 +170,7 @@ class ClineAuthMixin:
                             refresh_token, token_data
                         )
                     except AuthenticationError as exc:
-                        replacement = self._reload_from_secondary_tokens()
+                        replacement = await self._reload_from_secondary_tokens()
                         if not replacement:
                             raise exc
                         token_data = replacement
@@ -388,7 +392,7 @@ class ClineAuthMixin:
 
         return current_mtime > self._token_file_mtime
 
-    def _load_tokens_from_disk(self) -> ClineTokenData | None:
+    async def _load_tokens_from_disk(self) -> ClineTokenData | None:
         if not self._token_store:
             return None
 
@@ -397,7 +401,7 @@ class ClineAuthMixin:
         if token_data:
             return token_data
 
-        vscode_tokens = self._load_tokens_from_vscode_secret_store()
+        vscode_tokens = await self._load_tokens_from_vscode_secret_store()
         if vscode_tokens:
             logger.info("Loaded Cline credentials from VSCode secret store")
             self._persist_tokens(vscode_tokens)
@@ -592,8 +596,8 @@ class ClineAuthMixin:
 
         return None
 
-    def _reload_from_secondary_tokens(self) -> ClineTokenData | None:
-        vscode_tokens = self._load_tokens_from_vscode_secret_store()
+    async def _reload_from_secondary_tokens(self) -> ClineTokenData | None:
+        vscode_tokens = await self._load_tokens_from_vscode_secret_store()
         if vscode_tokens:
             logger.info("Recovered Cline credentials from VSCode secret store")
             self._persist_tokens(vscode_tokens)
@@ -656,7 +660,7 @@ class ClineAuthMixin:
             provider="codex",
         )
 
-    def _load_tokens_from_vscode_secret_store(self) -> ClineTokenData | None:
+    async def _load_tokens_from_vscode_secret_store(self) -> ClineTokenData | None:
         if os.name != "nt":
             return None
         if AESGCM is None:
@@ -670,7 +674,7 @@ class ClineAuthMixin:
             return None
 
         try:
-            aes_key = self._extract_vscode_aes_key(local_state)
+            aes_key = await self._extract_vscode_aes_key(local_state)
             if not aes_key:
                 return None
 
@@ -709,7 +713,7 @@ class ClineAuthMixin:
             return None, None
         return state_db, local_state
 
-    def _extract_vscode_aes_key(self, local_state: Path) -> bytes | None:
+    async def _extract_vscode_aes_key(self, local_state: Path) -> bytes | None:
         try:
             with local_state.open("r", encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -719,7 +723,7 @@ class ClineAuthMixin:
             encrypted_key = base64.b64decode(encrypted_key_b64)
             if encrypted_key.startswith(b"DPAPI"):
                 encrypted_key = encrypted_key[5:]
-            return self._dpapi_decrypt(encrypted_key)
+            return await self._dpapi_decrypt(encrypted_key)
         except Exception:
             logger.debug("Failed to extract VSCode AES key", exc_info=True)
             return None
@@ -768,7 +772,7 @@ class ClineAuthMixin:
         aesgcm = AESGCM(aes_key)
         return aesgcm.decrypt(nonce, ciphertext + tag, None)
 
-    def _dpapi_decrypt(self, encrypted: bytes) -> bytes:
+    async def _dpapi_decrypt(self, encrypted: bytes) -> bytes:
         class DATA_BLOB(ctypes.Structure):  # noqa: N801
             _fields_ = [
                 ("cbData", ctypes.c_uint32),
@@ -817,10 +821,14 @@ class ClineAuthMixin:
             "[Console]::Write([Convert]::ToBase64String($dec))"
         )
 
-        result = subprocess.run(
-            [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True,
-            text=True,
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True,
+                text=True,
+            ),
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -857,7 +865,9 @@ class ClineAuthMixin:
             return float(expires_at)
         return None
 
-    def _token_needs_conversion(self, token_data: ClineTokenData | Mapping[str, Any]) -> bool:
+    def _token_needs_conversion(
+        self, token_data: ClineTokenData | Mapping[str, Any]
+    ) -> bool:
         provider: Any | None = None
         if isinstance(token_data, ClineTokenData):
             provider = token_data.provider

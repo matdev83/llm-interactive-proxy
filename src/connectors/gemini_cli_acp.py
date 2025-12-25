@@ -175,7 +175,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             )
 
             # Verify gemini-cli is available
-            if not self._check_gemini_cli_available():
+            if not await self._check_gemini_cli_available():
                 raise ConfigurationError(
                     message=f"gemini-cli executable not found: {self._gemini_cli_executable}",
                     details={
@@ -196,14 +196,18 @@ class GeminiCliAcpConnector(GeminiBackend):
                 logger.error(f"Failed to initialize gemini-cli-acp backend: {e}")
             raise
 
-    def _check_gemini_cli_available(self) -> bool:
+    async def _check_gemini_cli_available(self) -> bool:
         """Check if gemini-cli executable is available."""
         try:
-            result = subprocess.run(
-                [self._gemini_cli_executable, "--version"],
-                capture_output=True,
-                timeout=5,
-                check=False,
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    [self._gemini_cli_executable, "--version"],
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                ),
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -290,10 +294,13 @@ class GeminiCliAcpConnector(GeminiBackend):
             # Check if process started successfully
             if self._process.poll() is not None:
                 stderr = ""
-                if self._process.stderr:
-                    stderr = self._process.stderr.read().decode(
-                        "utf-8", errors="replace"
+                stderr_stream = self._process.stderr
+                if stderr_stream:
+                    loop = asyncio.get_running_loop()
+                    stderr_bytes = await loop.run_in_executor(
+                        None, lambda: stderr_stream.read()
                     )
+                    stderr = stderr_bytes.decode("utf-8", errors="replace")
                 # Don't call _cleanup_process here - let exception handler
                 # call _kill_process() which will clean up properly
                 # This avoids double cleanup which causes test failures
