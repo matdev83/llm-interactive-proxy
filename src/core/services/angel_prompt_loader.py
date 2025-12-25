@@ -85,7 +85,7 @@ class AngelPromptLoader:
         hardcoded defaults and logs appropriate warnings.
         """
         try:
-            logger.info(f"Loading Angel prompts from {self.prompts_dir}")
+            logger.info("Loading Angel prompts from %s", self.prompts_dir)
 
             # Load angel prompt with fallback
             angel_prompt_path = self.prompts_dir / "angel_prompt.md"
@@ -101,11 +101,13 @@ class AngelPromptLoader:
                         )
                         self._angel_prompt = FALLBACK_ANGEL_PROMPT
                 except Exception as e:
-                    logger.warning(f"Failed to read Angel prompt file: {e}")
+                    logger.warning(
+                        "Failed to read Angel prompt file: %s", e, exc_info=True
+                    )
                     logger.warning("Using fallback Angel prompt (hardcoded default)")
                     self._angel_prompt = FALLBACK_ANGEL_PROMPT
             else:
-                logger.warning(f"Angel prompt file not found: {angel_prompt_path}")
+                logger.warning("Angel prompt file not found: %s", angel_prompt_path)
                 logger.warning("Using fallback Angel prompt (hardcoded default)")
                 self._angel_prompt = FALLBACK_ANGEL_PROMPT
 
@@ -123,14 +125,16 @@ class AngelPromptLoader:
                         )
                         self._steering_template = FALLBACK_STEERING_TEMPLATE
                 except Exception as e:
-                    logger.warning(f"Failed to read steering template file: {e}")
+                    logger.warning(
+                        "Failed to read steering template file: %s", e, exc_info=True
+                    )
                     logger.warning(
                         "Using fallback steering template (hardcoded default)"
                     )
                     self._steering_template = FALLBACK_STEERING_TEMPLATE
             else:
                 logger.warning(
-                    f"Steering template file not found: {steering_template_path}"
+                    "Steering template file not found: %s", steering_template_path
                 )
                 logger.warning("Using fallback steering template (hardcoded default)")
                 self._steering_template = FALLBACK_STEERING_TEMPLATE
@@ -138,9 +142,9 @@ class AngelPromptLoader:
             self._loaded = True
 
             logger.info(
-                f"Successfully loaded Angel prompts: "
-                f"angel_prompt={len(self._angel_prompt)} chars, "
-                f"steering_template={len(self._steering_template)} chars"
+                "Successfully loaded Angel prompts: angel_prompt=%d chars, steering_template=%d chars",
+                len(self._angel_prompt),
+                len(self._steering_template),
             )
 
         except Exception as e:
