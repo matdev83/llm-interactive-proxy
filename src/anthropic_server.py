@@ -67,9 +67,11 @@ async def create_anthropic_app_async(
                     f"Codebuff WebSocket endpoint registered at {app_config.codebuff.websocket_path}"
                 )
         except Exception as e:
-            logger.error(
-                f"Failed to register Codebuff WebSocket endpoint: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to register Codebuff WebSocket endpoint: {e}",
+                    exc_info=True,
+                )
     else:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Codebuff WebSocket server is disabled")
