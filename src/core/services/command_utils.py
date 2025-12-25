@@ -48,7 +48,8 @@ class CommandRegistry:
         command._validate_di_usage()
 
         self._commands[command.name] = command
-        logger.info(f"Registered command: {command.name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Registered command: %s", command.name)
 
     def get(self, name: str) -> BaseCommand | None:
         """Get a command handler by name.
