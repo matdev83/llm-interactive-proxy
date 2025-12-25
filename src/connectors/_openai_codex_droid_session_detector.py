@@ -172,7 +172,8 @@ class DroidSessionDetector:
         # Require at least 2 Droid-specific tools for detection
         # (to avoid false positives from common tool names)
         if len(found_droid_tools) >= 2:
-            logger.debug(f"Detected Droid from tool names: {found_droid_tools}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Detected Droid from tool names: %s", found_droid_tools)
             return DroidDetectionResult(
                 is_droid=True,
                 detection_method="tool_names",
