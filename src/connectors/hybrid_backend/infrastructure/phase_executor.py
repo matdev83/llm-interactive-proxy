@@ -136,7 +136,7 @@ class PhaseExecutor:
             )
 
         # Create request payload for reasoning model
-        reasoning_preset_params = get_reasoning_params(reasoning_backend)
+        reasoning_preset_params = dict(get_reasoning_params(reasoning_backend))
         reasoning_request = self.parameter_applicator.apply_reasoning_params(
             request_data, reasoning_backend, reasoning_preset_params
         )
@@ -622,7 +622,7 @@ class PhaseExecutor:
             ) from e
 
         # Create request payload with augmented messages
-        execution_preset_params = get_execution_params(execution_backend)
+        execution_preset_params = dict(get_execution_params(execution_backend))
         execution_request = self.parameter_applicator.apply_execution_params(
             request_data, execution_backend, execution_preset_params
         )

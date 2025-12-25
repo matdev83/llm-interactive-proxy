@@ -8,6 +8,7 @@ import os
 import sys
 import types
 import warnings
+import weakref
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ def _module_is_available(name: str) -> bool:
 HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
 HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
 _SESSION_LOOP: asyncio.AbstractEventLoop | None = None
+_TEST_CLIENTS: weakref.WeakSet[TestClient] = weakref.WeakSet()
 
 
 if HAS_PYTEST_ASYNCIO:
@@ -257,6 +259,7 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
     """Session start hook: clean artifacts and install warning filters."""
     _cleanup_root_artifacts()
     _install_global_warning_filters()
+    _install_test_client_tracker()
     global _SESSION_LOOP
     try:
         _SESSION_LOOP = asyncio.get_event_loop()
@@ -268,6 +271,7 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
 def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untyped-def]
     """Cleanup potential artifacts after the test session finishes."""
     _cleanup_root_artifacts()
+    _close_tracked_test_clients()
     global _SESSION_LOOP
     if _SESSION_LOOP is not None:
         try:
@@ -417,6 +421,31 @@ def _install_global_warning_filters() -> None:
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     warnings.filterwarnings("ignore", category=ImportWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def _install_test_client_tracker() -> None:
+    try:
+        from starlette.testclient import TestClient as StarletteTestClient
+    except Exception:
+        return
+
+    if getattr(StarletteTestClient, "_llm_proxy_tracking", False):
+        return
+
+    original_init = StarletteTestClient.__init__
+
+    def _tracking_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        original_init(self, *args, **kwargs)
+        _TEST_CLIENTS.add(self)
+
+    StarletteTestClient.__init__ = _tracking_init  # type: ignore[method-assign]
+    StarletteTestClient._llm_proxy_tracking = True  # type: ignore[attr-defined]
+
+
+def _close_tracked_test_clients() -> None:
+    for client in list(_TEST_CLIENTS):
+        with contextlib.suppress(Exception):
+            client.close()
 
 
 def pytest_cmdline_main(config) -> None:  # type: ignore[no-untyped-def]

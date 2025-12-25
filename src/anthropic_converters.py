@@ -5,6 +5,8 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
+from pydantic import BaseModel
+
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,44 @@ from src.anthropic_models import (
     AnthropicMessagesResponse,
     Usage,
 )
+
+
+class AnthropicUsageSummary(BaseModel):
+    """Extracted Anthropic usage summary with safe defaults.
+
+    This model provides a strongly-typed contract for Anthropic usage data
+    extracted from API responses. All fields default to 0 for defensive
+    programming - billing helpers should never crash on missing data.
+
+    Provides dict-like interface for backward compatibility.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+
+    model_config = {"extra": "forbid"}
+
+    def __getitem__(self, key: str) -> int:
+        """Get usage value by key (backward compatible)."""
+        if key == "input_tokens":
+            return self.input_tokens
+        if key == "output_tokens":
+            return self.output_tokens
+        if key == "total_tokens":
+            return self.total_tokens
+        raise KeyError(key)
+
+    def get(self, key: str, default: int = 0) -> int:
+        """Get usage value by key with default (backward compatible)."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key: object) -> bool:
+        """Check if key exists (backward compatible)."""
+        return key in {"input_tokens", "output_tokens", "total_tokens"}
 from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
@@ -1022,25 +1062,33 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 # --- Added helper functions for Anthropic frontend compatibility ---
 
 
-def extract_anthropic_usage(response: Any) -> dict[str, int]:
+def extract_anthropic_usage(response: Any) -> AnthropicUsageSummary:
     """Extract usage information from an Anthropic API response.
 
     The helper is intentionally defensive - it works with either a raw
     dictionary payload *or* a pydantic-model / Mock instance that exposes a
     ``usage`` attribute.  Missing fields default to zero so that billing
     helpers never crash.
+
+    Args:
+        response: Anthropic API response as dict, pydantic model, or object with
+            usage attribute
+
+    Returns:
+        AnthropicUsageSummary with extracted token counts (defaults to 0 for
+        missing fields)
     """
     input_tokens = 0
     output_tokens = 0
 
     try:
-        # If the response is a dict - the common case coming from HTTP layer
+        # If response is a dict - common case coming from HTTP layer
         if isinstance(response, dict):
             usage_section = response.get("usage", {}) if response else {}
             input_tokens = int(usage_section.get("input_tokens", 0) or 0)
             output_tokens = int(usage_section.get("output_tokens", 0) or 0)
 
-        # If the response is an object with a ``usage`` attribute (e.g. pydantic)
+        # If response is an object with a ``usage`` attribute (e.g. pydantic)
         elif hasattr(response, "usage") and response.usage is not None:
             usage_obj = response.usage
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
@@ -1053,11 +1101,11 @@ def extract_anthropic_usage(response: Any) -> dict[str, int]:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Failed to extract anthropic usage: %s", e, exc_info=True)
 
-    return {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": input_tokens + output_tokens,
-    }
+    return AnthropicUsageSummary(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+    )
 
 
 _FINISH_REASON_MAP = {
@@ -1135,4 +1183,6 @@ __all__ = [
     "openai_stream_to_anthropic_stream",
     "openai_to_anthropic_response",
     "openai_to_anthropic_stream_chunk",
+    # Usage types
+    "AnthropicUsageSummary",
 ]

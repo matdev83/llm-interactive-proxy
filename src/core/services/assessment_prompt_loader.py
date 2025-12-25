@@ -6,6 +6,7 @@ avoiding hardcoded prompts in Python code and preventing repeated file I/O.
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,8 @@ class AssessmentPromptLoader:
         hardcoded defaults and logs appropriate warnings.
         """
         try:
-            logger.info(f"Loading assessment prompts from {self.prompts_dir}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Loading assessment prompts from %s", self.prompts_dir)
 
             # Load system prompt with fallback
             system_prompt_path = self.prompts_dir / "system_prompt.md"
@@ -100,11 +102,13 @@ class AssessmentPromptLoader:
                         )
                         self._system_prompt = FALLBACK_SYSTEM_PROMPT
                 except Exception as e:
-                    logger.warning(f"Failed to read system prompt file: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to read system prompt file: %s", e)
                     logger.warning("Using fallback system prompt (hardcoded default)")
                     self._system_prompt = FALLBACK_SYSTEM_PROMPT
             else:
-                logger.warning(f"System prompt file not found: {system_prompt_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("System prompt file not found: %s", system_prompt_path)
                 logger.warning("Using fallback system prompt (hardcoded default)")
                 self._system_prompt = FALLBACK_SYSTEM_PROMPT
 
@@ -120,11 +124,13 @@ class AssessmentPromptLoader:
                         logger.warning("Using fallback task prompt (hardcoded default)")
                         self._task_prompt = FALLBACK_TASK_PROMPT
                 except Exception as e:
-                    logger.warning(f"Failed to read task prompt file: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to read task prompt file: %s", e)
                     logger.warning("Using fallback task prompt (hardcoded default)")
                     self._task_prompt = FALLBACK_TASK_PROMPT
             else:
-                logger.warning(f"Task prompt file not found: {task_prompt_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Task prompt file not found: %s", task_prompt_path)
                 logger.warning("Using fallback task prompt (hardcoded default)")
                 self._task_prompt = FALLBACK_TASK_PROMPT
 
@@ -176,11 +182,13 @@ class AssessmentPromptLoader:
                                 )
                                 self._response_schema = FALLBACK_RESPONSE_SCHEMA
                 except Exception as e:
-                    logger.warning(f"Failed to read response schema file: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to read response schema file: %s", e)
                     logger.warning("Using fallback response schema (hardcoded default)")
                     self._response_schema = FALLBACK_RESPONSE_SCHEMA
             else:
-                logger.warning(f"Response schema file not found: {schema_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Response schema file not found: %s", schema_path)
                 logger.warning("Using fallback response schema (hardcoded default)")
                 self._response_schema = FALLBACK_RESPONSE_SCHEMA
 
@@ -198,17 +206,19 @@ class AssessmentPromptLoader:
                         )
                         self._steering_template = FALLBACK_STEERING_TEMPLATE
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to read steering message template file: {e}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to read steering message template file: %s", e
+                        )
                     logger.warning(
                         "Using fallback steering template (hardcoded default)"
                     )
                     self._steering_template = FALLBACK_STEERING_TEMPLATE
             else:
-                logger.warning(
-                    f"Steering message template file not found: {steering_template_path}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Steering message template file not found: %s", steering_template_path
+                    )
                 logger.warning("Using fallback steering template (hardcoded default)")
                 self._steering_template = FALLBACK_STEERING_TEMPLATE
 

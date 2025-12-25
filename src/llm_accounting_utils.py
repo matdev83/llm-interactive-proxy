@@ -34,9 +34,9 @@ def extract_billing_info_from_response(response: Any, backend: str) -> BillingIn
     if backend_key == "anthropic":
         extracted = anthropic_converters.extract_anthropic_usage(response)
         usage_data = {
-            "prompt_tokens": int(extracted.get("input_tokens", 0) or 0),
-            "completion_tokens": int(extracted.get("output_tokens", 0) or 0),
-            "total_tokens": int(extracted.get("total_tokens", 0) or 0),
+            "prompt_tokens": int(getattr(extracted, "input_tokens", 0) or 0),
+            "completion_tokens": int(getattr(extracted, "output_tokens", 0) or 0),
+            "total_tokens": int(getattr(extracted, "total_tokens", 0) or 0),
         }
 
     return BillingInfo(

@@ -129,7 +129,7 @@ class ParameterApplicator:
             Modified request data with reasoning parameters applied
         """
         # Get base reasoning parameters for backend
-        base_params = get_reasoning_params(backend).copy()
+        base_params = dict(get_reasoning_params(backend))
 
         # Merge with URI parameter overrides if provided
         if params:
@@ -154,7 +154,7 @@ class ParameterApplicator:
             Modified request data with execution parameters applied
         """
         # Get base execution parameters for backend
-        base_params = get_execution_params(backend).copy()
+        base_params = dict(get_execution_params(backend))
 
         # Merge with URI parameter overrides if provided
         if params:

@@ -392,13 +392,14 @@ class HybridConnectorCompatibilityMixin:
                 if enable_reasoning
                 else get_execution_params(backend_or_params)
             )
+            params_dict = dict(params)
             # Log parameter overrides for backward compatibility with tests
-            for key, value in params.items():
+            for key, value in params_dict.items():
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Applying override {key}={value} to request")
             return applicator._apply_parameter_overrides(
                 request_data=request_data,
-                params=params,
+                params=params_dict,
             )
         elif isinstance(backend_or_params, dict):
             # When params dict is provided directly, just apply it without backend lookup

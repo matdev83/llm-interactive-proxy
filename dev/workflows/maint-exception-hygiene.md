@@ -57,7 +57,8 @@ For each selected handler:
    - Update call sites AND any intermediate wrappers that forward/transform exceptions.
    - Avoid accidental behavior changes like converting `CancelledError` into a generic failure or changing return-on-error behavior without updating its callers/tests.
 6) Add focused unit tests if behavior is subtle or error handling is important.
-7) Contract-change completeness check (required, after code changes):
+7) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported immedietelty even if you think they are not related to your changes.
+8) Contract-change completeness check (required, after code changes):
    - Re-run `rg` to confirm you updated all previously recorded call sites.
    - Add a follow-up `rg` for the old patterns you removed (examples: old exception class name, old catch-all handler, old return-on-error sentinel) and confirm there are no remaining hits for the target you changed.
 

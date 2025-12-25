@@ -20,12 +20,16 @@ from src.core.services.translation_service import TranslationService
 def test_model_capabilities_reasoning_params():
     """Test that reasoning parameters are properly defined."""
     openai_reasoning = get_reasoning_params("openai")
-    assert "reasoning_effort" in openai_reasoning
+    assert openai_reasoning.reasoning_effort == "high"
     assert openai_reasoning["reasoning_effort"] == "high"
+    assert openai_reasoning.get("reasoning_effort") == "high"
+    assert "reasoning_effort" in openai_reasoning
 
     openai_execution = get_execution_params("openai")
-    assert "reasoning_effort" in openai_execution
+    assert openai_execution.reasoning_effort == "low"
     assert openai_execution["reasoning_effort"] == "low"
+    assert openai_execution.get("reasoning_effort") == "low"
+    assert "reasoning_effort" in openai_execution
 
 
 def test_hybrid_connector_type_handling():
@@ -56,8 +60,8 @@ def test_hybrid_connector_type_handling():
     )
 
     # Apply reasoning params (for reasoning phase)
-    reasoning_params = get_reasoning_params("openai")
-    result = connector._apply_reasoning_params(domain_request, reasoning_params)
+    reasoning_params_dict = dict(get_reasoning_params("openai"))
+    result = connector._apply_reasoning_params(domain_request, reasoning_params_dict)
 
     assert isinstance(result, CanonicalChatRequest)
     assert result.extra_body is not None
@@ -73,7 +77,7 @@ def test_hybrid_connector_type_handling():
     }
 
     # Apply reasoning params (for reasoning phase)
-    result = connector._apply_reasoning_params(dict_request, reasoning_params)
+    result = connector._apply_reasoning_params(dict_request, reasoning_params_dict)
     assert isinstance(result, dict)
     assert "extra_body" in result
     assert result["extra_body"] is not None
@@ -117,8 +121,9 @@ async def test_hybrid_reasoning_param_override(backend_name: str):
 
         # Test reasoning phase parameter application
         reasoning_params = get_reasoning_params(backend_name)
+        reasoning_params_dict = dict(reasoning_params)
         reasoning_request = connector._apply_reasoning_params(
-            request_data, reasoning_params
+            request_data, reasoning_params_dict
         )
 
         # For reasoning phase, parameters should be set to high reasoning effort
@@ -132,8 +137,9 @@ async def test_hybrid_reasoning_param_override(backend_name: str):
 
         # Test execution phase parameter application
         execution_params = get_execution_params(backend_name)
+        execution_params_dict = dict(execution_params)
         execution_request = connector._apply_reasoning_params(
-            request_data, execution_params
+            request_data, execution_params_dict
         )
 
         # For execution phase, parameters should be set to low reasoning effort

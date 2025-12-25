@@ -5,7 +5,97 @@ reasoning parameters for different LLM backends. It supports the hybrid
 backend's adaptive placement strategy and reasoning parameter management.
 """
 
+from pydantic import BaseModel, Field
+from pydantic.types import JsonValue
+
 from typing import Any
+
+
+class BackendParameters(BaseModel):
+    """Strongly typed container for backend parameters.
+
+    Represents a set of parameter overrides that can be applied to LLM
+    requests (e.g., reasoning effort, thinking budget, temperature).
+    Provides dict-like interface for backward compatibility with existing code.
+    """
+
+    reasoning_effort: str | None = Field(
+        default=None,
+        description="Reasoning effort level (e.g., 'high', 'low')",
+    )
+    thinking_budget: int | None = Field(
+        default=None,
+        description="Maximum thinking tokens budget",
+    )
+    temperature: float | None = Field(
+        default=None,
+        description="Temperature setting",
+    )
+
+    extra_params: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Additional backend-specific parameters",
+    )
+
+    def copy(self, **updates: Any) -> "BackendParameters":
+        """Create a copy with field updates (backward compatible)."""
+        data = self.model_dump()
+        data.update(updates)
+        data.pop("extra_params", None)
+        for key, value in updates.items():
+            if key not in self.model_fields:
+                data.setdefault("extra_params", {})[key] = value
+        return BackendParameters(**data)
+
+    def items(self):
+        """Iterate over all parameters (backward compatible)."""
+        result = {}
+        for field_name in self.model_fields:
+            if field_name == "extra_params":
+                continue
+            value = getattr(self, field_name, None)
+            if value is not None:
+                result[field_name] = value
+        result.update(self.extra_params)
+        return result.items()
+
+    def keys(self):
+        """Get all parameter keys (backward compatible)."""
+        result = set()
+        for field_name in self.model_fields:
+            if field_name == "extra_params":
+                continue
+            value = getattr(self, field_name, None)
+            if value is not None:
+                result.add(field_name)
+        result.update(self.extra_params.keys())
+        return result
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get parameter value (backward compatible)."""
+        if key in self.model_fields and key != "extra_params":
+            value = getattr(self, key, None)
+            return value if value is not None else default
+        return self.extra_params.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """Get parameter value (backward compatible)."""
+        if key in self.model_fields and key != "extra_params":
+            value = getattr(self, key, None)
+            if value is None:
+                raise KeyError(key)
+            return value
+        if key in self.extra_params:
+            return self.extra_params[key]
+        raise KeyError(key)
+
+    def __contains__(self, key: object) -> bool:
+        """Check if parameter exists (backward compatible)."""
+        if not isinstance(key, str):
+            return False
+        if key in self.model_fields and key != "extra_params":
+            return getattr(self, key, None) is not None
+        return key in self.extra_params
 
 # Models that support system messages
 SYSTEM_MESSAGE_SUPPORT: dict[str, bool] = {
@@ -95,6 +185,18 @@ EXECUTION_PHASE_PARAMS: dict[str, dict[str, Any]] = {
 }
 
 
+def _dict_to_backend_params(data: dict[str, Any]) -> BackendParameters:
+    """Convert dict to BackendParameters, separating known fields from extra."""
+    known_fields = {}
+    extra_params = {}
+    for key, value in data.items():
+        if key in BackendParameters.model_fields and key != "extra_params":
+            known_fields[key] = value
+        else:
+            extra_params[key] = value
+    return BackendParameters(**known_fields, extra_params=extra_params)
+
+
 def supports_system_messages(backend: str) -> bool:
     """Check if backend supports system role messages.
 
@@ -121,7 +223,7 @@ def get_reasoning_tags(backend: str) -> tuple[str, str]:
     return REASONING_TAG_FORMAT.get(backend, REASONING_TAG_FORMAT["_default"])
 
 
-def get_reasoning_params(backend: str) -> dict[str, Any]:
+def get_reasoning_params(backend: str) -> BackendParameters:
     """Get reasoning phase parameters for backend.
 
     These parameters maximize reasoning quality by enabling high reasoning
@@ -131,15 +233,16 @@ def get_reasoning_params(backend: str) -> dict[str, Any]:
         backend: Backend name (e.g., "openai", "qwen")
 
     Returns:
-        Dictionary of parameters to override for reasoning phase.
+        BackendParameters instance with parameters for reasoning phase.
         Returns default parameters for unknown backends.
     """
-    return REASONING_PHASE_PARAMS.get(
+    params_dict = REASONING_PHASE_PARAMS.get(
         backend, REASONING_PHASE_PARAMS["_default"]
-    ).copy()
+    )
+    return _dict_to_backend_params(params_dict)
 
 
-def get_execution_params(backend: str) -> dict[str, Any]:
+def get_execution_params(backend: str) -> BackendParameters:
     """Get execution phase parameters for backend.
 
     These parameters minimize redundant reasoning and maximize execution
@@ -149,9 +252,10 @@ def get_execution_params(backend: str) -> dict[str, Any]:
         backend: Backend name (e.g., "openai", "qwen")
 
     Returns:
-        Dictionary of parameters to override for execution phase.
+        BackendParameters instance with parameters for execution phase.
         Returns default parameters for unknown backends.
     """
-    return EXECUTION_PHASE_PARAMS.get(
+    params_dict = EXECUTION_PHASE_PARAMS.get(
         backend, EXECUTION_PHASE_PARAMS["_default"]
-    ).copy()
+    )
+    return _dict_to_backend_params(params_dict)

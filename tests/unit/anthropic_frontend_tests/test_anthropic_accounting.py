@@ -5,7 +5,7 @@ Tests the token usage tracking and billing info extraction.
 
 from unittest.mock import Mock, patch
 
-from src.anthropic_converters import extract_anthropic_usage
+from src.anthropic_converters import AnthropicUsageSummary, extract_anthropic_usage
 from src.llm_accounting_utils import (
     extract_billing_info_from_headers,
     extract_billing_info_from_response,
@@ -91,9 +91,13 @@ class TestAnthropicFrontendAccounting:
 
         usage = extract_anthropic_usage(response)
 
+        assert isinstance(usage, AnthropicUsageSummary)
+        assert usage.input_tokens == 45
+        assert usage.output_tokens == 35
+        assert usage.total_tokens == 80
+        # Test dict-like access for backward compatibility
         assert usage["input_tokens"] == 45
-        assert usage["output_tokens"] == 35
-        assert usage["total_tokens"] == 80
+        assert usage.get("input_tokens") == 45
 
     def test_extract_anthropic_usage_from_object(self) -> None:
         """Test extract_anthropic_usage function with object."""
@@ -106,25 +110,28 @@ class TestAnthropicFrontendAccounting:
 
         usage = extract_anthropic_usage(mock_response)
 
-        assert usage["input_tokens"] == 60
-        assert usage["output_tokens"] == 40
-        assert usage["total_tokens"] == 100
+        assert isinstance(usage, AnthropicUsageSummary)
+        assert usage.input_tokens == 60
+        assert usage.output_tokens == 40
+        assert usage.total_tokens == 100
 
     def test_extract_anthropic_usage_empty_response(self) -> None:
         """Test extract_anthropic_usage function with empty response."""
         usage = extract_anthropic_usage({})
 
-        assert usage["input_tokens"] == 0
-        assert usage["output_tokens"] == 0
-        assert usage["total_tokens"] == 0
+        assert isinstance(usage, AnthropicUsageSummary)
+        assert usage.input_tokens == 0
+        assert usage.output_tokens == 0
+        assert usage.total_tokens == 0
 
     def test_extract_anthropic_usage_invalid_response(self) -> None:
         """Test extract_anthropic_usage function with invalid response."""
         usage = extract_anthropic_usage(None)
 
-        assert usage["input_tokens"] == 0
-        assert usage["output_tokens"] == 0
-        assert usage["total_tokens"] == 0
+        assert isinstance(usage, AnthropicUsageSummary)
+        assert usage.input_tokens == 0
+        assert usage.output_tokens == 0
+        assert usage.total_tokens == 0
 
     def test_extract_anthropic_usage_partial_data(self) -> None:
         """Test extract_anthropic_usage function with partial data."""
@@ -137,18 +144,20 @@ class TestAnthropicFrontendAccounting:
 
         usage = extract_anthropic_usage(response)
 
-        assert usage["input_tokens"] == 25
-        assert usage["output_tokens"] == 0
-        assert usage["total_tokens"] == 25
+        assert isinstance(usage, AnthropicUsageSummary)
+        assert usage.input_tokens == 25
+        assert usage.output_tokens == 0
+        assert usage.total_tokens == 25
 
     @patch("src.anthropic_converters.extract_anthropic_usage")
     def test_billing_info_calls_extract_usage(self, mock_extract_usage) -> None:
         """Test that billing info extraction calls extract_anthropic_usage."""
-        mock_extract_usage.return_value = {
-            "input_tokens": 50,
-            "output_tokens": 30,
-            "total_tokens": 80,
-        }
+        from src.anthropic_converters import AnthropicUsageSummary
+        mock_extract_usage.return_value = AnthropicUsageSummary(
+            input_tokens=50,
+            output_tokens=30,
+            total_tokens=80,
+        )
 
         response = {"some": "data"}
         billing_info = extract_billing_info_from_response(response, "anthropic")

@@ -10,6 +10,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 from src.codebuff.format_converter import FormatConverter
+from src.core.domain.chat import ChatMessage
 
 
 # Strategy for generating Codebuff message formats
@@ -78,17 +79,21 @@ def test_property_6_format_conversion_validity(messages, state):
 
     # Verify all converted messages have required OpenAI fields
     for msg in openai_messages:
-        assert isinstance(msg, dict), "Converted message must be a dictionary"
-        assert "role" in msg, "Converted message must have 'role' field"
-        assert "content" in msg, "Converted message must have 'content' field"
-        assert msg["role"] in [
-            "user",
-            "assistant",
-            "system",
-        ], f"Role must be valid: {msg['role']}"
-        assert isinstance(
-            msg["content"], str
-        ), f"Content must be a string: {type(msg['content'])}"
+        if isinstance(msg, ChatMessage):
+            assert msg.role in ["user", "assistant", "system"], f"Role must be valid: {msg.role}"
+            assert isinstance(msg.content, str), f"Content must be a string: {type(msg.content)}"
+        else:
+            assert isinstance(msg, dict), "Converted message must be a dictionary"
+            assert "role" in msg, "Converted message must have 'role' field"
+            assert "content" in msg, "Converted message must have 'content' field"
+            assert msg["role"] in [
+                "user",
+                "assistant",
+                "system",
+            ], f"Role must be valid: {msg['role']}"
+            assert isinstance(
+                msg["content"], str
+            ), f"Content must be a string: {type(msg['content'])}"
 
 
 @given(messages=codebuff_messages(), state=session_state())
