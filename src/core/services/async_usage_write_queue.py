@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
-from dataclasses import dataclass
 
 if TYPE_CHECKING:
 
@@ -34,8 +34,7 @@ class IUsageRecordWriter(Protocol):
         """
         ...
 
-    async def batch_update(self, records: list[UsageRecord]) -> int:
-        ...
+    async def batch_update(self, records: list[UsageRecord]) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -55,7 +54,6 @@ class QueueStatistics:
 
 
 class AsyncUsageWriteQueue:
-
     """Async-safe write queue for usage records.
 
     Buffers usage records and writes them to the database in batches
@@ -137,7 +135,8 @@ class AsyncUsageWriteQueue:
     async def start(self) -> None:
         """Start the background flush task."""
         if self._is_running:
-            logger.warning("AsyncUsageWriteQueue already running")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("AsyncUsageWriteQueue already running")
             return
 
         self._shutdown_event.clear()
@@ -145,11 +144,12 @@ class AsyncUsageWriteQueue:
         self._background_task = asyncio.create_task(
             self._flush_loop(), name="usage_write_queue_flush"
         )
-        logger.info(
-            "Started AsyncUsageWriteQueue (batch_size=%d, flush_interval=%.1fs)",
-            self._batch_size,
-            self._flush_interval,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Started AsyncUsageWriteQueue (batch_size=%d, flush_interval=%.1fs)",
+                self._batch_size,
+                self._flush_interval,
+            )
 
     async def stop(self, timeout: float = 10.0) -> None:
         """Stop the background task and drain remaining records.
@@ -160,14 +160,18 @@ class AsyncUsageWriteQueue:
         if not self._is_running:
             return
 
-        logger.info("Stopping AsyncUsageWriteQueue...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Stopping AsyncUsageWriteQueue...")
         self._shutdown_event.set()
 
         if self._background_task:
             try:
                 await asyncio.wait_for(self._background_task, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("AsyncUsageWriteQueue shutdown timed out, cancelling")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "AsyncUsageWriteQueue shutdown timed out, cancelling"
+                    )
                 self._background_task.cancel()
                 import contextlib
 
@@ -178,12 +182,13 @@ class AsyncUsageWriteQueue:
         await self._drain_queues()
 
         self._is_running = False
-        logger.info(
-            "AsyncUsageWriteQueue stopped (total_inserts=%d, total_updates=%d, total_batches=%d)",
-            self._total_inserts,
-            self._total_updates,
-            self._total_batches,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "AsyncUsageWriteQueue stopped (total_inserts=%d, total_updates=%d, total_batches=%d)",
+                self._total_inserts,
+                self._total_updates,
+                self._total_batches,
+            )
 
     def enqueue_insert(self, record: UsageRecord) -> bool:
         """Enqueue a record for insertion (non-blocking).
@@ -202,11 +207,12 @@ class AsyncUsageWriteQueue:
             self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
-            logger.warning(
-                "Insert queue full, dropping record %s (queue_size=%d)",
-                record.id,
-                self._max_queue_size,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Insert queue full, dropping record %s (queue_size=%d)",
+                    record.id,
+                    self._max_queue_size,
+                )
             return False
 
     def enqueue_update(self, record: UsageRecord) -> bool:
@@ -226,11 +232,12 @@ class AsyncUsageWriteQueue:
             self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
-            logger.warning(
-                "Update queue full, dropping record %s (queue_size=%d)",
-                record.id,
-                self._max_queue_size,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Update queue full, dropping record %s (queue_size=%d)",
+                    record.id,
+                    self._max_queue_size,
+                )
             return False
 
     async def get_pending_record(self, record_id: str) -> UsageRecord | None:
@@ -295,7 +302,8 @@ class AsyncUsageWriteQueue:
                 await self._flush_batches()
 
             except Exception as e:
-                logger.error("Error in flush loop: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("Error in flush loop: %s", e, exc_info=True)
                 # Continue loop despite errors
                 await asyncio.sleep(1.0)
 
@@ -359,7 +367,8 @@ class AsyncUsageWriteQueue:
                 logger.debug("Inserted %d usage records", count)
 
         except Exception as e:
-            logger.error("Failed to insert batch of %d records: %s", len(batch), e)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Failed to insert batch of %d records: %s", len(batch), e)
             # Records are lost - could implement retry queue here
 
         finally:
@@ -388,7 +397,8 @@ class AsyncUsageWriteQueue:
                 logger.debug("Updated %d usage records", count)
 
         except Exception as e:
-            logger.error("Failed to update batch of %d records: %s", len(batch), e)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Failed to update batch of %d records: %s", len(batch), e)
             # Records are lost - could implement retry queue here
 
         finally:
@@ -417,19 +427,19 @@ class AsyncUsageWriteQueue:
         return len(self._pending_records)
 
     @property
-    def statistics(self) -> dict:
+    def statistics(self) -> QueueStatistics:
         """Get queue statistics."""
-        return {
-            "is_running": self._is_running,
-            "insert_queue_size": self.insert_queue_size,
-            "update_queue_size": self.update_queue_size,
-            "pending_count": self.pending_count,
-            "total_inserts": self._total_inserts,
-            "total_updates": self._total_updates,
-            "total_batches": self._total_batches,
-            "last_flush_time": (
+        return QueueStatistics(
+            is_running=self._is_running,
+            insert_queue_size=self.insert_queue_size,
+            update_queue_size=self.update_queue_size,
+            pending_count=self.pending_count,
+            total_inserts=self._total_inserts,
+            total_updates=self._total_updates,
+            total_batches=self._total_batches,
+            last_flush_time=(
                 self._last_flush_time.isoformat() if self._last_flush_time else None
             ),
-            "batch_size": self._batch_size,
-            "flush_interval_seconds": self._flush_interval,
-        }
+            batch_size=self._batch_size,
+            flush_interval_seconds=self._flush_interval,
+        )
