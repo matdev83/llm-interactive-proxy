@@ -338,7 +338,7 @@ async def _list_models_impl(
                             )
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Failed to check opencode-zen credentials: {e}")
+                        logger.debug("Failed to check opencode-zen credentials: %s", e)
                 finally:
                     # Clean up temporary backend instance to prevent resource leak
                     if temp_backend is not None:
@@ -347,7 +347,9 @@ async def _list_models_impl(
                                 temp_backend.close()
                         elif hasattr(temp_backend, "aclose"):
                             with contextlib.suppress(RuntimeError, Exception):
-                                _cleanup_task = asyncio.create_task(temp_backend.aclose())  # noqa: RUF006
+                                _cleanup_task = asyncio.create_task(
+                                    temp_backend.aclose()
+                                )  # noqa: RUF006
 
             should_try_backend = backend_type in functional_backends or has_credentials
 
@@ -416,12 +418,16 @@ async def _list_models_impl(
                             )
                         )
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Discovered {len(models)} models from {backend_type}")
+                    logger.debug(
+                        "Discovered %d models from %s", len(models), backend_type
+                    )
 
             except Exception as e:  # type: ignore[misc]
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failed to get models from {backend_type}: {e}",
+                        "Failed to get models from %s: %s",
+                        backend_type,
+                        e,
                         exc_info=True,
                     )
                 continue
@@ -448,13 +454,13 @@ async def _list_models_impl(
             ]
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Returning {len(all_models)} models")
+            logger.info("Returning %d models", len(all_models))
 
         return ModelsListingResponse(object="list", data=all_models)
 
     except Exception as e:  # type: ignore[misc]
         if logger.isEnabledFor(logging.ERROR):
-            logger.error(f"Error listing models: {e}", exc_info=True)
+            logger.error("Error listing models: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

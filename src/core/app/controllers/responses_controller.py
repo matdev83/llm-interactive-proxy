@@ -505,7 +505,6 @@ class ResponsesController:
             domain_request=domain_request,
         )
 
-
         # Set request_id on context for SessionKey resolution (Requirement 1.6)
         ctx.request_id = request_id
 
@@ -541,7 +540,6 @@ class ResponsesController:
 
         if ctx.processing_context is None:
             ctx.processing_context = ProcessingContext(values={})
-
 
         schema_dict = json_schema.get_schema()
         if not isinstance(schema_dict, dict) or "type" not in schema_dict:
@@ -1120,7 +1118,7 @@ class ResponsesController:
         unknown_types = [t for t in schema_types if t not in known_types]
         for unknown in unknown_types:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Unusual schema type detected: {unknown}")
+                logger.warning("Unusual schema type detected: %s", unknown)
 
         # Validate additional properties if present
         if "additionalProperties" in schema:
