@@ -112,9 +112,12 @@ class DroidSessionDetector:
 
         for pattern in self.DROID_USER_AGENT_PATTERNS:
             if pattern in user_agent_lower:
-                logger.debug(
-                    f"Detected Droid from User-Agent: {user_agent} (matched: {pattern})"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Detected Droid from User-Agent: %s (matched: %s)",
+                        user_agent,
+                        pattern,
+                    )
                 return DroidDetectionResult(
                     is_droid=True,
                     detection_method="user_agent",
@@ -135,9 +138,11 @@ class DroidSessionDetector:
                     content_lower = content.lower()
                     for keyword in self.DROID_SYSTEM_PROMPT_KEYWORDS:
                         if keyword in content_lower:
-                            logger.debug(
-                                f"Detected Droid from system prompt (matched: {keyword})"
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Detected Droid from system prompt (matched: %s)",
+                                    keyword,
+                                )
                             return DroidDetectionResult(
                                 is_droid=True,
                                 detection_method="system_prompt",
