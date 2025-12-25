@@ -68,13 +68,15 @@ class GeminiHealthCheckService(IHealthCheckService):
             return
 
         if self._disable_health_checks:
-            logger.debug(f"Health checks disabled for {self._backend_name}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Health checks disabled for {self._backend_name}")
             self._health_checked = True
             return
 
-        logger.info(
-            f"Performing first-use health check for {self._backend_name} backend"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Performing first-use health check for {self._backend_name} backend"
+            )
 
         # Refresh token if needed before health check
         refreshed = await self._credential_coordinator.refresh_if_needed()
@@ -86,16 +88,17 @@ class GeminiHealthCheckService(IHealthCheckService):
 
         # Perform health check (non-blocking - we only fail on token issues)
         healthy = await self._perform_health_check()
-        if not healthy:
+        if not healthy and logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 f"Health check did not pass for {self._backend_name}, but continuing with valid OAuth credentials. "
                 "The backend will be tested when the first real request is made."
             )
         # Mark as checked regardless - we have valid credentials
         self._health_checked = True
-        logger.info(
-            f"Backend health check completed for {self._backend_name} - ready for use"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Backend health check completed for {self._backend_name} - ready for use"
+            )
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.
@@ -113,9 +116,10 @@ class GeminiHealthCheckService(IHealthCheckService):
             # Ensure credentials are available
             credentials = self._credential_coordinator.credentials
             if not credentials or not credentials.access_token:
-                logger.warning(
-                    f"Health check failed for {self._backend_name} - no access token available"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Health check failed for {self._backend_name} - no access token available"
+                    )
                 return False
 
             # Get base URL and headers from endpoint config
@@ -143,9 +147,10 @@ class GeminiHealthCheckService(IHealthCheckService):
                 return False
 
             if response.status_code == 200:
-                logger.info(
-                    f"Health check passed for {self._backend_name} - API connectivity verified via fetchAvailableModels"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Health check passed for {self._backend_name} - API connectivity verified via fetchAvailableModels"
+                    )
                 return True
 
             # Fallback: use loadCodeAssist which is reliable on Code Assist API
@@ -175,14 +180,16 @@ class GeminiHealthCheckService(IHealthCheckService):
                 return False
 
             if response.status_code == 200:
-                logger.info(
-                    f"Health check passed for {self._backend_name} via loadCodeAssist"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Health check passed for {self._backend_name} via loadCodeAssist"
+                    )
                 return True
 
-            logger.warning(
-                f"Health check failed for {self._backend_name} - API returned status {response.status_code}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Health check failed for {self._backend_name} - API returned status {response.status_code}"
+                )
             return False
 
         except AuthenticationError as e:
