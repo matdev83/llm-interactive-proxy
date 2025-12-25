@@ -330,10 +330,12 @@ def create_sso_router(
             return RedirectResponse(url=auth_url, status_code=302)
 
         except ConfigurationError as e:
-            logger.error(f"Provider configuration error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Provider configuration error: {e}")
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            logger.exception(f"Failed to initiate SSO for provider {provider}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.exception("Failed to initiate SSO for provider %s", provider)
             raise HTTPException(
                 status_code=500, detail=f"Failed to initiate authentication: {e!s}"
             )
@@ -384,7 +386,8 @@ def create_sso_router(
         # Handle OAuth2 errors from provider
         if error:
             error_msg = error_description or error
-            logger.warning(f"OAuth2 error from provider: {error_msg}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("OAuth2 error from provider: %s", error_msg)
             return HTMLResponse(
                 content=_render_error_page(
                     "Authentication Failed",
@@ -416,9 +419,10 @@ def create_sso_router(
 
         state_data = _state_store.pop(state_key, None)
         if not state_data:
-            logger.warning(
-                f"Invalid or expired state parameter: {(state_key or '')[:8]}..."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Invalid or expired state parameter: %s...", (state_key or "")[:8]
+                )
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Session",
@@ -437,7 +441,8 @@ def create_sso_router(
             agent_token_id = None
 
         if not provider:
-            logger.warning(f"Invalid state data: {(state_key or '')[:8]}...")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Invalid state data: %s...", (state_key or "")[:8])
             return HTMLResponse(
                 content=_render_error_page(
                     "Invalid Session",
@@ -461,7 +466,8 @@ def create_sso_router(
             )
 
             if not sso_result.success:
-                logger.error(f"SSO callback failed: {sso_result.error}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("SSO callback failed: %s", sso_result.error)
                 return HTMLResponse(
                     content=_render_error_page(
                         "Authentication Failed",
@@ -471,7 +477,8 @@ def create_sso_router(
                 )
 
             if not sso_result.user_id or not sso_result.user_email:
-                logger.error(f"SSO callback missing user info: {sso_result}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("SSO callback missing user info: %s", sso_result)
                 return HTMLResponse(
                     content=_render_error_page(
                         "Authentication Failed",
@@ -508,9 +515,12 @@ def create_sso_router(
                 )
 
                 if not auth_result.authorized:
-                    logger.warning(
-                        f"Authorization denied for user {user_email}: {auth_result.error}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Authorization denied for user %s: %s",
+                            user_email,
+                            auth_result.error,
+                        )
                     return HTMLResponse(
                         content=_render_error_page(
                             "Access Denied",
@@ -542,9 +552,12 @@ def create_sso_router(
                             + timedelta(hours=sso_config.session_lifetime_hours),
                         )
 
-                        logger.info(
-                            f"Re-authenticated token {existing_token.id} for user {user_email}"
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Re-authenticated token %s for user %s",
+                                existing_token.id,
+                                user_email,
+                            )
 
                         # Redirect to success page indicating re-authentication
                         # Note: We don't show the token again for security
@@ -554,9 +567,11 @@ def create_sso_router(
                         )
                     else:
                         # Token doesn't exist or belongs to different user
-                        logger.warning(
-                            f"Re-auth attempted with invalid agent_token_id: {agent_token_id}"
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Re-auth attempted with invalid agent_token_id: %s",
+                                agent_token_id,
+                            )
                         # Fall through to check for existing token by user_id
                         agent_token_id = None
 
@@ -574,9 +589,12 @@ def create_sso_router(
                             + timedelta(hours=sso_config.session_lifetime_hours),
                         )
 
-                        logger.info(
-                            f"Implicitly re-authenticated token {existing_token.id} for user {user_email}"
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Implicitly re-authenticated token %s for user %s",
+                                existing_token.id,
+                                user_email,
+                            )
 
                         # Redirect to success page indicating re-authentication
                         # Note: We don't show the token again for security
@@ -615,7 +633,8 @@ def create_sso_router(
                 )
 
         except AuthenticationError as e:
-            logger.error(f"Authentication error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Authentication error: %s", e)
             return HTMLResponse(
                 content=_render_error_page(
                     "Authentication Error", f"Authentication failed: {e!s}"
@@ -623,7 +642,8 @@ def create_sso_router(
                 status_code=401,
             )
         except AuthorizationError as e:
-            logger.error(f"Authorization error: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Authorization error: %s", e)
             return HTMLResponse(
                 content=_render_error_page(
                     "Authorization Error", f"Authorization failed: {e!s}"
