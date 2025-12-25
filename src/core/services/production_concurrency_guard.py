@@ -43,9 +43,11 @@ class ConcurrencyMetrics:
             self.lock_wait_times.append(wait_time)
 
             # Alert on high contention
-            if wait_time > 1.0:  # 1 second wait
+            if wait_time > 1.0 and logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"High lock contention detected in {lock_name}: {wait_time:.3f}s wait time"
+                    "High lock contention detected: lock_name=%s wait_time=%.3fs",
+                    lock_name,
+                    wait_time,
                 )
 
     def record_deadlock_detection(self, lock_name: str) -> None:
@@ -58,13 +60,27 @@ class ConcurrencyMetrics:
         """Record potential race condition warning."""
         with self._metrics_lock:
             self.race_condition_warnings += 1
-            logger.warning(f"Potential race condition in operation: {operation}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Potential race condition in operation: %s", operation)
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get a copy of the metrics."""
+        with self._metrics_lock:
+            return {
+                "lock_contention_count": self.lock_contention_count,
+                "deadlock_detection_count": self.deadlock_detection_count,
+                "race_condition_warnings": self.race_condition_warnings,
+                "retry_attempts": self.retry_attempts,
+                "circuit_breaker_trips": self.circuit_breaker_trips,
+                "lock_wait_times": self.lock_wait_times.copy(),
+            }
 
     def record_retry_attempt(self, operation: str, attempt: int) -> None:
         """Record retry attempt."""
         with self._metrics_lock:
             self.retry_attempts += 1
-            logger.info(f"Retry attempt {attempt} for operation: {operation}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Retry attempt %d for operation: %s", attempt, operation)
 
 
 # Global metrics instance
@@ -129,9 +145,10 @@ class CircuitBreaker:
                 if self.success_count >= self.config.success_threshold:
                     self.state = CircuitBreakerState.CLOSED
                     self.failure_count = 0
-                    logger.info(
-                        f"Circuit breaker {self.name} closed - service recovered"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Circuit breaker %s closed - service recovered", self.name
+                        )
             elif self.state == CircuitBreakerState.CLOSED:
                 self.failure_count = 0
 
@@ -172,9 +189,11 @@ class ProductionAsyncLock:
 
             production_metrics.record_lock_contention(wait_time, self.name)
 
-            if wait_time > 5.0:  # 5 second threshold
+            if wait_time > 5.0 and logger.isEnabledFor(
+                logging.WARNING
+            ):  # 5 second threshold
                 logger.warning(
-                    f"Long lock wait detected for {self.name}: {wait_time:.3f}s"
+                    "Long lock wait detected for %s: %.3fs", self.name, wait_time
                 )
 
         except asyncio.TimeoutError:
@@ -187,9 +206,11 @@ class ProductionAsyncLock:
         """Release lock with monitoring."""
         if self._acquired_at:
             hold_time = time.time() - self._acquired_at
-            if hold_time > 10.0:  # 10 second threshold
+            if hold_time > 10.0 and logger.isEnabledFor(
+                logging.WARNING
+            ):  # 10 second threshold
                 logger.warning(
-                    f"Long lock hold detected for {self.name}: {hold_time:.3f}s"
+                    "Long lock hold detected for %s: %.3fs", self.name, hold_time
                 )
 
         self._holder = None
@@ -317,7 +338,9 @@ class ConcurrencyGuard:
         self.max_concurrent = max_concurrent
         self.name = name
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._active_operations: set[str] = set()  # Use regular set since we clean up in finally
+        self._active_operations: set[str] = (
+            set()
+        )  # Use regular set since we clean up in finally
         self._active_count = 0
         self._total_operations = 0
         self._rejected_operations = 0
@@ -327,25 +350,27 @@ class ConcurrencyGuard:
     @asynccontextmanager
     async def acquire(self, operation_name: str = "unknown"):
         """Acquire concurrency slot with monitoring."""
-        
+
         operation_id = None
-        
+
         # Check count first for immediate rejection (atomic check-and-increment)
         with self._lock:
             if self._active_count >= self.max_concurrent:
                 self._rejected_operations += 1
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Concurrency limit reached for %s", self.name)
                 production_metrics.record_race_condition_warning(
                     f"{self.name}:{operation_name}"
                 )
                 raise Exception(f"Concurrency limit reached for {self.name}")
-            
+
             # Reserve slot
             self._active_count += 1
             self._operation_counter += 1
             operation_id = f"{operation_name}_{self._operation_counter}"
             self._active_operations.add(operation_id)
             self._total_operations += 1
-        
+
         # Acquire semaphore (should always succeed since we checked count, but use for actual concurrency)
         await self._semaphore.acquire()
 
@@ -361,26 +386,18 @@ class ConcurrencyGuard:
 
 def get_production_metrics() -> dict[str, Any]:
     """Get comprehensive production metrics."""
-    with production_metrics._metrics_lock:
-        avg_wait_time = (
-            sum(production_metrics.lock_wait_times)
-            / len(production_metrics.lock_wait_times)
-            if production_metrics.lock_wait_times
-            else 0
-        )
-        max_wait_time = (
-            max(production_metrics.lock_wait_times)
-            if production_metrics.lock_wait_times
-            else 0
-        )
+    metrics = production_metrics.get_metrics()
+    wait_times = metrics["lock_wait_times"]
+    avg_wait_time = sum(wait_times) / len(wait_times) if wait_times else 0
+    max_wait_time = max(wait_times) if wait_times else 0
 
-        return {
-            "lock_contention_count": production_metrics.lock_contention_count,
-            "deadlock_detection_count": production_metrics.deadlock_detection_count,
-            "race_condition_warnings": production_metrics.race_condition_warnings,
-            "retry_attempts": production_metrics.retry_attempts,
-            "circuit_breaker_trips": production_metrics.circuit_breaker_trips,
-            "avg_lock_wait_time": avg_wait_time,
-            "max_lock_wait_time": max_wait_time,
-            "total_lock_operations": len(production_metrics.lock_wait_times),
-        }
+    return {
+        "lock_contention_count": metrics["lock_contention_count"],
+        "deadlock_detection_count": metrics["deadlock_detection_count"],
+        "race_condition_warnings": metrics["race_condition_warnings"],
+        "retry_attempts": metrics["retry_attempts"],
+        "circuit_breaker_trips": metrics["circuit_breaker_trips"],
+        "avg_lock_wait_time": avg_wait_time,
+        "max_lock_wait_time": max_wait_time,
+        "total_lock_operations": len(wait_times),
+    }
