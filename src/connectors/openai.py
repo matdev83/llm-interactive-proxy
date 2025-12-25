@@ -267,12 +267,12 @@ class OpenAIConnector(LLMBackend):
         """Enable health check functionality for this connector instance."""
         self._health_check_enabled = True
         self._health_checked = False  # Reset so it will check on next use
-        logger.info(f"Health check enabled for {self.backend_type} backend")
+        logger.info("Health check enabled for %s backend", self.backend_type)
 
     def disable_health_check(self) -> None:
         """Disable health check functionality for this connector instance."""
         self._health_check_enabled = False
-        logger.info(f"Health check disabled for {self.backend_type} backend")
+        logger.info("Health check disabled for %s backend", self.backend_type)
 
     _XSSI_PREFIXES = (
         ")]}',\n",
@@ -1155,12 +1155,11 @@ class OpenAIConnector(LLMBackend):
     ) -> ModelsListingResponse:
         headers = self.get_headers()
         base = api_base_url or self.api_base_url
-        logger.info(f"OpenAIConnector list_models - base URL: {base}")
+        logger.info("OpenAIConnector list_models - base URL: %s", base)
         response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
         response.raise_for_status()
         result = response.json()
         return ModelsListingResponse.model_validate(result)
-
 
     def get_available_models(self) -> list[str]:
         """Return available models with vendor prefix for unified model routing.
