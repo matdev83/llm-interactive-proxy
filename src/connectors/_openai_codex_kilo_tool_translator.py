@@ -6,6 +6,7 @@ import logging
 import shlex
 import time
 import traceback
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.connectors._openai_codex_compatibility_errors import (
@@ -20,8 +21,10 @@ from src.connectors._openai_codex_xml_tool_parser import (
     XMLParseError,
     XMLToolParser,
 )
+from src.core.domain.tool_results import UniversalToolResult
 
 if TYPE_CHECKING:
+
     from src.connectors.openai_codex import OpenAICodexConnector
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,19 @@ except ImportError:
     def get_telemetry():  # type: ignore
         """Fallback telemetry getter."""
         return None
+
+
+@dataclass
+class KiloTranslationResult:
+    """Result of a KiloCode tool translation."""
+
+    tool_name: str
+    arguments: dict[str, Any]
+
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.tool_name
+        yield self.arguments
 
 
 class KiloToolTranslator:
@@ -64,15 +80,15 @@ class KiloToolTranslator:
 
     async def translate_tool_invocation(
         self, xml_text: str, session_id: str | None = None
-    ) -> tuple[str, dict[str, Any]] | None:
-        """Parse XML and return (tool_name, arguments) or None.
+    ) -> KiloTranslationResult | None:
+        """Parse XML and return KiloTranslationResult or None.
 
         Args:
             xml_text: XML text containing tool invocation
             session_id: Optional session ID for telemetry
 
         Returns:
-            Tuple of (tool_name, arguments) if translation successful, None otherwise
+            KiloTranslationResult object if translation successful, None otherwise
 
         Raises:
             TranslationError: If translation fails
@@ -94,12 +110,12 @@ class KiloToolTranslator:
                 return None
 
             # Translate based on tool type
-            result = None
+            result: KiloTranslationResult | None = None
             execution_mode = "codex"  # Default execution mode
 
             if parsed.canonical_name == "read_file":
                 result = self._translate_read_file(parsed)
-            elif parsed.canonical_name == "list_files":
+            elif parsed.canonical_name in ("list_files", "ls"):
                 result = self._translate_list_files(parsed)
             elif parsed.canonical_name == "execute_command":
                 result = self._translate_execute_command(parsed)
@@ -125,34 +141,26 @@ class KiloToolTranslator:
             ):
                 result = self._translate_editing_tool(parsed)
                 execution_mode = "proxy"
+
             else:
-                # Unsupported tool - raise error as per Requirement 11.1
-                from src.connectors._openai_codex_compatibility_errors import (
-                    create_unsupported_tool_error,
-                )
-
-                raise create_unsupported_tool_error(
+                # Unsupported tool
+                raise create_parameter_validation_error(
                     tool_name=parsed.canonical_name,
-                    original_xml=xml_text,
-                    session_id=session_id,
-                    supported_tools=(
-                        list(self._xml_parser.SUPPORTED_TAGS)
-                        if self._xml_parser
-                        else []
-                    ),
+                    message=f"Unsupported tool: {parsed.canonical_name}",
+                    original_xml=parsed.raw_xml,
+                    error_code=CompatibilityErrorCode.UNSUPPORTED_TOOL,
                 )
 
-            # Log successful translation telemetry
-            if result and telemetry:
+            # Log telemetry
+            if telemetry and result:
                 duration_ms = (time.time() - start_time) * 1000
                 telemetry.log_translation_event(
                     session_id=session_id or "unknown",
                     tool_name=parsed.canonical_name,
-                    original_xml=xml_text,
-                    translated_tool=result[0] if result else None,
-                    execution_mode=execution_mode,
+                    translated_tool=result.tool_name,
                     duration_ms=duration_ms,
-                    success=True,
+                    original_xml=xml_text,
+                    execution_mode=execution_mode,
                 )
 
             return result
@@ -217,7 +225,7 @@ class KiloToolTranslator:
 
     def _translate_read_file(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <read_file> to Codex read_file tool.
 
         Args:
@@ -251,11 +259,11 @@ class KiloToolTranslator:
 
         logger.debug("Translated <read_file> to Codex read_file tool: %s", arguments)
 
-        return ("read_file", arguments)
+        return KiloTranslationResult("read_file", arguments)
 
     def _translate_list_files(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <list_files> to Codex list_dir tool.
 
         Args:
@@ -281,11 +289,11 @@ class KiloToolTranslator:
 
         logger.debug("Translated <list_files> to Codex list_dir tool: %s", arguments)
 
-        return ("list_dir", arguments)
+        return KiloTranslationResult("list_dir", arguments)
 
     def _translate_execute_command(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <execute_command> to Codex shell tool.
 
         Args:
@@ -341,11 +349,9 @@ class KiloToolTranslator:
 
         logger.debug("Translated <execute_command> to Codex shell tool: %s", arguments)
 
-        return ("shell", arguments)
+        return KiloTranslationResult("shell", arguments)
 
-    def _translate_search(
-        self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_search(self, parsed: ParsedToolInvocation) -> KiloTranslationResult:
         """Translate <codebase_search> or <search_files> to Codex grep_files tool.
 
         Args:
@@ -395,11 +401,11 @@ class KiloToolTranslator:
             arguments,
         )
 
-        return ("grep_files", arguments)
+        return KiloTranslationResult("grep_files", arguments)
 
     def _translate_attempt_completion(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <attempt_completion> for proxy-side handling.
 
         This tag is handled proxy-side and should not be forwarded to Codex.
@@ -421,11 +427,11 @@ class KiloToolTranslator:
         )
 
         # Return a special marker to indicate this should be handled proxy-side
-        return ("__proxy_attempt_completion", arguments)
+        return KiloTranslationResult("__proxy_attempt_completion", arguments)
 
     def _translate_ask_followup_question(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <ask_followup_question> for proxy-side handling.
 
         This tag is handled proxy-side and should not be forwarded to Codex.
@@ -455,7 +461,7 @@ class KiloToolTranslator:
         )
 
         # Return a special marker to indicate this should be handled proxy-side
-        return ("__proxy_ask_followup_question", arguments)
+        return KiloTranslationResult("__proxy_ask_followup_question", arguments)
 
     async def handle_conversation_control(
         self, tool_name: str, arguments: dict[str, Any], session_id: str | None = None
@@ -516,7 +522,7 @@ class KiloToolTranslator:
 
     def _translate_use_mcp_tool(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <use_mcp_tool> to appropriate format.
 
         For patch_file tool, attempts to convert to Codex apply_patch grammar.
@@ -558,7 +564,7 @@ class KiloToolTranslator:
                 arguments["tool_name"] = tool_name
                 arguments["tool_arguments"] = tool_arguments
 
-                return ("__proxy_use_mcp_tool", arguments)
+                return KiloTranslationResult("__proxy_use_mcp_tool", arguments)
             else:
                 raise create_parameter_validation_error(
                     tool_name="patch_file",
@@ -575,11 +581,11 @@ class KiloToolTranslator:
             "Translated <use_mcp_tool> for MCP server forwarding: tool=%s", tool_name
         )
 
-        return ("__proxy_use_mcp_tool", arguments)
+        return KiloTranslationResult("__proxy_use_mcp_tool", arguments)
 
     def _translate_access_mcp_resource(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate <access_mcp_resource> to Codex read_mcp_resource tool.
 
         Args:
@@ -610,11 +616,11 @@ class KiloToolTranslator:
         )
 
         # Return marker for MCP resource access
-        return ("__proxy_access_mcp_resource", arguments)
+        return KiloTranslationResult("__proxy_access_mcp_resource", arguments)
 
     def _translate_editing_tool(
         self, parsed: ParsedToolInvocation
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> KiloTranslationResult:
         """Translate editing tools (search_and_replace, write_to_file, etc.).
 
         These tools are executed proxy-side using file system helpers.
@@ -713,7 +719,7 @@ class KiloToolTranslator:
         )
 
         # Return marker for proxy-side execution
-        return (f"__proxy_{tool_name}", arguments)
+        return KiloTranslationResult(f"__proxy_{tool_name}", arguments)
 
     def _translate_mcp_parameters(
         self, kilo_params: dict[str, Any], mcp_schema: dict[str, Any]
@@ -827,7 +833,9 @@ class KiloToolTranslator:
 
         return translated
 
-    def format_tool_result(self, tool_name: str, result: dict[str, Any]) -> str:
+    def format_tool_result(
+        self, tool_name: str, result: dict[str, Any] | UniversalToolResult
+    ) -> str:
         """Format execution result in KiloCode's expected format.
 
         Args:

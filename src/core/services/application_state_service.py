@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, TypeVar, cast
 
+from src.core.domain.model_utils import ModelDefaults
 from src.core.interfaces.application_state_interface import IApplicationState
 
 logger = logging.getLogger(__name__)
@@ -255,15 +256,15 @@ class ApplicationStateService(IApplicationState):
             self._state_provider.backend = backend
         self._local_state["backend"] = backend
 
-    def get_model_defaults(self) -> dict[str, Any]:
+    def get_model_defaults(self) -> dict[str, ModelDefaults]:
         """Get model defaults."""
         has_value, provider_value = self._get_provider_value("model_defaults")
         if has_value and isinstance(provider_value, dict):
-            return provider_value
+            return cast(dict[str, ModelDefaults], provider_value)
         local_defaults = self._local_state.get("model_defaults", {})
-        return local_defaults if isinstance(local_defaults, dict) else {}
+        return cast(dict[str, ModelDefaults], local_defaults if isinstance(local_defaults, dict) else {})
 
-    def set_model_defaults(self, defaults: dict[str, Any]) -> None:
+    def set_model_defaults(self, defaults: dict[str, ModelDefaults]) -> None:
         """Set model defaults."""
         if self._state_provider:
             self._state_provider.model_defaults = defaults

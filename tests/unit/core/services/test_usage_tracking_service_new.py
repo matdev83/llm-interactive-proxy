@@ -2,7 +2,11 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+from src.core.database.repositories.usage_repository_types import (
+    RepositoryAggregatedStats,
+)
 from src.core.domain.statistics_filter import StatisticsFilter
+
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.services.usage_tracking_service import UsageTrackingService
@@ -14,10 +18,13 @@ def mock_usage_repo():
     repo.batch_insert = AsyncMock()
     repo.batch_update = AsyncMock()
     repo.get_by_id_domain = AsyncMock()
-    repo.get_aggregated_stats = AsyncMock(return_value={})
+    repo.get_aggregated_stats = AsyncMock(
+        return_value=RepositoryAggregatedStats()
+    )
     repo.get_status_code_breakdown = AsyncMock(return_value={})
     repo.query_with_filter = AsyncMock(return_value=[])
     return repo
+
 
 
 @pytest.fixture
@@ -102,10 +109,10 @@ async def test_record_response(service, mock_usage_repo):
 
 @pytest.mark.asyncio
 async def test_get_usage_stats(service, mock_usage_repo):
-    mock_usage_repo.get_aggregated_stats.return_value = {
-        "request_count": 10,
-        "total_tokens": 1000,
-    }
+    mock_usage_repo.get_aggregated_stats.return_value = RepositoryAggregatedStats(
+        request_count=10,
+        total_tokens=1000,
+    )
 
     filters = StatisticsFilter()
     stats = await service.get_usage_stats(filters)
@@ -113,3 +120,4 @@ async def test_get_usage_stats(service, mock_usage_repo):
     assert stats.request_count == 10
     assert stats.total_tokens == 1000
     mock_usage_repo.get_aggregated_stats.assert_called_once_with(filters)
+

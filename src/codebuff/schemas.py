@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
+from src.core.domain.chat import ChatMessage, ToolCall
 from src.core.interfaces.model_bases import DomainModel
 
 # ============================================================================
@@ -78,7 +79,7 @@ class PromptAction(DomainModel):
     type: Literal["prompt"]
     promptId: str = Field(..., alias="promptId")
     prompt: str | None = None
-    content: list[dict[str, Any]] | None = None
+    content: list[ChatMessage] | None = None
     promptParams: dict[str, Any] | None = Field(None, alias="promptParams")
     fingerprintId: str = Field(..., alias="fingerprintId")
     authToken: str | None = Field(None, alias="authToken")
@@ -88,6 +89,7 @@ class PromptAction(DomainModel):
     model: str | None = None
     repoUrl: str | None = Field(None, alias="repoUrl")
     agentId: str | None = Field(None, alias="agentId")
+
 
 
 class InitAction(DomainModel):
@@ -166,9 +168,10 @@ class PromptResponseAction(DomainModel):
     type: Literal["prompt-response"]
     promptId: str = Field(..., alias="promptId")
     sessionState: dict[str, Any] = Field(..., alias="sessionState")
-    toolCalls: list[dict[str, Any]] | None = Field(None, alias="toolCalls")
+    toolCalls: list[ToolCall] | None = Field(None, alias="toolCalls")
     toolResults: list[dict[str, Any]] | None = Field(None, alias="toolResults")
     output: dict[str, Any] | None = None
+
 
 
 class PromptErrorAction(DomainModel):

@@ -91,7 +91,8 @@ class DangerousCommandHandler(IToolCallHandler):
             # Not dangerous after all; do not swallow
             return ToolCallReactionResult(should_swallow=False)
 
-        rule, command = scan_result
+        rule = scan_result.rule
+        command = scan_result.command
         command_preview = command
         if isinstance(command_preview, str) and len(command_preview) > 256:
             command_preview = f"{command_preview[:256]}…"

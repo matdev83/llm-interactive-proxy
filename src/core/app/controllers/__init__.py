@@ -45,7 +45,15 @@ from src.core.constants import (
 from src.core.domain.chat import ChatRequest as DomainChatRequest
 
 # Using SOLID architecture directly with DI-managed services
+from src.core.domain.health.models import (
+    EndpointBackendInfo,
+    EndpointHealthStateInfo,
+    EndpointHealthSummary,
+    HealthInfo,
+    SystemHealthInfo,
+)
 from src.core.interfaces.di_interface import IServiceProvider
+
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.request_adapters import (
@@ -309,25 +317,27 @@ def register_routes(app: FastAPI) -> None:
 
     # Internal health endpoint to report DI/controller resolution status
     @app.get("/internal/health")
-    async def internal_health(request: Request) -> dict[str, Any]:
-        result: dict[str, Any] = {}
+    async def internal_health(request: Request) -> SystemHealthInfo:
+        result = SystemHealthInfo(
+            service_provider_present=False, registered_descriptors=[]
+        )
         try:
             sp = getattr(request.app.state, "service_provider", None)
-            result["service_provider_present"] = sp is not None
+            result.service_provider_present = sp is not None
             if sp is not None:
                 try:
                     rp = sp.get_service(IRequestProcessor)
-                    result["IRequestProcessor_resolvable"] = rp is not None
+                    result.IRequestProcessor_resolvable = rp is not None
                 except Exception as e:
-                    result["IRequestProcessor_error"] = str(e)
+                    result.IRequestProcessor_error = str(e)
                 try:
                     cc = sp.get_service(ChatController)
-                    result["ChatController_resolvable"] = cc is not None
+                    result.ChatController_resolvable = cc is not None
                 except Exception as e:
-                    result["ChatController_error"] = str(e)
+                    result.ChatController_error = str(e)
 
                 # Include endpoint health states
-                result["endpoint_health"] = _get_endpoint_health_info(sp)
+                result.endpoint_health = _get_endpoint_health_info(sp)
 
             # Also include registered descriptor names from global service collection
             try:
@@ -338,9 +348,9 @@ def register_routes(app: FastAPI) -> None:
                     getattr(k, "__name__", str(k))
                     for k in getattr(col, "_descriptors", {})
                 ]
-                result["registered_descriptors"] = names
+                result.registered_descriptors = names
             except Exception as e:
-                result["descriptor_error"] = str(e)
+                result.descriptor_error = str(e)
             # Debug-only: log resolvability against global provider for easier diagnosis
             try:
                 import logging
@@ -368,20 +378,20 @@ def register_routes(app: FastAPI) -> None:
             except Exception:
                 pass
         except Exception as e:
-            result["error"] = str(e)
+            result.error = str(e)
         return result
 
 
-def _get_endpoint_health_info(sp: IServiceProvider) -> dict[str, Any]:
+def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
     """Get endpoint health information from the health check system.
 
     Args:
         sp: Service provider to resolve health services.
 
     Returns:
-        Dictionary containing endpoint health states and backend info.
+        HealthInfo model containing endpoint health states and backend info.
     """
-    health_info: dict[str, Any] = {"enabled": False, "endpoints": [], "backends": []}
+    health_info = HealthInfo(enabled=False)
 
     try:
         from src.core.services.health.backend_notifier import BackendHealthNotifier
@@ -395,25 +405,52 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> dict[str, Any]:
 
         if endpoint_registry is None:
             # Health check stage may not have run yet
-            health_info["note"] = (
+            health_info.note = (
                 "Health check system not initialized (no backends registered yet)"
             )
             return health_info
 
-        health_info["enabled"] = True
+        health_info.enabled = True
 
         # Get all endpoint health states
         health_states = endpoint_registry.get_all_health_states()
         endpoints_list = []
         for url, state in health_states.items():
             backends_using_url = list(endpoint_registry.get_backends_for_url(url))
+            state_dict = state.to_dict()
             endpoints_list.append(
-                {
-                    **state.to_dict(),
-                    "backends_using_url": backends_using_url,
-                }
+                EndpointHealthStateInfo(
+                    api_url=str(state_dict.get("api_url", "")),
+                    is_healthy=bool(state_dict.get("is_healthy", False)),
+                    ping_check_success=bool(state_dict.get("ping_check_success", False)),
+                    http_check_success=bool(state_dict.get("http_check_success", False)),
+                    last_ping_check_timestamp=state_dict.get(
+                        "last_ping_check_timestamp"
+                    ),
+                    last_http_check_timestamp=state_dict.get(
+                        "last_http_check_timestamp"
+                    ),
+                    last_successful_ping_timestamp=state_dict.get(
+                        "last_successful_ping_timestamp"
+                    ),
+                    last_successful_http_timestamp=state_dict.get(
+                        "last_successful_http_timestamp"
+                    ),
+                    consecutive_ping_failures=int(
+                        state_dict.get("consecutive_ping_failures", 0)
+                    ),
+                    consecutive_http_failures=int(
+                        state_dict.get("consecutive_http_failures", 0)
+                    ),
+                    last_ping_latency_ms=state_dict.get("last_ping_latency_ms"),
+                    last_http_latency_ms=state_dict.get("last_http_latency_ms"),
+                    last_http_status_code=state_dict.get("last_http_status_code"),
+                    last_ping_error=state_dict.get("last_ping_error"),
+                    last_http_error=state_dict.get("last_http_error"),
+                    backends_using_url=backends_using_url,
+                )
             )
-        health_info["endpoints"] = endpoints_list
+        health_info.endpoints = endpoints_list
 
         # Get backend instance health info from notifier
         try:
@@ -427,29 +464,30 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> dict[str, Any]:
                 for backend in backends:
                     backend_type = getattr(backend, "backend_type", "unknown")
                     backends_list.append(
-                        {
-                            "api_url": url,
-                            "backend_type": backend_type,
-                            "is_endpoint_healthy": backend.is_endpoint_healthy,
-                        }
+                        EndpointBackendInfo(
+                            api_url=url,
+                            backend_type=backend_type,
+                            is_endpoint_healthy=backend.is_endpoint_healthy,
+                        )
                     )
-            health_info["backends"] = backends_list
+            health_info.backends = backends_list
 
         # Summary stats
         total_endpoints = len(health_states)
         healthy_endpoints = sum(1 for s in health_states.values() if s.is_healthy)
-        health_info["summary"] = {
-            "total_endpoints": total_endpoints,
-            "healthy_endpoints": healthy_endpoints,
-            "unhealthy_endpoints": total_endpoints - healthy_endpoints,
-        }
+        health_info.summary = EndpointHealthSummary(
+            total_endpoints=total_endpoints,
+            healthy_endpoints=healthy_endpoints,
+            unhealthy_endpoints=total_endpoints - healthy_endpoints,
+        )
 
     except ImportError as e:
-        health_info["error"] = f"Health check module not available: {e}"
+        health_info.error = f"Health check module not available: {e}"
     except Exception as e:
-        health_info["error"] = f"Error getting health info: {e}"
+        health_info.error = f"Error getting health info: {e}"
 
     return health_info
+
 
 
 def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901

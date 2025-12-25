@@ -85,9 +85,10 @@ class BackendPreparer(IBackendPreparer):
         # Enforce per-model context window limits (front-end enforcement)
         if backend_request is not None and self._app_state is not None:
             try:
-                model_defaults_map: dict[str, Any] = (
+                model_defaults_map: dict[str, ModelDefaults] = (
                     self._app_state.get_model_defaults() or {}
                 )
+
                 # Resolve backend and model name
                 backend_type: str | None = None
                 try:

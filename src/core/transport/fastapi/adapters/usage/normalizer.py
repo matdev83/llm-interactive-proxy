@@ -30,11 +30,11 @@ class UsageNormalizer:
         """
         self._usage_service = usage_service
 
-    def normalize(self, usage: dict[str, Any] | None) -> dict[str, int]:
+    def normalize(self, usage: dict[str, Any] | OpenRouterUsage | None) -> dict[str, int]:
         """Normalize usage to standard format.
 
         Args:
-            usage: Usage dictionary or None
+            usage: Usage dictionary, OpenRouterUsage instance, or None
 
         Returns:
             Normalized usage with standard fields as integers
@@ -46,8 +46,15 @@ class UsageNormalizer:
                 "total_tokens": 0,
             }
 
+        from src.core.domain.openrouter_usage import OpenRouterUsage
+
+        # Handle OpenRouterUsage objects
+        if isinstance(usage, OpenRouterUsage):
+            return self._ensure_total_valid(usage.to_openrouter_dict())
+
         # Handle UsageSummary objects
         from src.core.domain.usage_summary import UsageSummary
+
 
         if isinstance(usage, UsageSummary):
             usage = usage.to_legacy_dict()

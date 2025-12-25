@@ -1,4 +1,5 @@
 import re
+from src.core.domain.chat import ToolCall
 
 # Public helpers re-exported for external tests
 __all__ = [
@@ -90,17 +91,17 @@ def format_command_response_for_agent(
     return joined_content
 
 
-def convert_cline_marker_to_openai_tool_call(content: str) -> dict:
+def convert_cline_marker_to_openai_tool_call(content: str) -> ToolCall:
     """
     Convert Cline marker to OpenAI tool call format.
     Frontend-specific implementation for OpenAI API.
 
-    Returns dict for backward compatibility. Internal model is ToolCall.
+    Internal model is ToolCall.
     """
     import json
     import secrets
 
-    from src.core.domain.chat import FunctionCall, ToolCall
+    from src.core.domain.chat import FunctionCall
 
     # Extract content from marker
     if content.startswith("__CLINE_TOOL_CALL_MARKER__") and content.endswith(
@@ -121,7 +122,7 @@ def convert_cline_marker_to_openai_tool_call(content: str) -> dict:
         ),
     )
 
-    return tool_call.model_dump(mode="python")
+    return tool_call
 
 
 def convert_cline_marker_to_anthropic_tool_use(content: str) -> str:
@@ -184,15 +185,15 @@ def convert_cline_marker_to_gemini_function_call(content: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def create_openai_attempt_completion_tool_call(content_lines: list[str]) -> dict:
-    """Return a fully-formed OpenAI tool-call dict for *attempt_completion*.
+def create_openai_attempt_completion_tool_call(content_lines: list[str]) -> ToolCall:
+    """Return a fully-formed OpenAI tool-call for *attempt_completion*.
 
     The integration tests expect a helper that takes a list of **content**
     strings (typically split lines from a command response) and converts them
     into the exact structure produced by
     `convert_cline_marker_to_openai_tool_call`.
 
-    Returns dict for backward compatibility. Internal model is ToolCall.
+    Internal model is ToolCall.
 
     Parameters
     ----------

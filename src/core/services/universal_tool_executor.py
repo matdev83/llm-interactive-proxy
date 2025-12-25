@@ -13,6 +13,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from src.core.domain.tool_results import UniversalToolResult
 from src.core.services.universal_mcp_client import UniversalMCPClient
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ class UniversalToolExecutor:
 
     async def execute_tool(
         self, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute any tool dynamically without hardcoding assumptions.
 
         This method handles tools in the following priority order:
@@ -93,38 +94,62 @@ class UniversalToolExecutor:
             arguments: Tool arguments
 
         Returns:
-            Dictionary containing the tool execution result
+            UniversalToolResult containing the tool execution result
         """
         try:
             # 1. Check for custom registered handlers first
             if tool_name in self._custom_tool_handlers:
                 handler = self._custom_tool_handlers[tool_name]
-                return await handler(arguments)
+                result = await handler(arguments)
+                if isinstance(result, UniversalToolResult):
+                    return result
+                return self._format_result_from_dict(tool_name, result)
 
             # 2. Check if it's an MCP tool from connected servers
             if self.mcp_client.is_mcp_tool(tool_name):
-                return await self.mcp_client.execute_tool(tool_name, arguments)
+                result = await self.mcp_client.execute_tool(tool_name, arguments)
+                return self._format_result_from_dict(tool_name, result)
 
             # 3. Handle generic MCP tool execution pattern
             if tool_name == "use_mcp_tool":
-                return await self._execute_generic_mcp_tool(arguments)
+                result = await self._execute_generic_mcp_tool(arguments)
+                if isinstance(result, UniversalToolResult):
+                    return result
+                return self._format_result_from_dict(tool_name, result)
 
             # 4. Unknown tool - return error
             available_tools = self.get_available_tools()
-            return {
-                "output": f"Unknown tool: {tool_name}. Available tools: {available_tools}",
-                "exit_code": 1,
-                "error": f"Tool '{tool_name}' is not available",
-            }
+            return self._format_result(
+                output=f"Unknown tool: {tool_name}. Available tools: {available_tools}",
+                exit_code=1,
+                error=f"Tool '{tool_name}' is not available",
+                tool_name=tool_name,
+            )
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-            return {
-                "output": f"Error executing {tool_name}: {e!s}",
-                "exit_code": 1,
-                "error": str(e),
-            }
+            return self._format_result(
+                output=f"Error executing {tool_name}: {e!s}",
+                exit_code=1,
+                error=str(e),
+                tool_name=tool_name,
+            )
+
+    def _format_result_from_dict(
+        self, tool_name: str, result: dict[str, Any]
+    ) -> UniversalToolResult:
+        """Convert a dictionary result to a UniversalToolResult."""
+        output = result.pop("output", "")
+        exit_code = result.pop("exit_code", 0)
+        error = result.pop("error", None)
+        return self._format_result(
+            output=output,
+            exit_code=exit_code,
+            tool_name=tool_name,
+            error=error,
+            **result,
+        )
 
     def register_tool_handler(
         self,
@@ -228,7 +253,7 @@ class UniversalToolExecutor:
 
     async def _execute_generic_mcp_tool(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute a generic MCP tool via the use_mcp_tool pattern.
 
         This handles the KiloCode pattern: <use_mcp_tool tool_name="..." ...>
@@ -357,7 +382,7 @@ class UniversalToolExecutor:
 
         return translated
 
-    async def _execute_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_read_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute read_file tool with error handling for invalid paths."""
         # Support both 'file_path' and 'path' parameter names
         file_path = arguments.get("file_path") or arguments.get("path")
@@ -454,7 +479,7 @@ class UniversalToolExecutor:
                 tool_name="read_file",
             )
 
-    async def _execute_list_dir(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_list_dir(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute list_dir tool with recursive traversal support."""
         # Support both 'dir_path' and 'path' parameter names
         dir_path = arguments.get("dir_path") or arguments.get("path", ".")
@@ -548,7 +573,7 @@ class UniversalToolExecutor:
                 tool_name="list_dir",
             )
 
-    async def _execute_grep_files(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_grep_files(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute grep_files tool with include/exclude glob pattern support."""
         pattern = arguments.get("pattern")
         if not pattern:
@@ -696,7 +721,7 @@ class UniversalToolExecutor:
 
     async def _execute_completion_marker(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute completion_marker tool."""
         result = arguments.get("result", "Task completed")
 
@@ -709,7 +734,7 @@ class UniversalToolExecutor:
 
     async def _execute_followup_marker(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute followup_marker tool."""
         question = arguments.get("question", "Do you have any questions?")
 
@@ -720,7 +745,7 @@ class UniversalToolExecutor:
             "marker_type": "followup",
         }
 
-    async def _execute_shell(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_shell(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute shell command with output capture and exit code handling.
 
         Args:
@@ -856,7 +881,7 @@ class UniversalToolExecutor:
 
     def _format_result(
         self, output: str, exit_code: int, tool_name: str, **kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Format tool execution result in KiloCode's expected format.
 
         Args:
@@ -866,23 +891,19 @@ class UniversalToolExecutor:
             **kwargs: Additional metadata to include in result
 
         Returns:
-            Dictionary containing formatted result
+            UniversalToolResult containing formatted result
         """
-        result: dict[str, Any] = {
-            "output": output,
-            "exit_code": exit_code,
-        }
-
-        # Add additional metadata
-        result.update(kwargs)
-
         # Apply KiloCode formatting if enabled
         if self.result_format == "kilo_standard":
             # Format output with [tool_name] Result: prefix
-            formatted_output = f"[{tool_name}] Result:\n{output}"
-            result["output"] = formatted_output
+            output = f"[{tool_name}] Result:\n{output}"
 
-        return result
+        return UniversalToolResult(
+            output=output,
+            exit_code=exit_code,
+            error=kwargs.pop("error", None),
+            metadata=kwargs,
+        )
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Get OpenAI-compatible schemas for all available tools.
@@ -902,7 +923,7 @@ class UniversalToolExecutor:
 
     async def _execute_search_and_replace(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute search_and_replace tool to replace text in a file.
 
         Args:
@@ -1017,7 +1038,7 @@ class UniversalToolExecutor:
                 tool_name="search_and_replace",
             )
 
-    async def _execute_write_to_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_write_to_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute write_to_file tool to write content to a file.
 
         Args:
@@ -1089,7 +1110,7 @@ class UniversalToolExecutor:
 
     async def _execute_insert_content(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute insert_content tool to insert content at a position in a file.
 
         Args:
@@ -1196,7 +1217,7 @@ class UniversalToolExecutor:
                 tool_name="insert_content",
             )
 
-    async def _execute_edit_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_edit_file(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute edit_file tool to edit a file.
 
         This is a generic editing tool that can perform various operations.
@@ -1279,7 +1300,7 @@ class UniversalToolExecutor:
 
     async def _execute_access_mcp_resource(
         self, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> UniversalToolResult:
         """Execute access_mcp_resource to read an MCP resource.
 
         Args:

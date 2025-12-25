@@ -154,27 +154,27 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
                     )
                 continue
 
-            should_block, reason, repeat_count = tracker.track_tool_call(
+            tracking_result = tracker.track_tool_call(
                 tool_name, arguments
             )
 
-            if should_block:
+            if tracking_result.should_block:
                 logger.warning(
                     "Tool call loop detected in session %s: tool=%s, repeats=%s/%s, "
                     "window=%ss, mode=%s",
                     resolved_session_id,
                     tool_name,
-                    repeat_count,
+                    tracking_result.repeat_count,
                     tracker.config.max_repeats,
                     tracker.config.ttl_seconds,
                     tracker.config.mode.value,
                 )
 
                 raise ToolCallLoopError(
-                    message=f"Tool call loop detected: {reason}",
+                    message=f"Tool call loop detected: {tracking_result.reason}",
                     details={
                         "tool_name": tool_name,
-                        "repetitions": repeat_count,
+                        "repetitions": tracking_result.repeat_count,
                         "mode": tracker.config.mode.value,
                     },
                 )
@@ -525,24 +525,24 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 continue
 
             # Track the tool call
-            should_block, reason, repeat_count = tracker.track_tool_call(
+            tracking_result = tracker.track_tool_call(
                 tool_name, arguments
             )
 
-            if should_block:
+            if tracking_result.should_block:
                 logger.warning(
                     f"Tool call loop detected in session {resolved_session_id}: "
-                    f"tool={tool_name}, repeats={repeat_count}/{tracker.config.max_repeats}, "
+                    f"tool={tool_name}, repeats={tracking_result.repeat_count}/{tracker.config.max_repeats}, "
                     f"window={tracker.config.ttl_seconds}s, "
                     f"mode={tracker.config.mode.value}"
                 )
 
                 # Raise an error to stop the response
                 raise ToolCallLoopError(
-                    message=f"Tool call loop detected: {reason}",
+                    message=f"Tool call loop detected: {tracking_result.reason}",
                     details={
                         "tool_name": tool_name,
-                        "repetitions": repeat_count,
+                        "repetitions": tracking_result.repeat_count,
                         "mode": tracker.config.mode.value,
                     },
                 )

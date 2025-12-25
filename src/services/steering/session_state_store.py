@@ -40,7 +40,7 @@ class SessionStateStore:
         max_sessions: int = 1024,
         monotonic: Callable[[], float] | None = None,
     ) -> None:
-        """Initialize the session state store.
+        """Initialize session state store.
 
         Args:
             ttl_seconds: TTL for session entries (minimum 1 second)
@@ -58,20 +58,18 @@ class SessionStateStore:
 
         Args:
             session_id: Session identifier
-            key: State key within the session bucket
+            key: State key within session bucket
             default: Default value if key not found
 
         Returns:
             The stored value or default if not found/expired
         """
         async with self._lock:
-            now = self._monotonic()
-            self._prune_expired(now)
-
             entry = self._sessions.get(session_id)
             if not entry:
                 return default
 
+            now = self._monotonic()
             entry.last_seen = now
             return entry.payload.get(key, default)
 
@@ -80,13 +78,11 @@ class SessionStateStore:
 
         Args:
             session_id: Session identifier
-            key: State key within the session bucket
+            key: State key within session bucket
             value: Value to store
         """
         async with self._lock:
             now = self._monotonic()
-            self._prune_expired(now)
-
             entry = self._sessions.get(session_id)
             if not entry:
                 entry = _SessionEntry(last_seen=now, payload={})
@@ -95,7 +91,6 @@ class SessionStateStore:
             entry.last_seen = now
             entry.payload[key] = value
 
-            # Enforce max sessions limit
             self._enforce_max_sessions()
 
     async def delete(self, session_id: str, key: str | None = None) -> None:
@@ -135,8 +130,6 @@ class SessionStateStore:
         """
         async with self._lock:
             now = self._monotonic()
-            self._prune_expired(now)
-
             entry = self._sessions.get(session_id)
             if not entry:
                 entry = _SessionEntry(last_seen=now, payload={})
@@ -185,7 +178,6 @@ class SessionStateStore:
         if len(self._sessions) <= self._max_sessions:
             return
 
-        # Sort by last_seen (oldest first) and remove excess
         sorted_sessions = sorted(
             self._sessions.items(), key=lambda item: item[1].last_seen
         )

@@ -12,6 +12,8 @@ from collections.abc import Callable
 from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary
 
+from src.core.di.models import DIContainerHealth, DIContainerStats
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -199,20 +201,20 @@ class WeakDIContainer:
 
             return removed
 
-    async def get_stats(self) -> dict[str, Any]:
+    async def get_stats(self) -> DIContainerStats:
         """Get container statistics."""
         async with self._lock:
-            return {
-                "instances": len(self._instances),
-                "factories": len(self._factories),
-                "singletons": sum(
+            return DIContainerStats(
+                instances=len(self._instances),
+                factories=len(self._factories),
+                singletons=sum(
                     1 for is_singleton in self._singletons.values() if is_singleton
                 ),
-                "cleanup_callbacks": len(self._cleanup_callbacks),
-                "creation_stack_depth": len(self._creation_stack),
-            }
+                cleanup_callbacks=len(self._cleanup_callbacks),
+                creation_stack_depth=len(self._creation_stack),
+            )
 
-    async def health_check(self) -> dict[str, Any]:
+    async def health_check(self) -> DIContainerHealth:
         """Perform health check on the container."""
         async with self._lock:
             stats = await self.get_stats()
@@ -228,7 +230,7 @@ class WeakDIContainer:
             if len(self._instances) > 100:
                 issues.append(f"Large number of instances: {len(self._instances)}")
 
-            return {"stats": stats, "issues": issues, "healthy": len(issues) == 0}
+            return DIContainerHealth(stats=stats, issues=issues, healthy=len(issues) == 0)
 
 
 class ServiceLifecycleManager:

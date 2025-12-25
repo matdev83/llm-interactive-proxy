@@ -196,10 +196,12 @@ class ResponseExecutor(IResponseExecutor):
         # Extract response headers
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            logger.debug("Failed to extract response.headers, using fallback: %s", e)
             try:
                 response_headers = dict(getattr(response, "headers", {}) or {})
-            except Exception:
+            except (TypeError, AttributeError) as fallback_err:
+                logger.debug("Failed to extract fallback headers: %s", fallback_err)
                 response_headers = {}
 
         # Build response envelope with usage metadata

@@ -37,6 +37,24 @@ class TranslationResult:
     is_proxy_side: bool = False
     original_tool_name: str = ""
 
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.codex_tool_name
+        yield self.codex_arguments
+
+
+@dataclass
+class ReverseTranslationResult:
+    """Result of a Codex tool call translation back to Droid format."""
+
+    droid_tool_name: str
+    droid_arguments: dict[str, Any]
+
+    def __iter__(self):
+        """Allow unpacking for backward compatibility."""
+        yield self.droid_tool_name
+        yield self.droid_arguments
+
 
 class DroidToolTranslator:
     """Translates Factory Droid tool calls to Codex format.
@@ -81,7 +99,7 @@ class DroidToolTranslator:
 
     def translate_tool_call(
         self, tool_name: str, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> TranslationResult:
         """Translate a Droid tool call to Codex format.
 
         Args:
@@ -89,7 +107,7 @@ class DroidToolTranslator:
             arguments: The tool arguments from Droid
 
         Returns:
-            Tuple of (codex_tool_name, codex_arguments)
+            TranslationResult object
 
         Raises:
             ValueError: If the tool is not recognized
@@ -98,14 +116,30 @@ class DroidToolTranslator:
         if tool_name in self.CODEX_NATIVE_TOOLS:
             translator_method = getattr(self, f"_translate_{tool_name.lower()}", None)
             if translator_method:
-                return cast(tuple[str, dict[str, Any]], translator_method(arguments))
+                res_name, res_args = cast(
+                    tuple[str, dict[str, Any]], translator_method(arguments)
+                )
+                return TranslationResult(
+                    codex_tool_name=res_name,
+                    codex_arguments=res_args,
+                    original_tool_name=tool_name,
+                )
             # Fallback for tools without specific translators
             codex_name = self.CODEX_NATIVE_TOOLS[tool_name]
-            return codex_name, arguments
+            return TranslationResult(
+                codex_tool_name=codex_name,
+                codex_arguments=arguments,
+                original_tool_name=tool_name,
+            )
 
         # Check if it's a proxy-side tool
         if tool_name in self.PROXY_SIDE_TOOLS:
-            return self.PROXY_SIDE_TOOLS[tool_name], arguments
+            return TranslationResult(
+                codex_tool_name=self.PROXY_SIDE_TOOLS[tool_name],
+                codex_arguments=arguments,
+                is_proxy_side=True,
+                original_tool_name=tool_name,
+            )
 
         # Unknown tool
         logger.warning(f"Unknown Droid tool: {tool_name}")
@@ -113,7 +147,7 @@ class DroidToolTranslator:
 
     def translate_codex_to_droid(
         self, codex_tool_name: str, codex_arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate a Codex tool call back to Droid format.
 
         Used when processing backend responses to translate tool calls
@@ -124,7 +158,7 @@ class DroidToolTranslator:
             codex_arguments: The tool arguments from Codex
 
         Returns:
-            Tuple of (droid_tool_name, droid_arguments)
+            ReverseTranslationResult object
         """
         droid_tool_name = self.CODEX_TO_DROID_TOOLS.get(codex_tool_name)
         if not droid_tool_name:
@@ -133,15 +167,24 @@ class DroidToolTranslator:
                 "Unknown Codex tool '%s', passing through without translation",
                 codex_tool_name,
             )
-            return codex_tool_name, codex_arguments
+            return ReverseTranslationResult(
+                droid_tool_name=codex_tool_name, droid_arguments=codex_arguments
+            )
 
         # Get reverse translator if exists
         translator_method = getattr(self, f"_reverse_translate_{codex_tool_name}", None)
         if translator_method:
-            return cast(tuple[str, dict[str, Any]], translator_method(codex_arguments))
+            res_name, res_args = cast(
+                tuple[str, dict[str, Any]], translator_method(codex_arguments)
+            )
+            return ReverseTranslationResult(
+                droid_tool_name=res_name, droid_arguments=res_args
+            )
 
         # Default: just map the name, keep arguments as-is
-        return droid_tool_name, codex_arguments
+        return ReverseTranslationResult(
+            droid_tool_name=droid_tool_name, droid_arguments=codex_arguments
+        )
 
     def _reverse_translate_read_file(
         self, codex_args: dict[str, Any]

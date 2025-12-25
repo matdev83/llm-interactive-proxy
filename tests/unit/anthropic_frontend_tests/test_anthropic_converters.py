@@ -285,7 +285,9 @@ class TestAnthropicConverters:
             "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
         }
 
-        anthropic_response = openai_to_anthropic_response(openai_response)
+        anthropic_response_model = openai_to_anthropic_response(openai_response)
+        anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
+
 
         assert anthropic_response["id"] == "chatcmpl-123"
         assert anthropic_response["type"] == "message"
@@ -320,7 +322,9 @@ class TestAnthropicConverters:
             "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
         }
 
-        anthropic_response = openai_to_anthropic_response(openai_response)
+        anthropic_response_model = openai_to_anthropic_response(openai_response)
+        anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
+
 
         assert anthropic_response["content"][0]["text"] == "Hello world"
 
@@ -365,7 +369,9 @@ class TestAnthropicConverters:
             },
         }
 
-        anthropic_response = openai_to_anthropic_response(openai_response)
+        anthropic_response_model = openai_to_anthropic_response(openai_response)
+        anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
+
 
         content_blocks = anthropic_response["content"]
         assert len(content_blocks) == 3
@@ -400,7 +406,9 @@ class TestAnthropicConverters:
                 self.choices: list[SimpleNamespace] = []
                 self.usage = SimpleNamespace(prompt_tokens=2, completion_tokens=3)
 
-        anthropic_response = openai_to_anthropic_response(DummyResponse())
+        anthropic_response_model = openai_to_anthropic_response(DummyResponse())
+        anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
+
 
         assert anthropic_response["id"] == "chatcmpl-empty"
         # Empty choices now return a clear message instead of empty string
@@ -586,7 +594,9 @@ class TestAnthropicConverters:
         }
 
         # Should not raise AttributeError: 'NoneType' object has no attribute 'get'
-        result = openai_to_anthropic_response(openai_response)
+        result_model = openai_to_anthropic_response(openai_response)
+        result = result_model.model_dump(exclude_none=True)
+
 
         assert result["type"] == "message"
         assert result["content"][0]["text"] == "Hello!"
@@ -604,7 +614,9 @@ class TestAnthropicConverters:
         }
 
         # Should not raise AttributeError
-        result = openai_to_anthropic_response(openai_response)
+        result_model = openai_to_anthropic_response(openai_response)
+        result = result_model.model_dump(exclude_none=True)
+
 
         # Should return empty response message format
         assert result["type"] == "message"

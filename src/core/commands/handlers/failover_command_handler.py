@@ -19,7 +19,9 @@ from src.core.domain.commands.failover_commands import (
     RoutePrependCommand,
 )
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.model_utils import ModelDefaults
 from src.core.domain.session import Session
+
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.state_provider_interface import (
     ISecureStateAccess,
@@ -155,14 +157,15 @@ class SessionStateApplicationStateAdapter(
     def set_backend(self, backend: Any) -> None:
         self._local_state["backend"] = backend
 
-    def get_model_defaults(self) -> dict[str, Any]:
+    def get_model_defaults(self) -> dict[str, ModelDefaults]:
         md = self._local_state.get("model_defaults", {})
-        return md if isinstance(md, dict) else {}
+        return cast(dict[str, ModelDefaults], md if isinstance(md, dict) else {})
 
-    def set_model_defaults(self, defaults: dict[str, Any]) -> None:
+    def set_model_defaults(self, defaults: dict[str, ModelDefaults]) -> None:
         self._local_state["model_defaults"] = defaults
 
     def get_service(self, service_type: type[_T_co]) -> _T_co | None:
+
         provider = self._local_state.get("service_provider")
         getter = getattr(provider, "get_service", None) if provider else None
         if getter is None or not callable(getter):

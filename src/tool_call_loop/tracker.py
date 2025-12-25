@@ -17,8 +17,11 @@ from typing import Any
 
 from json_repair import repair_json
 
-from src.core.interfaces.model_bases import InternalDTO
-from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
+from src.tool_call_loop.config import (
+    ToolCallLoopConfig,
+    ToolCallTrackingResult,
+    ToolLoopMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ MAX_JSON_REPAIR_INPUT_SIZE = 1 * 1024 * 1024  # 1MB in bytes
 
 
 @dataclass
-class ToolCallSignature(InternalDTO):
+class ToolCallSignature:
     """Represents a tracked tool call with timestamp and signature."""
 
     timestamp: datetime.datetime
@@ -237,7 +240,7 @@ class ToolCallTracker:
 
     def track_tool_call(
         self, tool_name: str, arguments: str, force_block: bool = False
-    ) -> tuple[bool, str | None, int | None]:
+    ) -> ToolCallTrackingResult:
         """Track a tool call and check if it exceeds the repetition threshold.
 
         Args:
@@ -245,21 +248,20 @@ class ToolCallTracker:
             arguments: JSON string of the tool arguments
 
         Returns:
-            Tuple of (should_block, reason, repeat_count):
-            - should_block: True if the call should be blocked
-            - reason: Reason message if blocked, None otherwise
-            - repeat_count: Number of consecutive repeats if blocked, None otherwise
+            ToolCallTrackingResult with block status and details.
         """
         # Skip tracking if disabled (unless forced)
         if not self.config.enabled and not force_block:
-            return False, None, None
+            return ToolCallTrackingResult(should_block=False)
 
         # Handle forced block (for transparent retry when same tool call is repeated)
         if force_block:
             reason = self._format_block_reason(
                 tool_name, self.config.max_repeats, second_chance=True
             )
-            return True, reason, self.config.max_repeats
+            return ToolCallTrackingResult(
+                should_block=True, reason=reason, repeat_count=self.config.max_repeats
+            )
 
         # Prune expired signatures first
         self.prune_expired()
@@ -288,19 +290,25 @@ class ToolCallTracker:
                 # Handle based on mode
                 if self.config.mode == ToolLoopMode.BREAK:
                     reason = self._format_block_reason(tool_name, repeat_count)
-                    return True, reason, repeat_count
+                    return ToolCallTrackingResult(
+                        should_block=True, reason=reason, repeat_count=repeat_count
+                    )
                 elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
                     # If we've already given a chance for this signature
                     if self.chance_given.get(full_sig, False):
                         reason = self._format_block_reason(
                             tool_name, repeat_count, second_chance=True
                         )
-                        return True, reason, repeat_count
+                        return ToolCallTrackingResult(
+                            should_block=True, reason=reason, repeat_count=repeat_count
+                        )
                     else:
                         # Give one chance
                         self.chance_given[full_sig] = True
                         reason = self._format_chance_reason(tool_name, repeat_count)
-                        return True, reason, repeat_count
+                        return ToolCallTrackingResult(
+                            should_block=True, reason=reason, repeat_count=repeat_count
+                        )
         else:
             # Not a repeat of the most recent call, reset counter for this signature
             self.consecutive_repeats[full_sig] = 1
@@ -311,16 +319,22 @@ class ToolCallTracker:
         if total_count >= self.config.max_repeats:
             if self.config.mode == ToolLoopMode.BREAK:
                 reason = self._format_block_reason(tool_name, total_count)
-                return True, reason, total_count
+                return ToolCallTrackingResult(
+                    should_block=True, reason=reason, repeat_count=total_count
+                )
             elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
                 if self.chance_given.get(full_sig, False):
                     reason = self._format_block_reason(
                         tool_name, total_count, second_chance=True
                     )
-                    return True, reason, total_count
+                    return ToolCallTrackingResult(
+                        should_block=True, reason=reason, repeat_count=total_count
+                    )
                 self.chance_given[full_sig] = True
                 reason = self._format_chance_reason(tool_name, total_count)
-                return True, reason, total_count
+                return ToolCallTrackingResult(
+                    should_block=True, reason=reason, repeat_count=total_count
+                )
 
         # Add to history (with size limit to prevent unbounded growth)
         self.signatures.append(signature)
@@ -347,7 +361,7 @@ class ToolCallTracker:
                         self.chance_given.pop(sig, None)
 
         # Not blocked
-        return False, None, None
+        return ToolCallTrackingResult(should_block=False)
 
     def _count_recent(self, full_signature: str) -> int:
         """Count occurrences of a signature within the current (pruned) TTL window."""

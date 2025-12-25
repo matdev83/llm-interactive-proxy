@@ -8,7 +8,11 @@ interface pattern used throughout the llm-interactive-proxy project.
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from src.core.domain.assessment import AssessmentRequest, AssessmentResult
+from src.core.domain.assessment import (
+    AssessmentRequest,
+    AssessmentResult,
+    LLMAssessmentResponse,
+)
 from src.core.domain.chat import ChatMessage
 
 if TYPE_CHECKING:
@@ -215,7 +219,7 @@ class IAssessmentBackendService(ABC):
     """
 
     @abstractmethod
-    async def perform_assessment(self, request: AssessmentRequest) -> dict[str, Any]:
+    async def perform_assessment(self, request: AssessmentRequest) -> LLMAssessmentResponse:
         """
         Perform assessment using the configured backend.
 
@@ -223,7 +227,7 @@ class IAssessmentBackendService(ABC):
             request: Assessment request with messages and context
 
         Returns:
-            Dictionary with assessment response (reasoning, confidence)
+            LLMAssessmentResponse with assessment reasoning and confidence
 
         Raises:
             AssessmentBackendError: If backend communication fails

@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
 from src.core.config.app_config import AppConfig
+from src.core.domain.model_utils import ModelDefaults
 
 _T = TypeVar("_T")
 
@@ -198,7 +199,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def get_model_defaults(self) -> dict[str, Any]:
+    def get_model_defaults(self) -> dict[str, ModelDefaults]:
         """Get model defaults.
 
         Returns:
@@ -206,7 +207,7 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
-    def set_model_defaults(self, defaults: dict[str, Any]) -> None:
+    def set_model_defaults(self, defaults: dict[str, ModelDefaults]) -> None:
         """Set model defaults.
 
         Args:

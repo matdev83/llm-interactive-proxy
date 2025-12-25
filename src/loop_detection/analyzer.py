@@ -3,13 +3,35 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any
+from dataclasses import dataclass
 
 from .config import InternalLoopDetectionConfig
 from .event import LoopDetectionEvent
 from .hasher import ContentHasher
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PatternAnalyzerState:
+    """Full snapshot of the PatternAnalyzer state for restoration."""
+
+    stream_history: str
+    content_stats: dict[str, list[int]]
+    last_chunk_index: int
+    in_code_block: bool
+    history: list[LoopDetectionEvent]
+
+
+@dataclass(frozen=True)
+class PatternAnalyzerSummary:
+    """Lightweight summary of the PatternAnalyzer state."""
+
+    stream_history_len: int
+    last_chunk_index: int
+    in_code_block: bool
+    content_stats_keys: list[str]
+    history_len: int
 
 
 class PatternAnalyzer:
@@ -113,38 +135,51 @@ class PatternAnalyzer:
         """Returns the history of detected loop events."""
         return self.history
 
-    def get_state(self) -> dict[str, Any]:
-        """Returns the current internal state of the analyzer."""
-        return {
-            "stream_history_len": len(self._stream_history),
-            "last_chunk_index": self._last_chunk_index,
-            "in_code_block": self._in_code_block,
-            "content_stats_keys": list(self._content_stats.keys()),
-            "history_len": len(self.history),
-        }
+    def get_state(self) -> PatternAnalyzerSummary:
+        """Returns the current internal state summary of the analyzer."""
+        return PatternAnalyzerSummary(
+            stream_history_len=len(self._stream_history),
+            last_chunk_index=self._last_chunk_index,
+            in_code_block=self._in_code_block,
+            content_stats_keys=list(self._content_stats.keys()),
+            history_len=len(self.history),
+        )
 
-    def snapshot_state(self) -> dict[str, Any]:
+    def snapshot_state(self) -> PatternAnalyzerState:
         """Create a deep copy of the current internal state for later restoration."""
-        return {
-            "stream_history": self._stream_history,
-            "content_stats": {
+        return PatternAnalyzerState(
+            stream_history=self._stream_history,
+            content_stats={
                 key: indices.copy() for key, indices in self._content_stats.items()
             },
-            "last_chunk_index": self._last_chunk_index,
-            "in_code_block": self._in_code_block,
-            "history": self.history.copy(),
-        }
+            last_chunk_index=self._last_chunk_index,
+            in_code_block=self._in_code_block,
+            history=self.history.copy(),
+        )
 
-    def restore_state(self, state: dict[str, Any]) -> None:
+    def restore_state(self, state: PatternAnalyzerState) -> None:
         """Restore a previously captured state snapshot."""
-        self._stream_history = state.get("stream_history", "")
+        if not isinstance(state, PatternAnalyzerState) and isinstance(state, dict):
+            # Backward compatibility for dict-based state if needed,
+            # but here we strengthen it.
+            # If we want to be safe, we could check if it's a dict and handle it.
+            self._stream_history = state.get("stream_history", "")
+            self._content_stats = {
+                key: indices.copy()
+                for key, indices in state.get("content_stats", {}).items()
+            }
+            self._last_chunk_index = state.get("last_chunk_index", 0)
+            self._in_code_block = state.get("in_code_block", False)
+            self.history = state.get("history", []).copy()
+            return
+
+        self._stream_history = state.stream_history
         self._content_stats = {
-            key: indices.copy()
-            for key, indices in state.get("content_stats", {}).items()
+            key: indices.copy() for key, indices in state.content_stats.items()
         }
-        self._last_chunk_index = state.get("last_chunk_index", 0)
-        self._in_code_block = state.get("in_code_block", False)
-        self.history = state.get("history", []).copy()
+        self._last_chunk_index = state.last_chunk_index
+        self._in_code_block = state.in_code_block
+        self.history = state.history.copy()
 
     def _is_whitelisted_pattern(self, pattern: str) -> bool:
         """Check whether a detected pattern should be ignored based on the config whitelist."""

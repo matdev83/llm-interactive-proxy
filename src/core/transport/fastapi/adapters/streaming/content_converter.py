@@ -383,9 +383,11 @@ class StreamingContentConverter:
 
                 # Decode SSE payload
                 decoder = self._get_sse_decoder()
-                decoded_payload, sse_metadata, forced_done = decoder.decode_payload(
-                    payload
-                )
+                decoded_sse = decoder.decode_payload(payload)
+                decoded_payload = decoded_sse.content
+                sse_metadata = decoded_sse.metadata
+                forced_done = decoded_sse.is_done
+
 
                 # Merge SSE metadata
                 if sse_metadata:

@@ -2,6 +2,8 @@ import json
 import re
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.domain.chat import ToolCall
 from src.core.domain.configuration.dangerous_command_config import (
     _COMBINED_DANGEROUS_PATTERN,
@@ -13,7 +15,15 @@ _SUBSHELL_GIT_PATTERN = re.compile(r"\$\((?:which|command\s+-v)\s+git\)", re.IGN
 _ENV_PREFIX_PATTERN = re.compile(r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)", re.IGNORECASE)
 
 
+class DangerousCommandMatch(BaseModel):
+    """Represents a matched dangerous command rule."""
+
+    rule: DangerousCommandRule
+    command: str
+
+
 class DangerousCommandService:
+
     def __init__(self, config: DangerousCommandConfig, command_service=None):
         self.config = config
         # Normalize tool names once so lookups remain case-insensitive while
@@ -26,7 +36,7 @@ class DangerousCommandService:
 
     def scan_tool_call(
         self, tool_call: ToolCall
-    ) -> tuple[DangerousCommandRule, str] | None:
+    ) -> DangerousCommandMatch | None:
         """
         Scans a tool call for dangerous commands.
 
@@ -34,12 +44,12 @@ class DangerousCommandService:
             tool_call: The tool call to scan.
 
         Returns:
-            A tuple containing the matched rule and the command string if a dangerous
-            command is found, otherwise None.
+            A DangerousCommandMatch object if a dangerous command is found, otherwise None.
         """
         return self.scan(tool_call.function.name, tool_call.function.arguments)
 
     def _extract_command_string(self, arguments: Any) -> str | None:
+
         """Extract a shell command string from tool arguments.
 
         Supports:
@@ -158,10 +168,10 @@ class DangerousCommandService:
 
     def scan(
         self, tool_name: str, arguments: Any
-    ) -> tuple[DangerousCommandRule, str] | None:
+    ) -> DangerousCommandMatch | None:
         """Scan tool_name and arguments for dangerous command.
 
-        Returns matched rule and reconstructed command string, or None.
+        Returns DangerousCommandMatch object, or None.
         """
         normalized_tool_name = tool_name.lower() if isinstance(tool_name, str) else ""
         if normalized_tool_name not in self._normalized_tool_names:
@@ -206,8 +216,9 @@ class DangerousCommandService:
         for rule in self.config.rules:
             for candidate in candidates:
                 if rule.pattern.search(candidate):
-                    return rule, original_command
+                    return DangerousCommandMatch(rule=rule, command=original_command)
         return None
+
 
     def might_be_dangerous(self, tool_name: str, arguments: Any) -> bool:
         """Fast pre-check for whether arguments contain a dangerous command.

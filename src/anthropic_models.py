@@ -224,3 +224,18 @@ class AnthropicMessagesResponse(DomainModel):
         description="The stop sequence that was matched, if stop_reason is 'stop_sequence'",
     )
     usage: Usage
+
+
+class AnthropicError(DomainModel):
+    """Represents an error in the Anthropic API."""
+
+    type: str
+    message: str
+
+
+class AnthropicErrorResponse(DomainModel):
+    """Represents an error response from the Anthropic API."""
+
+    type: Literal["error"] = "error"
+    error: AnthropicError
+

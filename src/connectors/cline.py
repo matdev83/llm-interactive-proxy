@@ -11,6 +11,8 @@ from fastapi import HTTPException
 
 from src.connectors.openai import OpenAIConnector
 from src.connectors.utils.cline_auth import ClineAuthMixin, _ClineTokenStore
+from src.connectors.utils.cline_auth_types import ClineTokenData
+
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -48,8 +50,9 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         self.name = name or self.backend_type
         self._secrets_path: Path | None = None
         self._token_store: _ClineTokenStore | None = None
-        self._token_cache: dict[str, Any] | None = None
+        self._token_cache: ClineTokenData | None = None
         self._token_file_mtime: float | None = None
+
         self._token_lock = asyncio.Lock()
         self._cline_api_host = self._ENVIRONMENT_BASES["production"]
         self.api_base_url = f"{self._cline_api_host}/api/v1"

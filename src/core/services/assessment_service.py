@@ -12,7 +12,11 @@ import time
 from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
-from src.core.domain.assessment import AssessmentRequest, AssessmentResult
+from src.core.domain.assessment import (
+    AssessmentRequest,
+    AssessmentResult,
+    LLMAssessmentResponse,
+)
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import (
@@ -224,19 +228,13 @@ class AssessmentService(IAssessmentService):
         )
 
     def _parse_assessment_response(
-        self, response: dict[str, Any], session_id: str, turn_count: int
+        self, response: LLMAssessmentResponse, session_id: str, turn_count: int
     ) -> AssessmentResult:
         """
         Parse and validate assessment response from backend.
 
-        Expected response format (matching gemini-cli schema):
-        {
-          "reasoning": "Your analysis of the conversation state",
-          "confidence": 0.85
-        }
-
         Args:
-            response: Raw response from assessment backend
+            response: LLMAssessmentResponse from assessment backend
             session_id: Session identifier
             turn_count: Current turn count
 
@@ -247,22 +245,11 @@ class AssessmentService(IAssessmentService):
             AssessmentError: If response is invalid
         """
         try:
-            # Validate required fields
-            if "reasoning" not in response:
-                raise AssessmentError(
-                    "Missing 'reasoning' field in assessment response"
-                )
-
-            if "confidence" not in response:
-                raise AssessmentError(
-                    "Missing 'confidence' field in assessment response"
-                )
-
-            reasoning = response["reasoning"]
-            confidence = float(response["confidence"])
+            reasoning = response.reasoning
+            confidence = response.confidence
 
             # Validate reasoning
-            if not isinstance(reasoning, str) or not reasoning.strip():
+            if not reasoning.strip():
                 raise AssessmentError("Invalid reasoning: must be non-empty string")
 
             # Validate confidence range
@@ -273,7 +260,7 @@ class AssessmentService(IAssessmentService):
 
             # Create result
             result = AssessmentResult.from_llm_response(
-                response, session_id, turn_count
+                response.model_dump(), session_id, turn_count
             )
 
             if is_log_level_enabled(logger, logging.DEBUG):

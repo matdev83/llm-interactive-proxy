@@ -321,33 +321,35 @@ class ConcurrencyGuard:
         self._active_operations: WeakSet[object] = WeakSet()
         self._total_operations = 0
         self._rejected_operations = 0
+        self._operation_counter = 0
+        self._lock = threading.Lock()
 
     @asynccontextmanager
     async def acquire(self, operation_name: str = "unknown"):
         """Acquire concurrency slot with monitoring."""
-        if len(self._active_operations) >= self.max_concurrent:
-            self._rejected_operations += 1
-            production_metrics.record_race_condition_warning(
-                f"{self.name}:{operation_name}"
-            )
-            raise Exception(f"Concurrency limit reached for {self.name}")
-
-        async with self._semaphore:
-            operation_id = f"{operation_name}_{time.time()}"
+        
+        operation_id = None
+        
+        with self._lock:
+            if len(self._active_operations) >= self.max_concurrent:
+                self._rejected_operations += 1
+                production_metrics.record_race_condition_warning(
+                    f"{self.name}:{operation_name}"
+                )
+                raise Exception(f"Concurrency limit reached for {self.name}")
+            
+            self._operation_counter += 1
+            operation_id = f"{operation_name}_{self._operation_counter}"
             self._active_operations.add(operation_id)
             self._total_operations += 1
 
-            start_time = time.time()
-            try:
-                yield
-            finally:
-                duration = time.time() - start_time
-                if duration > 30.0:  # 30 second threshold
-                    logger.warning(
-                        f"Long operation in {self.name}: {operation_name} took {duration:.3f}s"
-                    )
-
-                self._active_operations.discard(operation_id)
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=5.0)
+        finally:
+            with self._lock:
+                if operation_id in self._active_operations:
+                    self._active_operations.discard(operation_id)
+                self._semaphore.release()
 
 
 def get_production_metrics() -> dict[str, Any]:

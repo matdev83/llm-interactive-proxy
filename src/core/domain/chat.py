@@ -158,13 +158,41 @@ class ChatMessage(DomainModel):
     @model_validator(mode="before")
     @classmethod
     def map_reasoning_fields(cls, data: Any) -> Any:
-        """Map alternative reasoning field names to reasoning_content."""
-        if isinstance(data, dict) and "reasoning_content" not in data:
+        """Map alternative field names to standard ChatMessage fields."""
+        if not isinstance(data, dict):
+            return data
+
+        # Map reasoning fields
+        if "reasoning_content" not in data:
             if "reasoning" in data:
                 data["reasoning_content"] = data["reasoning"]
             elif "reasoning_details" in data:
                 data["reasoning_content"] = data["reasoning_details"]
+
+        # Map Codebuff/alternative field names
+        if "content" not in data:
+            if "text" in data:
+                data["content"] = data["text"]
+            elif "message" in data and isinstance(data["message"], dict):
+                msg_data = data["message"]
+                if "role" in msg_data and "role" not in data:
+                    data["role"] = msg_data["role"]
+                if "content" in msg_data:
+                    data["content"] = msg_data["content"]
+
+        if "role" not in data and "type" in data:
+            # Map type to role for some legacy formats
+            if data["type"] in ["user", "assistant", "system"]:
+                data["role"] = data["type"]
+            if "content" not in data:
+                data["content"] = data.get("text", "")
+
+        # Default role to 'user' if still missing but we have content
+        if "role" not in data and ("content" in data or "text" in data):
+            data["role"] = "user"
+
         return data
+
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary."""
@@ -426,6 +454,24 @@ class CanonicalChatResponse(ChatResponse):
     """
 
 
+class StreamingFunctionCall(DomainModel):
+    """Represents a partial function call within a streaming tool call."""
+
+    name: str | None = None
+    arguments: str | None = None
+
+
+class StreamingToolCall(DomainModel):
+    """Represents a partial tool call in a streaming chat completion chunk."""
+
+    model_config = ConfigDict(extra="allow")
+
+    index: int
+    id: str | None = None
+    type: str | None = "function"
+    function: StreamingFunctionCall | None = None
+
+
 class StreamingChatCompletionChoiceDelta(DomainModel):
     """Represents the delta content within a streaming chat completion choice."""
 
@@ -433,7 +479,7 @@ class StreamingChatCompletionChoiceDelta(DomainModel):
 
     role: str | None = None
     content: str | None = None
-    tool_calls: list[dict[str, Any]] | None = None
+    tool_calls: list[StreamingToolCall] | None = None
     refusal: str | None = None
 
     def __getitem__(self, key: str) -> Any:
@@ -443,7 +489,12 @@ class StreamingChatCompletionChoiceDelta(DomainModel):
         except AttributeError:
             raise KeyError(key) from None
 
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Support dict-style assignment for extra fields."""
+        setattr(self, key, value)
+
     def __contains__(self, key: str) -> bool:
+
         """Support 'in' operator for checking field existence."""
         return hasattr(self, key)
 
@@ -467,5 +518,6 @@ class CanonicalStreamChunk(ValueObject):
     created: int | None = None
     model: str | None = None
     choices: list[StreamingChatCompletionChoice]
-    usage: dict[str, Any] | None = None
+    usage: UsageSummary | None = None
     system_fingerprint: str | None = None
+

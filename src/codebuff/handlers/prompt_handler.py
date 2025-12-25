@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
@@ -93,7 +93,7 @@ class PromptHandler:
                 user_input_id=action.promptId,
                 error_message="Session not found",
             )
-            await websocket.send_json(error_msg)
+            await websocket.send_json(error_msg.model_dump(by_alias=True))
             return
 
         logger.info(
@@ -144,21 +144,21 @@ class PromptHandler:
                 user_input_id=action.promptId,
                 error_message=f"Failed to process prompt: {e!s}",
             )
-            await websocket.send_json(error_msg)
+            await websocket.send_json(error_msg.model_dump(by_alias=True))
 
-    def _extract_messages(self, action: PromptAction) -> list[dict[str, Any]]:
+    def _extract_messages(self, action: PromptAction) -> list[ChatMessage]:
         """Extract conversation messages from a prompt action.
 
         Args:
             action: The prompt action to extract messages from
 
         Returns:
-            List of message dictionaries
+            List of ChatMessage objects
 
         Raises:
             CodebuffError: If message extraction fails
         """
-        messages: list[dict[str, Any]] = []
+        messages: list[ChatMessage] = []
 
         # Extract from content field if present
         if action.content:
@@ -166,12 +166,17 @@ class PromptHandler:
 
         # Extract from prompt field if present
         if action.prompt:
-            messages.append({"role": "user", "content": action.prompt})
+            messages.append(ChatMessage(role="user", content=action.prompt))
 
         # Extract from session state if present
         if action.sessionState:
-            session_messages = action.sessionState.get("messages", [])
-            if session_messages:
+            session_messages_raw = action.sessionState.get("messages", [])
+            if session_messages_raw:
+                # Convert raw dicts to ChatMessage if they are not already
+                session_messages = [
+                    m if isinstance(m, ChatMessage) else ChatMessage(**m)
+                    for m in session_messages_raw
+                ]
                 messages.extend(session_messages)
 
         if not messages:
@@ -192,10 +197,11 @@ class PromptHandler:
         self,
         websocket: WebSocket,
         prompt_id: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage],
         model: str,
         session_state: dict[str, Any],
     ) -> None:
+
         """Stream LLM response with task tracking for cancellation support.
 
         This method wraps _stream_response in a task and ensures proper cleanup
@@ -262,7 +268,7 @@ class PromptHandler:
         self,
         websocket: WebSocket,
         prompt_id: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage],
         model: str,
         session_state: dict[str, Any],
     ) -> None:
@@ -271,7 +277,7 @@ class PromptHandler:
         Args:
             websocket: The WebSocket connection to send responses to
             prompt_id: ID of the prompt being responded to
-            messages: OpenAI-formatted messages
+            messages: OpenAI-formatted ChatMessage objects
             model: Model name to use
             session_state: Current session state
 
@@ -279,23 +285,19 @@ class PromptHandler:
             CodebuffError: If streaming fails
         """
         try:
-            chat_messages = [
-                (
-                    msg
-                    if isinstance(msg, ChatMessage)
-                    else ChatMessage(**cast(dict[str, Any], msg))
-                )
-                for msg in messages
-            ]
-            request = ChatRequest(model=model, messages=chat_messages, stream=True)
+            # messages are already ChatMessage objects
+            request = ChatRequest(model=model, messages=messages, stream=True)
 
             # Get the backend for this model
             backend = await self._get_backend_for_model(model)
 
             # Call the backend
+            # Note: processed_messages expects list of dicts for some backends, 
+            # but we can convert them here if needed. 
+            # Most backends just use request_data.messages which is list[ChatMessage].
             response = await backend.chat_completions(
                 request_data=request,
-                processed_messages=messages,
+                processed_messages=[m.to_dict() for m in messages],
                 effective_model=model,
             )
 
@@ -319,14 +321,15 @@ class PromptHandler:
                         user_input_id=prompt_id,
                         text=content,
                     )
-                    await websocket.send_json(chunk_msg)
+                    await websocket.send_json(chunk_msg.model_dump(by_alias=True))
 
                 # Send final response
                 final_msg = self._format_converter.create_prompt_response(
                     prompt_id=prompt_id,
                     session_state=session_state,
                 )
-                await websocket.send_json(final_msg)
+                await websocket.send_json(final_msg.model_dump(by_alias=True))
+
 
         except Exception as e:
             logger.error(
@@ -377,14 +380,14 @@ class PromptHandler:
                         user_input_id=prompt_id,
                         text=text,
                     )
-                    await websocket.send_json(chunk_msg)
+                    await websocket.send_json(chunk_msg.model_dump(by_alias=True))
 
             # Send final prompt response
             final_msg = self._format_converter.create_prompt_response(
                 prompt_id=prompt_id,
                 session_state=session_state,
             )
-            await websocket.send_json(final_msg)
+            await websocket.send_json(final_msg.model_dump(by_alias=True))
 
             logger.info("Completed streaming response for prompt %s", prompt_id)
 
@@ -400,7 +403,8 @@ class PromptHandler:
                 user_input_id=prompt_id,
                 error_message=f"Streaming error: {e!s}",
             )
-            await websocket.send_json(error_msg)
+            await websocket.send_json(error_msg.model_dump(by_alias=True))
+
 
     async def _get_backend_for_model(self, model: str) -> Any:
         """Get the appropriate backend for a model.

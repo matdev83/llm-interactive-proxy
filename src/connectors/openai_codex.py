@@ -70,14 +70,17 @@ from src.connectors.openai_codex.tools import ToolExecutionService
 from src.connectors.openai_codex.utils import build_codex_user_agent, message_to_text
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
-from src.core.domain.model_utils import parse_model_with_params
+from src.core.domain.chat import ChatMessage
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
+    StreamingResponseHandle,
 )
 from src.core.domain.session_key import SessionKey
+from src.core.domain.validation import ValidationResult
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+
 from src.core.services.tool_text_renderer import OverrideRenderer
 from src.core.services.translation_service import TranslationService
 
@@ -671,8 +674,8 @@ class OpenAICodexConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         capabilities: CodexClientCapabilities | None = None,
-    ) -> tuple[dict[str, Any], str]:
-        """Build Codex payload and return payload dict with conversation ID."""
+    ) -> tuple[CodexPayload, str]:
+        """Build Codex payload and return payload object with conversation ID."""
         resolved_capabilities = capabilities or self._resolve_capabilities(request_data)
         processed = self._normalize_processed_messages(processed_messages)
         session_id = getattr(request_data, "session_id", None) or str(uuid.uuid4())
@@ -697,21 +700,23 @@ class OpenAICodexConnector(OpenAIConnector):
             )
 
         payload = self._payload_builder.build_payload(context)
-        payload_dict = payload.model_dump(exclude_none=True)
-        return payload_dict, payload.prompt_cache_key
+        return payload, payload.prompt_cache_key
 
     def _coerce_payload_for_executor(
-        self, payload_dict: dict[str, Any], context: CodexRequestContext
+        self, payload: CodexPayload | dict[str, Any], context: CodexRequestContext
     ) -> CodexPayload:
+        if isinstance(payload, CodexPayload):
+            return payload
+
         if isinstance(self._payload_builder, PayloadBuilder):
             try:
-                return self._payload_builder._dict_to_payload(payload_dict, context)
+                return self._payload_builder._dict_to_payload(payload, context)
             except Exception:
-                return CodexPayload.model_construct(**payload_dict)
+                return CodexPayload.model_construct(**payload)
         try:
-            return CodexPayload.model_validate(payload_dict)
+            return CodexPayload.model_validate(payload)
         except Exception:
-            return CodexPayload.model_construct(**payload_dict)
+            return CodexPayload.model_construct(**payload)
 
     def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
         """Map capability preference to a registered renderer key."""
@@ -1042,23 +1047,24 @@ class OpenAICodexConnector(OpenAIConnector):
         )
 
         if is_kilocode and translated_tools["codex_tools"]:
-            payload_tools = payload.get("tools")
+            payload_tools = payload.tools
             if not isinstance(payload_tools, list):
                 payload_tools = []
-                payload["tools"] = payload_tools
+                payload.tools = payload_tools
 
             existing_names: set[str] = set()
             for entry in payload_tools:
-                if isinstance(entry, dict):
+                name_value = getattr(entry, "name", None)
+                if name_value is None and isinstance(entry, dict):
                     name_value = entry.get("name")
-                    if isinstance(name_value, str):
-                        existing_names.add(name_value)
+                if isinstance(name_value, str):
+                    existing_names.add(name_value)
 
             for tool in translated_tools["codex_tools"]:
                 schema = get_codex_tool_schema(tool.name)
                 if not schema:
                     continue
-                schema_name = schema.get("function", {}).get("name")
+                schema_name = schema.name
                 if not isinstance(schema_name, str):
                     continue
                 if schema_name in existing_names:
@@ -1317,7 +1323,10 @@ class OpenAICodexConnector(OpenAIConnector):
                     )
                 else:
                     response = await _perform_request(
-                        payload, headers, request_session_id, stream_val
+                        payload.model_dump(exclude_none=True),
+                        headers,
+                        request_session_id,
+                        stream_val,
                     )
 
                 if is_kilocode and tool_results:
@@ -1411,41 +1420,38 @@ class OpenAICodexConnector(OpenAIConnector):
     # -----------------------------
     # Validation methods (stale token handling pattern)
     # -----------------------------
-    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+    def _validate_credentials_file_exists(self) -> ValidationResult:
         if hasattr(self._credential_manager, "_validate_credentials_file_exists"):
             result = self._credential_manager._validate_credentials_file_exists()
-            return cast(tuple[bool, list[str]], result)
-        return False, ["Credential manager not available"]
+            return cast(ValidationResult, result)
+        return ValidationResult.failure("Credential manager not available")
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> tuple[bool, list[str]]:
+    ) -> ValidationResult:
         if hasattr(self._credential_manager, "_validate_credentials_structure"):
             result = self._credential_manager._validate_credentials_structure(
                 credentials
             )
-            return cast(tuple[bool, list[str]], result)
-        return False, ["Credential manager not available"]
+            return cast(ValidationResult, result)
+        return ValidationResult.failure("Credential manager not available")
 
     async def _validate_runtime_credentials(self) -> bool:
         current_time = time.time()
         if current_time - self._last_validation_time < 30:
             return True
 
-        errors: list[str] = []
-        ok, file_errors = self._validate_credentials_file_exists()
-        if not ok:
-            self._credential_validation_errors = file_errors
+        res = self._validate_credentials_file_exists()
+        if not res:
+            self._credential_validation_errors = res.errors
             return False
 
-        errors.extend(file_errors)
+        errors = list(res.errors)
 
         if self._auth_credentials is not None:
-            ok, struct_errors = self._validate_credentials_structure(
-                self._auth_credentials
-            )
-            if not ok:
-                errors.extend(struct_errors)
+            res_struct = self._validate_credentials_structure(self._auth_credentials)
+            if not res_struct:
+                errors.extend(res_struct.errors)
                 self._credential_validation_errors = errors
                 return False
         else:
@@ -1516,13 +1522,13 @@ class OpenAICodexConnector(OpenAIConnector):
                     loaded = await self._load_auth()
                 if loaded:
                     if self._auth_credentials is not None:
-                        ok, errors = self._validate_credentials_structure(
+                        res = self._validate_credentials_structure(
                             self._auth_credentials
                         )
-                        if ok:
+                        if res:
                             self._recover()
                         else:
-                            self._degrade(errors)
+                            self._degrade(res.errors)
                     else:
                         self._degrade(
                             ["Failed to load credentials despite successful file read"]
@@ -1631,9 +1637,9 @@ class OpenAICodexConnector(OpenAIConnector):
         if isinstance(dir_override, str) and dir_override:
             self._oauth_dir_override = Path(dir_override)
 
-        ok, errors = self._validate_credentials_file_exists()
-        if not ok:
-            self._fail_init(errors)
+        res_file = self._validate_credentials_file_exists()
+        if not res_file:
+            self._fail_init(res_file.errors)
             return
 
         if not await self._load_auth():
@@ -1641,9 +1647,9 @@ class OpenAICodexConnector(OpenAIConnector):
             return
 
         if self._auth_credentials is not None:
-            ok, errors = self._validate_credentials_structure(self._auth_credentials)
-            if not ok:
-                self._fail_init(errors)
+            res_struct = self._validate_credentials_structure(self._auth_credentials)
+            if not res_struct:
+                self._fail_init(res_struct.errors)
                 return
         else:
             self._fail_init(["OAuth credentials are None after loading"])

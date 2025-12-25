@@ -14,7 +14,12 @@ import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from typing import Any
 
+from src.connectors.utils.reasoning_models import (
+    ReasoningCaptureResult,
+    ReasoningDetectionMetadata,
+)
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import StreamingContent
 
@@ -56,7 +61,7 @@ class ReasoningStreamProcessor:
         ),
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_chars: int = DEFAULT_MAX_CHARS,
-    ) -> tuple[str, bool, dict[str, Any]]:
+    ) -> ReasoningCaptureResult:
         """
         Capture reasoning output from streaming response.
 
@@ -70,19 +75,11 @@ class ReasoningStreamProcessor:
             max_chars: Maximum characters to capture (safety limit)
 
         Returns:
-            Tuple of (reasoning_text, reasoning_complete, metadata)
-            - reasoning_text: Extracted reasoning content
-            - reasoning_complete: True if reasoning phase ended naturally
-            - metadata: Detection details (method, chunks_processed, etc.)
+            ReasoningCaptureResult containing text, completeness flag, and metadata
         """
         chunks: list[dict[str, Any]] = []
         accumulated_content = ""
-        detection_metadata: dict[str, Any] = {
-            "method": None,
-            "chunks_processed": 0,
-            "tokens_estimated": 0,
-            "chars_captured": 0,
-        }
+        detection_metadata = ReasoningDetectionMetadata()
         raw_chunks: list[ProcessedResponse] = []
         tool_call_accumulator: dict[str, dict[str, Any]] = {}
         tool_call_order: list[str] = []
@@ -90,7 +87,7 @@ class ReasoningStreamProcessor:
 
         try:
             async for processed_response in response_stream:
-                detection_metadata["chunks_processed"] += 1
+                detection_metadata.chunks_processed += 1
                 raw_chunks.append(processed_response)
 
                 raw_content = processed_response.content
@@ -240,7 +237,7 @@ class ReasoningStreamProcessor:
                 content = self._extract_content_from_chunk(chunk)
                 if content:
                     accumulated_content += content
-                    detection_metadata["chars_captured"] = len(accumulated_content)
+                    detection_metadata.chars_captured = len(accumulated_content)
 
                 self._extract_tool_calls_from_chunk(
                     chunk,
@@ -252,24 +249,24 @@ class ReasoningStreamProcessor:
 
                 # Estimate tokens
                 tokens = self.estimate_tokens(accumulated_content)
-                detection_metadata["tokens_estimated"] = tokens
+                detection_metadata.tokens_estimated = tokens
 
                 # Priority 1: Check for explicit closing tags
                 is_complete, tag = self.detect_by_tags(accumulated_content)
                 if is_complete:
-                    detection_metadata["method"] = f"explicit_tag:{tag}"
+                    detection_metadata.method = f"explicit_tag:{tag}"
                     logger.debug(
                         f"Reasoning end detected by explicit tag: {tag} "
-                        f"(chunks: {detection_metadata['chunks_processed']}, "
-                        f"chars: {detection_metadata['chars_captured']})"
+                        f"(chunks: {detection_metadata.chunks_processed}, "
+                        f"chars: {detection_metadata.chars_captured})"
                     )
                     logger.debug(
                         "Stream capture stopping - reasoning phase complete",
                         extra={
                             "detection_method": "explicit_tag",
                             "tag": tag,
-                            "chunks_processed": detection_metadata["chunks_processed"],
-                            "chars_captured": detection_metadata["chars_captured"],
+                            "chunks_processed": detection_metadata.chunks_processed,
+                            "chars_captured": detection_metadata.chars_captured,
                         },
                     )
                     break
@@ -277,19 +274,19 @@ class ReasoningStreamProcessor:
                 # Priority 2: Check finish_reason in response metadata
                 is_complete, reason = self.detect_by_finish_reason(chunk)
                 if is_complete:
-                    detection_metadata["method"] = f"finish_reason:{reason}"
+                    detection_metadata.method = f"finish_reason:{reason}"
                     logger.debug(
                         f"Reasoning end detected by finish_reason: {reason} "
-                        f"(chunks: {detection_metadata['chunks_processed']}, "
-                        f"chars: {detection_metadata['chars_captured']})"
+                        f"(chunks: {detection_metadata.chunks_processed}, "
+                        f"chars: {detection_metadata.chars_captured})"
                     )
                     logger.debug(
                         "Stream capture stopping - reasoning phase complete",
                         extra={
                             "detection_method": "finish_reason",
                             "finish_reason": reason,
-                            "chunks_processed": detection_metadata["chunks_processed"],
-                            "chars_captured": detection_metadata["chars_captured"],
+                            "chunks_processed": detection_metadata.chunks_processed,
+                            "chars_captured": detection_metadata.chars_captured,
                         },
                     )
                     break
@@ -297,30 +294,30 @@ class ReasoningStreamProcessor:
                 # Priority 3: Check transition markers (with caution)
                 is_complete, marker = self.detect_by_markers(accumulated_content)
                 if is_complete and self._confirm_transition(accumulated_content):
-                    detection_metadata["method"] = f"transition_marker:{marker}"
+                    detection_metadata.method = f"transition_marker:{marker}"
                     logger.debug(
                         f"Reasoning end detected by transition marker: {marker} "
-                        f"(chunks: {detection_metadata['chunks_processed']}, "
-                        f"chars: {detection_metadata['chars_captured']})"
+                        f"(chunks: {detection_metadata.chunks_processed}, "
+                        f"chars: {detection_metadata.chars_captured})"
                     )
                     logger.debug(
                         "Stream capture stopping - reasoning phase complete",
                         extra={
                             "detection_method": "transition_marker",
                             "marker": marker,
-                            "chunks_processed": detection_metadata["chunks_processed"],
-                            "chars_captured": detection_metadata["chars_captured"],
+                            "chunks_processed": detection_metadata.chunks_processed,
+                            "chars_captured": detection_metadata.chars_captured,
                         },
                     )
                     break
 
                 # Priority 4: Safety limit - token count
                 if tokens >= max_tokens:
-                    detection_metadata["method"] = "token_limit"
+                    detection_metadata.method = "token_limit"
                     logger.warning(
                         f"Reasoning capture stopped at token limit: {tokens} >= {max_tokens} "
-                        f"(chunks: {detection_metadata['chunks_processed']}, "
-                        f"chars: {detection_metadata['chars_captured']})"
+                        f"(chunks: {detection_metadata.chunks_processed}, "
+                        f"chars: {detection_metadata.chars_captured})"
                     )
                     logger.debug(
                         "Stream capture stopping - token limit reached",
@@ -328,19 +325,19 @@ class ReasoningStreamProcessor:
                             "detection_method": "token_limit",
                             "tokens": tokens,
                             "max_tokens": max_tokens,
-                            "chunks_processed": detection_metadata["chunks_processed"],
-                            "chars_captured": detection_metadata["chars_captured"],
+                            "chunks_processed": detection_metadata.chunks_processed,
+                            "chars_captured": detection_metadata.chars_captured,
                         },
                     )
                     break
 
                 # Priority 4: Safety limit - character count
                 if len(accumulated_content) >= max_chars:
-                    detection_metadata["method"] = "char_limit"
+                    detection_metadata.method = "char_limit"
                     logger.warning(
                         f"Reasoning capture stopped at character limit: "
                         f"{len(accumulated_content)} >= {max_chars} "
-                        f"(chunks: {detection_metadata['chunks_processed']})"
+                        f"(chunks: {detection_metadata.chunks_processed})"
                     )
                     logger.debug(
                         "Stream capture stopping - character limit reached",
@@ -348,7 +345,7 @@ class ReasoningStreamProcessor:
                             "detection_method": "char_limit",
                             "chars": len(accumulated_content),
                             "max_chars": max_chars,
-                            "chunks_processed": detection_metadata["chunks_processed"],
+                            "chunks_processed": detection_metadata.chunks_processed,
                         },
                     )
                     break
@@ -356,18 +353,23 @@ class ReasoningStreamProcessor:
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error capturing reasoning stream: {e}", exc_info=True)
-            detection_metadata["method"] = "error"
-            detection_metadata["error"] = str(e)
+            detection_metadata.method = "error"
+            detection_metadata.error = str(e)
 
         # Extract reasoning text from captured chunks
         reasoning_text = self.extract_reasoning_content(chunks)
-        reasoning_complete = detection_metadata["method"] is not None
-        detection_metadata["tool_calls"] = [
+        reasoning_complete = detection_metadata.method is not None
+        detection_metadata.tool_calls = [
             tool_call_accumulator[call_id] for call_id in tool_call_order
         ]
-        detection_metadata["raw_chunks"] = raw_chunks
+        detection_metadata.raw_chunks = raw_chunks
 
-        return reasoning_text, reasoning_complete, detection_metadata
+        return ReasoningCaptureResult(
+            reasoning_text=reasoning_text,
+            reasoning_complete=reasoning_complete,
+            metadata=detection_metadata,
+        )
+
 
     def _parse_chunk(self, chunk_bytes: bytes) -> dict[str, Any] | None:
         """

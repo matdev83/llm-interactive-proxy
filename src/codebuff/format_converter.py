@@ -18,6 +18,7 @@ from src.codebuff.schemas import (
     ResponseChunkAction,
     ServerActionMessage,
 )
+from src.core.domain.chat import ChatMessage
 
 
 class FormatConverter:
@@ -33,70 +34,34 @@ class FormatConverter:
 
     def codebuff_to_openai(
         self,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage] | list[dict[str, Any]],
         session_state: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+    ) -> list[ChatMessage]:
         """Convert Codebuff messages to OpenAI format.
 
         Args:
-            messages: List of Codebuff message dictionaries
+            messages: List of Codebuff message objects or dictionaries
             session_state: Session state containing conversation history
 
         Returns:
-            List of OpenAI-compatible message dictionaries with 'role' and 'content'
-
-        The OpenAI format expects messages with:
-        - role: "system", "user", or "assistant"
-        - content: The message text
+            List of OpenAI-compatible ChatMessage objects
         """
-        openai_messages: list[dict[str, Any]] = []
+        openai_messages: list[ChatMessage] = []
 
-        # Process each message and convert to OpenAI format
         for msg in messages:
-            # Handle different message formats
-            if isinstance(msg, dict):
-                # If message already has role and content, use it
-                if "role" in msg and "content" in msg:
-                    openai_messages.append(
-                        {"role": msg["role"], "content": msg["content"]}
-                    )
-                # If message has text field, assume it's a user message
-                elif "text" in msg:
-                    openai_messages.append({"role": "user", "content": msg["text"]})
-                # If message has message field, extract role and content
-                elif "message" in msg:
-                    message_data = msg["message"]
-                    if isinstance(message_data, dict):
-                        role = message_data.get("role", "user")
-                        content = message_data.get("content", "")
-                        openai_messages.append({"role": role, "content": content})
-                    else:
-                        # Treat as user message
-                        openai_messages.append(
-                            {"role": "user", "content": str(message_data)}
-                        )
-                # If message has type field, handle based on type
-                elif "type" in msg:
-                    msg_type = msg["type"]
-                    if msg_type == "user":
-                        content = msg.get("content", msg.get("text", ""))
-                        openai_messages.append({"role": "user", "content": content})
-                    elif msg_type == "assistant":
-                        content = msg.get("content", msg.get("text", ""))
-                        openai_messages.append(
-                            {"role": "assistant", "content": content}
-                        )
-                    elif msg_type == "system":
-                        content = msg.get("content", msg.get("text", ""))
-                        openai_messages.append({"role": "system", "content": content})
+            if not isinstance(msg, ChatMessage):
+                # ChatMessage validator will handle text -> content mapping
+                msg = ChatMessage(**msg)
+            openai_messages.append(msg)
 
         return openai_messages
+
 
     def create_response_chunk(
         self,
         user_input_id: str,
         text: str,
-    ) -> dict[str, Any]:
+    ) -> ServerActionMessage:
         """Create a response-chunk action for streaming.
 
         Args:
@@ -104,21 +69,19 @@ class FormatConverter:
             text: Text chunk to send
 
         Returns:
-            Dictionary representing a ServerActionMessage with ResponseChunkAction
+            ServerActionMessage with ResponseChunkAction
         """
         chunk_action = ResponseChunkAction(
             type="response-chunk", userInputId=user_input_id, chunk=text
         )
 
-        server_message = ServerActionMessage(type="action", data=chunk_action)
-
-        return server_message.model_dump(by_alias=True)
+        return ServerActionMessage(type="action", data=chunk_action)
 
     def create_prompt_response(
         self,
         prompt_id: str,
         session_state: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> ServerActionMessage:
         """Create a prompt-response action for completion.
 
         Args:
@@ -126,7 +89,7 @@ class FormatConverter:
             session_state: Updated session state to return
 
         Returns:
-            Dictionary representing a ServerActionMessage with PromptResponseAction
+            ServerActionMessage with PromptResponseAction
         """
         response_action = PromptResponseAction(
             type="prompt-response",
@@ -137,16 +100,14 @@ class FormatConverter:
             output=None,
         )
 
-        server_message = ServerActionMessage(type="action", data=response_action)
-
-        return server_message.model_dump(by_alias=True)
+        return ServerActionMessage(type="action", data=response_action)
 
     def create_error_response(
         self,
         user_input_id: str,
         error_message: str,
         remaining_balance: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> ServerActionMessage:
         """Create a prompt-error action for errors.
 
         Args:
@@ -155,7 +116,7 @@ class FormatConverter:
             remaining_balance: Optional remaining balance to include
 
         Returns:
-            Dictionary representing a ServerActionMessage with PromptErrorAction
+            ServerActionMessage with PromptErrorAction
         """
         error_action = PromptErrorAction(
             type="prompt-error",
@@ -165,15 +126,13 @@ class FormatConverter:
             remainingBalance=remaining_balance,
         )
 
-        server_message = ServerActionMessage(type="action", data=error_action)
-
-        return server_message.model_dump(by_alias=True)
+        return ServerActionMessage(type="action", data=error_action)
 
     def create_action_error_response(
         self,
         error_message: str,
         remaining_balance: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> ServerActionMessage:
         """Create an action-error action for general action failures.
 
         Args:
@@ -181,7 +140,7 @@ class FormatConverter:
             remaining_balance: Optional remaining balance to include
 
         Returns:
-            Dictionary representing a ServerActionMessage with ActionErrorAction
+            ServerActionMessage with ActionErrorAction
         """
         error_action = ActionErrorAction(
             type="action-error",
@@ -190,9 +149,7 @@ class FormatConverter:
             remainingBalance=remaining_balance,
         )
 
-        server_message = ServerActionMessage(type="action", data=error_action)
-
-        return server_message.model_dump(by_alias=True)
+        return ServerActionMessage(type="action", data=error_action)
 
     def create_init_response(
         self,
@@ -200,7 +157,7 @@ class FormatConverter:
         agent_names: dict[str, str] | None = None,
         usage: float = 0.0,
         remaining_balance: float = float("inf"),
-    ) -> dict[str, Any]:
+    ) -> ServerActionMessage:
         """Create an init-response action for session initialization.
 
         Args:
@@ -210,7 +167,7 @@ class FormatConverter:
             remaining_balance: Remaining balance (default unlimited for MVP)
 
         Returns:
-            Dictionary representing a ServerActionMessage with InitResponseAction
+            ServerActionMessage with InitResponseAction
         """
         init_action = InitResponseAction(
             type="init-response",
@@ -221,6 +178,5 @@ class FormatConverter:
             next_quota_reset=None,
         )
 
-        server_message = ServerActionMessage(type="action", data=init_action)
+        return ServerActionMessage(type="action", data=init_action)
 
-        return server_message.model_dump(by_alias=True)

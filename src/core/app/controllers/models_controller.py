@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 # Import HTTP status constants
 from src.core.common.exceptions import InitializationError, ServiceResolutionError
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.services.backend_factory import BackendFactory
@@ -52,7 +53,7 @@ class ModelsController:
         self._config = config
         self._backend_factory = backend_factory
 
-    async def list_models(self) -> dict[str, Any]:
+    async def list_models(self) -> ModelsListingResponse:
         """List all available models using shared discovery logic."""
 
         config = self._config or get_config_service()
@@ -227,14 +228,14 @@ async def _list_models_impl(
     backend_service: IBackendService,
     config: IConfig,
     backend_factory: BackendFactory,
-) -> dict[str, Any]:
+) -> ModelsListingResponse:
     """Shared implementation that discovers available models."""
 
     try:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Listing available models")
 
-        all_models: list[dict[str, Any]] = []
+        all_models: list[ModelInfo] = []
         discovered_models: set[str] = set()
 
         # Use the injected config service
@@ -408,11 +409,11 @@ async def _list_models_impl(
                     if model_id not in discovered_models:
                         discovered_models.add(model_id)
                         all_models.append(
-                            {
-                                "id": model_id,
-                                "object": "model",
-                                "owned_by": str(backend_type).lower(),
-                            }
+                            ModelInfo(
+                                id=model_id,
+                                object="model",
+                                owned_by=str(backend_type).lower(),
+                            )
                         )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Discovered {len(models)} models from {backend_type}")
@@ -430,26 +431,26 @@ async def _list_models_impl(
             if logger.isEnabledFor(logging.INFO):
                 logger.info("No models discovered from backends, using default models")
             all_models = [
-                {"id": "gpt-4", "object": "model", "owned_by": "openai"},
-                {"id": "gpt-3.5-turbo", "object": "model", "owned_by": "openai"},
-                {
-                    "id": "claude-3-opus-20240229",
-                    "object": "model",
-                    "owned_by": "anthropic",
-                },
-                {
-                    "id": "claude-3-sonnet-20240229",
-                    "object": "model",
-                    "owned_by": "anthropic",
-                },
-                {"id": "gemini-1.5-pro", "object": "model", "owned_by": "google"},
-                {"id": "gemini-1.5-flash", "object": "model", "owned_by": "google"},
+                ModelInfo(id="gpt-4", object="model", owned_by="openai"),
+                ModelInfo(id="gpt-3.5-turbo", object="model", owned_by="openai"),
+                ModelInfo(
+                    id="claude-3-opus-20240229",
+                    object="model",
+                    owned_by="anthropic",
+                ),
+                ModelInfo(
+                    id="claude-3-sonnet-20240229",
+                    object="model",
+                    owned_by="anthropic",
+                ),
+                ModelInfo(id="gemini-1.5-pro", object="model", owned_by="google"),
+                ModelInfo(id="gemini-1.5-flash", object="model", owned_by="google"),
             ]
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Returning {len(all_models)} models")
 
-        return {"object": "list", "data": all_models}
+        return ModelsListingResponse(object="list", data=all_models)
 
     except Exception as e:  # type: ignore[misc]
         if logger.isEnabledFor(logging.ERROR):
@@ -462,7 +463,7 @@ async def list_models(
     backend_service: IBackendService = Depends(get_backend_service),
     config: IConfig = Depends(get_config_service),
     backend_factory: BackendFactory = Depends(get_backend_factory_service),
-) -> dict[str, Any]:
+) -> ModelsListingResponse:
     """List available models from all configured backends."""
 
     return await _list_models_impl(

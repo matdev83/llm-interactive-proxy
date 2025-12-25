@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
@@ -25,12 +26,15 @@ from src.core.domain.chat import (
     MessageContentPartImage,
     MessageContentPartText,
 )
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
+
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
 from src.core.domain.session_key import SessionKey
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -46,7 +50,16 @@ from src.core.services.translation_service import TranslationService
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class GeminiApiConfig:
+    """Resolved configuration for Gemini API requests."""
+
+    base_url: str
+    headers: dict[str, str]
+
+
 class GeminiBackend(LLMBackend, UsageCalculationMixin):
+
     """LLMBackend implementation for Google's Gemini API.
 
     Implements StreamProducer protocol for streaming pipeline integration.
@@ -98,8 +111,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     api_key=self.api_key,
                 )
                 self.available_models = [
-                    m.get("name") for m in data.get("models", []) if m.get("name")
+                    m.id for m in data.data if m.id
                 ]
+
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -490,7 +504,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         try:
             # Resolve base configuration
-            base_api_url, headers = await self._resolve_gemini_api_config(
+            api_config = await self._resolve_gemini_api_config(
                 gemini_api_base_url,
                 openrouter_api_base_url,
                 api_key,
@@ -499,6 +513,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 **kwargs,
             )
         except Exception as e:
+
             # If streaming was requested, we must return a streaming error response
             # instead of letting the exception bubble up (which would result in a JSON response)
             if domain_request.stream:
@@ -529,12 +544,13 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             raise
 
         if identity:
-            headers.update(identity.get_resolved_headers(None))
+            api_config.headers.update(identity.get_resolved_headers(None))
 
         # Translate CanonicalChatRequest to Gemini request using the translation service
         payload = self.translation_service.from_domain_request(
             domain_request, target_format="gemini"
         )
+
 
         # Apply generation config including temperature clamping
         self._apply_generation_config(payload, domain_request)
@@ -599,9 +615,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         model_name = self._normalize_model_name(effective_model)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
-        model_url = f"{base_api_url}/v1beta/models/{model_name}"
+        model_url = f"{api_config.base_url}/v1beta/models/{model_name}"
 
         # Streaming vs non-streaming
+
         if domain_request.stream:
             # Use the new streaming pipeline orchestrator
             # This integrates: Backend → Normalizer → Processors → Assembler
@@ -662,8 +679,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 raise
 
         response_envelope = await self._handle_gemini_non_streaming_response(
-            model_url, payload, headers, effective_model
+            model_url, payload, api_config.headers, effective_model
         )
+
 
         # Ensure usage is calculated if missing
         return self.ensure_usage_in_response(
@@ -696,7 +714,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
         key_name: str | None = None,
         **kwargs: Any,
-    ) -> tuple[str, dict[str, str]]:
+    ) -> GeminiApiConfig:
         # Prefer explicit params, then kwargs, then instance attributes set during initialize
         base = (
             gemini_api_base_url
@@ -780,7 +798,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             )
             headers = {key_name_to_use: key}
 
-        return normalized_base, ensure_loop_guard_header(headers)
+        return GeminiApiConfig(
+            base_url=normalized_base, headers=ensure_loop_guard_header(headers)
+        )
+
 
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest
@@ -887,10 +908,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
 
             # Extract usage from Gemini response
-            usage_dict = self._extract_gemini_usage(data)
-            from src.core.domain.usage_summary import UsageSummary
-
-            usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
+            usage = self._extract_gemini_usage(data)
 
             return ResponseEnvelope(
                 content=self.translation_service.to_domain_response(
@@ -900,13 +918,14 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 status_code=response.status_code,
                 usage=usage,
             )
+
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
-    ) -> dict[str, Any]:
+    ) -> ModelsListingResponse:
         headers = ensure_loop_guard_header({key_name: api_key})
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:
@@ -921,21 +940,36 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     code="gemini_error",
                     status_code=response.status_code,
                 )
-            return cast(dict[str, Any], response.json())
+
+            data = response.json()
+            raw_models = data.get("models", [])
+            model_infos = []
+            for m in raw_models:
+                if isinstance(m, dict):
+                    model_infos.append(
+                        ModelInfo(
+                            id=m.get("name") or "",
+                            name=m.get("displayName") or m.get("name"),
+                            object="model",
+                            owned_by="google",
+                        )
+                    )
+            return ModelsListingResponse(object="list", data=model_infos)
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
+
     def _extract_gemini_usage(
         self, response_data: dict[str, Any]
-    ) -> dict[str, int] | None:
+    ) -> UsageSummary | None:
         """Extract usage information from Gemini API response.
 
         Args:
             response_data: The response data from Gemini API
 
         Returns:
-            Usage dictionary or None if not found
+            UsageSummary or None if not found
         """
         try:
             usage_metadata = response_data.get("usageMetadata", {})
@@ -950,15 +984,16 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             if prompt_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
                 return None
 
-            return {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            }
+            return UsageSummary(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Failed to extract Gemini usage: {e}")
             return None
+
 
     # StreamProducer protocol implementation
     async def stream_completion(
@@ -990,7 +1025,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         extra_body = getattr(request, "extra_body", {}) or {}
 
         try:
-            base_api_url, headers = await self._resolve_gemini_api_config(
+            api_config = await self._resolve_gemini_api_config(
                 gemini_api_base_url=extra_body.get("gemini_api_base_url"),
                 openrouter_api_base_url=extra_body.get("openrouter_api_base_url"),
                 api_key=extra_body.get("api_key"),
@@ -998,6 +1033,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 effective_model=effective_model,
             )
         except HTTPException as e:
+
             raise BackendError(
                 message=e.detail, code="config_error", status_code=e.status_code
             ) from e
@@ -1018,10 +1054,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # Normalize model name and build URL
         model_name = self._normalize_model_name(effective_model)
-        url = f"{base_api_url}/v1beta/models/{model_name}:streamGenerateContent"
+        url = f"{api_config.base_url}/v1beta/models/{model_name}:streamGenerateContent"
 
         # Prepare headers
-        request_headers = ensure_loop_guard_header(headers)
+        request_headers = ensure_loop_guard_header(api_config.headers)
+
         request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
         request_headers.setdefault("x-goog-request-id", request_id)
 
@@ -1126,8 +1163,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         Returns:
             Prepared payload dictionary
         """
-        # Resolve base configuration
-        base_api_url, headers = await self._resolve_gemini_api_config(
+        # Resolve base configuration (validates config)
+        await self._resolve_gemini_api_config(
             getattr(request, "gemini_api_base_url", None),
             getattr(request, "openrouter_api_base_url", None),
             getattr(request, "api_key", None),
@@ -1139,6 +1176,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             "model": f"models/{effective_model}",
             "contents": self._prepare_gemini_contents(processed_messages),
         }
+
 
         # Apply generation config including temperature clamping
         # Type assertion: we know from architectural design that request_data is ChatRequest-like

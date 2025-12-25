@@ -11,7 +11,9 @@ import asyncio
 import logging
 from typing import Any
 
+from src.connectors.gemini_base.models import TierScore
 from src.core.common.exceptions import BackendError
+
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +347,7 @@ class PaidTierProjectDiscovery:
                 return int(value)
         return 0
 
-    def _tier_score(self, tier: dict[str, Any]) -> tuple[int, int, int]:
+    def _tier_score(self, tier: dict[str, Any]) -> TierScore:
         """Calculate a score for tier ranking."""
         tier_id = self._tier_id(tier)
         is_paid = int(tier_id in {"paid-tier", "google-one-tier", "googleone-tier"})
@@ -353,7 +355,10 @@ class PaidTierProjectDiscovery:
         if is_paid and context_tokens == 0:
             context_tokens = 1_000_000
         is_default = int(bool(tier.get("isDefault")))
-        return (is_paid, context_tokens, is_default)
+        return TierScore(
+            is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
+        )
+
 
 
 class AntigravityProjectDiscovery:
@@ -544,7 +549,7 @@ class AntigravityProjectDiscovery:
                 return int(value)
         return 0
 
-    def _tier_score(self, tier: dict[str, Any]) -> tuple[int, int, int]:
+    def _tier_score(self, tier: dict[str, Any]) -> TierScore:
         """Calculate a score for tier ranking (Antigravity-specific).
 
         Antigravity includes additional tier IDs in its paid tier detection.
@@ -564,7 +569,10 @@ class AntigravityProjectDiscovery:
         if is_paid and context_tokens == 0:
             context_tokens = 1_000_000
         is_default = int(bool(tier.get("isDefault")))
-        return (is_paid, context_tokens, is_default)
+        return TierScore(
+            is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
+        )
+
 
 
 # Backward-compatible helper functions
@@ -596,14 +604,14 @@ def build_client_metadata(
     }
 
 
-def calculate_tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
+def calculate_tier_score(tier: dict[str, Any]) -> TierScore:
     """Calculate a score for tier ranking.
 
     Args:
         tier: Tier dictionary from loadCodeAssist response.
 
     Returns:
-        Tuple of (is_paid, context_tokens, is_default).
+        TierScore object.
     """
     tier_id = (tier.get("id") or tier.get("tierId") or "").lower()
     is_paid = int(
@@ -634,7 +642,10 @@ def calculate_tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
         context_tokens = 1_000_000
 
     is_default = int(bool(tier.get("isDefault")))
-    return (is_paid, context_tokens, is_default)
+    return TierScore(
+        is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
+    )
+
 
 
 def select_best_tier(load_data: dict[str, Any]) -> dict[str, Any]:

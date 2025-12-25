@@ -390,9 +390,16 @@ class VTCResponseStreamWrapper:
             from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 
             for tool_call in tool_calls:
-                func_info = tool_call.get("function", {})
-                tool_name = func_info.get("name", "unknown")
-                raw_tool_args = func_info.get("arguments", "{}")
+                if hasattr(tool_call, "function"):
+                    # Pydantic model
+                    tool_name = tool_call.function.name
+                    raw_tool_args = tool_call.function.arguments
+                else:
+                    # Legacy dict
+                    func_info = tool_call.get("function", {})
+                    tool_name = func_info.get("name", "unknown")
+                    raw_tool_args = func_info.get("arguments", "{}")
+
 
                 # Use standardized argument parsing/fixup pipeline if available
                 if self._arguments_parser and self._arguments_fixup_pipeline:
@@ -514,12 +521,16 @@ class VTCResponseStreamWrapper:
             logger.info(
                 "VTC wrapper detected %d tool call(s): %s",
                 len(tool_calls),
-                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+                [
+                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
+                    for tc in tool_calls
+                ],
             )
             # Invoke reactor for detected tool calls and handle swallowing
             non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
                 tool_calls
             )
+
 
             # If any tool calls were swallowed, strip tool XML and mark for backend retry.
             # IMPORTANT: Never inject steering/replacement messages into client-visible output.
@@ -583,9 +594,13 @@ class VTCResponseStreamWrapper:
             logger.info(
                 "VTC wrapper detected %d tool call(s): %s",
                 len(tool_calls),
-                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+                [
+                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
+                    for tc in tool_calls
+                ],
             )
         else:
+
             logger.debug("VTC wrapper found no tool calls in complete pattern")
 
         # Return original content unchanged - VTC clients expect their original format
@@ -617,12 +632,16 @@ class VTCResponseStreamWrapper:
             logger.info(
                 "VTC wrapper detected %d tool call(s) on flush: %s",
                 len(tool_calls),
-                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+                [
+                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
+                    for tc in tool_calls
+                ],
             )
             # Invoke reactor for detected tool calls and handle swallowing
             non_swallowed, replacement_msg, swallowed_any = await self._invoke_reactor(
                 tool_calls
             )
+
 
             # If any tool calls were swallowed, strip tool XML and mark for backend retry.
             # IMPORTANT: Never inject steering/replacement messages into client-visible output.
@@ -686,8 +705,12 @@ class VTCResponseStreamWrapper:
             logger.info(
                 "VTC wrapper detected %d tool call(s) on flush: %s",
                 len(tool_calls),
-                [tc.get("function", {}).get("name", "unknown") for tc in tool_calls],
+                [
+                    tc.function.name if hasattr(tc, "function") else tc.get("function", {}).get("name", "unknown")
+                    for tc in tool_calls
+                ],
             )
+
 
         # Return original content unchanged - VTC clients expect their original format
         # Tool calls are added to metadata for reactor processing

@@ -22,7 +22,9 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
+from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
+
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
 from src.connectors.gemini_base.project_discovery import PaidTierProjectDiscovery
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
@@ -243,15 +245,17 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                     return int(value)
             return 0
 
-        def _tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
+        def _tier_score(tier: dict[str, Any]) -> TierScore:
             tier_id = _tier_id(tier)
             is_paid = int(tier_id in {"paid-tier", "google-one-tier", "googleone-tier"})
             context_tokens = _context_tokens(tier)
             if is_paid and context_tokens == 0:
-                # Paid tier should always outrank tiers with unknown limits
                 context_tokens = 1_000_000
             is_default = int(bool(tier.get("isDefault")))
-            return (is_paid, context_tokens, is_default)
+            return TierScore(
+                is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
+            )
+
 
         tier_to_use: dict[str, Any] | None = None
         if allowed_tiers:

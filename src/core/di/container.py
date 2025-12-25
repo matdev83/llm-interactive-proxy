@@ -317,6 +317,7 @@ class ServiceCollection(IServiceCollection):
         # Track cleanup tasks to prevent resource leaks
         # Use regular set instead of WeakSet to prevent premature GC before tasks complete
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_lock = asyncio.Lock()
         self._disposed = False
 
     def add_singleton(
@@ -410,6 +411,7 @@ class ServiceCollection(IServiceCollection):
                             cleanup_task = asyncio.create_task(old_instance.aclose())
                             self._cleanup_tasks.add(cleanup_task)
                         else:
+
                             # Run synchronously if no event loop
                             loop.run_until_complete(old_instance.aclose())
                     except (RuntimeError, AttributeError):
@@ -437,10 +439,10 @@ class ServiceCollection(IServiceCollection):
         return provider
 
     async def dispose(self) -> None:
-        """Dispose of the service collection and await pending cleanup tasks.
+        """Dispose of of service collection and await pending cleanup tasks.
 
         This method ensures that all cleanup tasks created when replacing
-        httpx.AsyncClient instances are properly awaited before the collection
+        httpx.AsyncClient instances are properly awaited before collection
         is destroyed, preventing resource leaks.
 
         Should be called when ServiceCollection is about to be destroyed,
@@ -452,31 +454,32 @@ class ServiceCollection(IServiceCollection):
         self._disposed = True
 
         # Await all pending cleanup tasks to prevent resource leaks
-        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
-        if pending_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*pending_tasks, return_exceptions=True),
-                    timeout=5.0,
-                )
-            except asyncio.TimeoutError:
-                # Cancel tasks that didn't complete in time
-                for task in pending_tasks:
-                    if not task.done():
-                        task.cancel()
-                # Await cancelled tasks to ensure they complete
-                with contextlib.suppress(Exception):
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)
-            except Exception:
-                # If gather fails, cancel all tasks
-                for task in pending_tasks:
-                    if not task.done():
-                        task.cancel()
-                with contextlib.suppress(Exception):
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+        async with self._cleanup_lock:
+            pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+            if pending_tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending_tasks, return_exceptions=True),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    # Cancel tasks that didn't complete in time
+                    for task in pending_tasks:
+                        if not task.done():
+                            task.cancel()
+                    # Await cancelled tasks to ensure they complete
+                    with contextlib.suppress(Exception):
+                        await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception:
+                    # If gather fails, cancel all tasks
+                    for task in pending_tasks:
+                        if not task.done():
+                            task.cancel()
+                    with contextlib.suppress(Exception):
+                        await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-        # Clear the cleanup tasks set to prevent memory leaks
-        self._cleanup_tasks.clear()
+            # Clear the cleanup tasks set to prevent memory leaks
+            self._cleanup_tasks.clear()
 
     def register_app_services(self) -> None:
         """Register all application services via registrar orchestration.

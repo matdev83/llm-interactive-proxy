@@ -69,6 +69,7 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
         )
     )
 
-    model_ids = {model["id"] for model in result["data"]}
+    model_ids = {model.id for model in result.data}
+
     assert "gemini-oauth-plan:gemini-2.5-pro" in model_ids
     assert created_backends == ["gemini-oauth-plan"]

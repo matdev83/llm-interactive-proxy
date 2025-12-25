@@ -194,7 +194,9 @@ class TestBug2NoneUsageAttributeError:
 
         # Should NOT raise: AttributeError: 'NoneType' object has no attribute 'get'
         try:
-            result = openai_to_anthropic_response(openai_response)
+            result_model = openai_to_anthropic_response(openai_response)
+            result = result_model.model_dump(exclude_none=True)
+
         except AttributeError as e:
             pytest.fail(
                 f"Bug regression: usage=None caused AttributeError: {e}\n"
@@ -225,7 +227,9 @@ class TestBug2NoneUsageAttributeError:
 
         # Should handle both edge cases without crashing
         try:
-            result = openai_to_anthropic_response(openai_response)
+            result_model = openai_to_anthropic_response(openai_response)
+            result = result_model.model_dump(exclude_none=True)
+
         except AttributeError as e:
             pytest.fail(
                 f"Bug regression: Combined empty choices + None usage failed: {e}"
@@ -249,9 +253,11 @@ class TestBug2NoneUsageAttributeError:
             # 'usage' key is completely absent
         }
 
-        result = openai_to_anthropic_response(openai_response)
+        result_model = openai_to_anthropic_response(openai_response)
+        result = result_model.model_dump(exclude_none=True)
 
         assert result["content"][0]["text"] == "No usage"
+
         assert result["usage"]["input_tokens"] == 0
 
 
@@ -474,7 +480,9 @@ class TestBug4NoneFinishReasonWithToolCalls:
             },
         }
 
-        result = openai_to_anthropic_response(openai_response)
+        result_model = openai_to_anthropic_response(openai_response)
+        result = result_model.model_dump(exclude_none=True)
+
 
         # CRITICAL: stop_reason must be "tool_use", NOT None
         assert result["stop_reason"] == "tool_use", (
@@ -515,7 +523,9 @@ class TestBug4NoneFinishReasonWithToolCalls:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
-        result = openai_to_anthropic_response(openai_response)
+        result_model = openai_to_anthropic_response(openai_response)
+        result = result_model.model_dump(exclude_none=True)
+
 
         assert result["stop_reason"] == "tool_use"
 
@@ -542,7 +552,8 @@ class TestBug4NoneFinishReasonWithToolCalls:
         result = openai_to_anthropic_response(openai_response)
 
         # For non-tool responses, None finish_reason should remain None stop_reason
-        assert result["stop_reason"] is None
+        assert result.stop_reason is None
+
 
 
 class TestCombinedBugScenario:
@@ -603,10 +614,12 @@ class TestCombinedBugScenario:
         unwrapped = connector._unwrap_cline_data_envelope(cline_raw_response)
 
         # Step 3: Translation to Anthropic format (could trigger Bug #2)
-        anthropic_response = openai_to_anthropic_response(unwrapped)
+        anthropic_response_model = openai_to_anthropic_response(unwrapped)
+        anthropic_response = anthropic_response_model.model_dump(exclude_none=True)
 
         # Verify complete success
         assert anthropic_response["type"] == "message"
+
         assert anthropic_response["content"][0]["text"] == "Integration test"
         assert anthropic_response["usage"]["input_tokens"] == 10
         assert anthropic_response["usage"]["output_tokens"] == 5
@@ -634,7 +647,9 @@ class TestCombinedBugScenario:
 
         # Anthropic converter should handle None usage
         try:
-            result = openai_to_anthropic_response(problematic_response)
+            result_model = openai_to_anthropic_response(problematic_response)
+            result = result_model.model_dump(exclude_none=True)
             assert result["usage"]["input_tokens"] == 0
+
         except AttributeError:
             pytest.fail("Bug regression: None usage still causes AttributeError")

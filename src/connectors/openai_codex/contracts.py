@@ -77,10 +77,13 @@ class CodexInputItem(BaseModel):
 class CodexToolSchema(BaseModel):
     """Tool schema structure for Codex API."""
 
+    model_config = ConfigDict(extra="allow")
+
     name: str
     description: str | None = None
-    parameters: dict[str, object]
+    parameters: dict[str, object] = Field(default_factory=dict)
     type: str = "function"
+
 
 
 class ToolArguments(BaseModel):

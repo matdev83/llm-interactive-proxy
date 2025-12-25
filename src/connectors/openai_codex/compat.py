@@ -338,9 +338,10 @@ class CompatibilityLayer(ICompatibilityLayer):
 
                     # Translate to Droid name
                     try:
-                        droid_name, _ = droid_translator.translate_codex_to_droid(
+                        trans_res = droid_translator.translate_codex_to_droid(
                             original_name, {}
                         )
+                        droid_name = trans_res.droid_tool_name
                         func["name"] = droid_name
                         logger.debug(
                             "Translated tool name: %s -> %s (id=%s)",
@@ -348,6 +349,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                             droid_name,
                             tc_id,
                         )
+
                     except Exception as e:
                         logger.debug(
                             "Failed to translate tool %s: %s", original_name, e
@@ -367,11 +369,13 @@ class CompatibilityLayer(ICompatibilityLayer):
                     if codex_name and full_args_str:
                         try:
                             codex_args = json.loads(full_args_str)
-                            _, droid_args = droid_translator.translate_codex_to_droid(
+                            trans_res = droid_translator.translate_codex_to_droid(
                                 codex_name, codex_args
                             )
+                            droid_args = trans_res.droid_arguments
                             # Replace arguments with translated version
                             func["arguments"] = json.dumps(droid_args)
+
                             logger.debug(
                                 "Translated tool args for %s (id=%s): %s -> %s",
                                 codex_name,

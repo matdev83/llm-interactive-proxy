@@ -15,16 +15,17 @@ async def test_resolve_gemini_api_config_uses_custom_header_name() -> None:
     )
     backend.key_name = "X-Custom-Header"
 
-    base_url, headers = await backend._resolve_gemini_api_config(  # type: ignore[attr-defined]
+    api_config = await backend._resolve_gemini_api_config(  # type: ignore[attr-defined]
         "https://example.com/api/",
         None,
         "secret-token",
         key_name="X-Custom-Header",
     )
 
-    assert base_url == "https://example.com/api"
-    assert headers["X-Custom-Header"] == "secret-token"
-    assert headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
+    assert api_config.base_url == "https://example.com/api"
+    assert api_config.headers["X-Custom-Header"] == "secret-token"
+    assert api_config.headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
+
 
 
 @pytest.mark.asyncio
@@ -49,4 +50,5 @@ async def test_list_models_respects_key_name(monkeypatch: pytest.MonkeyPatch) ->
 
     assert captured_headers["X-Alt-Key"] == "another-secret"
     assert captured_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
-    assert result == {"models": []}
+    assert result.data == []
+

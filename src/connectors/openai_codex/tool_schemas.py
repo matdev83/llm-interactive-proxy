@@ -6,9 +6,13 @@ This module contains the built-in tool schemas for OpenAI Codex connector.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.connectors.openai_codex.contracts import CodexToolSchema
 
 # Built-in Codex tool schemas
+
 CODEX_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "read_file": {
         "type": "function",
@@ -117,14 +121,40 @@ CODEX_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
-def get_codex_tool_schema(tool_name: str) -> dict[str, Any] | None:
-    """Return a deep copy of the registered Codex tool schema, if available.
+def get_codex_tool_schema(tool_name: str) -> CodexToolSchema | None:
+    """Return a registered Codex tool schema, if available.
 
     Args:
         tool_name: Name of the tool to retrieve
 
     Returns:
-        Deep copy of the tool schema dict, or None if not found
+        CodexToolSchema instance, or None if not found
     """
-    schema = CODEX_TOOL_SCHEMAS.get(tool_name)
-    return deepcopy(schema) if schema else None
+    from src.connectors.openai_codex.contracts import CodexToolSchema
+
+    schema_dict = CODEX_TOOL_SCHEMAS.get(tool_name)
+    if not schema_dict:
+        return None
+
+    # Support both flat and OpenAI-style nested structures
+    name = schema_dict.get("name")
+    description = schema_dict.get("description")
+    parameters = schema_dict.get("parameters", {})
+    tool_type = schema_dict.get("type", "function")
+
+    if not name and "function" in schema_dict:
+        func = schema_dict["function"]
+        name = func.get("name")
+        description = func.get("description")
+        parameters = func.get("parameters", {})
+
+    if not name:
+        return None
+
+    return CodexToolSchema(
+        name=str(name),
+        description=str(description) if description else None,
+        parameters=dict(parameters) if parameters else {},
+        type=str(tool_type) if tool_type else "function",
+    )
+

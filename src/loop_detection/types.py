@@ -1,6 +1,10 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .analyzer import PatternAnalyzerSummary
+
 
 
 class LoopDetectorConfig(BaseModel):
@@ -111,4 +115,5 @@ class StandardLoopDetectorState(BaseModel):
     buffer_content_length: int
     total_processed: int
     last_detection_position: int
-    analyzer_state: dict[str, Any]
+    analyzer_state: Any  # PatternAnalyzerSummary | dict[str, Any]
+

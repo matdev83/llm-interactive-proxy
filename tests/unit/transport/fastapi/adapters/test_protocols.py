@@ -122,17 +122,17 @@ class TestProtocolContracts:
 
     def test_sse_decoder_contract(self) -> None:
         """Test ISSEDecoder contract compliance."""
+        from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
 
         class MockSSEDecoder:
-            def decode_payload(
-                self, payload: bytes | str
-            ) -> tuple[Any, dict[str, Any], bool]:
-                return {}, {}, False
+            def decode_payload(self, payload: bytes | str) -> DecodedSSE:
+                return DecodedSSE(content={}, metadata={}, is_done=False)
 
         decoder: ISSEDecoder = MockSSEDecoder()
-        content, metadata, is_done = decoder.decode_payload(b"data: {}")
-        assert isinstance(metadata, dict)
-        assert isinstance(is_done, bool)
+        res = decoder.decode_payload(b"data: {}")
+        assert isinstance(res.metadata, dict)
+        assert isinstance(res.is_done, bool)
+
 
     def test_reasoning_injector_contract(self) -> None:
         """Test IReasoningInjector contract compliance."""

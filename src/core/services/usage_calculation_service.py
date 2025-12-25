@@ -326,7 +326,7 @@ class UsageCalculationService:
         response_content: Any = None,
         model: str | None = None,
         force_recalculation: bool = False,
-    ) -> dict[str, Any]:
+    ) -> OpenRouterUsage:
         """Ensure usage information is present and accurate.
 
         This is the main entry point for ensuring responses include valid usage.
@@ -344,7 +344,7 @@ class UsageCalculationService:
             force_recalculation: Force recalculation even without modifications
 
         Returns:
-            Dictionary with usage in OpenRouter format
+            OpenRouterUsage instance
         """
         # Get modification tracker from context
         modification_tracker = None
@@ -375,7 +375,7 @@ class UsageCalculationService:
             else:
                 usage = OpenRouterUsage()
 
-        return usage.to_openrouter_dict()
+        return usage
 
     def merge_streaming_usage(
         self,
@@ -384,7 +384,7 @@ class UsageCalculationService:
         context: RequestContext | None = None,
         model: str | None = None,
         force_recalculation: bool = False,
-    ) -> dict[str, Any]:
+    ) -> OpenRouterUsage:
         """Merge usage for streaming responses.
 
         For streaming responses, the final chunk may contain usage information
@@ -398,7 +398,7 @@ class UsageCalculationService:
             force_recalculation: Force recalculation even without modification flags
 
         Returns:
-            Dictionary with merged usage in OpenRouter format
+            OpenRouterUsage with merged values
         """
         # Parse final chunk usage
         base_usage = (
@@ -417,7 +417,7 @@ class UsageCalculationService:
 
         if should_force_recalc:
             if not accumulated_content and base_usage is not None:
-                return base_usage.to_openrouter_dict()
+                return base_usage
 
             # Recalculate completion tokens from accumulated content
             completion_tokens = self.calculate_completion_tokens(
@@ -447,17 +447,18 @@ class UsageCalculationService:
                     reasons,
                 )
 
-            return result.to_openrouter_dict()
+            return result
 
         # No modifications - use final chunk usage or calculate
         if base_usage is not None:
-            return base_usage.to_openrouter_dict()
+            return base_usage
 
         # No usage provided - calculate from accumulated content
         completion_tokens = self.calculate_completion_tokens(accumulated_content, model)
         return OpenRouterUsage.from_basic_usage(
             completion_tokens=completion_tokens
-        ).to_openrouter_dict()
+        )
+
 
 
 # Global service instance for convenience

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from src.connectors.utils.cline_auth_types import ClineTokenData
 from src.core.common.exceptions import AuthenticationError, BackendError
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class _ClineTokenStore:
     def __init__(self, secrets_path: Path) -> None:
         self._secrets_path = secrets_path
 
-    def read(self) -> dict[str, Any] | None:
+    def read(self) -> ClineTokenData | None:
         secrets = self._read_all()
         raw_value = secrets.get(self.PRIMARY_KEY) or secrets.get(self.LEGACY_KEY)
 
@@ -53,23 +54,30 @@ class _ClineTokenStore:
 
         if isinstance(raw_value, str):
             try:
-                parsed: dict[str, Any] = json.loads(raw_value)
-                return parsed
-            except json.JSONDecodeError:
+                parsed = json.loads(raw_value)
+                return ClineTokenData.model_validate(parsed)
+            except (json.JSONDecodeError, Exception):
                 logger.warning("Failed to parse Cline auth payload from secrets file")
                 return None
 
         if isinstance(raw_value, Mapping):
-            return dict(raw_value)
+            try:
+                return ClineTokenData.model_validate(raw_value)
+            except Exception:
+                logger.warning("Failed to validate Cline auth payload from secrets file")
+                return None
 
         logger.warning(
             "Unexpected auth payload type in secrets file: %s", type(raw_value).__name__
         )
         return None
 
-    def write(self, payload: Mapping[str, Any]) -> None:
+    def write(self, payload: ClineTokenData | Mapping[str, Any]) -> None:
         secrets = self._read_all()
-        serialized = json.dumps(payload)
+        if isinstance(payload, ClineTokenData):
+            serialized = payload.model_dump_json(by_alias=True)
+        else:
+            serialized = json.dumps(payload)
 
         secrets[self.PRIMARY_KEY] = serialized
         self._secrets_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +108,7 @@ class ClineAuthMixin:
     api_key: str | None
     _ENVIRONMENT_BASES: dict[str, str]
     _token_lock: asyncio.Lock
-    _token_cache: dict[str, Any] | None
+    _token_cache: ClineTokenData | None
     _secrets_path: Path | None
     _token_store: _ClineTokenStore | None
     _token_file_mtime: float | None
@@ -119,7 +127,7 @@ class ClineAuthMixin:
 
     async def _ensure_auth_token(
         self, force_reload: bool = False, *, force_refresh: bool = False
-    ) -> dict[str, Any]:
+    ) -> ClineTokenData:
         async with self._token_lock:
             if force_reload or self._token_cache is None or self._token_file_changed():
                 token_data = self._load_tokens_from_disk()
@@ -139,13 +147,13 @@ class ClineAuthMixin:
             needs_refresh = force_refresh or self._is_token_expired(token_data)
             needs_conversion = self._token_needs_conversion(token_data)
             if needs_refresh or needs_conversion:
-                refresh_token = token_data.get("refreshToken")
+                refresh_token = token_data.refresh_token
                 if not refresh_token:
                     replacement = self._reload_from_secondary_tokens()
                     if not replacement:
                         raise AuthenticationError(
                             "Stored Cline token cannot be refreshed. Please sign into Cline.",
-                            details={"provider": token_data.get("provider")},
+                            details={"provider": token_data.provider},
                         )
                     token_data = replacement
                 else:
@@ -163,7 +171,7 @@ class ClineAuthMixin:
             else:
                 self._token_cache = token_data
 
-            api_key = token_data.get("idToken")
+            api_key = token_data.id_token
             if not api_key:
                 raise AuthenticationError("Cline auth token is missing idToken field.")
             if not api_key.startswith("workos:"):
@@ -376,7 +384,7 @@ class ClineAuthMixin:
 
         return current_mtime > self._token_file_mtime
 
-    def _load_tokens_from_disk(self) -> dict[str, Any] | None:
+    def _load_tokens_from_disk(self) -> ClineTokenData | None:
         if not self._token_store:
             return None
 
@@ -399,7 +407,7 @@ class ClineAuthMixin:
 
         return token_data
 
-    def _persist_tokens(self, token_data: Mapping[str, Any]) -> None:
+    def _persist_tokens(self, token_data: ClineTokenData | Mapping[str, Any]) -> None:
         if not self._token_store:
             return
         self._token_store.write(token_data)
@@ -413,8 +421,12 @@ class ClineAuthMixin:
         except FileNotFoundError:
             return None
 
-    def _is_token_expired(self, token_data: Mapping[str, Any]) -> bool:
-        expires_at = token_data.get("expiresAt")
+    def _is_token_expired(self, token_data: ClineTokenData | Mapping[str, Any]) -> bool:
+        if isinstance(token_data, ClineTokenData):
+            expires_at = token_data.expires_at
+        else:
+            expires_at = token_data.get("expiresAt")
+
         if expires_at is None:
             return False
         try:
@@ -427,8 +439,8 @@ class ClineAuthMixin:
     async def _refresh_tokens(
         self,
         refresh_token: str,
-        existing_payload: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        existing_payload: ClineTokenData | Mapping[str, Any] | None = None,
+    ) -> ClineTokenData:
         payload = {
             "refreshToken": refresh_token,
             "grantType": "refresh_token",
@@ -480,24 +492,35 @@ class ClineAuthMixin:
             raise AuthenticationError("Cline refresh response missing accessToken.")
 
         new_refresh_token = data.get("refreshToken") or refresh_token
+
+        if isinstance(existing_payload, ClineTokenData):
+            existing_expires_at = existing_payload.expires_at
+        else:
+            existing_expires_at = (
+                existing_payload.get("expiresAt") if existing_payload else None
+            )
+
         expires_at = self._parse_expiry_timestamp(
             data.get("expiresAt"),
-            fallback=existing_payload.get("expiresAt") if existing_payload else None,
+            fallback=existing_expires_at,
         )
 
         user_info = await self._fetch_user_info(access_token)
         if not user_info and existing_payload:
-            existing_user = existing_payload.get("userInfo")
-            if isinstance(existing_user, Mapping):
-                user_info = dict(existing_user)
+            if isinstance(existing_payload, ClineTokenData):
+                user_info = existing_payload.user_info
+            else:
+                existing_user = existing_payload.get("userInfo")
+                if isinstance(existing_user, Mapping):
+                    user_info = dict(existing_user)
 
-        return {
-            "idToken": access_token,
-            "refreshToken": new_refresh_token,
-            "expiresAt": expires_at,
-            "userInfo": user_info or {},
-            "provider": "cline",
-        }
+        return ClineTokenData(
+            idToken=access_token,
+            refreshToken=new_refresh_token,
+            expiresAt=expires_at,
+            userInfo=user_info or {},
+            provider="cline",
+        )
 
     async def _fetch_user_info(self, access_token: str) -> dict[str, Any] | None:
         headers = {"Authorization": f"Bearer workos:{access_token}"}
@@ -565,7 +588,7 @@ class ClineAuthMixin:
 
         return None
 
-    def _reload_from_secondary_tokens(self) -> dict[str, Any] | None:
+    def _reload_from_secondary_tokens(self) -> ClineTokenData | None:
         vscode_tokens = self._load_tokens_from_vscode_secret_store()
         if vscode_tokens:
             logger.info("Recovered Cline credentials from VSCode secret store")
@@ -580,7 +603,7 @@ class ClineAuthMixin:
 
         return None
 
-    def _load_tokens_from_codex_auth(self) -> dict[str, Any] | None:
+    def _load_tokens_from_codex_auth(self) -> ClineTokenData | None:
         if not self._codex_auth_override:
             return None
 
@@ -621,15 +644,15 @@ class ClineAuthMixin:
             if isinstance(user_claim, str) and user_claim:
                 user_info["id"] = user_claim
 
-        return {
-            "idToken": access_token,
-            "refreshToken": refresh_token,
-            "expiresAt": expires_at,
-            "userInfo": user_info,
-            "provider": "codex",
-        }
+        return ClineTokenData(
+            idToken=access_token,
+            refreshToken=refresh_token,
+            expiresAt=expires_at,
+            userInfo=user_info,
+            provider="codex",
+        )
 
-    def _load_tokens_from_vscode_secret_store(self) -> dict[str, Any] | None:
+    def _load_tokens_from_vscode_secret_store(self) -> ClineTokenData | None:
         if os.name != "nt":
             return None
         if AESGCM is None:
@@ -654,7 +677,7 @@ class ClineAuthMixin:
             plaintext = self._decrypt_vscode_secret(secret_blob, aes_key)
             data = json.loads(plaintext.decode("utf-8"))
             if isinstance(data, Mapping):
-                return dict(data)
+                return ClineTokenData.model_validate(data)
         except Exception as exc:
             logger.debug("Failed to load VSCode secret store: %s", exc, exc_info=True)
             return None
@@ -830,8 +853,12 @@ class ClineAuthMixin:
             return float(expires_at)
         return None
 
-    def _token_needs_conversion(self, token_data: Mapping[str, Any]) -> bool:
-        provider = token_data.get("provider")
+    def _token_needs_conversion(self, token_data: ClineTokenData | Mapping[str, Any]) -> bool:
+        if isinstance(token_data, ClineTokenData):
+            provider = token_data.provider
+        else:
+            provider = token_data.get("provider")
+
         if provider is None:
             return False
         return str(provider).lower() != "cline"

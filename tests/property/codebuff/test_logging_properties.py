@@ -229,7 +229,7 @@ async def test_property_25_disconnect_logging(session_id):
 # Property 26: Sensitive data exclusion
 @given(session_id=session_id_strategy(), auth_token=auth_token_strategy())
 @settings(max_examples=50, deadline=None)
-def test_property_26_sensitive_data_exclusion(session_id, auth_token):
+async def test_property_26_sensitive_data_exclusion(session_id, auth_token):
     """
     Feature: codebuff-backend-compatibility, Property 26: Sensitive data exclusion
     Validates: Requirements 8.5

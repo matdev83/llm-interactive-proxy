@@ -9,11 +9,28 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, Field, model_validator
+
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.model_utils import parse_model_backend
 from src.core.interfaces.model_bases import InternalDTO
 
 logger = get_logger(__name__)
+
+
+class FailoverRouteConfig(BaseModel):
+    """Configuration for a failover route."""
+
+    policy: str = "k"
+    elements: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_string(cls, data: Any) -> Any:
+        """Allow initializing from a string (simple route with one element)."""
+        if isinstance(data, str):
+            return {"elements": [data]}
+        return data
 
 
 @dataclass
@@ -33,28 +50,32 @@ class FailoverService:
         Args:
             failover_routes: A dictionary mapping backend types to failover routes
         """
-        self.failover_routes: dict[str, Any] = failover_routes or {}
-        # Disable debug logging to improve test performance
-        # logger.debug(
-        #     "Initialized failover service",
-        #     failover_routes=self.failover_routes,
-        # )
+        # Convert raw routes to typed configs
+        self.failover_routes: dict[str, FailoverRouteConfig] = {}
+        if failover_routes:
+            for backend, route in failover_routes.items():
+                if isinstance(route, dict):
+                    self.failover_routes[backend] = FailoverRouteConfig.model_validate(
+                        route
+                    )
+                elif isinstance(route, FailoverRouteConfig):
+                    self.failover_routes[backend] = route
 
-    def get_failover_route(self, backend_type: str) -> Any | None:
+    def get_failover_route(self, backend_type: str) -> FailoverRouteConfig | None:
         """Get the failover route for a backend type.
 
         Args:
             backend_type: The backend type to get the failover route for
 
         Returns:
-            The failover route, or None if no failover route is configured
+            The failover route config, or None if no failover route is configured
         """
         failover_route = self.failover_routes.get(backend_type)
         if failover_route:
             logger.info(
                 "Found failover route",
                 backend_type=backend_type,
-                failover_route=failover_route,
+                failover_route=failover_route.model_dump(),
             )
         else:
             if is_log_level_enabled(logger, logging.DEBUG):
@@ -75,13 +96,9 @@ class FailoverService:
             List of failover attempts
         """
         # Get the route configuration
-        route_config = backend_config.failover_routes.get(model)
-        if not route_config:
-            # Support conventional fallback keys like "default" or "*" so that a
-            # single route can be shared across models. Configuration examples in
-            # this project document a "default" route, but the original
-            # implementation never consulted it which meant complex failover
-            # could not trigger unless a model-specific entry existed.
+        route_data = backend_config.failover_routes.get(model)
+        if not route_data:
+            # Support conventional fallback keys like "default" or "*"
             fallback_route = None
             for key, candidate in backend_config.failover_routes.items():
                 try:
@@ -94,14 +111,20 @@ class FailoverService:
                     break
 
             if fallback_route:
-                route_config = fallback_route
+                route_data = fallback_route
             else:
                 if is_log_level_enabled(logger, logging.DEBUG):
                     logger.debug("No failover route found for model", model=model)
                 return []
 
-        policy = route_config.get("policy", "k")
-        elements = route_config.get("elements", [])
+        try:
+            route_config = FailoverRouteConfig.model_validate(route_data)
+        except Exception:
+            logger.warning("Invalid failover route configuration format", exc_info=True)
+            return []
+
+        policy = route_config.policy
+        elements = route_config.elements
 
         if is_log_level_enabled(logger, logging.DEBUG):
             logger.debug(
@@ -129,18 +152,22 @@ class FailoverService:
 
         return attempts
 
-    def add_failover_route(self, backend_type: str, failover_route: Any) -> None:
+    def add_failover_route(
+        self, backend_type: str, failover_route: FailoverRouteConfig | dict[str, Any] | str
+    ) -> None:
         """Add a failover route.
 
         Args:
             backend_type: The backend type to add a failover route for
-            failover_route: The failover route to add
+            failover_route: The failover route to add (config object, dict, or string)
         """
-        self.failover_routes[backend_type] = failover_route
+        typed_route = FailoverRouteConfig.model_validate(failover_route)
+
+        self.failover_routes[backend_type] = typed_route
         logger.info(
             "Added failover route",
             backend_type=backend_type,
-            failover_route=failover_route,
+            failover_route=typed_route.model_dump(),
         )
 
     def remove_failover_route(self, backend_type: str) -> bool:
@@ -160,11 +187,11 @@ class FailoverService:
             logger.debug("No failover route to remove", backend_type=backend_type)
         return False
 
-    def get_all_failover_routes(self) -> dict[str, Any]:
+    def get_all_failover_routes(self) -> dict[str, FailoverRouteConfig]:
         """Get all failover routes.
 
         Returns:
-            A dictionary mapping backend types to failover routes
+            A dictionary mapping backend types to failover route configurations
         """
         return dict(self.failover_routes)
 

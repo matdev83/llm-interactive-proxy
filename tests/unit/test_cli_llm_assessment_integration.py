@@ -29,7 +29,13 @@ from src.core.config.app_config import AppConfig
 from src.core.config.parameter_resolution import ParameterResolution
 
 # Import all services needed for testing
+from src.core.domain.assessment import (
+    AssessmentRequest,
+    LLMAssessmentResponse,
+)
 from src.core.domain.configuration.assessment_config import AssessmentConfig
+
+
 
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
@@ -480,8 +486,11 @@ class TestAssessmentServiceValidationInvocation:
         """Test that _validate_history method is called in assess_conversation."""
         # Setup mock backend service
         mock_backend_service.perform_assessment = AsyncMock(
-            return_value={"reasoning": "Test assessment", "confidence": 0.3}
+            return_value=LLMAssessmentResponse(
+                reasoning="Test assessment", confidence=0.3
+            )
         )
+
 
         # Create assessment service
         config = AssessmentConfig(enabled=True)
@@ -518,8 +527,11 @@ class TestAssessmentServiceValidationInvocation:
         """Test that _validate_history prevents unnecessary backend calls when validation fails."""
         # Setup mock backend service
         mock_backend_service.perform_assessment = AsyncMock(
-            return_value={"reasoning": "Test assessment", "confidence": 0.3}
+            return_value=LLMAssessmentResponse(
+                reasoning="Test assessment", confidence=0.3
+            )
         )
+
 
         # Create assessment service
         config = AssessmentConfig(enabled=True)
@@ -551,8 +563,11 @@ class TestAssessmentServiceValidationInvocation:
         """Test that valid history passes validation and proceeds to backend call."""
         # Setup mock backend service
         mock_backend_service.perform_assessment = AsyncMock(
-            return_value={"reasoning": "Test assessment result", "confidence": 0.2}
+            return_value=LLMAssessmentResponse(
+                reasoning="Test assessment result", confidence=0.2
+            )
         )
+
 
         # Load prompts first
         from src.core.services.assessment_prompts import initialize_prompts
@@ -702,9 +717,12 @@ class TestEndToEndCLIIntegration:
         ) as mock_backend:
             mock_backend.chat_completions = AsyncMock(
                 return_value=Mock(
-                    content='{"reasoning": "Test assessment", "confidence": 0.3}'
+                    content=LLMAssessmentResponse(
+                        reasoning="Test assessment", confidence=0.3
+                    ).model_dump_json()
                 )
             )
+
 
             # Create application builder
             builder = ApplicationBuilder()

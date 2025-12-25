@@ -64,7 +64,8 @@ class TestDroidCodexCompatibility:
         for tool_name in EXPECTED_DROID_TOOLS:
             args = min_args.get(tool_name, {})
             # Should not raise - every tool should be handled
-            codex_name, _ = translator.translate_tool_call(tool_name, args)
+            res = translator.translate_tool_call(tool_name, args)
+            codex_name, _ = res.codex_tool_name, res.codex_arguments
             assert codex_name is not None
             assert isinstance(codex_name, str)
 
@@ -85,7 +86,8 @@ class TestDroidCodexCompatibility:
         }
 
         for droid_tool, (expected_codex, min_args) in native_mappings.items():
-            codex_name, _ = translator.translate_tool_call(droid_tool, min_args)
+            res = translator.translate_tool_call(droid_tool, min_args)
+            codex_name, _ = res.codex_tool_name, res.codex_arguments
             assert (
                 codex_name == expected_codex
             ), f"{droid_tool} should map to {expected_codex}, got {codex_name}"
@@ -101,7 +103,8 @@ class TestDroidCodexCompatibility:
         proxy_tools = ["TodoWrite", "WebSearch", "FetchUrl", "ExitSpecMode"]
 
         for tool_name in proxy_tools:
-            codex_name, _ = translator.translate_tool_call(tool_name, {})
+            res = translator.translate_tool_call(tool_name, {})
+            codex_name, _ = res.codex_tool_name, res.codex_arguments
             assert codex_name.startswith(
                 "__proxy_"
             ), f"{tool_name} should map to __proxy_* marker, got {codex_name}"
@@ -138,7 +141,9 @@ class TestDroidCodexCompatibility:
             "limit": 50,
         }
 
-        codex_name, codex_args = translator.translate_tool_call("Read", droid_args)
+        res = translator.translate_tool_call("Read", droid_args)
+
+        codex_name, codex_args = res.codex_tool_name, res.codex_arguments
 
         # Verify Codex format
         assert codex_name == "read_file"
@@ -170,7 +175,9 @@ class TestDroidCodexCompatibility:
             "cwd": "/project",
         }
 
-        codex_name, codex_args = translator.translate_tool_call("Execute", droid_args)
+        res = translator.translate_tool_call("Execute", droid_args)
+
+        codex_name, codex_args = res.codex_tool_name, res.codex_arguments
 
         # Verify Codex format
         assert codex_name == "shell"

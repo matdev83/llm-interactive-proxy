@@ -3,7 +3,9 @@
 import json
 
 import pytest
+from src.connectors.utils.reasoning_models import ReasoningCaptureResult
 from src.connectors.utils.reasoning_stream_processor import ReasoningStreamProcessor
+
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -485,14 +487,15 @@ class TestStreamCancellation:
                 content=b'data: {"choices": [{"delta": {"content": "More content"}, "finish_reason": null}]}\n\n'
             )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
         assert "</think>" in reasoning_text
         assert "More content" not in reasoning_text
-        assert metadata["method"] == "explicit_tag:</think>"
+        assert metadata.method == "explicit_tag:</think>"
 
     @pytest.mark.asyncio
     async def test_cancellation_with_finish_reason(self, processor):
@@ -510,14 +513,15 @@ class TestStreamCancellation:
                 content=b'data: {"choices": [{"delta": {"content": "Extra"}, "finish_reason": null}]}\n\n'
             )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
         assert reasoning_text == "Reasoning content complete"
         assert "Extra" not in reasoning_text
-        assert metadata["method"] == "finish_reason:stop"
+        assert metadata.method == "finish_reason:stop"
 
     @pytest.mark.asyncio
     async def test_already_completed_stream_handling(self, processor):
@@ -529,13 +533,14 @@ class TestStreamCancellation:
                 content=b'data: {"choices": [{"delta": {"content": "Done</think>"}, "finish_reason": null}]}\n\n'
             )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
         assert reasoning_text == "Done</think>"
-        assert metadata["method"] == "explicit_tag:</think>"
+        assert metadata.method == "explicit_tag:</think>"
 
     @pytest.mark.asyncio
     async def test_stream_with_no_completion_signal(self, processor):
@@ -547,15 +552,16 @@ class TestStreamCancellation:
             )
             # Stream ends without explicit signal
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         # Should capture what was available
         assert reasoning_text == "Incomplete"
         # reasoning_complete should be False since no detection method triggered
         assert reasoning_complete is False
-        assert metadata["method"] is None
+        assert metadata.method is None
 
     @pytest.mark.asyncio
     async def test_cancellation_failure_handling(self, processor):
@@ -567,9 +573,9 @@ class TestStreamCancellation:
                 content=b'data: {"choices": [{"delta": {"content": "Reasoning</think>"}, "finish_reason": null}]}\n\n'
             )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
 
         # Should still have captured the reasoning
         assert reasoning_complete is True
@@ -596,13 +602,13 @@ class TestStreamCancellation:
                     content=f"data: {json.dumps(chunk_data)}\n\n".encode()
                 )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream(), max_tokens=4096)
-        )
+        result = await processor.capture_reasoning_stream(mock_stream(), max_tokens=4096)
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
-        assert metadata["method"] == "token_limit"
-        assert metadata["tokens_estimated"] >= 4096
+        assert metadata.method == "token_limit"
+        assert metadata.tokens_estimated >= 4096
 
     @pytest.mark.asyncio
     async def test_character_limit_triggers_cancellation(self, processor):
@@ -624,17 +630,17 @@ class TestStreamCancellation:
                     content=f"data: {json.dumps(chunk_data)}\n\n".encode()
                 )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(
-                mock_stream(),
-                max_chars=16384,
-                max_tokens=100000,  # Set high token limit to test char limit
-            )
+        result = await processor.capture_reasoning_stream(
+            mock_stream(),
+            max_chars=16384,
+            max_tokens=100000,  # Set high token limit to test char limit
         )
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
-        assert metadata["method"] == "char_limit"
-        assert metadata["chars_captured"] >= 16384
+        assert metadata.method == "char_limit"
+        assert metadata.chars_captured >= 16384
 
     @pytest.mark.asyncio
     async def test_capture_reasoning_from_dict_chunks(self, processor):
@@ -664,13 +670,15 @@ class TestStreamCancellation:
                 }
             )
 
-        reasoning_text, reasoning_complete, metadata = (
-            await processor.capture_reasoning_stream(mock_stream())
-        )
+        result = await processor.capture_reasoning_stream(mock_stream())
+        reasoning_text = result.reasoning_text
+        reasoning_complete = result.reasoning_complete
+        metadata = result.metadata
 
         assert reasoning_complete is True
-        assert metadata["method"].startswith("explicit_tag")
+        assert metadata.method.startswith("explicit_tag")
         assert "Step 1" in reasoning_text
+
 
 
 class TestChunkParsing:
@@ -789,9 +797,10 @@ class TestMetadataTracking:
                 content=b'data: {"choices": [{"delta": {"content": "</think>"}, "finish_reason": null}]}\n\n'
             )
 
-        _, _, metadata = await processor.capture_reasoning_stream(mock_stream())
+        result = await processor.capture_reasoning_stream(mock_stream())
+        metadata = result.metadata
 
-        assert metadata["chunks_processed"] == 3
+        assert metadata.chunks_processed == 3
 
     @pytest.mark.asyncio
     async def test_metadata_chars_captured(self, processor):
@@ -805,9 +814,10 @@ class TestMetadataTracking:
                 content=b'data: {"choices": [{"delta": {"content": "67890</think>"}, "finish_reason": null}]}\n\n'
             )
 
-        _, _, metadata = await processor.capture_reasoning_stream(mock_stream())
+        result = await processor.capture_reasoning_stream(mock_stream())
+        metadata = result.metadata
 
-        assert metadata["chars_captured"] == 18  # "12345" + "67890</think>" = 18 chars
+        assert metadata.chars_captured == 18  # "12345" + "67890</think>" = 18 chars
 
     @pytest.mark.asyncio
     async def test_metadata_tokens_estimated(self, processor):
@@ -827,10 +837,11 @@ class TestMetadataTracking:
                 content=f"data: {json.dumps(chunk_data)}\n\n".encode()
             )
 
-        _, _, metadata = await processor.capture_reasoning_stream(mock_stream())
+        result = await processor.capture_reasoning_stream(mock_stream())
+        metadata = result.metadata
 
         # Should be around 25-30 tokens
-        assert 20 <= metadata["tokens_estimated"] <= 35
+        assert 20 <= metadata.tokens_estimated <= 35
 
     @pytest.mark.asyncio
     async def test_metadata_detection_method(self, processor):
@@ -841,6 +852,8 @@ class TestMetadataTracking:
                 content=b'data: {"choices": [{"delta": {"content": "test</thinking>"}, "finish_reason": null}]}\n\n'
             )
 
-        _, _, metadata = await processor.capture_reasoning_stream(mock_stream())
+        result = await processor.capture_reasoning_stream(mock_stream())
+        metadata = result.metadata
 
-        assert metadata["method"] == "explicit_tag:</thinking>"
+        assert metadata.method == "explicit_tag:</thinking>"
+

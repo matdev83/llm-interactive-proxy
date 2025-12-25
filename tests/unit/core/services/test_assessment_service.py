@@ -7,8 +7,9 @@ These tests verify the core assessment functionality replicating gemini-cli beha
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from src.core.domain.assessment import AssessmentResult
+from src.core.domain.assessment import AssessmentResult, LLMAssessmentResponse
 from src.core.domain.chat import ChatMessage
+
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.services.assessment_service import AssessmentError, AssessmentService
 
@@ -88,10 +89,10 @@ class TestAssessmentService:
         """Test successful conversation assessment."""
         # Arrange
 
-        mock_response = {
-            "reasoning": "The conversation shows normal progress with the user asking for help and the assistant providing a helpful response.",
-            "confidence": 0.1,
-        }
+        mock_response = LLMAssessmentResponse(
+            reasoning="The conversation shows normal progress with the user asking for help and the assistant providing a helpful response.",
+            confidence=0.1,
+        )
         mock_backend_service.perform_assessment.return_value = mock_response
 
         # Act
@@ -101,8 +102,9 @@ class TestAssessmentService:
 
         # Assert
         assert isinstance(result, AssessmentResult)
-        assert result.reasoning == mock_response["reasoning"]
+        assert result.reasoning == mock_response.reasoning
         assert result.confidence == 0.1
+
         assert result.session_id == "test_session"
         assert not result.is_unproductive  # confidence < 0.9
         assert not result.should_intervene
@@ -117,11 +119,12 @@ class TestAssessmentService:
         """Test assessment with high confidence (should trigger intervention)."""
         # Arrange
 
-        mock_response = {
-            "reasoning": "The assistant is repeating the same response multiple times without making progress.",
-            "confidence": 0.95,
-        }
+        mock_response = LLMAssessmentResponse(
+            reasoning="The assistant is repeating the same response multiple times without making progress.",
+            confidence=0.95,
+        )
         mock_backend_service.perform_assessment.return_value = mock_response
+
 
         # Act
         result = await assessment_service.assess_conversation(
@@ -169,14 +172,15 @@ class TestAssessmentService:
     ):
         """Test assessment with invalid backend response."""
         # Arrange
-        mock_response = {
-            "reasoning": "Valid reasoning",
-            # Missing confidence field
-        }
+        # Mock a response object that's missing 'confidence'
+        mock_response = Mock(spec=["reasoning"])
+        mock_response.reasoning = "Valid reasoning"
+        # Accessing confidence will raise AttributeError which we want to test
+        # but the service catches generic Exception and raises AssessmentError
         mock_backend_service.perform_assessment.return_value = mock_response
 
         # Act & Assert
-        with pytest.raises(AssessmentError, match="Missing 'confidence' field"):
+        with pytest.raises(AssessmentError, match="Assessment failed"):
             await assessment_service.assess_conversation(
                 sample_conversation, "test_session"
             )
@@ -187,10 +191,11 @@ class TestAssessmentService:
     ):
         """Test assessment with confidence outside valid range."""
         # Arrange
-        mock_response = {
-            "reasoning": "Valid reasoning",
-            "confidence": 1.5,  # Invalid: > 1.0
-        }
+        # Use model_construct to bypass Pydantic validation during creation
+        mock_response = LLMAssessmentResponse.model_construct(
+            reasoning="Valid reasoning",
+            confidence=1.5,  # Invalid: > 1.0
+        )
         mock_backend_service.perform_assessment.return_value = mock_response
 
         # Act & Assert
@@ -198,6 +203,7 @@ class TestAssessmentService:
             await assessment_service.assess_conversation(
                 sample_conversation, "test_session"
             )
+
 
     def test_trim_recent_history_within_window(
         self, assessment_service, sample_conversation

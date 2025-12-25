@@ -18,7 +18,9 @@ class TestSSEDecoder:
         """Test OpenAI format decoding."""
         decoder = SSEDecoder()
         payload = b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert "choices" in content
@@ -30,7 +32,9 @@ class TestSSEDecoder:
         payload = (
             b'data: {"type": "content_block_delta", "delta": {"text": "test"}}\n\n'
         )
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert metadata.get("event_type") == "content_block_delta"
@@ -42,7 +46,9 @@ class TestSSEDecoder:
         payload = (
             b'data: {"candidates": [{"content": {"parts": [{"text": "test"}]}}]}\n\n'
         )
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert "candidates" in content
@@ -54,20 +60,26 @@ class TestSSEDecoder:
 
         # Test [DONE] as last line
         payload1 = b'data: {"text": "test"}\n\ndata: [DONE]\n\n'
-        content1, metadata1, is_done1 = decoder.decode_payload(payload1)
+        res1 = decoder.decode_payload(payload1)
+        content1, metadata1, is_done1 = res1.content, res1.metadata, res1.is_done
+
         assert is_done1
         assert metadata1.get("finish_reason") == "stop"
 
         # Test [DONE] alone
         payload2 = b"data: [DONE]\n\n"
-        content2, metadata2, is_done2 = decoder.decode_payload(payload2)
+        res2 = decoder.decode_payload(payload2)
+        content2, metadata2, is_done2 = res2.content, res2.metadata, res2.is_done
+
         assert is_done2
         assert content2 == ""
         assert metadata2.get("finish_reason") == "stop"
 
         # Test ["DONE"] format
         payload3 = b'data: ["DONE"]\n\n'
-        content3, metadata3, is_done3 = decoder.decode_payload(payload3)
+        res3 = decoder.decode_payload(payload3)
+        content3, metadata3, is_done3 = res3.content, res3.metadata, res3.is_done
+
         assert is_done3
         assert metadata3.get("finish_reason") == "stop"
 
@@ -77,14 +89,18 @@ class TestSSEDecoder:
 
         # No data: prefix
         payload1 = b"just some text"
-        content1, metadata1, is_done1 = decoder.decode_payload(payload1)
+        res1 = decoder.decode_payload(payload1)
+        content1, metadata1, is_done1 = res1.content, res1.metadata, res1.is_done
+
         assert content1 == payload1
         assert metadata1 == {}
         assert not is_done1
 
         # Empty payload
         payload2 = b""
-        content2, metadata2, is_done2 = decoder.decode_payload(payload2)
+        res2 = decoder.decode_payload(payload2)
+        content2, metadata2, is_done2 = res2.content, res2.metadata, res2.is_done
+
         assert content2 == payload2
         assert metadata2 == {}
         assert not is_done2
@@ -95,7 +111,9 @@ class TestSSEDecoder:
 
         # Empty data: line results in empty string after processing
         payload = b"data:\n\n"
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
         assert content == ""  # Empty string after JSON decode fails
         assert metadata == {}
         assert not is_done
@@ -106,13 +124,17 @@ class TestSSEDecoder:
 
         # Test finish_reason extraction
         payload1 = b'data: {"finish_reason": "stop", "text": "done"}\n\n'
-        content1, metadata1, is_done1 = decoder.decode_payload(payload1)
+        res1 = decoder.decode_payload(payload1)
+        content1, metadata1, is_done1 = res1.content, res1.metadata, res1.is_done
+
         assert metadata1.get("finish_reason") == "stop"
         assert not is_done1
 
         # Test event_type extraction
         payload2 = b'data: {"type": "message_start", "content": "test"}\n\n'
-        content2, metadata2, is_done2 = decoder.decode_payload(payload2)
+        res2 = decoder.decode_payload(payload2)
+        content2, metadata2, is_done2 = res2.content, res2.metadata, res2.is_done
+
         assert metadata2.get("event_type") == "message_start"
         assert not is_done2
 
@@ -120,7 +142,9 @@ class TestSSEDecoder:
         """Test bytes input decoding."""
         decoder = SSEDecoder()
         payload = b'data: {"test": "value"}\n\n'
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert content["test"] == "value"
@@ -130,7 +154,9 @@ class TestSSEDecoder:
         """Test string input decoding."""
         decoder = SSEDecoder()
         payload = 'data: {"test": "value"}\n\n'
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert content["test"] == "value"
@@ -140,7 +166,9 @@ class TestSSEDecoder:
         """Test invalid JSON handling."""
         decoder = SSEDecoder()
         payload = b"data: not valid json\n\n"
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, str)
         assert content == "not valid json"
@@ -150,7 +178,9 @@ class TestSSEDecoder:
         """Test multiline data handling."""
         decoder = SSEDecoder()
         payload = b"data: line1\ndata: line2\ndata: line3\n\n"
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, str)
         assert content == "line1\nline2\nline3"
@@ -160,7 +190,9 @@ class TestSSEDecoder:
         """Test non-dict JSON decoding."""
         decoder = SSEDecoder()
         payload = b"data: [1, 2, 3]\n\n"
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, list)
         assert content == [1, 2, 3]
@@ -171,7 +203,9 @@ class TestSSEDecoder:
         decoder = SSEDecoder()
         # Invalid UTF-8 bytes
         payload = b"\xff\xfe\xfd"
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert content == payload
         assert metadata == {}
@@ -181,7 +215,9 @@ class TestSSEDecoder:
         """Test non-string/bytes input handling."""
         decoder = SSEDecoder()
         payload = 12345  # int, not bytes or str
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert content == payload
         assert metadata == {}
@@ -191,7 +227,9 @@ class TestSSEDecoder:
         """Test finish_reason extraction from nested choices."""
         decoder = SSEDecoder()
         payload = b'data: {"choices": [{"finish_reason": "length"}]}\n\n'
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         # Note: The current implementation doesn't extract finish_reason from nested choices
@@ -202,7 +240,9 @@ class TestSSEDecoder:
         """Test bytearray input handling."""
         decoder = SSEDecoder()
         payload = bytearray(b'data: {"test": "value"}\n\n')
-        content, metadata, is_done = decoder.decode_payload(payload)
+        decoded = decoder.decode_payload(payload)
+        content, metadata, is_done = decoded.content, decoded.metadata, decoded.is_done
+
 
         assert isinstance(content, dict)
         assert content["test"] == "value"

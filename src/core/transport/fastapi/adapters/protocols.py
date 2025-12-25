@@ -7,7 +7,12 @@ subsystem using Python Protocol classes for structural subtyping.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from src.core.domain.openrouter_usage import OpenRouterUsage
+    from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
+
 
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
@@ -35,16 +40,17 @@ class ISSEFormatter(Protocol):
 class ISSEDecoder(Protocol):
     """Decode SSE payloads."""
 
-    def decode_payload(self, payload: bytes | str) -> tuple[Any, dict[str, Any], bool]:
+    def decode_payload(self, payload: bytes | str) -> DecodedSSE:
         """Decode SSE payload.
 
         Args:
             payload: SSE-formatted payload (bytes or str)
 
         Returns:
-            Tuple of (decoded_content, metadata_hints, is_done)
+            DecodedSSE containing content, metadata, and is_done flag
         """
         ...
+
 
 
 # Metadata Layer Protocols
@@ -93,16 +99,19 @@ class IReasoningInjector(Protocol):
 class IUsageNormalizer(Protocol):
     """Normalize usage dictionaries."""
 
-    def normalize(self, usage: dict[str, Any] | None) -> dict[str, int]:
+    def normalize(
+        self, usage: dict[str, Any] | OpenRouterUsage | None
+    ) -> dict[str, int]:
         """Normalize usage to standard format.
 
         Args:
-            usage: Usage dictionary or None
+            usage: Usage dictionary, OpenRouterUsage instance, or None
 
         Returns:
             Normalized usage with standard fields as integers
         """
         ...
+
 
     def merge_streaming_usage(
         self, existing: dict[str, int], new: dict[str, Any]

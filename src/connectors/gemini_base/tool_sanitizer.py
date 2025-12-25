@@ -8,6 +8,7 @@ This module provides functionality for converting various tool formats
 import logging
 from typing import Any
 
+from src.connectors.gemini_base.models import GeminiFunctionDeclaration
 from src.core.domain.translation import Translation
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def extract_function_declarations(
     source_tools: list[Any],
-) -> list[dict[str, Any]]:
+) -> list[GeminiFunctionDeclaration]:
     """Extract Gemini function declarations from various tool formats.
 
     Supports multiple tool formats:
@@ -28,9 +29,9 @@ def extract_function_declarations(
         source_tools: List of tools in any supported format.
 
     Returns:
-        List of Gemini-compatible function declaration dicts.
+        List of GeminiFunctionDeclaration models.
     """
-    declarations: list[dict[str, Any]] = []
+    declarations: list[GeminiFunctionDeclaration] = []
     for tool in source_tools:
         tool_dict = tool if isinstance(tool, dict) else None
         if tool_dict is None and hasattr(tool, "model_dump"):
@@ -88,18 +89,18 @@ def extract_function_declarations(
             else {}
         )
         declarations.append(
-            {
-                "name": name,
-                "description": description,
-                "parameters": sanitized_params,
-            }
+            GeminiFunctionDeclaration(
+                name=name,
+                description=description,
+                parameters=sanitized_params,
+            )
         )
     return declarations
 
 
 def salvage_existing_function_declarations(
     code_assist_request: dict[str, Any],
-) -> list[dict[str, Any]]:
+) -> list[GeminiFunctionDeclaration]:
     """Extract existing function declarations from a Code Assist request.
 
     Used as fallback when canonical request has no tools but the request
@@ -109,9 +110,9 @@ def salvage_existing_function_declarations(
         code_assist_request: The Code Assist API request body.
 
     Returns:
-        List of existing function declaration dicts.
+        List of GeminiFunctionDeclaration models.
     """
-    declarations: list[dict[str, Any]] = []
+    declarations: list[GeminiFunctionDeclaration] = []
     existing_tools = code_assist_request.get("tools")
     if isinstance(existing_tools, list):
         for entry in existing_tools:
@@ -119,7 +120,9 @@ def salvage_existing_function_declarations(
             if isinstance(entry, dict):
                 fd_list = entry.get("function_declarations")
             if isinstance(fd_list, list):
-                declarations.extend([fd for fd in fd_list if isinstance(fd, dict)])
+                for fd in fd_list:
+                    if isinstance(fd, dict):
+                        declarations.append(GeminiFunctionDeclaration(**fd))
     return declarations
 
 
@@ -175,16 +178,21 @@ def sanitize_code_assist_tools(
 
     if function_declarations:
         code_assist_request["tools"] = [
-            {"function_declarations": function_declarations}
+            {
+                "function_declarations": [
+                    fd.model_dump() for fd in function_declarations
+                ]
+            }
         ]
 
         # Filter allowedFunctionNames to declared functions
-        declared_names = {fd.get("name", "") for fd in function_declarations}
+        declared_names = {fd.name for fd in function_declarations}
         filter_allowed_function_names(code_assist_request, declared_names)
     else:
         code_assist_request.pop("tools", None)
         # If no tools, drop toolConfig entirely to avoid invalid references
         code_assist_request.pop("toolConfig", None)
+
 
 
 __all__ = [

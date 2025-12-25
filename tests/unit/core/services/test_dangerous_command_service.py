@@ -62,9 +62,11 @@ def test_scan_tool_call_detects_dangerous_commands(
     result = dangerous_command_service.scan_tool_call(tool_call)
 
     assert result is not None
-    matched_rule, matched_command = result
+    matched_rule = result.rule
+    matched_command = result.command
     assert matched_rule.name == expected_rule_name
     assert matched_command == command
+
 
 
 def test_scan_tool_call_ignores_safe_commands(
@@ -116,8 +118,9 @@ def test_scan_tool_call_handles_mixed_case_tool_names(
     result = dangerous_command_service.scan_tool_call(tool_call)
 
     assert result is not None
-    matched_rule, _ = result
+    matched_rule = result.rule
     assert matched_rule.name == "git-reset-hard"
+
 
 
 def test_scan_tool_call_extracts_command_from_json_arguments(
@@ -137,9 +140,11 @@ def test_scan_tool_call_extracts_command_from_json_arguments(
     result = dangerous_command_service.scan_tool_call(tool_call)
 
     assert result is not None
-    matched_rule, matched_command = result
+    matched_rule = result.rule
+    matched_command = result.command
     assert matched_rule.name == "git-reset-hard"
     assert matched_command == "git reset --hard"
+
 
 
 def test_clean_with_dry_run_is_ignored(
@@ -178,7 +183,7 @@ def test_extracts_command_from_cmd_field(
     )
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
-    assert result[0].name == "git-push-mirror"
+    assert result.rule.name == "git-push-mirror"
 
 
 def test_extracts_command_from_nested_input(
@@ -194,7 +199,7 @@ def test_extracts_command_from_nested_input(
     )
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
-    assert result[0].name == "git-push-delete-branch"
+    assert result.rule.name == "git-push-delete-branch"
 
 
 def test_extracts_command_from_args_array(
@@ -208,7 +213,7 @@ def test_extracts_command_from_args_array(
     )
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
-    assert result[0].name == "git-rebase"
+    assert result.rule.name == "git-rebase"
 
 
 def test_detects_git_in_mixed_command_string(
@@ -222,7 +227,7 @@ def test_detects_git_in_mixed_command_string(
     )
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
-    assert result[0].name == "git-push-mirror"
+    assert result.rule.name == "git-push-mirror"
 
 
 @pytest.mark.parametrize(
@@ -244,4 +249,5 @@ def test_whitespace_and_quotes_variants(
     )
     result = dangerous_command_service.scan_tool_call(tool_call)
     assert result is not None
-    assert result[0].name == expected_rule
+    assert result.rule.name == expected_rule
+

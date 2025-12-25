@@ -97,6 +97,12 @@ class AnthropicController:
         anthropic_request: AnthropicMessagesRequest,
     ) -> Response:
         """Capture the outbound response and return a FastAPIResponse."""
+        # Convert Pydantic models to dict for capturing and JSON serialization
+        if hasattr(response_data, "model_dump"):
+            response_dict = response_data.model_dump(exclude_none=True)
+        else:
+            response_dict = response_data
+
         if self._wire_capture and self._wire_capture.enabled():
             session_id = ctx.session_id or ""
             await self._wire_capture.capture_outbound_response(
@@ -105,16 +111,17 @@ class AnthropicController:
                 backend=None,  # Client-facing response (not backend)
                 model=anthropic_request.model,
                 key_name=None,
-                response_content=response_data,
+                response_content=response_dict,
             )
         from fastapi import Response as FastAPIResponse
 
         return FastAPIResponse(
-            content=json.dumps(response_data),
+            content=json.dumps(response_dict),
             media_type="application/json",
             status_code=status_code,
             headers=headers,
         )
+
 
     async def handle_anthropic_messages(
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]

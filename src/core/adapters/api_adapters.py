@@ -14,6 +14,7 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
     ToolCall,
+    ToolDefinition,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,26 +114,25 @@ def anthropic_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatReques
     return dict_to_domain_chat_request(domain_request_dict)
 
 
-def _convert_anthropic_messages(request_dict: dict[str, Any]) -> list[dict[str, Any]]:
+def _convert_anthropic_messages(request_dict: dict[str, Any]) -> list[ChatMessage]:
     """
-    Convert Anthropic messages to a format closer to the domain model.
+    Convert Anthropic messages to domain ChatMessage objects.
     Args:
         request_dict: The Anthropic format request dictionary
     Returns:
-        List of messages in a neutral format.
+        List of messages in domain format.
     """
     messages = []
-    if request_dict.get("system"):
-        messages.append({"role": "system", "content": request_dict["system"]})
+    if system := request_dict.get("system"):
+        messages.append(ChatMessage(role="system", content=system))
 
     if "messages" in request_dict:
         for msg in request_dict["messages"]:
             role = msg.get("role")
             content = msg.get("content")
-            # A more robust implementation would handle multimodal content (list of blocks)
-            # For now, we assume content is a string.
-            if role and content:
-                messages.append({"role": role, "content": content})
+            # ChatMessage handles both string and multimodal content (list of blocks)
+            if role and content is not None:
+                messages.append(ChatMessage(role=role, content=content))
 
     return messages
 
@@ -164,13 +164,13 @@ def gemini_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
     return dict_to_domain_chat_request(domain_request_dict)
 
 
-def _convert_gemini_contents(request_dict: dict[str, Any]) -> list[dict[str, Any]]:
+def _convert_gemini_contents(request_dict: dict[str, Any]) -> list[ChatMessage]:
     """
-    Convert Gemini contents to a format closer to the domain model.
+    Convert Gemini contents to domain ChatMessage objects.
     Args:
         request_dict: The Gemini format request dictionary
     Returns:
-        List of messages in a neutral format.
+        List of messages in domain format.
     """
     messages = []
     if "contents" in request_dict:
@@ -188,7 +188,7 @@ def _convert_gemini_contents(request_dict: dict[str, Any]) -> list[dict[str, Any
             ).strip()
 
             if content_text:
-                messages.append({"role": role, "content": content_text})
+                messages.append(ChatMessage(role=role, content=content_text))
 
     return messages
 
@@ -265,9 +265,9 @@ def _convert_tool_calls(
     return converted_tool_calls
 
 
-def _convert_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+def _convert_tools(tools: list[dict[str, Any]] | None) -> list[ToolDefinition] | None:
     """
-    Convert tools to domain tool format.
+    Convert tools to domain ToolDefinition objects.
 
     Args:
         tools: List of tools in various formats
@@ -280,9 +280,12 @@ def _convert_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] |
 
     converted_tools = []
     for tool in tools:
-        if isinstance(tool, dict):
-            # Already in dict format
+        if isinstance(tool, ToolDefinition):
+            # Already a domain ToolDefinition object
             converted_tools.append(tool)
+        elif isinstance(tool, dict):
+            # Dict format - convert directly
+            converted_tools.append(ToolDefinition(**tool))
         else:
             # Convert using standard approach
             if hasattr(tool, "model_dump"):
@@ -291,6 +294,6 @@ def _convert_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] |
                 # Convert directly without fallback
                 tool_dict = dict(tool)
 
-            converted_tools.append(tool_dict)
+            converted_tools.append(ToolDefinition(**tool_dict))
 
     return converted_tools

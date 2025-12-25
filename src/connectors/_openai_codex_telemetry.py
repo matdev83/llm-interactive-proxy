@@ -42,6 +42,42 @@ class MetricType(Enum):
     UNSUPPORTED_TOOL_TOTAL = "compatibility_layer_unsupported_tool_total"
 
 
+from pydantic import BaseModel, Field
+
+
+class DetectionMetricsSummary(BaseModel):
+    total: int
+    by_method: dict[str, int]
+    cache: dict[str, int | float]
+    average_duration_ms: float
+
+
+class ToolTranslationSummary(BaseModel):
+    count: int
+    average_duration_ms: float
+
+
+class TranslationMetricsSummary(BaseModel):
+    total: int
+    successful: int
+    failed: int
+    success_rate: float
+    average_duration_ms: float
+    by_tool: dict[str, ToolTranslationSummary]
+
+
+class ErrorMetricsSummary(BaseModel):
+    total: int
+    by_code: dict[str, int]
+    by_tool: dict[str, int]
+
+
+class TelemetrySummary(BaseModel):
+    detection: DetectionMetricsSummary
+    translation: TranslationMetricsSummary
+    errors: ErrorMetricsSummary
+
+
 @dataclass
 class DetectionMetrics:
     """Metrics for client detection operations."""
@@ -364,21 +400,21 @@ class CompatibilityTelemetry:
             },
         )
 
-    def get_metrics_summary(self) -> dict[str, Any]:
+    def get_metrics_summary(self) -> TelemetrySummary:
         """Get a summary of all collected metrics.
 
         Returns:
-            Dictionary containing metrics summary
+            TelemetrySummary model containing metrics summary.
         """
-        return {
-            "detection": {
-                "total": self.detection_metrics.total_detections,
-                "by_method": {
+        return TelemetrySummary(
+            detection=DetectionMetricsSummary(
+                total=self.detection_metrics.total_detections,
+                by_method={
                     "metadata": self.detection_metrics.metadata_detections,
                     "header": self.detection_metrics.header_detections,
                     "heuristic": self.detection_metrics.heuristic_detections,
                 },
-                "cache": {
+                cache={
                     "hits": self.detection_metrics.cache_hits,
                     "misses": self.detection_metrics.cache_misses,
                     "hit_rate": (
@@ -388,35 +424,35 @@ class CompatibilityTelemetry:
                         else 0.0
                     ),
                 },
-                "average_duration_ms": self.detection_metrics.get_average_duration(),
-            },
-            "translation": {
-                "total": self.translation_metrics.total_translations,
-                "successful": self.translation_metrics.successful_translations,
-                "failed": self.translation_metrics.failed_translations,
-                "success_rate": (
+                average_duration_ms=self.detection_metrics.get_average_duration(),
+            ),
+            translation=TranslationMetricsSummary(
+                total=self.translation_metrics.total_translations,
+                successful=self.translation_metrics.successful_translations,
+                failed=self.translation_metrics.failed_translations,
+                success_rate=(
                     self.translation_metrics.successful_translations
                     / self.translation_metrics.total_translations
                     if self.translation_metrics.total_translations > 0
                     else 0.0
                 ),
-                "average_duration_ms": self.translation_metrics.get_average_duration(),
-                "by_tool": {
-                    tool: {
-                        "count": count,
-                        "average_duration_ms": self.translation_metrics.get_average_duration(
+                average_duration_ms=self.translation_metrics.get_average_duration(),
+                by_tool={
+                    tool: ToolTranslationSummary(
+                        count=count,
+                        average_duration_ms=self.translation_metrics.get_average_duration(
                             tool
                         ),
-                    }
+                    )
                     for tool, count in self.translation_metrics.translations_by_tool.items()
                 },
-            },
-            "errors": {
-                "total": self.error_metrics.total_errors,
-                "by_code": self.error_metrics.errors_by_code,
-                "by_tool": self.error_metrics.errors_by_tool,
-            },
-        }
+            ),
+            errors=ErrorMetricsSummary(
+                total=self.error_metrics.total_errors,
+                by_code=self.error_metrics.errors_by_code,
+                by_tool=self.error_metrics.errors_by_tool,
+            ),
+        )
 
     def reset_metrics(self) -> None:
         """Reset all collected metrics."""

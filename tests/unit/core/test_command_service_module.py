@@ -1,27 +1,33 @@
 import pytest
 from src.core.commands.models import Command, CommandResultWrapper
+from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ensure_command_service
 from src.core.interfaces.command_service_interface import ICommandService
-
+from unittest.mock import MagicMock
 
 class ConcreteCommandService(ICommandService):
     async def process_commands(
-        self, messages: list[str], session_id: str
+        self, messages: list[ChatMessage], session_id: str
     ) -> ProcessedResult:
+        mock_result = MagicMock()
+        mock_result.message = "success"
+        mock_result.success = True
         return ProcessedResult(
             modified_messages=messages,
             command_executed=True,
-            command_results=[session_id],
+            command_results=[CommandResultWrapper("test", mock_result)],
         )
 
     async def execute_command(
         self, command: Command, session_id: str
     ) -> CommandResultWrapper:
+        mock_result = MagicMock()
+        mock_result.message = f"executed {command.name}"
+        mock_result.success = True
         return CommandResultWrapper(
-            command=command,
-            result=f"executed {command.name}",
-            tool_messages=[],
+            command.name,
+            mock_result
         )
 
 
@@ -33,46 +39,56 @@ async def test_ensure_command_service_accepts_valid_service() -> None:
 
     assert validated_service is service
 
-    result = await validated_service.process_commands(["message"], "session")
+    msg = ChatMessage(role="user", content="message")
+    result = await validated_service.process_commands([msg], "session")
     assert result.command_executed is True
-    assert result.command_results == ["session"]
-    assert result.modified_messages == ["message"]
+    assert len(result.command_results) == 1
+    assert result.modified_messages == [msg]
 
 
 @pytest.mark.asyncio
 async def test_ensure_command_service_wraps_async_callable() -> None:
-    async def handler(messages: list[str], session_id: str) -> ProcessedResult:
+    async def handler(messages: list[ChatMessage], session_id: str) -> ProcessedResult:
+        mock_result = MagicMock()
+        mock_result.message = "success"
+        mock_result.success = True
         return ProcessedResult(
-            modified_messages=[f"{session_id}:{value}" for value in messages],
+            modified_messages=[ChatMessage(role=m.role, content=f"{session_id}:{m.content}") for m in messages],
             command_executed=bool(messages),
-            command_results=[session_id],
+            command_results=[CommandResultWrapper("test", mock_result)],
         )
 
     validated_service = ensure_command_service(handler)
 
     assert isinstance(validated_service, ICommandService)
 
-    result = await validated_service.process_commands(["message"], "session")
-    assert result.modified_messages == ["session:message"]
+    msg = ChatMessage(role="user", content="message")
+    result = await validated_service.process_commands([msg], "session")
+    assert result.modified_messages[0].content == "session:message"
     assert result.command_executed is True
-    assert result.command_results == ["session"]
+    assert len(result.command_results) == 1
 
 
 @pytest.mark.asyncio
 async def test_ensure_command_service_wraps_sync_callable() -> None:
-    def handler(messages: list[str], session_id: str) -> ProcessedResult:
+    def handler(messages: list[ChatMessage], session_id: str) -> ProcessedResult:
+        mock_result = MagicMock()
+        mock_result.message = "success"
+        mock_result.success = True
         return ProcessedResult(
-            modified_messages=[value.upper() for value in messages],
+            modified_messages=[ChatMessage(role=m.role, content=m.content.upper()) for m in messages if isinstance(m.content, str)],
             command_executed=True,
-            command_results=[session_id],
+            command_results=[CommandResultWrapper("test", mock_result)],
         )
 
     validated_service = ensure_command_service(handler)
 
-    result = await validated_service.process_commands(["hello"], "session")
-    assert result.modified_messages == ["HELLO"]
+    msg = ChatMessage(role="user", content="hello")
+    result = await validated_service.process_commands([msg], "session")
+    assert result.modified_messages[0].content == "HELLO"
     assert result.command_executed is True
-    assert result.command_results == ["session"]
+    assert len(result.command_results) == 1
+
 
 
 def test_ensure_command_service_rejects_none() -> None:

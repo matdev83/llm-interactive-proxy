@@ -168,8 +168,11 @@ class CodebuffWebSocketServer:
                     txid=None, success=False, error=str(e)
                 )
                 await self.send_message(websocket, error_ack)
-            except Exception:
-                pass  # Connection may already be closed
+            except (WebSocketDisconnect, RuntimeError, ConnectionError) as send_err:
+                logger.debug(
+                    "Failed to send error acknowledgment (connection likely closed): %s",
+                    send_err,
+                )
 
         except Exception as e:
             logger.error(
@@ -338,8 +341,9 @@ class CodebuffWebSocketServer:
             message: The message to send (AckMessage or ServerActionMessage)
         """
         try:
-            message_dict = message.model_dump(exclude_none=True)
+            message_dict = message.model_dump(exclude_none=True, by_alias=True)
             message_json = json.dumps(message_dict)
+
             await websocket.send_text(message_json)
             logger.debug("Sent message: type=%s", message.type)
 

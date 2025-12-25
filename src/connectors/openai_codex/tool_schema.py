@@ -48,20 +48,21 @@ class ToolSchemaResolver(IToolSchemaResolver):
         self._tool_execution_service = tool_execution_service
         self._default_tools_provider = default_tools_provider
 
-    def _get_default_tools(self) -> list[dict[str, Any]]:
+    def _get_default_tools(self) -> list[CodexToolSchema]:
         """Get the default tools from execution service and built-ins."""
         if self._default_tools_provider:
-            return self._default_tools_provider()
+            # Maintain backward compatibility with deprecated provider returning dicts
+            tools_dicts = self._default_tools_provider()
+            return self._dict_tools_to_schemas(tools_dicts)
 
         from src.connectors.openai_codex.tool_schemas import get_codex_tool_schema
 
-        tools: list[dict[str, Any]] = [
-            {
-                "type": "function",
-                "name": "shell",
-                "description": "Runs a shell command and returns its output.",
-                "strict": False,
-                "parameters": {
+        tools: list[CodexToolSchema] = [
+            CodexToolSchema(
+                type="function",
+                name="shell",
+                description="Runs a shell command and returns its output.",
+                parameters={
                     "type": "object",
                     "properties": {
                         "command": {
@@ -77,12 +78,12 @@ class ToolSchemaResolver(IToolSchemaResolver):
                     "required": ["command"],
                     "additionalProperties": False,
                 },
-            },
-            {
-                "type": "custom",
-                "name": "apply_patch",
-                "description": "Use the apply_patch tool to edit files using unified diff syntax.",
-                "format": {
+            ),
+            CodexToolSchema(
+                type="custom",
+                name="apply_patch",
+                description="Use the apply_patch tool to edit files using unified diff syntax.",
+                format={
                     "type": "grammar",
                     "syntax": "lark",
                     "definition": (
@@ -103,13 +104,12 @@ class ToolSchemaResolver(IToolSchemaResolver):
                         "%import common.LF\n"
                     ),
                 },
-            },
-            {
-                "type": "function",
-                "name": "view_image",
-                "description": "Attach a local image (by filesystem path) to the conversation context for this turn.",
-                "strict": False,
-                "parameters": {
+            ),
+            CodexToolSchema(
+                type="function",
+                name="view_image",
+                description="Attach a local image (by filesystem path) to the conversation context for this turn.",
+                parameters={
                     "type": "object",
                     "properties": {
                         "path": {
@@ -120,7 +120,7 @@ class ToolSchemaResolver(IToolSchemaResolver):
                     "required": ["path"],
                     "additionalProperties": False,
                 },
-            },
+            ),
         ]
 
         for tool_name in ("read_file", "list_dir", "grep_files"):
@@ -133,11 +133,12 @@ class ToolSchemaResolver(IToolSchemaResolver):
                 universal_tool_schemas = (
                     self._tool_execution_service.get_available_tool_schemas()
                 )
-                tools.extend(universal_tool_schemas)
+                tools.extend(self._dict_tools_to_schemas(universal_tool_schemas))
             except Exception as e:
                 logger.warning("Failed to get universal tool schemas: %s", e)
 
         return tools
+
 
     def resolve_tool_schema(
         self, context: CodexRequestContext
@@ -210,26 +211,36 @@ class ToolSchemaResolver(IToolSchemaResolver):
             if not custom_tools:
                 return self._dict_tools_to_schemas(default_tools)
 
-            merged_tools: dict[str, dict[str, Any]] = {}
+            merged_tools: dict[str, CodexToolSchema | dict[str, Any]] = {}
             # Track parameter signatures to detect collisions
             tool_signatures: dict[str, str] = {}
 
             # Add default tools first
             for tool in default_tools:
-                name_value = tool.get("name")
+                if isinstance(tool, CodexToolSchema):
+                    name_value = tool.name
+                    params = tool.parameters
+                else:
+                    name_value = tool.get("name")
+                    params = tool.get("parameters", {})
+
                 if isinstance(name_value, str):
                     merged_tools[name_value] = deepcopy(tool)
                     # Create signature from parameters for collision detection
-                    params = tool.get("parameters", {})
                     tool_signatures[name_value] = json.dumps(params, sort_keys=True)
 
             # Merge custom tools with collision detection
             for tool in custom_tools:
-                name_value = tool.get("name")
+                if isinstance(tool, CodexToolSchema):
+                    name_value = tool.name
+                    params = tool.parameters
+                else:
+                    name_value = tool.get("name")
+                    params = tool.get("parameters", {})
+
                 if isinstance(name_value, str):
                     # Check for parameter collision
                     if name_value in merged_tools:
-                        params = tool.get("parameters", {})
                         new_sig = json.dumps(params, sort_keys=True)
                         if new_sig != tool_signatures.get(name_value):
                             logger.warning(
@@ -241,40 +252,53 @@ class ToolSchemaResolver(IToolSchemaResolver):
                             continue  # Keep default, skip custom
                     # No collision or same parameters - merge (custom overwrites)
                     merged_tools[name_value] = deepcopy(tool)
-                    params = tool.get("parameters", {})
                     tool_signatures[name_value] = json.dumps(params, sort_keys=True)
 
             return self._dict_tools_to_schemas(list(merged_tools.values()))
+
 
         # Default: codex_default mode
         return self._dict_tools_to_schemas(default_tools)
 
     @staticmethod
-    def _dict_tools_to_schemas(tools: list[dict[str, Any]]) -> list[CodexToolSchema]:
-        """Convert dict tool schemas to CodexToolSchema instances.
+    def _dict_tools_to_schemas(
+        tools: list[dict[str, Any] | CodexToolSchema],
+    ) -> list[CodexToolSchema]:
+        """Convert tool schemas to CodexToolSchema instances.
 
         Args:
-            tools: List of tool dictionaries
+            tools: List of tool dictionaries or models
 
         Returns:
             List of CodexToolSchema instances
         """
         schemas: list[CodexToolSchema] = []
         for tool in tools:
-            name = tool.get("name")
+            if isinstance(tool, CodexToolSchema):
+                schemas.append(tool)
+                continue
+
+            # Deep copy to avoid modifying original
+            tool_dict = deepcopy(tool)
+
+            # Remove fields that are explicitly passed as keyword arguments
+            name = tool_dict.pop("name", None)
             if not isinstance(name, str):
                 continue
 
-            description = tool.get("description")
-            tool_type = tool.get("type", "function")
-            parameters = tool.get("parameters", {})
+            description = tool_dict.pop("description", None)
+            tool_type = tool_dict.pop("type", "function")
+            parameters = tool_dict.pop("parameters", {})
 
+            # Any remaining fields go into 'extra' via model_construct or **kwargs
             schemas.append(
                 CodexToolSchema(
                     name=name,
                     description=description if isinstance(description, str) else None,
                     type=tool_type if isinstance(tool_type, str) else "function",
                     parameters=parameters if isinstance(parameters, dict) else {},
+                    **tool_dict,
                 )
             )
         return schemas
+

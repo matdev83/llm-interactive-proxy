@@ -42,7 +42,9 @@ from src.connectors.anthropic import (
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.session_key import SessionKey
+from src.core.domain.validation import ValidationResult
 from src.core.services.backend_registry import backend_registry
+
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -151,64 +153,64 @@ class AnthropicOAuthBackend(AnthropicBackend):
     # -----------------------------
     # Validation methods (stale token handling pattern)
     # -----------------------------
-    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+    def _validate_credentials_file_exists(self) -> ValidationResult:
         """Validate that credentials file exists and is readable."""
-        errors = []
-
         creds_path = self._discover_credentials_path()
         if creds_path is None:
-            errors.append("OAuth credentials file not found in any default location")
-            return False, errors
+            return ValidationResult.failure(
+                "OAuth credentials file not found in any default location"
+            )
 
         if not creds_path.exists():
-            errors.append(f"OAuth credentials file does not exist: {creds_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials file does not exist: {creds_path}"
+            )
 
         if not creds_path.is_file():
-            errors.append(f"OAuth credentials path is not a file: {creds_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials path is not a file: {creds_path}"
+            )
 
         try:
             with open(creds_path, encoding="utf-8") as f:
                 json.load(f)
         except json.JSONDecodeError as e:
-            errors.append(f"OAuth credentials file contains invalid JSON: {e}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials file contains invalid JSON: {e}"
+            )
         except PermissionError:
-            errors.append(f"No permission to read OAuth credentials file: {creds_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"No permission to read OAuth credentials file: {creds_path}"
+            )
         except Exception as e:
-            errors.append(f"Error reading OAuth credentials file: {e}")
-            return False, errors
+            return ValidationResult.failure(f"Error reading OAuth credentials file: {e}")
 
-        return True, errors
+        return ValidationResult.success()
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> tuple[bool, list[str]]:
+    ) -> ValidationResult:
         """Validate OAuth credentials structure and content."""
-        errors = []
-
         if not isinstance(credentials, dict):
-            errors.append("OAuth credentials must be a JSON object")
-            return False, errors
+            return ValidationResult.failure("OAuth credentials must be a JSON object")
 
         # Check for access_token or api_key
         access_token = credentials.get("access_token")
         api_key = credentials.get("api_key")
 
         if not access_token and not api_key:
-            errors.append(
+            return ValidationResult.failure(
                 "OAuth credentials missing required 'access_token' or 'api_key' field"
             )
-            return False, errors
 
         token = access_token or api_key
         if not isinstance(token, str) or not token.strip():
-            errors.append("OAuth credentials token must be a non-empty string")
-            return False, errors
+            return ValidationResult.failure(
+                "OAuth credentials token must be a non-empty string"
+            )
 
-        return True, errors
+        return ValidationResult.success()
+
 
     async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling."""
@@ -217,21 +219,17 @@ class AnthropicOAuthBackend(AnthropicBackend):
         if current_time - self._last_validation_time < 30:
             return True
 
-        errors: list[str] = []
-
-        ok, file_errors = self._validate_credentials_file_exists()
-        if not ok:
-            self._credential_validation_errors = file_errors
+        res = self._validate_credentials_file_exists()
+        if not res:
+            self._credential_validation_errors = res.errors
             return False
 
-        errors.extend(file_errors)
+        errors = list(res.errors)
 
         if self._oauth_credentials is not None:
-            ok, struct_errors = self._validate_credentials_structure(
-                self._oauth_credentials
-            )
-            if not ok:
-                errors.extend(struct_errors)
+            res_struct = self._validate_credentials_structure(self._oauth_credentials)
+            if not res_struct:
+                errors.extend(res_struct.errors)
                 self._credential_validation_errors = errors
                 return False
         else:
@@ -242,6 +240,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._credential_validation_errors = []
         self._last_validation_time = current_time
         return True
+
 
     # -----------------------------
     # File watching methods (stale token handling pattern)
@@ -290,13 +289,13 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 loaded = await self._load_oauth_credentials(force_reload=True)
                 if loaded:
                     if self._oauth_credentials is not None:
-                        ok, errors = self._validate_credentials_structure(
+                        res = self._validate_credentials_structure(
                             self._oauth_credentials
                         )
-                        if ok:
+                        if res:
                             self._recover()
                         else:
-                            self._degrade(errors)
+                            self._degrade(res.errors)
                     else:
                         self._degrade(
                             ["Failed to load credentials despite successful file read"]
@@ -304,6 +303,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 else:
                     self._degrade(["Failed to reload credentials from file"])
             except Exception as e:
+
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Error during Anthropic OAuth credentials reload: {e}"
@@ -502,9 +502,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
         )
 
         # 1) File exists + readable + parseable
-        ok, errors = self._validate_credentials_file_exists()
-        if not ok:
-            self._fail_init(errors)
+        res_file = self._validate_credentials_file_exists()
+        if not res_file:
+            self._fail_init(res_file.errors)
             return
 
         # 2) Load credentials into memory
@@ -514,13 +514,14 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
         # 3) Structure validation
         if self._oauth_credentials is not None:
-            ok, errors = self._validate_credentials_structure(self._oauth_credentials)
-            if not ok:
-                self._fail_init(errors)
+            res_struct = self._validate_credentials_structure(self._oauth_credentials)
+            if not res_struct:
+                self._fail_init(res_struct.errors)
                 return
         else:
             self._fail_init(["OAuth credentials are None after loading"])
             return
+
 
         # 4) Start file watching and mark functional
         self._start_file_watching()

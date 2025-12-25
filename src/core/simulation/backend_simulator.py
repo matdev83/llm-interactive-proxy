@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureSession
+from src.core.domain.simulation import SimulatorStatistics
 from src.core.simulation.timing_controller import TimingController
 
 logger = logging.getLogger(__name__)
@@ -197,11 +198,11 @@ class BackendSimulator:
         self._request_index = 0
         self._timing.reset()
 
-    def get_statistics(self) -> dict[str, Any]:
+    def get_statistics(self) -> SimulatorStatistics:
         """Get replay statistics.
 
         Returns:
-            Dictionary with replay stats
+            SimulatorStatistics with replay stats
         """
         total_requests = len(self._response_queues)
         matched_requests = self._request_index
@@ -211,13 +212,14 @@ class BackendSimulator:
             if any(e.metadata.is_stream_start for e in entries)
         )
 
-        return {
-            "total_requests": total_requests,
-            "matched_requests": matched_requests,
-            "remaining_requests": total_requests - matched_requests,
-            "streaming_responses": streaming_responses,
-            "elapsed_time": self._timing.get_elapsed_time(),
-        }
+        return SimulatorStatistics(
+            total_requests=total_requests,
+            matched_requests=matched_requests,
+            remaining_requests=total_requests - matched_requests,
+            streaming_responses=streaming_responses,
+            elapsed_time=self._timing.get_elapsed_time(),
+        )
+
 
 
 class BackendSimulatorTransport:

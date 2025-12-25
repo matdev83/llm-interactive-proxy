@@ -21,7 +21,9 @@ from fastapi import HTTPException
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
+
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
@@ -1149,14 +1151,17 @@ class OpenAIConnector(LLMBackend):
             usage=domain_response.usage,
         )
 
-    async def list_models(self, api_base_url: str | None = None) -> dict[str, Any]:
+    async def list_models(
+        self, api_base_url: str | None = None
+    ) -> ModelsListingResponse:
         headers = self.get_headers()
         base = api_base_url or self.api_base_url
         logger.info(f"OpenAIConnector list_models - base URL: {base}")
         response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
         response.raise_for_status()
         result = response.json()
-        return result  # type: ignore[no-any-return]  # type: ignore[no-any-return]
+        return ModelsListingResponse.model_validate(result)
+
 
     def get_available_models(self) -> list[str]:
         """Return available models with vendor prefix for unified model routing.

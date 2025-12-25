@@ -21,7 +21,9 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
+
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
@@ -790,7 +792,7 @@ class AnthropicBackend(LLMBackend):
         base_url: str | None = None,
         key_name: str | None = None,
         api_key: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> ModelsListingResponse:
         # Allow callers to omit args and use initialized instance values
         base = (
             base_url
@@ -834,19 +836,28 @@ class AnthropicBackend(LLMBackend):
             )
 
         result = response.json()
-        models = result.get("models", result)
+        raw_models = result.get("data", result.get("models", result))
+        if not isinstance(raw_models, list):
+            raw_models = [raw_models] if isinstance(raw_models, dict) else []
+
+        model_infos = []
+        for m in raw_models:
+            if isinstance(m, dict):
+                model_infos.append(
+                    ModelInfo(
+                        id=m.get("id") or m.get("name") or "",
+                        name=m.get("name") or m.get("id"),
+                        object="model",
+                        created=m.get("created_at"),
+                        owned_by="anthropic",
+                    )
+                )
+
         # Cache available_models for later calls
-        try:
-            self.available_models = [
-                m.get("name") or m.get("id") or ""
-                for m in models
-                if isinstance(m, dict)
-            ]
-        except (TypeError, KeyError, AttributeError) as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to parse Anthropic model list: {e}")
-            self.available_models = []
-        return cast(list[dict[str, Any]], models)
+        self.available_models = [mi.id for mi in model_infos if mi.id]
+
+        return ModelsListingResponse(object="list", data=model_infos)
+
 
     def _get_headers(
         self, identity: IAppIdentityConfig | None = None

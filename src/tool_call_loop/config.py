@@ -10,7 +10,14 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
-from src.core.interfaces.model_bases import InternalDTO
+
+@dataclass(frozen=True)
+class ToolCallTrackingResult:
+    """Result of tracking a tool call."""
+
+    should_block: bool
+    reason: str | None = None
+    repeat_count: int | None = None
 
 
 class ToolLoopMode(str, Enum):
@@ -21,7 +28,7 @@ class ToolLoopMode(str, Enum):
 
 
 @dataclass
-class ToolCallLoopConfig(InternalDTO):
+class ToolCallLoopConfig:
     """Configuration for tool call loop detection."""
 
     # Whether tool call loop detection is enabled

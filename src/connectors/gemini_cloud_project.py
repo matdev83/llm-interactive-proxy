@@ -79,6 +79,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
 )
 from src.core.domain.session_key import SessionKey
+from src.core.domain.validation import ValidationResult
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -242,6 +243,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         self._reload_task_lock = threading.Lock()
         self._reload_scheduling_in_progress = False
         self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._errors_lock = threading.Lock()
 
         # GCP Project ID is REQUIRED for this backend (CLI uses GOOGLE_CLOUD_PROJECT)
         self.gcp_project_id = (
@@ -269,11 +271,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         Returns:
             bool: True if backend is functional, False otherwise
         """
-        return (
-            self.is_functional
-            and not self._initialization_failed
-            and len(self._credential_validation_errors) == 0
-        )
+        with self._errors_lock:
+            return (
+                self.is_functional
+                and not self._initialization_failed
+                and len(self._credential_validation_errors) == 0
+            )
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
@@ -305,14 +308,14 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> tuple[bool, list[str]]:
+    ) -> ValidationResult:
         """Validate the structure and content of OAuth credentials.
 
         Args:
             credentials: The credentials dictionary to validate
 
         Returns:
-            Tuple of (is_valid, list_of_errors)
+            ValidationResult object.
         """
         errors = []
 
@@ -340,16 +343,16 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 if time.time() >= float(expiry) / 1000.0:
                     errors.append("Token expired")
 
-        return len(errors) == 0, errors
+        if errors:
+            return ValidationResult.failure(errors)
+        return ValidationResult.success()
 
-    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+    def _validate_credentials_file_exists(self) -> ValidationResult:
         """Validate that the OAuth credentials file exists and is readable.
 
         Returns:
-            Tuple of (is_valid, list_of_errors)
+            ValidationResult object.
         """
-        errors = []
-
         if self.credentials_path:
             creds_path = Path(self.credentials_path)
             if creds_path.is_dir():
@@ -359,51 +362,50 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             creds_path = home_dir / ".gemini" / "oauth_creds.json"
 
         if not creds_path.exists():
-            errors.append(f"OAuth credentials file not found at {creds_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials file not found at {creds_path}"
+            )
 
         if not creds_path.is_file():
-            errors.append(
+            return ValidationResult.failure(
                 f"OAuth credentials path exists but is not a file: {creds_path}"
             )
-            return False, errors
 
         try:
             with open(creds_path, encoding="utf-8") as f:
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            is_valid, validation_errors = self._validate_credentials_structure(
-                credentials
-            )
-            errors.extend(validation_errors)
-
-            return is_valid, errors
+            return self._validate_credentials_structure(credentials)
 
         except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON in credentials file: {e}")
-            return False, errors
+            return ValidationResult.failure(f"Invalid JSON in credentials file: {e}")
         except PermissionError:
-            errors.append(f"Permission denied reading credentials file: {creds_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"Permission denied reading credentials file: {creds_path}"
+            )
         except Exception as e:
-            errors.append(f"Unexpected error reading credentials file: {e}")
-            return False, errors
+            return ValidationResult.failure(
+                f"Unexpected error reading credentials file: {e}"
+            )
 
     def _fail_init(self, errors: list[str]) -> None:
         """Mark initialization as failed with given errors."""
-        self._credential_validation_errors = errors
+        with self._errors_lock:
+            self._credential_validation_errors = errors
         self._initialization_failed = True
         self.is_functional = False
 
     def _degrade(self, errors: list[str]) -> None:
         """Degrade backend functionality due to credential issues."""
-        self._credential_validation_errors = errors
+        with self._errors_lock:
+            self._credential_validation_errors = errors
         self.is_functional = False
 
     def _recover(self) -> None:
         """Recover backend functionality after credential issues are resolved."""
-        self._credential_validation_errors = []
+        with self._errors_lock:
+            self._credential_validation_errors = []
         self.is_functional = True
 
     def _start_file_watching(self) -> None:
@@ -535,11 +537,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.info("Handling credentials file change...")
 
             # Validate file first
-            ok, errs = self._validate_credentials_file_exists()
-            if not ok:
-                self._degrade(errs)
+            res = self._validate_credentials_file_exists()
+            if not res:
+                self._degrade(res.errors)
                 logger.warning(
-                    f"Updated credentials file is invalid: {'; '.join(errs)}"
+                    f"Updated credentials file is invalid: {'; '.join(res.errors)}"
                 )
                 return
 
@@ -560,43 +562,21 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 )
 
     async def _validate_runtime_credentials(self) -> bool:
-        """Validate credentials at runtime with throttling.
+        """Validate credentials at runtime with throttling."""
+        # Simple throttling: only validate once per 30 seconds
+        current_time = time.time()
+        if current_time - self._last_validation_time < 30:
+            return True
 
-        Returns:
-            bool: True if credentials are valid, False otherwise
-        """
-        now = time.time()
-        if now - self._last_validation_time < 30:
-            return self.is_backend_functional()
-        self._last_validation_time = now
-
-        if self._is_token_expired():
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Access token expired during runtime, attempting to reload credentials..."
-                )
-
-            if await self._load_oauth_credentials():
-                if self._is_token_expired():
-                    self._degrade(["Token expired and no valid replacement found"])
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Reloaded token is still expired, marking backend as non-functional"
-                        )
-                    return False
-                self._recover()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Successfully reloaded valid credentials")
-                return True
-            self._degrade(["Failed to reload expired credentials"])
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to reload credentials, marking backend as non-functional"
-                )
+        res = self._validate_credentials_file_exists()
+        if not res:
+            with self._errors_lock:
+                self._credential_validation_errors = res.errors
             return False
 
-        if not self.is_backend_functional():
-            self._recover()
+        with self._errors_lock:
+            self._credential_validation_errors = []
+        self._last_validation_time = current_time
         return True
 
     def _get_adc_authorized_session(
@@ -844,9 +824,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         # 1) Startup validation pipeline
         # First validate credentials file exists and is readable
-        ok, errs = self._validate_credentials_file_exists()
-        if not ok:
-            self._fail_init(errs)
+        res_file = self._validate_credentials_file_exists()
+        if not res_file:
+            self._fail_init(res_file.errors)
             return
 
         # 2) Load credentials into memory
@@ -856,9 +836,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         # 3) Structure validation
         if self._oauth_credentials is not None:
-            ok, errs = self._validate_credentials_structure(self._oauth_credentials)
-            if not ok:
-                self._fail_init(errs)
+            res_struct = self._validate_credentials_structure(self._oauth_credentials)
+            if not res_struct:
+                self._fail_init(res_struct.errors)
                 return
         else:
             self._fail_init(["OAuth credentials are None after loading"])

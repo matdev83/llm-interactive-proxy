@@ -70,7 +70,8 @@ class ConnectionManager:
                 .encode("utf-8", errors="replace")
                 .decode("utf-8", errors="replace")
             )
-        except Exception:
+        except (TypeError, UnicodeError) as e:
+            logger.debug("Failed to sanitize value for logging: %s", e)
             return repr(value)
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:

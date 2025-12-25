@@ -17,6 +17,12 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select, update
 
+from src.core.database.repositories.usage_repository_types import (
+    RepositoryAggregatedStats,
+    RepositoryUsageStats,
+)
+
+
 from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
 from src.core.database.repositories.base import AsyncRepository
 from src.core.domain.statistics_filter import StatisticsFilter
@@ -259,7 +265,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
     async def get_aggregated_stats(
         self, filters: StatisticsFilter | None = None
-    ) -> dict:
+    ) -> RepositoryAggregatedStats:
         """Get aggregated statistics from the database.
 
         This performs aggregation directly in SQL for efficiency.
@@ -268,7 +274,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             filters: Optional statistics filter
 
         Returns:
-            Dictionary with aggregated statistics
+            RepositoryAggregatedStats with aggregated statistics
         """
         async with self._engine.session() as session:
             # Base query for aggregations
@@ -343,27 +349,28 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             result = await session.execute(statement)
             row = result.one()
 
-            return {
-                "request_count": row.request_count or 0,
-                "response_count": row.response_count or 0,
-                "unique_sessions": row.unique_sessions or 0,
-                "total_turns": row.total_turns or 0,
-                "total_prompt_tokens": row.total_prompt_tokens or 0,
-                "total_completion_tokens": row.total_completion_tokens or 0,
-                "total_tokens": row.total_tokens or 0,
-                "total_tool_calls": row.total_tool_calls or 0,
-                "first_timestamp": row.first_timestamp,
-                "last_timestamp": row.last_timestamp,
-                "min_ttft": row.min_ttft,
-                "max_ttft": row.max_ttft,
-                "avg_ttft": row.avg_ttft,
-                "min_proxy_processing": row.min_proxy_processing,
-                "max_proxy_processing": row.max_proxy_processing,
-                "avg_proxy_processing": row.avg_proxy_processing,
-                "min_duration": row.min_duration,
-                "max_duration": row.max_duration,
-                "avg_duration": row.avg_duration,
-            }
+            return RepositoryAggregatedStats(
+                request_count=row.request_count or 0,
+                response_count=row.response_count or 0,
+                unique_sessions=row.unique_sessions or 0,
+                total_turns=row.total_turns or 0,
+                total_prompt_tokens=row.total_prompt_tokens or 0,
+                total_completion_tokens=row.total_completion_tokens or 0,
+                total_tokens=row.total_tokens or 0,
+                total_tool_calls=row.total_tool_calls or 0,
+                first_timestamp=row.first_timestamp,
+                last_timestamp=row.last_timestamp,
+                min_ttft=row.min_ttft,
+                max_ttft=row.max_ttft,
+                avg_ttft=row.avg_ttft,
+                min_proxy_processing=row.min_proxy_processing,
+                max_proxy_processing=row.max_proxy_processing,
+                avg_proxy_processing=row.avg_proxy_processing,
+                min_duration=row.min_duration,
+                max_duration=row.max_duration,
+                avg_duration=row.avg_duration,
+            )
+
 
     async def get_status_code_breakdown(
         self, filters: StatisticsFilter | None = None
@@ -430,18 +437,14 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
     async def get_frontend_stats(
         self, filters: StatisticsFilter | None = None
-    ) -> dict[str, dict[str, int]]:
+    ) -> dict[str, RepositoryUsageStats]:
         """Get request counts and token totals by frontend type.
 
         Args:
             filters: Optional statistics filter
 
         Returns:
-            Dictionary mapping frontend_type to stats dict with:
-            - total_requests: Total number of requests
-            - successful_requests: Requests with HTTP 200
-            - tokens_sent: Total mutated_prompt_tokens
-            - tokens_received: Total mutated_completion_tokens
+            Dictionary mapping frontend_type to RepositoryUsageStats
         """
         async with self._engine.session() as session:
             statement = select(
@@ -467,31 +470,27 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             result = await session.execute(statement)
             rows = result.all()
 
-            stats: dict[str, dict[str, int]] = {}
+            stats: dict[str, RepositoryUsageStats] = {}
             for row in rows:
-                stats[row.frontend_type] = {
-                    "total_requests": row.total_requests or 0,
-                    "successful_requests": row.successful_requests or 0,
-                    "tokens_sent": row.tokens_sent or 0,
-                    "tokens_received": row.tokens_received or 0,
-                }
+                stats[row.frontend_type] = RepositoryUsageStats(
+                    total_requests=row.total_requests or 0,
+                    successful_requests=row.successful_requests or 0,
+                    tokens_sent=row.tokens_sent or 0,
+                    tokens_received=row.tokens_received or 0,
+                )
 
             return stats
 
     async def get_backend_instance_stats(
         self, filters: StatisticsFilter | None = None
-    ) -> dict[str, dict[str, int]]:
+    ) -> dict[str, RepositoryUsageStats]:
         """Get request counts and token totals by backend instance.
 
         Args:
             filters: Optional statistics filter
 
         Returns:
-            Dictionary mapping backend_instance_id to stats dict with:
-            - total_requests: Total number of requests
-            - successful_requests: Requests with HTTP 200
-            - tokens_sent: Total mutated_prompt_tokens
-            - tokens_received: Total mutated_completion_tokens
+            Dictionary mapping backend_instance_id to RepositoryUsageStats
         """
         async with self._engine.session() as session:
             statement = select(
@@ -521,18 +520,19 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             result = await session.execute(statement)
             rows = result.all()
 
-            stats: dict[str, dict[str, int]] = {}
+            stats: dict[str, RepositoryUsageStats] = {}
             for row in rows:
                 # Prefer backend_instance_id if available, fallback to backend_type
                 instance_id = row.backend_instance_id or row.backend_type
-                stats[instance_id] = {
-                    "total_requests": row.total_requests or 0,
-                    "successful_requests": row.successful_requests or 0,
-                    "tokens_sent": row.tokens_sent or 0,
-                    "tokens_received": row.tokens_received or 0,
-                }
+                stats[instance_id] = RepositoryUsageStats(
+                    total_requests=row.total_requests or 0,
+                    successful_requests=row.successful_requests or 0,
+                    tokens_sent=row.tokens_sent or 0,
+                    tokens_received=row.tokens_received or 0,
+                )
 
             return stats
+
 
     async def delete_older_than(self, cutoff_date: datetime) -> int:
         """Delete records older than the cutoff date.

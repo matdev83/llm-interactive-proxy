@@ -68,14 +68,17 @@ class TestStreamingContentConverter:
     @pytest.mark.asyncio
     async def test_sse_payload_decoding(self) -> None:
         """Test SSE payload decoding."""
+        from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
+
         mock_decoder = MagicMock(spec=ISSEDecoder)
-        mock_decoder.decode_payload.return_value = (
-            {"choices": [{"delta": {"content": "decoded"}}]},
-            {"finish_reason": "stop"},
-            False,
+        mock_decoder.decode_payload.return_value = DecodedSSE(
+            content={"choices": [{"delta": {"content": "decoded"}}]},
+            metadata={"finish_reason": "stop"},
+            is_done=False,
         )
 
         converter = StreamingContentConverter(sse_decoder=mock_decoder)
+
 
         async def raw_stream() -> AsyncIterator[bytes]:
             yield b'data: {"test": "data"}\n\n'
@@ -166,14 +169,17 @@ class TestStreamingContentConverter:
     @pytest.mark.asyncio
     async def test_done_marker_detection(self) -> None:
         """Test [DONE] marker detection."""
+        from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
+
         mock_decoder = MagicMock(spec=ISSEDecoder)
-        mock_decoder.decode_payload.return_value = (
-            "",
-            {"finish_reason": "stop"},
-            True,  # forced_done
+        mock_decoder.decode_payload.return_value = DecodedSSE(
+            content="",
+            metadata={"finish_reason": "stop"},
+            is_done=True,  # forced_done
         )
 
         converter = StreamingContentConverter(sse_decoder=mock_decoder)
+
 
         async def raw_stream() -> AsyncIterator[bytes]:
             yield b"data: [DONE]\n\n"

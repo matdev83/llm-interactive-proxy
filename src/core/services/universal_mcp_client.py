@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MCPServerStatus:
+    """Represents the status of an MCP server."""
+
+    status: str
+    tool_count: int
 
 
 class MCPToolDefinition:
@@ -310,18 +319,18 @@ class UniversalMCPClient:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error disconnecting from MCP server {server_name}: {e}")
 
-    def get_server_status(self) -> dict[str, dict[str, Any]]:
+    def get_server_status(self) -> dict[str, MCPServerStatus]:
         """Get status of all connected MCP servers.
 
         Returns:
             Dictionary mapping server names to their status information
         """
         return {
-            name: {
-                "status": info["status"],
-                "tool_count": len(
+            name: MCPServerStatus(
+                status=info["status"],
+                tool_count=len(
                     [t for t, s in self._tool_to_server_map.items() if s == name]
                 ),
-            }
+            )
             for name, info in self._connected_servers.items()
         }

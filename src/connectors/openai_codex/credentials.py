@@ -24,7 +24,9 @@ import httpx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from src.core.domain.validation import ValidationResult
 from src.connectors.openai_codex.interfaces import ICredentialManager
+
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -170,15 +172,16 @@ class CredentialWatcher:
                 loaded = await self._credential_manager._load_auth(force_reload=True)
                 if loaded:
                     if self._credential_manager._auth_credentials is not None:
-                        ok, errors = (
+                        res = (
                             self._credential_manager._validate_credentials_structure(
                                 self._credential_manager._auth_credentials
                             )
                         )
-                        if not ok:
+                        if not res:
                             logger.warning(
-                                f"Credential structure validation failed after reload: {'; '.join(errors)}"
+                                f"Credential structure validation failed after reload: {'; '.join(res.errors)}"
                             )
+
                 else:
                     logger.warning("Failed to reload credentials from file")
             except Exception as e:
@@ -348,39 +351,42 @@ class CredentialManager(ICredentialManager):
             )
             return False
 
-    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+    def _validate_credentials_file_exists(self) -> ValidationResult:
         """Validate that credentials file exists and is readable."""
-        errors = []
-
         auth_path = self._discover_auth_path()
         if auth_path is None:
-            errors.append("OAuth credentials file not found in any default location")
-            return False, errors
+            return ValidationResult.failure(
+                "OAuth credentials file not found in any default location"
+            )
 
         if not auth_path.exists():
-            errors.append(f"OAuth credentials file does not exist: {auth_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials file does not exist: {auth_path}"
+            )
 
         if not auth_path.is_file():
-            errors.append(f"OAuth credentials path is not a file: {auth_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials path is not a file: {auth_path}"
+            )
 
         try:
             with open(auth_path, encoding="utf-8") as f:
                 json.load(f)
         except json.JSONDecodeError as e:
-            errors.append(f"OAuth credentials file contains invalid JSON: {e}")
-            return False, errors
+            return ValidationResult.failure(
+                f"OAuth credentials file contains invalid JSON: {e}"
+            )
         except PermissionError:
-            errors.append(f"No permission to read OAuth credentials file: {auth_path}")
-            return False, errors
+            return ValidationResult.failure(
+                f"No permission to read OAuth credentials file: {auth_path}"
+            )
         except Exception as e:
-            errors.append(f"Error reading OAuth credentials file: {e}")
-            return False, errors
+            return ValidationResult.failure(f"Error reading OAuth credentials file: {e}")
 
-        return True, errors
+        return ValidationResult.success()
 
     def _robust_replace(
+
         self, src: str, dst: str, retries: int = 5, delay: float = 0.1
     ) -> None:
         """Attempt to replace a file with retries to handle Windows file locking.
@@ -406,13 +412,10 @@ class CredentialManager(ICredentialManager):
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> tuple[bool, list[str]]:
+    ) -> ValidationResult:
         """Validate OAuth credentials structure and content."""
-        errors = []
-
         if not isinstance(credentials, dict):
-            errors.append("OAuth credentials must be a JSON object")
-            return False, errors
+            return ValidationResult.failure("OAuth credentials must be a JSON object")
 
         # Check for tokens.access_token or OPENAI_API_KEY
         access_token = None
@@ -424,12 +427,12 @@ class CredentialManager(ICredentialManager):
 
         api_key = credentials.get("OPENAI_API_KEY")
         if not access_token and not (isinstance(api_key, str) and api_key.strip()):
-            errors.append(
+            return ValidationResult.failure(
                 "OAuth credentials missing required 'tokens.access_token' or 'OPENAI_API_KEY' field"
             )
-            return False, errors
 
-        return True, errors
+        return ValidationResult.success()
+
 
     async def initialize(self, auth_path: Path | None = None) -> None:
         """Load initial credentials and start watcher.
@@ -452,9 +455,9 @@ class CredentialManager(ICredentialManager):
                 self._oauth_dir_override = auth_path
 
         # 1) File exists + readable + parseable
-        ok, errors = self._validate_credentials_file_exists()
-        if not ok:
-            logger.error(f"Credential validation failed: {'; '.join(errors)}")
+        res_file = self._validate_credentials_file_exists()
+        if not res_file:
+            logger.error(f"Credential validation failed: {'; '.join(res_file.errors)}")
             return
 
         # 2) Load credentials into memory
@@ -464,15 +467,16 @@ class CredentialManager(ICredentialManager):
 
         # 3) Structure validation
         if self._auth_credentials is not None:
-            ok, errors = self._validate_credentials_structure(self._auth_credentials)
-            if not ok:
+            res_struct = self._validate_credentials_structure(self._auth_credentials)
+            if not res_struct:
                 logger.error(
-                    f"Credential structure validation failed: {'; '.join(errors)}"
+                    f"Credential structure validation failed: {'; '.join(res_struct.errors)}"
                 )
                 return
         else:
             logger.error("OAuth credentials are None after loading")
             return
+
 
         # 4) Start file watching
         if self._auth_path is not None:

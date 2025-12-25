@@ -26,6 +26,16 @@ except ImportError:
         return None
 
 
+@dataclass(frozen=True)
+class CacheStats:
+    """Statistics for the session detector cache."""
+
+    total_entries: int
+    hits: int
+    misses: int
+    hit_rate: float
+
+
 @dataclass
 class DetectionResult:
     """Result of KiloCode client detection."""
@@ -503,22 +513,18 @@ class SessionDetector:
             size_before,
         )
 
-    def get_cache_stats(self) -> dict[str, Any]:
+    def get_cache_stats(self) -> CacheStats:
         """Get cache statistics.
 
         Returns:
-            Dictionary containing:
-            - total_entries: Number of entries in cache
-            - hits: Number of cache hits
-            - misses: Number of cache misses
-            - hit_rate: Cache hit rate (0.0 to 1.0)
+            CacheStats dataclass containing cache performance metrics.
         """
         total = self._cache_hits + self._cache_misses
         hit_rate = self._cache_hits / total if total > 0 else 0.0
 
-        return {
-            "total_entries": len(self._cache),
-            "hits": self._cache_hits,
-            "misses": self._cache_misses,
-            "hit_rate": hit_rate,
-        }
+        return CacheStats(
+            total_entries=len(self._cache),
+            hits=self._cache_hits,
+            misses=self._cache_misses,
+            hit_rate=hit_rate,
+        )

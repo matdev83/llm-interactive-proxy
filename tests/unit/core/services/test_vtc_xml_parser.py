@@ -43,12 +43,13 @@ class TestParseVtcXml:
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["type"] == "function"
-        assert tool_calls[0]["function"]["name"] == "execute_command"
+        assert tool_calls[0].type == "function"
+        assert tool_calls[0].function.name == "execute_command"
 
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["command"] == "ls -la"
         assert cleaned == ""
+
 
     def test_parse_invoke_format_multiple_params(self) -> None:
         """Test parsing invoke format with multiple parameters."""
@@ -62,7 +63,7 @@ class TestParseVtcXml:
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["path"] == "/tmp/test.txt"
         assert args["content"] == "Hello World"
 
@@ -75,7 +76,7 @@ class TestParseVtcXml:
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "read_file"
+        assert tool_calls[0].function.name == "read_file"
 
     def test_parse_invoke_format_with_client_controls_prefix(self) -> None:
         """Test parsing invoke format with ClientControls namespace prefix."""
@@ -86,7 +87,7 @@ class TestParseVtcXml:
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "run_terminal_command"
+        assert tool_calls[0].function.name == "run_terminal_command"
 
     def test_parse_multiple_invoke_calls(self) -> None:
         """Test parsing multiple invoke calls."""
@@ -102,8 +103,8 @@ class TestParseVtcXml:
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 2
-        assert tool_calls[0]["function"]["name"] == "tool_a"
-        assert tool_calls[1]["function"]["name"] == "tool_b"
+        assert tool_calls[0].function.name == "tool_a"
+        assert tool_calls[1].function.name == "tool_b"
 
     def test_parse_mixed_content_and_tool_calls(self) -> None:
         """Test parsing content that has both text and tool calls."""
@@ -118,7 +119,7 @@ Here is the output."""
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "execute_command"
+        assert tool_calls[0].function.name == "execute_command"
         assert "I will execute the command now." in cleaned
         assert "Here is the output." in cleaned
         assert "<invoke" not in cleaned
@@ -135,7 +136,7 @@ Here is the output."""
         tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=["allowed_tool"])
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "allowed_tool"
+        assert tool_calls[0].function.name == "allowed_tool"
         # blocked_tool XML should still be in content since it wasn't extracted
         assert "blocked_tool" in cleaned
 
@@ -150,10 +151,10 @@ Here is the output."""
         tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=None)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["type"] == "function"
-        assert tool_calls[0]["function"]["name"] == "execute_command"
+        assert tool_calls[0].type == "function"
+        assert tool_calls[0].function.name == "execute_command"
 
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["command"] == "git status"
 
         # Tool call XML should be removed, text preserved
@@ -171,9 +172,9 @@ Here is the output."""
         tool_calls, cleaned = parse_vtc_xml(content, allowed_tools=None)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "read_file"
+        assert tool_calls[0].function.name == "read_file"
 
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["path"] == "/tmp/test.txt"
         assert args["start"] == 1
         assert args["end"] == 100
@@ -192,7 +193,7 @@ I should check the git status first.
 
         # Only execute_command should be extracted, not thinking
         assert len(tool_calls) == 1
-        assert tool_calls[0]["function"]["name"] == "execute_command"
+        assert tool_calls[0].function.name == "execute_command"
 
         # Thinking tag should remain in content
         assert "<thinking>" in cleaned
@@ -206,7 +207,7 @@ I should check the git status first.
         tool_calls, cleaned = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert isinstance(args["todos"], list)
         assert args["todos"][0]["id"] == "1"
 
@@ -218,7 +219,7 @@ I should check the git status first.
 
         tool_calls, cleaned = parse_vtc_xml(content)
 
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["count"] == 42
 
     def test_parse_boolean_parameter_values(self) -> None:
@@ -230,7 +231,7 @@ I should check the git status first.
 
         tool_calls, cleaned = parse_vtc_xml(content)
 
-        args = json.loads(tool_calls[0]["function"]["arguments"])
+        args = json.loads(tool_calls[0].function.arguments)
         assert args["enabled"] is True
         assert args["disabled"] is False
 
@@ -243,8 +244,9 @@ I should check the git status first.
         tool_calls, _ = parse_vtc_xml(content)
 
         assert len(tool_calls) == 1
-        assert tool_calls[0]["id"].startswith("vtc_")
-        assert len(tool_calls[0]["id"]) == 16  # vtc_ + 12 hex chars
+        assert tool_calls[0].id.startswith("vtc_")
+        assert len(tool_calls[0].id) == 16  # vtc_ + 12 hex chars
+
 
 
 class TestSerializeToolCallsToXml:
@@ -459,10 +461,10 @@ class TestRoundTrip:
         reparsed, _ = parse_vtc_xml(serialized)
 
         assert len(reparsed) == len(tool_calls)
-        assert reparsed[0]["function"]["name"] == tool_calls[0]["function"]["name"]
+        assert reparsed[0].function.name == tool_calls[0].function.name
 
-        orig_args = json.loads(tool_calls[0]["function"]["arguments"])
-        new_args = json.loads(reparsed[0]["function"]["arguments"])
+        orig_args = json.loads(tool_calls[0].function.arguments)
+        new_args = json.loads(reparsed[0].function.arguments)
         assert orig_args == new_args
 
     def test_round_trip_multiple_params(self) -> None:
@@ -477,9 +479,10 @@ class TestRoundTrip:
         serialized = serialize_tool_calls_to_xml(tool_calls)
         reparsed, _ = parse_vtc_xml(serialized)
 
-        orig_args = json.loads(tool_calls[0]["function"]["arguments"])
-        new_args = json.loads(reparsed[0]["function"]["arguments"])
+        orig_args = json.loads(tool_calls[0].function.arguments)
+        new_args = json.loads(reparsed[0].function.arguments)
 
         assert orig_args["path"] == new_args["path"]
         assert orig_args["content"] == new_args["content"]
         assert orig_args["overwrite"] == new_args["overwrite"]
+

@@ -10,7 +10,12 @@ from fastapi import HTTPException
 from pytest_mock import MockerFixture
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex import OpenAICodexConnector
+from src.connectors.openai_codex.contracts import (
+    CodexPayload,
+    ProcessedMessage,
+)
 from src.core.config.app_config import AppConfig
+
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -94,35 +99,38 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
         chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
-    assert payload["model"] == "gpt-5.1-codex"
-    assert payload["stream"] is True
-    assert payload["prompt_cache_key"] == conversation_id
+    assert payload.model == "gpt-5.1-codex"
+    assert payload.stream is True
+    assert payload.prompt_cache_key == conversation_id
 
     # With the refactoring, the main system prompt is in the `instructions` field
-    assert "instructions" in payload
+    assert payload.instructions is not None
     expected_prompt = connector._sanitize_codex_instructions(
         connector._codex_system_prompt()
     ).rstrip()
-    assert payload["instructions"].rstrip() == expected_prompt
+    assert payload.instructions.rstrip() == expected_prompt
 
     # The input items should contain the environment context and the user message
-    input_items = payload["input"]
+    input_items = payload.input
     assert len(input_items) == 2
-    env_block = input_items[0]["content"][0]["text"]
+    # Access content from CodexInputItem model
+    env_block = input_items[0].content[0]["text"]
     assert env_block.startswith("<environment_context>")
     assert "<model>" not in env_block
     assert "<approval_policy>never</approval_policy>" in env_block
     assert "<sandbox_mode>read-only</sandbox_mode>" in env_block
     assert "<network_access>restricted</network_access>" in env_block
-    assert input_items[1]["role"] == "user"
-    assert input_items[1]["content"][0]["type"] == "input_text"
-    assert input_items[1]["content"][0]["text"] == "Hello Codex!"
-    assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
-    assert payload["include"] == ["reasoning.encrypted_content"]
-    tools = payload["tools"]
-    names_by_type = {tool["name"]: tool["type"] for tool in tools}
+    assert input_items[1].role == "user"
+    assert input_items[1].content[0]["type"] == "input_text"
+    assert input_items[1].content[0]["text"] == "Hello Codex!"
+    assert payload.reasoning.effort == "medium"
+    assert payload.reasoning.summary == "auto"
+    assert payload.include == ["reasoning.encrypted_content"]
+    tools = payload.tools
+    names_by_type = {tool.name: tool.type for tool in tools}
     assert names_by_type["shell"] == "function"
     assert names_by_type["apply_patch"] == "custom"
+
 
 
 @pytest.mark.asyncio
@@ -147,20 +155,21 @@ async def test_build_codex_payload_custom_prompt_mode(
         chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
-    assert payload.get("instructions") == "Stay curious"
-    input_items = payload["input"]
+    assert payload.instructions == "Stay curious"
+    input_items = payload.input
     # There should only be one message, the user message
     assert len(input_items) == 1
     # First entry is the system message passed through as-is
-    assert input_items[0]["role"] == "user"
-    assert input_items[0]["content"][0]["text"] == "hello"
+    assert input_items[0].role == "user"
+    assert input_items[0].content[0]["text"] == "hello"
     # No environment block injected
     assert all(
         "<environment_context>" not in part["text"]
         for item in input_items
-        for part in item.get("content", [])
-        if part.get("type") == "input_text"
+        for part in (item.content if isinstance(item.content, list) else [])
+        if isinstance(part, dict) and part.get("type") == "input_text"
     )
+
 
 
 @pytest.mark.asyncio
@@ -181,7 +190,8 @@ async def test_build_codex_payload_merge_custom_prompt(
         chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
-    instructions = payload.get("instructions", "")
+    instructions = payload.instructions or ""
+
     assert custom_prompt in instructions
     assert "You are Codex" in instructions
 
@@ -202,21 +212,22 @@ async def test_codex_default_mode_merges_client_system_prompt(
         chat_request, chat_request.messages, "gpt-5.1-codex"
     )
 
-    instructions = (payload.get("instructions") or "").rstrip()
+    instructions = (payload.instructions or "").rstrip()
     expected_prompt = connector._sanitize_codex_instructions(
         connector._codex_system_prompt()
     ).rstrip()
     assert instructions == expected_prompt
 
-    input_items = payload["input"]
+    input_items = payload.input
     assert len(input_items) == 3
     user_block = input_items[0]
-    assert user_block["role"] == "user"
-    assert user_block["content"][0]["type"] == "input_text"
-    assert user_block["content"][0]["text"].startswith("<user_instructions>")
-    assert "Prioritize security fixes." in user_block["content"][0]["text"]
+    assert user_block.role == "user"
+    assert user_block.content[0]["type"] == "input_text"
+    assert user_block.content[0]["text"].startswith("<user_instructions>")
+    assert "Prioritize security fixes." in user_block.content[0]["text"]
     env_block = input_items[1]
-    assert env_block["content"][0]["text"].startswith("<environment_context>")
+    assert env_block.content[0]["text"].startswith("<environment_context>")
+
 
 
 @pytest.mark.asyncio
@@ -306,9 +317,11 @@ async def test_prompt_configuration_applies_prepend_append() -> None:
         payload, _ = connector._build_codex_payload(
             chat_request, chat_request.messages, "gpt-5.1-codex"
         )
-        instructions = payload.get("instructions", "")
-        assert instructions.startswith("<environment constraints>")
-        assert instructions.endswith("<end of rules>")
+    instructions = payload.instructions or ""
+
+    assert instructions.startswith("<environment constraints>")
+    assert instructions.endswith("<end of rules>")
+
     reset_renderer_registry()
 
 
@@ -370,9 +383,10 @@ async def test_tool_schema_custom_only_uses_config_defaults() -> None:
         payload, _ = connector._build_codex_payload(
             chat_request, chat_request.messages, "gpt-5.1-codex"
         )
-        tools = payload.get("tools", [])
+        tools = payload.tools
         assert len(tools) == 1
-        assert tools[0]["name"] == "workspace_info"
+        assert tools[0].name == "workspace_info"
+
     reset_renderer_registry()
 
 
@@ -427,9 +441,10 @@ async def test_codex_passthrough_skips_translation(
     )
 
     # The payload should be the native one, with minor adjustments
-    assert payload["model"] == "gpt-5.1-codex"
-    assert payload["stream"] is True
-    assert payload["input"][0]["role"] == "user"
+    assert payload.model == "gpt-5.1-codex"
+    assert payload.stream is True
+    assert payload.input[0].role == "user"
+
 
     # The key assertion: translation was bypassed
     build_input_items_mock.assert_not_called()
@@ -460,13 +475,18 @@ async def test_streaming_refresh_rebuilds_authorization_header(
         model="gpt-5.1-codex",
         stream=True,
     )
-    payload = {
-        "model": "gpt-5.1-codex",
-        "input": [],
-        "tools": [],
-        "prompt_cache_key": "conv-123",
-        "stream": True,
-    }
+    payload = CodexPayload(
+        model="gpt-5.1-codex",
+        input=[],
+        tools=[],
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        store=False,
+        prompt_cache_key="conv-123",
+        stream=True,
+        include=[],
+    )
+
     mocker.patch.object(
         connector, "_build_codex_payload", return_value=(payload, "conv-123")
     )
@@ -552,13 +572,18 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
         model="gpt-5.1-codex",
         stream=True,
     )
-    payload = {
-        "model": "gpt-5.1-codex",
-        "input": [],
-        "tools": [],
-        "prompt_cache_key": "conv-123",
-        "stream": True,
-    }
+    payload = CodexPayload(
+        model="gpt-5.1-codex",
+        input=[],
+        tools=[],
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        store=False,
+        prompt_cache_key="conv-123",
+        stream=True,
+        include=[],
+    )
+
     mocker.patch.object(
         connector, "_build_codex_payload", return_value=(payload, "conv-123")
     )
@@ -677,16 +702,21 @@ async def test_streaming_handshake_exceeds_retry_limit(
         model="gpt-5.1-codex",
         stream=True,
     )
-    payload = {
-        "model": "gpt-5.1-codex",
-        "input": [],
-        "tools": [],
-        "prompt_cache_key": "conv-limit",
-        "stream": True,
-    }
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-limit")
+    payload = CodexPayload(
+        model="gpt-5.1-codex",
+        input=[],
+        tools=[],
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        store=False,
+        prompt_cache_key="conv-123",
+        stream=True,
+        include=[],
     )
+    mocker.patch.object(
+        connector, "_build_codex_payload", return_value=(payload, "conv-123")
+    )
+
     mocker.patch.object(
         connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
     )
@@ -750,16 +780,21 @@ async def test_streaming_auth_failure_chunk_unrecoverable(
         model="gpt-5.1-codex",
         stream=True,
     )
-    payload = {
-        "model": "gpt-5.1-codex",
-        "input": [],
-        "tools": [],
-        "prompt_cache_key": "conv-321",
-        "stream": True,
-    }
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-321")
+    payload = CodexPayload(
+        model="gpt-5.1-codex",
+        input=[],
+        tools=[],
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        store=False,
+        prompt_cache_key="conv-123",
+        stream=True,
+        include=[],
     )
+    mocker.patch.object(
+        connector, "_build_codex_payload", return_value=(payload, "conv-123")
+    )
+
     mocker.patch.object(
         connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
     )
@@ -950,7 +985,25 @@ async def test_codex_retries_after_token_refresh(
         stream=False,
     )
 
-    mocker.patch.object(connector, "_build_codex_payload", return_value=({"input": []}, "cid-1"))  # type: ignore[arg-type]
+    mocker.patch.object(
+        connector,
+        "_build_codex_payload",
+        return_value=(
+            CodexPayload(
+                model="gpt-5.1-codex",
+                input=[],
+                tools=[],
+                tool_choice="auto",
+                parallel_tool_calls=False,
+                store=False,
+                prompt_cache_key="cid-1",
+                stream=False,
+                include=[],
+            ),
+            "cid-1",
+        ),
+    )
+
     mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
     first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
     second_response = ResponseEnvelope(content={"ok": True})
@@ -1080,7 +1133,25 @@ async def test_codex_refresh_failure_propagates(
         stream=False,
     )
 
-    mocker.patch.object(connector, "_build_codex_payload", return_value=({"input": []}, "cid-1"))  # type: ignore[arg-type]
+    mocker.patch.object(
+        connector,
+        "_build_codex_payload",
+        return_value=(
+            CodexPayload(
+                model="gpt-5.1-codex",
+                input=[],
+                tools=[],
+                tool_choice="auto",
+                parallel_tool_calls=False,
+                store=False,
+                prompt_cache_key="cid-1",
+                stream=False,
+                include=[],
+            ),
+            "cid-1",
+        ),
+    )
+
     mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
     first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
     mocker.patch.object(

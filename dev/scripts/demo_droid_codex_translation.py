@@ -85,10 +85,12 @@ def demo_tool_translations() -> None:
 
     for droid_tool, droid_args in demo_cases:
         try:
-            codex_tool, codex_args = translator.translate_tool_call(
+            res = translator.translate_tool_call(
                 droid_tool, droid_args
             )
+            codex_tool, codex_args = res.codex_tool_name, res.codex_arguments
             print_translation(droid_tool, droid_args, codex_tool, codex_args)
+
         except Exception as e:
             print(f"  ERROR translating {droid_tool}: {e}\n")
 

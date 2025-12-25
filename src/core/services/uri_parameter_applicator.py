@@ -17,6 +17,8 @@ from src.core.interfaces.uri_parameter_applicator_interface import (
 if TYPE_CHECKING:
     from src.core.domain.chat import ChatRequest
     from src.core.interfaces.configuration_interface import IConfig
+    from src.core.services.parameter_resolution_service import ResolvedParameters
+
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +296,8 @@ class URIParameterApplicator(IURIParameterApplicator):
         config_params: dict[str, Any],
         session_params: dict[str, Any],
         backend_type: str,
-    ) -> Any | None:
+    ) -> ResolvedParameters | None:
+
         from src.core.services.parameter_resolution_service import (
             ParameterResolutionService,
         )
@@ -319,8 +322,9 @@ class URIParameterApplicator(IURIParameterApplicator):
 
     @staticmethod
     def _apply_resolved_parameters(
-        request: ChatRequest, resolved: Any, backend_type: str
+        request: ChatRequest, resolved: ResolvedParameters, backend_type: str
     ) -> ChatRequest:
+
         try:
             resolved_params = resolved.to_dict()
             if not resolved_params:

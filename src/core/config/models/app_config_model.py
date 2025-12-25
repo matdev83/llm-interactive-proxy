@@ -32,6 +32,7 @@ from src.core.domain.configuration.reasoning_aliases_config import (
 )
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
+from src.core.domain.model_utils import ModelDefaults
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
 from src.core.memory.config import MemoryConfiguration
@@ -62,7 +63,7 @@ class AppConfigModel(DomainModel, IConfig):
     default_rate_window: int = 60
 
     backends: BackendSettings = Field(default_factory=BackendSettings)
-    model_defaults: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    model_defaults: dict[str, ModelDefaults] = Field(default_factory=dict)
     failover_routes: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     identity: AppIdentityConfig = Field(default_factory=AppIdentityConfig)

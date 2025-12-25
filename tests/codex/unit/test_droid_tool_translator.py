@@ -20,9 +20,11 @@ class TestDroidToolTranslatorRead:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Read", {"file_path": "/path/to/file.py"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+
         assert tool_name == "read_file"
         assert args["path"] == "/path/to/file.py"
 
@@ -33,9 +35,11 @@ class TestDroidToolTranslatorRead:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Read", {"file_path": "/file.py", "offset": 10, "limit": 50}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+
         assert tool_name == "read_file"
         assert args["path"] == "/file.py"
         assert args["start_line"] == 10
@@ -48,9 +52,10 @@ class TestDroidToolTranslatorRead:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Read", {"file_path": "/file.py", "offset": 100}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "read_file"
         assert args["start_line"] == 100
         assert "end_line" not in args
@@ -62,9 +67,10 @@ class TestDroidToolTranslatorRead:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Read", {"file_path": "/file.py", "limit": 100}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "read_file"
         assert args.get("start_line", 1) == 1  # Default to start
         assert args["end_line"] == 100
@@ -76,9 +82,10 @@ class TestDroidToolTranslatorRead:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Read", {"file_path": "C:\\Users\\test\\file.py"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "read_file"
         assert args["path"] == "C:\\Users\\test\\file.py"
 
@@ -93,9 +100,10 @@ class TestDroidToolTranslatorLS:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "LS", {"directory_path": "/src"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "list_dir"
         assert args["path"] == "/src"
 
@@ -106,7 +114,8 @@ class TestDroidToolTranslatorLS:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call("LS", {})
+        result = translator.translate_tool_call("LS", {})
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "list_dir"
         assert args["path"] == "."
 
@@ -117,9 +126,10 @@ class TestDroidToolTranslatorLS:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "LS", {"directory_path": "/src", "ignorePatterns": ["*.pyc", "__pycache__"]}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "list_dir"
         assert args["path"] == "/src"
 
@@ -130,9 +140,10 @@ class TestDroidToolTranslatorLS:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "LS", {"directory_path": "C:\\Users\\test\\project"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "list_dir"
         assert args["path"] == "C:\\Users\\test\\project"
 
@@ -147,9 +158,10 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Execute", {"command": "pytest tests/ -v"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "shell"
         assert args["command"] == ["pytest", "tests/", "-v"]
 
@@ -160,9 +172,10 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Execute", {"command": 'echo "hello world"'}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "shell"
         assert args["command"] == ["echo", "hello world"]
 
@@ -173,9 +186,10 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Execute", {"command": "npm install", "cwd": "/project"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "shell"
         assert args["command"] == ["npm", "install"]
         assert args["workdir"] == "/project"
@@ -187,7 +201,8 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call("Execute", {"command": "pwd"})
+        result = translator.translate_tool_call("Execute", {"command": "pwd"})
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "shell"
         assert args["command"] == ["pwd"]
 
@@ -198,9 +213,10 @@ class TestDroidToolTranslatorExecute:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Execute", {"command": "ls -la | grep py"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "shell"
         # shlex.split handles this as separate tokens
         assert args["command"] == ["ls", "-la", "|", "grep", "py"]
@@ -216,9 +232,10 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Grep", {"pattern": "def test_"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "def test_"
 
@@ -229,9 +246,10 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Grep", {"pattern": "import", "path": "src/"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "import"
         assert args["path"] == "src/"
@@ -243,9 +261,10 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Grep", {"pattern": "class", "type": "py"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "class"
         assert args["include"] == "*.py"
@@ -257,9 +276,10 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Grep", {"pattern": "TODO", "glob": "**/*.md"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "TODO"
         assert args["include"] == "**/*.md"
@@ -271,7 +291,7 @@ class TestDroidToolTranslatorGrep:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "Grep",
             {
                 "pattern": "error",
@@ -279,6 +299,7 @@ class TestDroidToolTranslatorGrep:
                 "exclude": "*.bak",
             },
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "error"
         assert args["include"] == "*.log"
@@ -295,9 +316,10 @@ class TestProxySideTools:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "TodoWrite", {"todos": [{"id": "1", "content": "Test task"}]}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "__proxy_todo_write"
         assert args["todos"] == [{"id": "1", "content": "Test task"}]
 
@@ -308,9 +330,10 @@ class TestProxySideTools:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "WebSearch", {"query": "python asyncio tutorial"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "__proxy_web_search"
         assert args["query"] == "python asyncio tutorial"
 
@@ -321,9 +344,10 @@ class TestProxySideTools:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "FetchUrl", {"url": "https://example.com"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "__proxy_fetch_url"
         assert args["url"] == "https://example.com"
 
@@ -334,9 +358,10 @@ class TestProxySideTools:
         )
 
         translator = DroidToolTranslator()
-        tool_name, args = translator.translate_tool_call(
+        result = translator.translate_tool_call(
             "ExitSpecMode", {"plan": "Implement feature X", "title": "Feature X"}
         )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "__proxy_exit_spec_mode"
         assert args["plan"] == "Implement feature X"
         assert args["title"] == "Feature X"

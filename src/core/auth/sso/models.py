@@ -95,3 +95,35 @@ class RateLimitResult:
 
     allowed: bool
     retry_after: int = 0  # seconds until retry allowed
+
+
+@dataclass
+class JWK:
+    """Represents a JSON Web Key (JWK)."""
+
+    kty: str
+    alg: str | None = None
+    use: str | None = None
+    kid: str | None = None
+    n: str | None = None
+    e: str | None = None
+    x: str | None = None
+    y: str | None = None
+    crv: str | None = None
+
+
+@dataclass
+class JWKS:
+    """Represents a JSON Web Key Set (JWKS)."""
+
+    keys: list[JWK]
+
+
+@dataclass
+class SAMLMetadata:
+    """Parsed SAML metadata information."""
+
+    sso_redirect_url: str | None
+    signing_cert: str | None
+    entity_id: str | None
+

@@ -11,6 +11,7 @@ import uuid
 import xml.etree.ElementTree as ET  # noqa: N817
 import zlib
 from collections import OrderedDict
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -22,7 +23,8 @@ from authlib.jose.errors import DecodeError, JoseError  # type: ignore
 
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
-from src.core.auth.sso.models import SSOResult
+from src.core.auth.sso.models import JWK, JWKS, SAMLMetadata, SSOResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +169,7 @@ class JWKSCache:
         self._ttl = ttl
         self._max_size = max_size
 
-    def get(self, jwks_uri: str) -> dict[str, Any] | None:
+    def get(self, jwks_uri: str) -> JWKS | None:
         """
         Get cached JWKS for a URI.
 
@@ -190,7 +192,7 @@ class JWKSCache:
         self._cache.move_to_end(jwks_uri)
         return entry.get("jwks")
 
-    def set(self, jwks_uri: str, jwks: dict[str, Any]) -> None:
+    def set(self, jwks_uri: str, jwks: JWKS) -> None:
         """
         Cache JWKS for a URI.
 
@@ -207,6 +209,7 @@ class JWKSCache:
             "jwks": jwks,
             "expires_at": time.time() + self._ttl,
         }
+
 
         # Enforce size limit using LRU eviction
         while len(self._cache) > self._max_size:
@@ -265,11 +268,10 @@ class SSOService:
         self._jwt = JsonWebToken(["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"])
         self._jwks_cache = jwks_cache or JWKSCache(max_size=JWKSCache.DEFAULT_MAX_SIZE)
         # Use OrderedDict for LRU eviction to prevent unbounded memory growth
-        self._saml_metadata_cache: OrderedDict[str, dict[str, str | None]] = (
-            OrderedDict()
-        )
+        self._saml_metadata_cache: OrderedDict[str, SAMLMetadata] = OrderedDict()
 
     def get_supported_providers(self) -> list[str]:
+
         """
         Return list of configured identity providers.
 
@@ -352,7 +354,7 @@ class SSOService:
             raise ConfigurationError(f"Provider '{provider}' not configured")
         return self.config.providers[provider]
 
-    async def _fetch_jwks(self, jwks_uri: str) -> dict[str, Any]:
+    async def _fetch_jwks(self, jwks_uri: str) -> JWKS:
         """
         Fetch JWKS from the provider's jwks_uri endpoint.
 
@@ -379,11 +381,17 @@ class SSOService:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(jwks_uri)
                 resp.raise_for_status()
-                jwks: dict[str, Any] = resp.json()
+                data = resp.json()
+                
+                # Convert to JWKS model
+                keys = []
+                for k in data.get("keys", []):
+                    keys.append(JWK(**k))
+                jwks = JWKS(keys=keys)
 
             # Cache the result
             self._jwks_cache.set(jwks_uri, jwks)
-            logger.debug(f"Cached JWKS with {len(jwks.get('keys', []))} keys")
+            logger.debug(f"Cached JWKS with {len(jwks.keys)} keys")
             return jwks
 
         except Exception as e:
@@ -444,10 +452,10 @@ class SSOService:
 
         # Fetch JWKS and verify signature
         try:
-            jwks_data = await self._fetch_jwks(jwks_uri)
+            jwks_model = await self._fetch_jwks(jwks_uri)
 
             # Import the JWKS as a key set
-            keys = JsonWebKey.import_key_set(jwks_data)
+            keys = JsonWebKey.import_key_set(asdict(jwks_model))
 
             # Decode and verify the token
             # Note: authlib's JsonWebToken.decode returns a dict-like object
@@ -455,6 +463,7 @@ class SSOService:
                 id_token,
                 key=keys,
             )
+
 
             # Verify audience if present
             token_aud = claims.get("aud")
@@ -852,11 +861,12 @@ class SSOService:
             raise ConfigurationError("SAML provider requires metadata_url")
 
         metadata = await self._load_saml_metadata(provider_config.metadata_url)
-        sso_redirect_url = metadata.get("sso_redirect_url")
+        sso_redirect_url = metadata.sso_redirect_url
         if not sso_redirect_url:
             raise ConfigurationError(
                 "SAML metadata did not contain a SingleSignOnService redirect URL"
             )
+
 
         request_xml = self._build_saml_authn_request(
             destination=sso_redirect_url,
@@ -898,7 +908,7 @@ class SSOService:
             "</samlp:AuthnRequest>"
         )
 
-    async def _load_saml_metadata(self, metadata_url: str) -> dict[str, str | None]:
+    async def _load_saml_metadata(self, metadata_url: str) -> SAMLMetadata:
         """
         Fetch and parse SAML IdP metadata to extract endpoints and certificate.
 
@@ -951,11 +961,11 @@ class SSOService:
             if cert_el is not None and cert_el.text:
                 cert = cert_el.text.strip()
 
-            parsed = {
-                "sso_redirect_url": redirect_url or post_url,
-                "signing_cert": cert,
-                "entity_id": root.attrib.get("entityID"),
-            }
+            parsed = SAMLMetadata(
+                sso_redirect_url=redirect_url or post_url,
+                signing_cert=cert,
+                entity_id=root.attrib.get("entityID"),
+            )
             # Add to cache with LRU eviction if size limit exceeded
             if metadata_url in self._saml_metadata_cache:
                 # Update existing entry and move to end
@@ -980,6 +990,7 @@ class SSOService:
                 details={"metadata_url": metadata_url},
                 original_error=e,
             ) from e
+
 
     async def _handle_saml_callback(
         self,
@@ -1036,7 +1047,8 @@ class SSOService:
             metadata = self._saml_metadata_cache.get(provider_config.metadata_url) or (
                 await self._load_saml_metadata(provider_config.metadata_url)
             )
-        signing_cert_expected = metadata.get("signing_cert") if metadata else None
+        signing_cert_expected = metadata.signing_cert if metadata else None
+
 
         sig_ns = {"ds": "http://www.w3.org/2000/09/xmldsig#"}
         sig_cert_el = root.find(

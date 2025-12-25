@@ -322,10 +322,10 @@ class TestUsageCalculationWithContext:
             model="gpt-4",
         )
 
-        # Should return valid usage dict
-        assert "prompt_tokens" in result
-        assert "completion_tokens" in result
-        assert "total_tokens" in result
+        # Should return valid usage
+        assert result.prompt_tokens == 100
+        assert result.completion_tokens == 100  # Recalculated from modification tracker
+        assert result.total_tokens == 200
 
     def test_ensure_usage_without_context(
         self, service: UsageCalculationService
@@ -341,9 +341,10 @@ class TestUsageCalculationWithContext:
             context=None,
         )
 
-        assert result["prompt_tokens"] == 100
-        assert result["completion_tokens"] == 50
-        assert result["total_tokens"] == 150
+        assert result.prompt_tokens == 100
+        assert result.completion_tokens == 50
+        assert result.total_tokens == 150
+
 
 
 class TestGlobalServiceInstance:
@@ -383,8 +384,8 @@ class TestStreamingUsageMerge:
             final_chunk_usage=final_usage,
         )
 
-        assert result["prompt_tokens"] == 50
-        assert result["completion_tokens"] == 10
+        assert result.prompt_tokens == 50
+        assert result.completion_tokens == 10
 
     def test_merge_streaming_usage_with_modifications(
         self, service: UsageCalculationService
@@ -417,9 +418,9 @@ class TestStreamingUsageMerge:
         )
 
         # Completion tokens should be recalculated from accumulated content
-        assert result["completion_tokens"] > 0
+        assert result.completion_tokens > 0
         # Prompt tokens preserved from backend
-        assert result["prompt_tokens"] == 50
+        assert result.prompt_tokens == 50
 
     def test_merge_streaming_usage_no_final_chunk(
         self, service: UsageCalculationService
@@ -431,5 +432,6 @@ class TestStreamingUsageMerge:
             final_chunk_usage=None,
         )
 
-        assert result["completion_tokens"] > 0
-        assert result["total_tokens"] == result["completion_tokens"]
+        assert result.completion_tokens > 0
+        assert result.total_tokens == result.completion_tokens
+

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.core.domain.openrouter_usage import OpenRouterUsage
 from src.core.utils.usage_recalculation import (
     extract_content_text,
     recalculate_usage_after_transformation,
@@ -24,20 +25,18 @@ def test_recalculate_usage_after_transformation():
     )
 
     assert result is not None
-    assert result["prompt_tokens"] == 100  # Preserved
-    assert result["completion_tokens"] < 500  # Reduced
-    assert (
-        result["total_tokens"] == result["prompt_tokens"] + result["completion_tokens"]
-    )
+    assert result.prompt_tokens == 100  # Preserved
+    assert result.completion_tokens < 500  # Reduced
+    assert result.total_tokens == result.prompt_tokens + result.completion_tokens
 
 
 def test_recalculate_usage_no_transformation():
     """Test that usage is unchanged when content is not transformed."""
-    original_usage = {
-        "prompt_tokens": 100,
-        "completion_tokens": 500,
-        "total_tokens": 600,
-    }
+    original_usage = OpenRouterUsage(
+        prompt_tokens=100,
+        completion_tokens=500,
+        total_tokens=600,
+    )
     content = "Same content"
 
     result = recalculate_usage_after_transformation(original_usage, content, content)
@@ -50,6 +49,7 @@ def test_recalculate_usage_none_input():
     result = recalculate_usage_after_transformation(None, "original", "transformed")
 
     assert result is None
+
 
 
 def test_should_recalculate_usage_valid_response():
@@ -169,9 +169,9 @@ def test_recalculate_usage_preserves_prompt_tokens():
     )
 
     assert result is not None
-    assert result["prompt_tokens"] == 250  # Must be preserved
-    assert result["completion_tokens"] < 1000  # Should be reduced
-    assert result["total_tokens"] == 250 + result["completion_tokens"]
+    assert result.prompt_tokens == 250  # Must be preserved
+    assert result.completion_tokens < 1000  # Should be reduced
+    assert result.total_tokens == 250 + result.completion_tokens
 
 
 def test_recalculate_usage_with_zero_original():
@@ -189,6 +189,7 @@ def test_recalculate_usage_with_zero_original():
     )
 
     assert result is not None
-    assert result["prompt_tokens"] == 50
-    assert result["completion_tokens"] > 0  # Should now have tokens
-    assert result["total_tokens"] == 50 + result["completion_tokens"]
+    assert result.prompt_tokens == 50
+    assert result.completion_tokens > 0  # Should now have tokens
+    assert result.total_tokens == 50 + result.completion_tokens
+

@@ -333,9 +333,10 @@ class TestConvertTools:
 
         assert result is not None
         assert len(result) == 1
-        assert isinstance(result, list)
-        assert result[0]["type"] == "function"
-        assert result[0]["function"]["name"] == "get_weather"
+        assert isinstance(result[0], ToolDefinition)
+        assert result[0].type == "function"
+        assert result[0].function.name == "get_weather"
+
 
     def test_convert_existing_tool_definitions(self) -> None:
         """Test conversion with existing ToolDefinition objects."""
@@ -352,9 +353,10 @@ class TestConvertTools:
 
         assert result is not None
         assert len(result) == 1
-        assert isinstance(result, list)
-        assert result[0]["type"] == "function"
-        assert result[0]["function"]["name"] == "get_weather"
+        assert isinstance(result[0], ToolDefinition)
+        assert result[0].type == "function"
+        assert result[0].function.name == "get_weather"
+
 
     def test_convert_legacy_model_tools(self) -> None:
         """Test conversion from legacy model objects."""
@@ -376,6 +378,7 @@ class TestConvertTools:
 
         assert result is not None
         assert len(result) == 1
-        assert isinstance(result, list)
-        assert result[0]["type"] == "function"
-        assert result[0]["function"]["name"] == "get_weather"
+        assert isinstance(result[0], ToolDefinition)
+        assert result[0].type == "function"
+        assert result[0].function.name == "get_weather"
+

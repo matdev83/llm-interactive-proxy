@@ -278,7 +278,7 @@ class JSONResponseBuilder:
             prompt_tokens_hint = self._resolve_prompt_tokens(existing_usage, envelope)
 
             # Recalculate usage accounting for modifications
-            usage = service.ensure_usage(
+            usage_obj = service.ensure_usage(
                 backend_usage=existing_usage,
                 context=context,
                 response_content=payload,
@@ -288,13 +288,13 @@ class JSONResponseBuilder:
 
             # Apply prompt tokens hint if we got one from metadata
             if prompt_tokens_hint is not None and prompt_tokens_hint > 0:
-                current_prompt = usage.get("prompt_tokens", 0) or 0
-                if prompt_tokens_hint > current_prompt:
-                    usage["prompt_tokens"] = prompt_tokens_hint
-                    usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
-                        "completion_tokens", 0
+                if prompt_tokens_hint > usage_obj.prompt_tokens:
+                    usage_obj = usage_obj.with_recalculated_tokens(
+                        prompt_tokens=prompt_tokens_hint
                     )
+            usage = usage_obj.to_openrouter_dict()
         else:
+
             # Use existing usage, ensuring it's normalized
             usage = existing_usage
 

@@ -247,9 +247,9 @@ class TestAntigravityOAuthConnector:
             api_key="test-key",
         )
 
-        assert "models" in result
-        assert len(result["models"]) == 2
-        model_names = [m["name"] for m in result["models"]]
+        assert result.data
+        assert len(result.data) == 2
+        model_names = [m.id for m in result.data]
         assert "models/gemini-2.5-flash" in model_names
         assert "models/claude-sonnet-4-5" in model_names
 
@@ -266,12 +266,13 @@ class TestAntigravityOAuthConnector:
         )
 
         assert connector.client.get.await_count == 0
-        assert "models" in result
+        assert result.data
         # Model names now include vendor prefix in public list
         assert any(
-            model["name"] == "models/google/gemini-2.5-pro"
-            for model in result["models"]
+            model.id == "models/google/gemini-2.5-pro"
+            for model in result.data
         )
+
 
     @pytest.mark.asyncio
     async def test_discover_project_id_prefers_paid_tier(self, connector, monkeypatch):

@@ -18,12 +18,14 @@ import re
 import uuid
 from typing import Any
 
+from src.core.domain.chat import FunctionCall, ToolCall
+
 logger = logging.getLogger(__name__)
 
 
 def parse_vtc_xml(
     content: str, allowed_tools: list[str] | None = None
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[ToolCall], str]:
     """
     Parse XML tool calls from content and return structured tool calls.
 
@@ -38,14 +40,15 @@ def parse_vtc_xml(
 
     Returns:
         Tuple of (extracted_tool_calls, cleaned_content).
-        - extracted_tool_calls: List of tool calls in OpenAI format
+        - extracted_tool_calls: List of ToolCall objects
         - cleaned_content: Content with XML tool calls removed
     """
     if not content:
         return [], content
 
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls: list[ToolCall] = []
     cleaned = content
+
 
     # First, try to extract <function_calls><invoke>...</invoke></function_calls> format
     invoke_tool_calls, cleaned = _extract_invoke_format(cleaned, allowed_tools)
@@ -70,7 +73,7 @@ def parse_vtc_xml(
 
 def _extract_invoke_format(
     content: str, allowed_tools: list[str] | None
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[ToolCall], str]:
     """
     Extract tool calls in <invoke name="...">...</invoke> format.
 
@@ -81,8 +84,9 @@ def _extract_invoke_format(
     Returns:
         Tuple of (tool_calls, cleaned_content).
     """
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls: list[ToolCall] = []
     cleaned = content
+
 
     # Pattern for <invoke name="...">...</invoke>
     # Handle optional namespace prefixes like "antml:tool:"
@@ -119,7 +123,7 @@ def _extract_invoke_format(
 
 def _extract_simple_format(
     content: str, allowed_tools: list[str] | None
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[ToolCall], str]:
     """
     Extract tool calls in <tool_name>...</tool_name> format.
 
@@ -134,8 +138,9 @@ def _extract_simple_format(
     Returns:
         Tuple of (tool_calls, cleaned_content).
     """
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls: list[ToolCall] = []
     cleaned = content
+
 
     if allowed_tools is not None:
         # Whitelist mode: only extract specified tools
@@ -211,7 +216,7 @@ def _extract_simple_format(
 
 def _extract_simple_tool(
     content: str, tool_name: str
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[ToolCall], str]:
     """
     Extract a specific tool from content in simple format.
 
@@ -222,8 +227,9 @@ def _extract_simple_tool(
     Returns:
         Tuple of (tool_calls, cleaned_content).
     """
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls: list[ToolCall] = []
     cleaned = content
+
 
     # Pattern for <tool_name>...</tool_name>
     pattern = rf"<{re.escape(tool_name)}(?:\s[^>]*)?>(.+?)</{re.escape(tool_name)}>"
@@ -328,7 +334,7 @@ def _parse_param_value(value: str) -> Any:
     return value
 
 
-def _create_tool_call(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+def _create_tool_call(tool_name: str, params: dict[str, Any]) -> ToolCall:
     """
     Create a tool call in OpenAI format.
 
@@ -337,19 +343,19 @@ def _create_tool_call(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
         params: Dictionary of parameters.
 
     Returns:
-        Tool call dict in OpenAI format.
+        ToolCall object.
     """
-    return {
-        "id": f"vtc_{uuid.uuid4().hex[:12]}",
-        "type": "function",
-        "function": {
-            "name": tool_name,
-            "arguments": json.dumps(params),
-        },
-    }
+    return ToolCall(
+        id=f"vtc_{uuid.uuid4().hex[:12]}",
+        type="function",
+        function=FunctionCall(
+            name=tool_name,
+            arguments=json.dumps(params),
+        ),
+    )
 
 
-def serialize_tool_calls_to_xml(tool_calls: list[dict[str, Any]]) -> str:
+def serialize_tool_calls_to_xml(tool_calls: list[ToolCall | dict[str, Any]]) -> str:
     """
     Serialize internal tool calls to XML format for VTC clients.
 
@@ -361,7 +367,7 @@ def serialize_tool_calls_to_xml(tool_calls: list[dict[str, Any]]) -> str:
     </function_calls>
 
     Args:
-        tool_calls: List of tool calls in OpenAI format.
+        tool_calls: List of tool calls (ToolCall objects or OpenAI format dicts).
 
     Returns:
         XML string representation of the tool calls.
@@ -373,15 +379,20 @@ def serialize_tool_calls_to_xml(tool_calls: list[dict[str, Any]]) -> str:
 
     for tool_call in tool_calls:
         # Extract function info
-        function = tool_call.get("function", {})
-        tool_name = function.get("name", "unknown")
+        if isinstance(tool_call, ToolCall):
+            tool_name = tool_call.function.name
+            args_str = tool_call.function.arguments
+        else:
+            function = tool_call.get("function", {})
+            tool_name = function.get("name", "unknown")
+            args_str = function.get("arguments", "{}")
 
         # Parse arguments
-        args_str = function.get("arguments", "{}")
         try:
             args = json.loads(args_str) if isinstance(args_str, str) else args_str
         except json.JSONDecodeError:
             args = {}
+
 
         # Build parameter elements
         param_elements: list[str] = []

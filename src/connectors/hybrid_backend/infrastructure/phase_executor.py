@@ -285,11 +285,12 @@ class PhaseExecutor:
 
             # Use ReasoningStreamProcessor to capture reasoning output
             processor = ReasoningStreamProcessor()
-            reasoning_text, reasoning_complete, metadata = (
-                await processor.capture_reasoning_stream(stream)
-            )
-            tool_calls = metadata.get("tool_calls") or []
-            raw_chunks = metadata.get("raw_chunks") or []
+            capture_result = await processor.capture_reasoning_stream(stream)
+            reasoning_text = capture_result.reasoning_text
+            reasoning_complete = capture_result.reasoning_complete
+            metadata = capture_result.metadata
+            tool_calls = metadata.tool_calls
+            raw_chunks = metadata.raw_chunks
 
             # Cancel the stream if it has a cancel callback
             if hasattr(response, "cancel_callback") and response.cancel_callback:
@@ -312,18 +313,19 @@ class PhaseExecutor:
             elapsed_time = time.time() - start_time
             logger.info(
                 f"Reasoning phase complete: {len(reasoning_text)} chars captured, "
-                f"method={metadata.get('method')}, "
-                f"chunks={metadata.get('chunks_processed')}, "
+                f"method={metadata.method}, "
+                f"chunks={metadata.chunks_processed}, "
                 f"elapsed={elapsed_time:.2f}s",
                 extra={
                     "phase": "reasoning",
                     "reasoning_backend": reasoning_backend,
                     "reasoning_model": reasoning_model,
                     "chars_captured": len(reasoning_text),
-                    "chunks_processed": metadata.get("chunks_processed"),
+                    "chunks_processed": metadata.chunks_processed,
                     "elapsed_seconds": elapsed_time,
                 },
             )
+
 
             return ReasoningPhaseResult(
                 text=reasoning_text,

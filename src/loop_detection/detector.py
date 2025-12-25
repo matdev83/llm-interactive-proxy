@@ -207,7 +207,7 @@ class LoopDetector(ILoopDetector):
             buffer_content_length=len(self.buffer.get_content()),
             total_processed=self.total_processed,
             last_detection_position=self.last_detection_position,
-            analyzer_state=self.analyzer.get_state(),
+            analyzer_state=self.analyzer.get_state(),  # Now returns PatternAnalyzerSummary
         )
 
     def update_config(self, new_config: InternalLoopDetectionConfig) -> None:

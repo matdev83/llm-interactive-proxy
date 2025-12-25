@@ -1,20 +1,25 @@
 import re
 from re import Pattern
-from typing import NamedTuple
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.domain.tool_constants import ShellExecutionTools
 
 
-class DangerousCommandRule(NamedTuple):
+class DangerousCommandRule(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     pattern: Pattern[str]
     name: str
     description: str
 
 
-class DangerousCommandConfig(NamedTuple):
+class DangerousCommandConfig(BaseModel):
     tool_names: list[str]
     rules: list[DangerousCommandRule]
     max_command_length: int = 50000
+
 
 
 # PERFORMANCE OPTIMIZATION: Single compiled regex instead of 30+ separate patterns

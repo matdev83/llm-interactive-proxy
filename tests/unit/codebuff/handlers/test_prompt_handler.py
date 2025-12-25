@@ -78,8 +78,8 @@ class TestMessageExtraction:
         messages = prompt_handler._extract_messages(action)
 
         assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Test message"
+        assert messages[0].role == "user"
+        assert messages[0].content == "Test message"
 
     def test_extract_from_content_field(self, prompt_handler):
         """Test extracting messages from content field."""
@@ -97,8 +97,8 @@ class TestMessageExtraction:
         messages = prompt_handler._extract_messages(action)
 
         assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert messages[1]["role"] == "assistant"
+        assert messages[0].role == "user"
+        assert messages[1].role == "assistant"
 
     def test_extract_from_session_state(self, prompt_handler):
         """Test extracting messages from session state."""
@@ -116,8 +116,9 @@ class TestMessageExtraction:
         messages = prompt_handler._extract_messages(action)
 
         assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Previous message"
+        assert messages[0].role == "user"
+        assert messages[0].content == "Previous message"
+
 
     def test_extract_empty_raises_error(self, prompt_handler):
         """Test that extracting from empty action raises error."""

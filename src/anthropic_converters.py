@@ -9,7 +9,13 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
 
-from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
+from src.anthropic_models import (
+    AnthropicError,
+    AnthropicErrorResponse,
+    AnthropicMessage,
+    AnthropicMessagesRequest,
+    AnthropicMessagesResponse,
+)
 from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
@@ -283,7 +289,9 @@ def anthropic_to_openai_request(
     return result
 
 
-def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
+def openai_to_anthropic_response(
+    openai_response: Any,
+) -> AnthropicMessagesResponse | AnthropicErrorResponse:
     """Convert an OpenAI chat completion response into Anthropic format."""
     logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
     oai_dict = _normalize_openai_response_to_dict(openai_response)
@@ -299,35 +307,35 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
                 if isinstance(error_info, dict)
                 else str(error_info)
             )
-            return {
-                "type": "error",
-                "error": {
-                    "type": "api_error",
-                    "message": error_msg,
-                },
-            }
+            return AnthropicErrorResponse(
+                type="error",
+                error=AnthropicError(
+                    type="api_error",
+                    message=error_msg,
+                ),
+            )
 
         # No choices and no explicit error - produce a message indicating
         # empty response. Use a clear message instead of empty string to
         # help debugging and prevent silent failures.
         usage = oai_dict.get("usage") or {}
-        response = {
-            "id": oai_dict.get("id", "msg_unk"),
-            "type": "message",
-            "role": "assistant",
-            "model": oai_dict.get("model", "unknown"),
-            "stop_reason": "end_turn",
-            "content": [
+        response = AnthropicMessagesResponse(
+            id=oai_dict.get("id", "msg_unk"),
+            type="message",
+            role="assistant",
+            model=oai_dict.get("model", "unknown"),
+            stop_reason="end_turn",
+            content=[
                 {
                     "type": "text",
                     "text": "[Backend returned empty response]",
                 }
             ],
-            "usage": {
+            usage={
                 "input_tokens": usage.get("prompt_tokens", 0),
                 "output_tokens": usage.get("completion_tokens", 0),
             },
-        }
+        )
         logger.warning(
             "Converting empty OpenAI response to Anthropic format: %r", oai_dict
         )
@@ -358,21 +366,22 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     if finish_reason == "stop" and "stop_sequence" in choice:
         stop_sequence = choice.get("stop_sequence")
 
-    response = {
-        "id": oai_dict.get("id", "msg_unk"),
-        "type": "message",
-        "role": "assistant",
-        "model": oai_dict.get("model", "unknown"),
-        "stop_reason": stop_reason,
-        "stop_sequence": stop_sequence,
-        "content": content_blocks,
-        "usage": {
+    response = AnthropicMessagesResponse(
+        id=oai_dict.get("id", "msg_unk"),
+        type="message",
+        role="assistant",
+        model=oai_dict.get("model", "unknown"),
+        stop_reason=stop_reason,
+        stop_sequence=stop_sequence,
+        content=content_blocks,
+        usage={
             "input_tokens": usage.get("prompt_tokens", 0),
             "output_tokens": usage.get("completion_tokens", 0),
         },
-    }
+    )
     logger.debug("Converted OpenAI to Anthropic response: %r", response)
     return response
+
 
 
 def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:

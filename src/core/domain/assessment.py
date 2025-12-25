@@ -13,6 +13,17 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+
+class LLMAssessmentResponse(BaseModel):
+    """Structured response from LLM assessment backend."""
+
+    reasoning: str = Field(description="Analysis of the conversation state")
+    confidence: float = Field(
+        description="Confidence score between 0.0 and 1.0", ge=0.0, le=1.0
+    )
+
 
 class LoopType(Enum):
     """Types of loops that can be detected, matching gemini-cli patterns."""

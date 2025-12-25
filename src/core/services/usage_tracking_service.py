@@ -348,8 +348,8 @@ class UsageTrackingService(IUsageTrackingService):
         """Get aggregated statistics with optional filters."""
         try:
             # Use repository aggregation
-            # The repository method returns a dict, we need to convert to AggregatedStats
-            stats_dict = await self._usage_repo.get_aggregated_stats(filters)
+            # The repository method returns a RepositoryAggregatedStats object
+            repo_stats = await self._usage_repo.get_aggregated_stats(filters)
             status_codes = await self._usage_repo.get_status_code_breakdown(filters)
 
             # Flatten status codes for AggregatedStats which expects dict[int, int]
@@ -363,74 +363,59 @@ class UsageTrackingService(IUsageTrackingService):
             # Calculate derived metrics
             # Avoid division by zero
             tokens_per_session = 0.0
-            if stats_dict.get("unique_sessions", 0) > 0:
-                tokens_per_session = stats_dict.get("total_tokens", 0) / stats_dict.get(
-                    "unique_sessions"
-                )
+            if repo_stats.unique_sessions > 0:
+                tokens_per_session = repo_stats.total_tokens / repo_stats.unique_sessions
 
             # For TPS, we need a time window. If not provided in filters (via date range),
             # we might use first/last timestamp from stats.
             time_window = 0.0
-            first_ts = stats_dict.get("first_timestamp")
-            last_ts = stats_dict.get("last_timestamp")
+            first_ts = repo_stats.first_timestamp
+            last_ts = repo_stats.last_timestamp
             if first_ts and last_ts:
                 time_window = (last_ts - first_ts).total_seconds()
 
             completion_tps = 0.0
             total_tps = 0.0
             if time_window > 0:
-                completion_tps = (
-                    stats_dict.get("total_completion_tokens", 0) / time_window
-                )
-                total_tps = stats_dict.get("total_tokens", 0) / time_window
+                completion_tps = repo_stats.total_completion_tokens / time_window
+                total_tps = repo_stats.total_tokens / time_window
 
-            # Map dict to AggregatedStats
+            # Map to AggregatedStats
             # Note: AggregatedStats expects TimingStats objects for timing
             from src.core.domain.timing_stats import TimingStats
 
             def make_timing(prefix: str) -> TimingStats | None:
-                if (
-                    stats_dict.get(f"{prefix}_ttft") is None
-                    and stats_dict.get(f"avg_{prefix}") is None
-                ):
-                    # Check based on keys present in repo output: min_ttft, max_ttft, avg_ttft
-                    # For duration: min_duration, ...
-                    pass
-
-                # Check keys from repo get_aggregated_stats
-                # min_ttft, max_ttft, avg_ttft
-                # min_proxy_processing, ...
-                # min_duration, ...
-
-                # Using prefix to match repo keys
+                # Using prefix to match repo stats fields
                 # prefix = "ttft" or "proxy_processing" or "duration"
+                min_val = getattr(repo_stats, f"min_{prefix}", 0.0)
+                max_val = getattr(repo_stats, f"max_{prefix}", 0.0)
+                avg_val = getattr(repo_stats, f"avg_{prefix}", 0.0)
 
-                count = stats_dict.get("response_count", 0)  # Approximation
-                if count == 0:
+                if avg_val is None or avg_val == 0.0:
                     return None
 
                 return TimingStats(
-                    count=count,
-                    min_ms=stats_dict.get(f"min_{prefix}", 0.0) or 0.0,
-                    max_ms=stats_dict.get(f"max_{prefix}", 0.0) or 0.0,
-                    avg_ms=stats_dict.get(f"avg_{prefix}", 0.0) or 0.0,
+                    count=repo_stats.response_count,
+                    min_ms=min_val or 0.0,
+                    max_ms=max_val or 0.0,
+                    avg_ms=avg_val or 0.0,
                     p50_ms=0.0,  # Not calculated by repo yet
                     p95_ms=0.0,
                     p99_ms=0.0,
                 )
 
             return AggregatedStats(
-                request_count=stats_dict.get("request_count", 0),
-                response_count=stats_dict.get("response_count", 0),
-                unique_sessions=stats_dict.get("unique_sessions", 0),
-                total_turns=stats_dict.get("total_turns", 0),
-                total_prompt_tokens=stats_dict.get("total_prompt_tokens", 0),
-                total_completion_tokens=stats_dict.get("total_completion_tokens", 0),
-                total_tokens=stats_dict.get("total_tokens", 0),
+                request_count=repo_stats.request_count,
+                response_count=repo_stats.response_count,
+                unique_sessions=repo_stats.unique_sessions,
+                total_turns=repo_stats.total_turns,
+                total_prompt_tokens=repo_stats.total_prompt_tokens,
+                total_completion_tokens=repo_stats.total_completion_tokens,
+                total_tokens=repo_stats.total_tokens,
                 tokens_per_session=tokens_per_session,
                 completion_tokens_per_second=completion_tps,
                 total_tokens_per_second=total_tps,
-                total_tool_calls=stats_dict.get("total_tool_calls", 0),
+                total_tool_calls=repo_stats.total_tool_calls,
                 ttft_stats=make_timing("ttft"),
                 proxy_processing_stats=make_timing("proxy_processing"),
                 duration_stats=make_timing("duration"),

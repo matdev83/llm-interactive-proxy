@@ -17,7 +17,9 @@ import pytest
 from fastapi import HTTPException
 from src.connectors.cline import ClineConnector
 from src.connectors.openai import OpenAIConnector
+from src.connectors.utils.cline_auth_types import ClineTokenData
 from src.core.common.exceptions import AuthenticationError
+
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.translation_service import TranslationService
@@ -128,13 +130,14 @@ async def test_initialize_refreshes_expired_token(
         "userInfo": {"id": "user"},
         "provider": "cline",
     }
-    refreshed_payload = {
-        "idToken": "new-token",
-        "refreshToken": "refresh-me",
-        "expiresAt": time.time() + 600,
-        "userInfo": {"id": "user"},
-        "provider": "cline",
-    }
+    refreshed_payload = ClineTokenData(
+        idToken="new-token",
+        refreshToken="refresh-me",
+        expiresAt=time.time() + 600,
+        userInfo={"id": "user"},
+        provider="cline",
+    )
+
     _write_auth_payload(secrets_path, stored_payload)
 
     connector = ClineConnector(http_client, config, translation_service)
@@ -171,13 +174,13 @@ async def test_initialize_uses_codex_auth_when_secrets_missing(
     secrets_path.parent.mkdir(parents=True, exist_ok=True)
     secrets_path.write_text("{}", encoding="utf-8")
 
-    refreshed_payload = {
-        "idToken": "converted-token",
-        "refreshToken": "converted-refresh",
-        "expiresAt": expiry + 120,
-        "userInfo": {"id": "cline-user"},
-        "provider": "cline",
-    }
+    refreshed_payload = ClineTokenData(
+        idToken="converted-token",
+        refreshToken="converted-refresh",
+        expiresAt=expiry + 120,
+        userInfo={"id": "cline-user"},
+        provider="cline",
+    )
 
     connector = ClineConnector(http_client, config, translation_service)
     with (
@@ -198,7 +201,8 @@ async def test_initialize_uses_codex_auth_when_secrets_missing(
     stored_data = json.loads(secrets_path.read_text())
     serialized = stored_data["cline:clineAccountId"]
     cline_payload = json.loads(serialized)
-    assert cline_payload == refreshed_payload
+    assert cline_payload == refreshed_payload.model_dump(by_alias=True)
+
 
 
 @pytest.mark.asyncio
@@ -210,13 +214,14 @@ async def test_initialize_uses_vscode_secrets_when_available(
     secrets_path.parent.mkdir(parents=True, exist_ok=True)
     secrets_path.write_text("{}", encoding="utf-8")
 
-    vscode_payload = {
-        "idToken": "vscode-token",
-        "refreshToken": "refresh-vscode",
-        "expiresAt": time.time() + 300,
-        "userInfo": {"id": "vscode-user"},
-        "provider": "cline",
-    }
+    vscode_payload = ClineTokenData(
+        idToken="vscode-token",
+        refreshToken="refresh-vscode",
+        expiresAt=time.time() + 300,
+        userInfo={"id": "vscode-user"},
+        provider="cline",
+    )
+
 
     connector = ClineConnector(http_client, config, translation_service)
     with patch.object(

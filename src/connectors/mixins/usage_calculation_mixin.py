@@ -87,7 +87,10 @@ class UsageCalculationMixin:
             )
             from src.core.domain.usage_summary import UsageSummary
 
-            response_envelope.usage = UsageSummary.from_dict(calculated_usage)
+            response_envelope.usage = UsageSummary.from_dict(
+                calculated_usage.to_openrouter_dict()
+            )
+
         elif existing_usage is not None:
             # Normalize existing usage to OpenRouter format
             from src.core.domain.usage_summary import UsageSummary
@@ -104,7 +107,7 @@ class UsageCalculationMixin:
         request_messages: list[Any],
         model_name: str,
         base_usage: OpenRouterUsage | None = None,
-    ) -> dict[str, Any]:
+    ) -> OpenRouterUsage:
         """Calculate token usage from request and response content.
 
         This calculates tokens based on what was ACTUALLY sent/received,
@@ -118,7 +121,7 @@ class UsageCalculationMixin:
             base_usage: Optional existing usage with extended fields to preserve
 
         Returns:
-            Dictionary with usage in OpenRouter format
+            OpenRouterUsage instance
         """
         from src.core.services.usage_calculation_service import (
             get_usage_calculation_service,
@@ -158,21 +161,21 @@ class UsageCalculationMixin:
                     calculated_usage.total_tokens,
                 )
 
-            return calculated_usage.to_openrouter_dict()
+            return calculated_usage
 
         except (ValueError, TypeError, AttributeError):
             logger.warning(
                 "Failed to calculate usage for %s", model_name, exc_info=True
             )
             # Return zero usage as fallback
-            return OpenRouterUsage().to_openrouter_dict()
+            return OpenRouterUsage()
 
     def merge_backend_usage(
         self,
         backend_usage: dict[str, Any] | None,
         calculated_prompt_tokens: int | None = None,
         calculated_completion_tokens: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> OpenRouterUsage:
         """Merge backend-provided usage with calculated values.
 
         Useful when backend provides some usage info but not all fields.
@@ -184,7 +187,7 @@ class UsageCalculationMixin:
             calculated_completion_tokens: Optional calculated completion tokens
 
         Returns:
-            Merged usage dictionary in OpenRouter format
+            Merged OpenRouterUsage instance
         """
         # Parse backend usage
         base = OpenRouterUsage.from_dict(backend_usage) if backend_usage else None
@@ -194,7 +197,7 @@ class UsageCalculationMixin:
             return OpenRouterUsage.from_basic_usage(
                 prompt_tokens=calculated_prompt_tokens or 0,
                 completion_tokens=calculated_completion_tokens or 0,
-            ).to_openrouter_dict()
+            )
 
         # Fill in missing values with calculated ones
         prompt = base.prompt_tokens
@@ -210,4 +213,5 @@ class UsageCalculationMixin:
             completion_tokens=(
                 completion if completion != base.completion_tokens else None
             ),
-        ).to_openrouter_dict()
+        )
+

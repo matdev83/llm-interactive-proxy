@@ -6,13 +6,55 @@ to provide type safety and clear data boundaries.
 """
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any
+
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+@dataclass(frozen=True, order=True)
+class TierScore:
+    """Score for tier ranking in project discovery.
+
+    Fields are ordered for natural comparison (lexicographical):
+    1. is_paid (higher is better)
+    2. context_tokens (higher is better)
+    3. is_default (higher is better)
+    """
+
+    is_paid: int
+    context_tokens: int
+    is_default: int
+
+
+class GeminiFunctionDeclaration(BaseModel):
+    """Gemini-compatible function declaration."""
+
+    name: str
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class RateLimitErrorDetails(BaseModel):
+    """Details extracted from a 429 rate limit error."""
+
+    message: str
+    error_type: str
+    error_code: int | None
+
+
+class TokenUsage(BaseModel):
+    """Token usage statistics extracted from Gemini responses."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class GeminiOAuthCredentials(BaseModel):
     """Typed credential payload for Gemini OAuth connectors.
+
 
     This model provides a type-safe representation of OAuth credentials with
     validation and helper methods. It preserves backward compatibility by

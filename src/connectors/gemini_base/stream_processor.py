@@ -13,6 +13,7 @@ import logging
 import time
 from typing import Any
 
+from src.connectors.gemini_base.models import RateLimitErrorDetails, TokenUsage
 from src.core.common.exceptions import BackendError
 
 logger = logging.getLogger(__name__)
@@ -372,7 +373,7 @@ def normalize_finish_reason(chunk: dict[str, Any]) -> dict[str, Any]:
 def extract_usage_from_response(
     response_json: dict[str, Any],
     prompt_tokens: int = 0,
-) -> dict[str, int]:
+) -> TokenUsage:
     """Extract token usage from a Gemini API response.
 
     Args:
@@ -380,30 +381,30 @@ def extract_usage_from_response(
         prompt_tokens: Optional prompt token count if not in response.
 
     Returns:
-        A dict with prompt_tokens, completion_tokens, and total_tokens.
+        A TokenUsage model with prompt_tokens, completion_tokens, and total_tokens.
     """
     usage_data = response_json.get("usageMetadata", {})
     prompt = usage_data.get("promptTokenCount", prompt_tokens)
     completion = usage_data.get("candidatesTokenCount", 0)
     total = usage_data.get("totalTokenCount", prompt + completion)
 
-    return {
-        "prompt_tokens": prompt,
-        "completion_tokens": completion,
-        "total_tokens": total,
-    }
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=total,
+    )
 
 
 def extract_429_error_details(
     error_detail: dict[str, Any] | str,
-) -> tuple[str, str, int | None]:
+) -> RateLimitErrorDetails:
     """Extract error details from a 429 response.
 
     Args:
         error_detail: The parsed error response (dict or raw text).
 
     Returns:
-        Tuple of (error_message, error_type, error_code).
+        RateLimitErrorDetails model.
     """
     error_message = "Service temporarily unavailable due to rate limiting."
     error_type = "rate_limit_exceeded"
@@ -430,7 +431,12 @@ def extract_429_error_details(
     if error_type == "quota_exceeded":
         error_code = 503
 
-    return error_message, error_type, error_code
+    return RateLimitErrorDetails(
+        message=error_message,
+        error_type=error_type,
+        error_code=error_code,
+    )
+
 
 
 __all__ = [

@@ -141,7 +141,9 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
+
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
@@ -1303,7 +1305,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
-    ) -> dict[str, Any]:
+    ) -> ModelsListingResponse:
         """List available models using the fetchAvailableModels endpoint.
 
         Uses the v1internal:fetchAvailableModels endpoint and transforms the response
@@ -1338,24 +1340,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Transform the response to match expected format
             # Extract models from the response
-            models_list = []
+            model_infos = []
             models_dict = data.get("models", {})
             if isinstance(models_dict, dict):
                 for model_id, model_info in models_dict.items():
-                    model_entry: dict[str, Any] = {"name": f"models/{model_id}"}
+                    model_entry = ModelInfo(
+                        id=f"models/{model_id}",
+                        name=model_id,
+                        object="model",
+                        owned_by="google",
+                    )
                     if isinstance(model_info, dict):
                         if "displayName" in model_info:
-                            model_entry["displayName"] = model_info["displayName"]
-                        if "maxTokens" in model_info:
-                            model_entry["inputTokenLimit"] = model_info["maxTokens"]
-                        if "maxOutputTokens" in model_info:
-                            model_entry["outputTokenLimit"] = model_info[
-                                "maxOutputTokens"
-                            ]
+                            model_entry.name = model_info["displayName"]
 
-                    models_list.append(model_entry)
+                    model_infos.append(model_entry)
 
-            return {"models": models_list}
+            return ModelsListingResponse(object="list", data=model_infos)
+
 
         except httpx.TimeoutException as e:
             logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)

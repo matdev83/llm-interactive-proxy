@@ -10,14 +10,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.domain.openrouter_usage import OpenRouterUsage
+
 logger = logging.getLogger(__name__)
 
 
 def recalculate_usage_after_transformation(
-    original_usage: dict[str, int] | None,
+    original_usage: dict[str, int] | OpenRouterUsage | None,
     original_content: str,
     transformed_content: str,
-) -> dict[str, int] | None:
+) -> OpenRouterUsage | None:
     """Recalculate token usage after content transformation.
 
     When the proxy transforms response content (e.g., pytest compression, filtering),
@@ -25,19 +27,27 @@ def recalculate_usage_after_transformation(
     This function recalculates the completion tokens based on the transformed content.
 
     Args:
-        original_usage: Original usage dict from backend with prompt_tokens, completion_tokens, total_tokens
+        original_usage: Original usage dict or OpenRouterUsage from backend
         original_content: Original content before transformation
         transformed_content: Content after transformation
 
     Returns:
-        Updated usage dict with recalculated completion_tokens, or None if no usage provided
+        Updated OpenRouterUsage with recalculated completion_tokens, or None if no usage provided
     """
     if not original_usage:
         return None
 
+    # Parse original usage if it's a dict
+    if isinstance(original_usage, dict):
+        base_usage = OpenRouterUsage.from_dict(original_usage)
+        if not base_usage:
+            return None
+    else:
+        base_usage = original_usage
+
     # If content wasn't actually transformed, return original usage
     if original_content == transformed_content:
-        return original_usage
+        return base_usage
 
     from src.core.utils.token_count import count_tokens
 
@@ -45,16 +55,13 @@ def recalculate_usage_after_transformation(
     transformed_tokens = count_tokens(transformed_content)
 
     # Preserve prompt tokens (input wasn't transformed)
-    prompt_tokens = original_usage.get("prompt_tokens", 0)
+    prompt_tokens = base_usage.prompt_tokens
 
     # Use transformed content token count as completion tokens
     completion_tokens = transformed_tokens
 
-    # Calculate new total
-    total_tokens = prompt_tokens + completion_tokens
-
     # Log the recalculation for transparency
-    original_completion = original_usage.get("completion_tokens", 0)
+    original_completion = base_usage.completion_tokens
     if original_completion != completion_tokens:
         reduction = original_completion - completion_tokens
         reduction_pct = (
@@ -65,14 +72,14 @@ def recalculate_usage_after_transformation(
                 f"Usage recalculated after content transformation: "
                 f"completion_tokens: {original_completion} -> {completion_tokens} "
                 f"({reduction} tokens / {reduction_pct:.1f}% reduction), "
-                f"total_tokens: {original_usage.get('total_tokens', 0)} -> {total_tokens}"
+                f"total_tokens: {base_usage.total_tokens} -> {prompt_tokens + completion_tokens}"
             )
 
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
+    return base_usage.with_recalculated_tokens(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+
 
 
 def should_recalculate_usage(content: Any) -> bool:
@@ -203,7 +210,7 @@ def calculate_outbound_tokens(
 def calculate_request_usage(
     request_data: Any,
     model: str | None = None,
-) -> dict[str, int]:
+) -> OpenRouterUsage:
     """Calculate complete usage information for outbound request.
 
     Args:
@@ -211,12 +218,12 @@ def calculate_request_usage(
         model: Optional model name
 
     Returns:
-        Dictionary with prompt_tokens (outbound tokens)
+        OpenRouterUsage with prompt_tokens (outbound tokens)
     """
     prompt_tokens = calculate_outbound_tokens(request_data, model)
 
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": 0,  # Not yet known
-        "total_tokens": prompt_tokens,
-    }
+    return OpenRouterUsage.from_basic_usage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=0,  # Not yet known
+    )
+

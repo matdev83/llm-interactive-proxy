@@ -18,8 +18,15 @@ from src.core.domain.statistics_filter import StatisticsFilter
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.statistics_service_interface import IStatisticsService
+from src.core.app.routes.usage_models import (
+    UsageStatisticsResponse,
+    RecentUsageResponse,
+    UsageExportResponse,
+    TimingStatsModel,
+)
 
 logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/v1/usage", tags=["usage"])
 
@@ -113,8 +120,9 @@ async def get_usage_stats(
         None, description="Filter by HTTP status code"
     ),
     service_provider: IServiceProvider = Depends(get_service_provider),
-) -> dict[str, Any]:
+) -> UsageStatisticsResponse:
     """Get aggregated usage statistics with optional filters.
+
 
     This endpoint returns comprehensive statistics including:
     - Request/response counts
@@ -190,7 +198,8 @@ async def get_usage_stats(
         stats: AggregatedStats = await stats_service.get_aggregated_stats(filters)
 
         # Convert to response format
-        return _aggregated_stats_to_dict(stats)
+        return _aggregated_stats_to_response(stats)
+
 
     except HTTPException:
         raise
@@ -199,67 +208,68 @@ async def get_usage_stats(
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}")
 
 
-def _aggregated_stats_to_dict(stats: AggregatedStats) -> dict[str, Any]:
-    """Convert AggregatedStats to a dictionary for JSON response.
+def _aggregated_stats_to_response(stats: AggregatedStats) -> UsageStatisticsResponse:
+    """Convert AggregatedStats to a Pydantic response model.
 
     Args:
         stats: AggregatedStats instance
 
     Returns:
-        Dictionary representation
+        UsageStatisticsResponse model
     """
-    result: dict[str, Any] = {
-        "request_count": stats.request_count,
-        "response_count": stats.response_count,
-        "unique_sessions": stats.unique_sessions,
-        "total_turns": stats.total_turns,
-        "total_prompt_tokens": stats.total_prompt_tokens,
-        "total_completion_tokens": stats.total_completion_tokens,
-        "total_tokens": stats.total_tokens,
-        "tokens_per_session": stats.tokens_per_session,
-        "completion_tokens_per_second": stats.completion_tokens_per_second,
-        "total_tokens_per_second": stats.total_tokens_per_second,
-        "total_tool_calls": stats.total_tool_calls,
-        "status_code_counts": stats.status_code_counts,
-        "filters": stats.filters,
-        "time_window_seconds": stats.time_window_seconds,
-    }
+    result = UsageStatisticsResponse(
+        request_count=stats.request_count,
+        response_count=stats.response_count,
+        unique_sessions=stats.unique_sessions,
+        total_turns=stats.total_turns,
+        total_prompt_tokens=stats.total_prompt_tokens,
+        total_completion_tokens=stats.total_completion_tokens,
+        total_tokens=stats.total_tokens,
+        tokens_per_session=stats.tokens_per_session,
+        completion_tokens_per_second=stats.completion_tokens_per_second,
+        total_tokens_per_second=stats.total_tokens_per_second,
+        total_tool_calls=stats.total_tool_calls,
+        status_code_counts=stats.status_code_counts,
+        filters=stats.filters,
+        time_window_seconds=stats.time_window_seconds,
+    )
 
     # Add timing stats if available
     if stats.ttft_stats:
-        result["ttft_stats"] = {
-            "count": stats.ttft_stats.count,
-            "min_ms": stats.ttft_stats.min_ms,
-            "max_ms": stats.ttft_stats.max_ms,
-            "avg_ms": stats.ttft_stats.avg_ms,
-            "p50_ms": stats.ttft_stats.p50_ms,
-            "p95_ms": stats.ttft_stats.p95_ms,
-            "p99_ms": stats.ttft_stats.p99_ms,
-        }
+        result.ttft_stats = TimingStatsModel(
+            count=stats.ttft_stats.count,
+            min_ms=stats.ttft_stats.min_ms,
+            max_ms=stats.ttft_stats.max_ms,
+            avg_ms=stats.ttft_stats.avg_ms,
+            p50_ms=stats.ttft_stats.p50_ms,
+            p95_ms=stats.ttft_stats.p95_ms,
+            p99_ms=stats.ttft_stats.p99_ms,
+        )
 
     if stats.proxy_processing_stats:
-        result["proxy_processing_stats"] = {
-            "count": stats.proxy_processing_stats.count,
-            "min_ms": stats.proxy_processing_stats.min_ms,
-            "max_ms": stats.proxy_processing_stats.max_ms,
-            "avg_ms": stats.proxy_processing_stats.avg_ms,
-            "p50_ms": stats.proxy_processing_stats.p50_ms,
-            "p95_ms": stats.proxy_processing_stats.p95_ms,
-            "p99_ms": stats.proxy_processing_stats.p99_ms,
-        }
+        result.proxy_processing_stats = TimingStatsModel(
+            count=stats.proxy_processing_stats.count,
+            min_ms=stats.proxy_processing_stats.min_ms,
+            max_ms=stats.proxy_processing_stats.max_ms,
+            avg_ms=stats.proxy_processing_stats.avg_ms,
+            p50_ms=stats.proxy_processing_stats.p50_ms,
+            p95_ms=stats.proxy_processing_stats.p95_ms,
+            p99_ms=stats.proxy_processing_stats.p99_ms,
+        )
 
     if stats.duration_stats:
-        result["duration_stats"] = {
-            "count": stats.duration_stats.count,
-            "min_ms": stats.duration_stats.min_ms,
-            "max_ms": stats.duration_stats.max_ms,
-            "avg_ms": stats.duration_stats.avg_ms,
-            "p50_ms": stats.duration_stats.p50_ms,
-            "p95_ms": stats.duration_stats.p95_ms,
-            "p99_ms": stats.duration_stats.p99_ms,
-        }
+        result.duration_stats = TimingStatsModel(
+            count=stats.duration_stats.count,
+            min_ms=stats.duration_stats.min_ms,
+            max_ms=stats.duration_stats.max_ms,
+            avg_ms=stats.duration_stats.avg_ms,
+            p50_ms=stats.duration_stats.p50_ms,
+            p95_ms=stats.duration_stats.p95_ms,
+            p99_ms=stats.duration_stats.p99_ms,
+        )
 
     return result
+
 
 
 @router.get("/recent")
@@ -275,8 +285,9 @@ async def get_recent_usage(
     backend_type: str | None = Query(None, description="Filter by backend type"),
     model: str | None = Query(None, description="Filter by model name"),
     service_provider: IServiceProvider = Depends(get_service_provider),
-) -> dict[str, Any]:
+) -> RecentUsageResponse:
     """Get recent usage records with pagination and filtering.
+
 
     This endpoint returns individual usage records (not aggregated) with support
     for pagination and filtering by session ID, backend type, and model.
@@ -333,12 +344,13 @@ async def get_recent_usage(
         # Convert to dictionaries
         records_data = [record.to_dict() for record in paginated_records]
 
-        return {
-            "records": records_data,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        }
+        return RecentUsageResponse(
+            records=records_data,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
 
     except HTTPException:
         raise
@@ -359,8 +371,9 @@ async def export_usage_data(
     backend_type: str | None = Query(None, description="Filter by backend type"),
     model: str | None = Query(None, description="Filter by model name"),
     service_provider: IServiceProvider = Depends(get_service_provider),
-) -> dict[str, Any]:
+) -> UsageExportResponse:
     """Export usage data as JSON with date range filtering.
+
 
     This endpoint exports all usage records matching the specified filters
     in a structured JSON format suitable for backup, analysis, or import.
@@ -429,13 +442,14 @@ async def export_usage_data(
         if end_date:
             filter_metadata["end_date"] = end_date
 
-        return {
-            "version": 1,
-            "exported_at": datetime.now().isoformat(),
-            "record_count": len(records_data),
-            "filters": filter_metadata,
-            "records": records_data,
-        }
+        return UsageExportResponse(
+            version=1,
+            exported_at=datetime.now().isoformat(),
+            record_count=len(records_data),
+            filters=filter_metadata,
+            records=records_data,
+        )
+
 
     except HTTPException:
         raise

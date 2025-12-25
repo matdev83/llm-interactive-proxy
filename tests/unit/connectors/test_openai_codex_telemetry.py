@@ -422,23 +422,23 @@ class TestCompatibilityTelemetry:
         summary = telemetry.get_metrics_summary()
 
         # Check detection metrics
-        assert summary["detection"]["total"] == 2
-        assert summary["detection"]["by_method"]["metadata"] == 1
-        assert summary["detection"]["cache"]["hits"] == 1
-        assert summary["detection"]["cache"]["misses"] == 1
-        assert summary["detection"]["cache"]["hit_rate"] == 0.5
+        assert summary.detection.total == 2
+        assert summary.detection.by_method["metadata"] == 1
+        assert summary.detection.cache["hits"] == 1
+        assert summary.detection.cache["misses"] == 1
+        assert summary.detection.cache["hit_rate"] == 0.5
 
         # Check translation metrics
-        assert summary["translation"]["total"] == 1
-        assert summary["translation"]["successful"] == 1
-        assert summary["translation"]["failed"] == 0
-        assert summary["translation"]["success_rate"] == 1.0
-        assert "read_file" in summary["translation"]["by_tool"]
+        assert summary.translation.total == 1
+        assert summary.translation.successful == 1
+        assert summary.translation.failed == 0
+        assert summary.translation.success_rate == 1.0
+        assert "read_file" in summary.translation.by_tool
 
         # Check error metrics
-        assert summary["errors"]["total"] == 1
-        assert summary["errors"]["by_code"]["COMPAT_E001"] == 1
-        assert summary["errors"]["by_tool"]["read_file"] == 1
+        assert summary.errors.total == 1
+        assert summary.errors.by_code["COMPAT_E001"] == 1
+        assert summary.errors.by_tool["read_file"] == 1
 
     def test_reset_metrics(self):
         """Test resetting all metrics."""
@@ -558,10 +558,10 @@ class TestTelemetryIntegration:
         # Get summary
         summary = telemetry.get_metrics_summary()
 
-        assert summary["detection"]["total"] == 1
-        assert summary["translation"]["total"] == 2
-        assert summary["translation"]["successful"] == 2
-        assert summary["errors"]["total"] == 1
+        assert summary.detection.total == 1
+        assert summary.translation.total == 2
+        assert summary.translation.successful == 2
+        assert summary.errors.total == 1
 
     def test_cache_hit_rate_calculation(self):
         """Test cache hit rate calculation with mixed hits and misses."""
@@ -588,10 +588,10 @@ class TestTelemetryIntegration:
 
         summary = telemetry.get_metrics_summary()
 
-        assert summary["detection"]["total"] == 4
-        assert summary["detection"]["cache"]["hits"] == 3
-        assert summary["detection"]["cache"]["misses"] == 1
-        assert summary["detection"]["cache"]["hit_rate"] == 0.75
+        assert summary.detection.total == 4
+        assert summary.detection.cache["hits"] == 3
+        assert summary.detection.cache["misses"] == 1
+        assert summary.detection.cache["hit_rate"] == 0.75
 
     def test_translation_success_rate_calculation(self):
         """Test translation success rate with mixed successes and failures."""
@@ -623,7 +623,7 @@ class TestTelemetryIntegration:
 
         summary = telemetry.get_metrics_summary()
 
-        assert summary["translation"]["total"] == 10
-        assert summary["translation"]["successful"] == 7
-        assert summary["translation"]["failed"] == 3
-        assert summary["translation"]["success_rate"] == 0.7
+        assert summary.translation.total == 10
+        assert summary.translation.successful == 7
+        assert summary.translation.failed == 3
+        assert summary.translation.success_rate == 0.7

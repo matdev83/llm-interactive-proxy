@@ -13,7 +13,10 @@ from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
+from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.common.exceptions import InitializationError, LLMProxyError
+
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
     ClientTerminationReason,
@@ -492,18 +495,17 @@ class ResponsesController:
         self,
         *,
         request: Request,
-        domain_request: Any,
+        domain_request: CanonicalChatRequest,
         responses_request: ResponsesRequest,
         request_id: str,
         schema_name: str | None,
-    ) -> Any:
-        from src.core.domain.chat import CanonicalChatRequest
-
+    ) -> RequestContext:
         ctx = fastapi_to_domain_request_context(
             request,
             attach_original=True,
-            domain_request=cast(CanonicalChatRequest, domain_request),
+            domain_request=domain_request,
         )
+
 
         # Set request_id on context for SessionKey resolution (Requirement 1.6)
         ctx.request_id = request_id
@@ -524,7 +526,7 @@ class ResponsesController:
     def _attach_schema_context(
         self,
         *,
-        ctx: Any,
+        ctx: RequestContext,
         responses_request: ResponsesRequest,
         request_id: str,
         schema_name: str | None,
@@ -540,6 +542,7 @@ class ResponsesController:
 
         if ctx.processing_context is None:
             ctx.processing_context = ProcessingContext(values={})
+
 
         schema_dict = json_schema.get_schema()
         if not isinstance(schema_dict, dict) or "type" not in schema_dict:

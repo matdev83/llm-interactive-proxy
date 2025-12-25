@@ -29,10 +29,14 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.connectors.base import strip_vendor_prefix
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.connectors.gemini_base.credential_providers import (
+
     AntigravitySQLiteCredentialProvider,
 )
+from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
+
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.project_discovery import AntigravityProjectDiscovery
 from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
@@ -763,7 +767,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
-    ) -> dict[str, Any]:
+    ) -> ModelsListingResponse:
         """
         List models without hitting unavailable sandbox endpoints.
 
@@ -784,17 +788,18 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
         if target_base == sandbox_url:
             await self._ensure_models_loaded()
-            models = [
-                {"name": f"models/{model}", "displayName": model}
+            model_infos = [
+                ModelInfo(id=f"models/{model}", name=model, object="model", owned_by="google")
                 for model in self.available_models
             ]
-            return {"models": models}
+            return ModelsListingResponse(object="list", data=model_infos)
 
         return await super().list_models(
             gemini_api_base_url=gemini_api_base_url,
             key_name=key_name,
             api_key=api_key,
         )
+
 
     async def _perform_health_check(self) -> bool:
         """
@@ -899,7 +904,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         return int(value)
                 return 0
 
-            def _tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
+            def _tier_score(tier: dict[str, Any]) -> TierScore:
                 tier_id = _tier_id(tier)
                 is_paid = int(
                     tier_id
@@ -915,7 +920,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 if is_paid and context_tokens == 0:
                     context_tokens = 1_000_000
                 is_default = int(bool(tier.get("isDefault")))
-                return (is_paid, context_tokens, is_default)
+                return TierScore(
+                    is_paid=is_paid,
+                    context_tokens=context_tokens,
+                    is_default=is_default,
+                )
+
 
             tier_to_use = max(allowed_tiers, key=_tier_score) if allowed_tiers else None
             selected_tier_id = (

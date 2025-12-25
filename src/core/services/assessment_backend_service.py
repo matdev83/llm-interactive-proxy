@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
-from src.core.domain.assessment import AssessmentRequest
+from src.core.domain.assessment import AssessmentRequest, LLMAssessmentResponse
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import IAssessmentBackendService
@@ -42,7 +42,7 @@ class AssessmentBackendService(IAssessmentBackendService):
         self.backend_service = backend_service
         self.config = config
 
-    async def perform_assessment(self, request: AssessmentRequest) -> dict[str, Any]:
+    async def perform_assessment(self, request: AssessmentRequest) -> LLMAssessmentResponse:
         """
         Perform assessment using the configured backend.
 
@@ -53,7 +53,7 @@ class AssessmentBackendService(IAssessmentBackendService):
             request: Assessment request with messages and context
 
         Returns:
-            Dictionary with assessment response (reasoning, confidence)
+            LLMAssessmentResponse with assessment response (reasoning, confidence)
 
         Raises:
             AssessmentBackendError: If backend communication fails
@@ -83,7 +83,7 @@ class AssessmentBackendService(IAssessmentBackendService):
             if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug(
                     f"Assessment completed for session {request.session_id}: "
-                    f"confidence={assessment_data.get('confidence', 'unknown')}"
+                    f"confidence={assessment_data.confidence}"
                 )
 
             return assessment_data
@@ -194,7 +194,7 @@ class AssessmentBackendService(IAssessmentBackendService):
 
         return chat_request
 
-    def _parse_json_response(self, content: str) -> dict[str, Any]:
+    def _parse_json_response(self, content: str) -> LLMAssessmentResponse:
         """
         Parse JSON response from the backend.
 
@@ -202,7 +202,7 @@ class AssessmentBackendService(IAssessmentBackendService):
             content: Raw response content from backend
 
         Returns:
-            Parsed JSON data
+            LLMAssessmentResponse with parsed data
 
         Raises:
             AssessmentBackendError: If JSON parsing fails
@@ -224,13 +224,10 @@ class AssessmentBackendService(IAssessmentBackendService):
             if not isinstance(data, dict):
                 raise AssessmentBackendError("Response is not a JSON object")
 
-            if "reasoning" not in data:
-                raise AssessmentBackendError("Missing 'reasoning' field in response")
-
-            if "confidence" not in data:
-                raise AssessmentBackendError("Missing 'confidence' field in response")
-
-            return data
+            try:
+                return LLMAssessmentResponse.model_validate(data)
+            except Exception as e:
+                raise AssessmentBackendError(f"Response validation failed: {e}") from e
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {content[:200]}...")
