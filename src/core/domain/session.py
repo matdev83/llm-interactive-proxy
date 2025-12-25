@@ -283,7 +283,8 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         try:
             return bool(self._state.backend_config.interactive_mode)
         except Exception as e:
-            logger.warning(f"Error checking interactive mode: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error checking interactive mode: %s", e, exc_info=True)
             return False
 
     @property
@@ -710,10 +711,12 @@ class Session(ISession):
 
         # Update the is_cline_agent flag in the session state
         if value in ["cline", "roocode"]:
-            logger.debug(f"Setting is_cline_agent to True for agent: {value}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Setting is_cline_agent to True for agent: %s", value)
             self.state = self.state.with_is_cline_agent(True)
         else:
-            logger.debug(f"Setting is_cline_agent to False for agent: {value}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Setting is_cline_agent to False for agent: %s", value)
             self.state = self.state.with_is_cline_agent(False)
 
     @property
