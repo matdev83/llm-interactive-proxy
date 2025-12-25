@@ -209,7 +209,6 @@ class JWKSCache:
             "expires_at": time.time() + self._ttl,
         }
 
-
         # Enforce size limit using LRU eviction
         while len(self._cache) > self._max_size:
             oldest_uri, _ = self._cache.popitem(last=False)
@@ -270,7 +269,6 @@ class SSOService:
         self._saml_metadata_cache: OrderedDict[str, SAMLMetadata] = OrderedDict()
 
     def get_supported_providers(self) -> list[str]:
-
         """
         Return list of configured identity providers.
 
@@ -371,17 +369,19 @@ class SSOService:
         # Check cache first
         cached = self._jwks_cache.get(jwks_uri)
         if cached is not None:
-            logger.debug(f"Using cached JWKS for {jwks_uri}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Using cached JWKS for %s", jwks_uri)
             return cached
 
         # Fetch fresh JWKS
-        logger.debug(f"Fetching JWKS from {jwks_uri}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Fetching JWKS from %s", jwks_uri)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(jwks_uri)
                 resp.raise_for_status()
                 data = resp.json()
-                
+
                 # Convert to JWKS model
                 keys = []
                 for k in data.get("keys", []):
@@ -390,11 +390,13 @@ class SSOService:
 
             # Cache the result
             self._jwks_cache.set(jwks_uri, jwks)
-            logger.debug(f"Cached JWKS with {len(jwks.keys)} keys")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Cached JWKS with %d keys", len(jwks.keys))
             return jwks
 
         except Exception as e:
-            logger.warning(f"Failed to fetch JWKS from {jwks_uri}: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to fetch JWKS from %s: %s", jwks_uri, e)
             raise AuthenticationError(
                 f"Failed to fetch JWKS: {e!s}",
                 details={"jwks_uri": jwks_uri, "error": str(e)},
@@ -463,7 +465,6 @@ class SSOService:
                 key=keys,
             )
 
-
             # Verify audience if present
             token_aud = claims.get("aud")
             if token_aud:
@@ -496,7 +497,7 @@ class SSOService:
             # Feature: sso-authentication, Property 3: Strict token verification
             # Requirement 11.4: Validate tokens according to protocol specifications
             # Do not fall back to unverified decoding - reject invalid tokens
-            logger.error(f"ID token verification failed: {e}")
+            logger.error("ID token verification failed: %s", e)
             raise AuthenticationError(
                 f"ID token signature verification failed: {e!s}",
                 details={"error": str(e), "jwks_uri": jwks_uri},
@@ -505,7 +506,8 @@ class SSOService:
         except AuthenticationError:
             raise
         except Exception as e:
-            logger.warning(f"Unexpected error during ID token verification: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Unexpected error during ID token verification: %s", e)
             raise AuthenticationError(
                 f"ID token verification failed: {e!s}",
                 details={"error": str(e)},
@@ -582,9 +584,11 @@ class SSOService:
 
             if provider_config.discovery_url:
                 # OIDC Discovery: Fetch server metadata manually
-                logger.debug(
-                    f"Loading OIDC discovery metadata from {provider_config.discovery_url}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Loading OIDC discovery metadata from %s",
+                        provider_config.discovery_url,
+                    )
                 async with httpx.AsyncClient() as http_client:
                     resp = await http_client.get(provider_config.discovery_url)
                     resp.raise_for_status()
@@ -596,16 +600,19 @@ class SSOService:
                     raise ConfigurationError(
                         "Authorization endpoint not found in OIDC discovery metadata"
                     )
-                logger.debug(
-                    f"Discovered authorization endpoint: {authorization_endpoint}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Discovered authorization endpoint: %s", authorization_endpoint
+                    )
 
             elif provider_config.authorize_url:
                 # Manual configuration: Use provided endpoint
                 authorization_endpoint = provider_config.authorize_url
-                logger.debug(
-                    f"Using manual authorization endpoint: {authorization_endpoint}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Using manual authorization endpoint: %s",
+                        authorization_endpoint,
+                    )
             else:
                 raise ConfigurationError(
                     "Provider must have either discovery_url (OIDC) or authorize_url (manual OAuth2)"
@@ -616,9 +623,10 @@ class SSOService:
                 authorization_endpoint, state=state
             )
 
-            logger.info(
-                f"Generated authorization URL for provider (state={state[:8]}...)"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Generated authorization URL for provider (state=%s...)", state[:8]
+                )
             return str(uri)
 
         except Exception as e:
@@ -717,7 +725,8 @@ class SSOService:
 
             if provider_config.discovery_url:
                 # OIDC Discovery
-                logger.debug("Loading OIDC metadata for token exchange")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Loading OIDC metadata for token exchange")
                 async with httpx.AsyncClient() as http_client:
                     resp = await http_client.get(provider_config.discovery_url)
                     resp.raise_for_status()
@@ -737,7 +746,8 @@ class SSOService:
                 )
 
             # Exchange authorization code for access token
-            logger.debug("Exchanging authorization code for access token")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Exchanging authorization code for access token")
             token = await client.fetch_token(
                 token_endpoint,
                 grant_type="authorization_code",
@@ -749,7 +759,8 @@ class SSOService:
                     "Failed to retrieve access token from provider"
                 )
 
-            logger.debug("Successfully retrieved access token")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Successfully retrieved access token")
 
             # Extract user identity
             user_id = None
@@ -757,7 +768,8 @@ class SSOService:
 
             # Method 1: Try ID token (OIDC) with signature verification
             if "id_token" in token:
-                logger.debug("Extracting user info from ID token")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Extracting user info from ID token")
                 try:
                     # Verify and decode ID token using JWKS
                     claims = await self._verify_id_token(
@@ -768,17 +780,23 @@ class SSOService:
                     )
                     user_id = claims.get("sub")
                     user_email = claims.get("email")
-                    logger.debug(
-                        f"Extracted from ID token: user_id={user_id}, email={user_email}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Extracted from ID token: user_id=%s, email=%s",
+                            user_id,
+                            user_email,
+                        )
                 except AuthenticationError as e:
-                    logger.warning(f"Failed to verify/parse ID token: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to verify/parse ID token: %s", e)
                 except Exception as e:
-                    logger.warning(f"Unexpected error parsing ID token: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Unexpected error parsing ID token: %s", e)
 
             # Method 2: Try userinfo endpoint
             if (not user_id or not user_email) and userinfo_endpoint:
-                logger.debug("Fetching user info from userinfo endpoint")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Fetching user info from userinfo endpoint")
                 try:
                     userinfo_resp = await client.get(userinfo_endpoint)
                     userinfo_resp.raise_for_status()
@@ -789,17 +807,23 @@ class SSOService:
                     if not user_email:
                         user_email = userinfo.get("email")
 
-                    logger.debug(
-                        f"Extracted from userinfo: user_id={user_id}, email={user_email}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Extracted from userinfo: user_id=%s, email=%s",
+                            user_id,
+                            user_email,
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to fetch userinfo: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to fetch userinfo: %s", e)
 
             # Method 3: Provider-specific handling
             if not user_id or not user_email:
-                logger.debug(
-                    f"Attempting provider-specific user info extraction for {provider_name}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Attempting provider-specific user info extraction for %s",
+                        provider_name,
+                    )
                 user_id, user_email = await self._extract_provider_specific_info(
                     provider_name, client, token, user_id, user_email
                 )
@@ -814,15 +838,18 @@ class SSOService:
             if not user_email:
                 # Some providers don't expose email (privacy settings)
                 # Use a placeholder but log a warning
-                logger.warning(
-                    f"No email found for user {user_id} from provider {provider_name}, "
-                    "using placeholder"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "No email found for user %s from provider %s, using placeholder",
+                        user_id,
+                        provider_name,
+                    )
                 user_email = f"{user_id}@{provider_name}.placeholder"
 
-            logger.info(
-                f"Successfully authenticated user {user_id} via {provider_name}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Successfully authenticated user %s via %s", user_id, provider_name
+                )
 
             return SSOResult(
                 success=True,
@@ -865,7 +892,6 @@ class SSOService:
             raise ConfigurationError(
                 "SAML metadata did not contain a SingleSignOnService redirect URL"
             )
-
 
         request_xml = self._build_saml_authn_request(
             destination=sso_redirect_url,
@@ -990,7 +1016,6 @@ class SSOService:
                 original_error=e,
             ) from e
 
-
     async def _handle_saml_callback(
         self,
         provider_name: str,
@@ -1047,7 +1072,6 @@ class SSOService:
                 await self._load_saml_metadata(provider_config.metadata_url)
             )
         signing_cert_expected = metadata.signing_cert if metadata else None
-
 
         sig_ns = {"ds": "http://www.w3.org/2000/09/xmldsig#"}
         sig_cert_el = root.find(
@@ -1203,9 +1227,12 @@ class SSOService:
                                 if not email and emails:
                                     email = emails[0].get("email")
 
-                    logger.debug(
-                        f"GitHub-specific extraction: user_id={user_id}, email={email}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "GitHub-specific extraction: user_id=%s, email=%s",
+                            user_id,
+                            email,
+                        )
 
             elif provider_name == "linkedin":
                 # LinkedIn v2 API requires specific endpoints
@@ -1231,13 +1258,17 @@ class SSOService:
                         if elements:
                             email = elements[0].get("handle~", {}).get("emailAddress")
 
-                logger.debug(
-                    f"LinkedIn-specific extraction: user_id={user_id}, email={email}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "LinkedIn-specific extraction: user_id=%s, email=%s",
+                        user_id,
+                        email,
+                    )
 
         except Exception as e:
-            logger.warning(
-                f"Provider-specific extraction failed for {provider_name}: {e}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Provider-specific extraction failed for %s: %s", provider_name, e
+                )
 
         return user_id, email
