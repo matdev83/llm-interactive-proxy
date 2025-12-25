@@ -257,7 +257,8 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             discovered_project_id = cloudai_project.get("id", initial_project_id)
 
             self._project_id = discovered_project_id
-            logger.info(f"Discovered project ID: {self._project_id}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Discovered project ID: %s", self._project_id)
             return str(self._project_id)
 
         except Exception as e:
