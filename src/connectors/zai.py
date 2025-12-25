@@ -96,7 +96,8 @@ class ZAIConnector(OpenAIConnector):
         # Try to fetch models from /models endpoint
         try:
             data = await self.list_models()
-            models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+            models = [m.id for m in data.data if m.id]
+
             # If we successfully fetched models, use them
             if models:
                 self.available_models = models

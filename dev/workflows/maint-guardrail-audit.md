@@ -51,7 +51,8 @@ For each selected case:
    - Secrets: redact before logging; prefer central helper if one exists in the repo.
 3) Preserve error semantics and logging standards (use `exc_info=True` for unexpected errors; do not swallow).
 4) Add or update focused unit tests that demonstrate the guardrail works (e.g., path traversal rejected; secrets redacted; shell=True removed).
-5) Run targeted tests plus per-file QA (Windows):
+5) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+6) Run targeted tests plus per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`

@@ -349,7 +349,7 @@ async def _list_models_impl(
                             with contextlib.suppress(RuntimeError, Exception):
                                 _cleanup_task = asyncio.create_task(
                                     temp_backend.aclose()
-                                )  # noqa: RUF006
+                                )
 
             should_try_backend = backend_type in functional_backends or has_credentials
 

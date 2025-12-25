@@ -46,11 +46,12 @@ For each selected drift issue:
 3) Add/adjust focused tests:
    - Prefer a unit test that runs validation against example YAML files (fast, deterministic).
    - Reuse existing helpers like `src/core/config/yaml_validation.py` when appropriate.
-4) Run per-file QA for edited Python files (Windows):
+4) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+5) Run per-file QA for edited Python files (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-5) Run only directly related tests (do NOT run the full suite).
+6) Run only directly related tests (do NOT run the full suite).
 
 Search rules (must follow)
 - Use `rg` for searches.

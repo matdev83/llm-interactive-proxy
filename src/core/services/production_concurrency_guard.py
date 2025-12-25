@@ -353,28 +353,17 @@ class ConcurrencyGuard:
 
         operation_id = None
 
-        # Check count first for immediate rejection (atomic check-and-increment)
-        with self._lock:
-            if self._active_count >= self.max_concurrent:
-                self._rejected_operations += 1
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Concurrency limit reached for %s", self.name)
-                production_metrics.record_race_condition_warning(
-                    f"{self.name}:{operation_name}"
-                )
-                raise Exception(f"Concurrency limit reached for {self.name}")
-
-            # Reserve slot
-            self._active_count += 1
-            self._operation_counter += 1
-            operation_id = f"{operation_name}_{self._operation_counter}"
-            self._active_operations.add(operation_id)
-            self._total_operations += 1
-
-        # Acquire semaphore (should always succeed since we checked count, but use for actual concurrency)
+        # Acquire semaphore (waits if full)
         await self._semaphore.acquire()
 
         try:
+            with self._lock:
+                self._active_count += 1
+                self._operation_counter += 1
+                operation_id = f"{operation_name}_{self._operation_counter}"
+                self._active_operations.add(operation_id)
+                self._total_operations += 1
+
             yield operation_id
         finally:
             with self._lock:

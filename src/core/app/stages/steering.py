@@ -18,7 +18,11 @@ from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
 
 # Import at module level to avoid undefined name issues
-from src.services.steering.models import SteeringRule
+from src.services.steering.models import (
+    SteeringRule,
+    SteeringRuleRateLimit,
+    SteeringRuleTriggers,
+)
 from src.services.steering.policies import ConfiguredRulesPolicy
 
 from .base import InitializationStage
@@ -227,10 +231,10 @@ class SteeringStage(InitializationStage):
                         name="apply_diff_to_patch_file",
                         enabled=True,
                         priority=100,
-                        triggers={
-                            "tool_names": ["apply_diff"],
-                            "phrases": [],
-                        },
+                        triggers=SteeringRuleTriggers(
+                            tool_names=["apply_diff"],
+                            phrases=[],
+                        ),
                         message=(
                             apply_diff_msg
                             or (
@@ -238,10 +242,10 @@ class SteeringStage(InitializationStage):
                                 "as it is superior to apply_diff and provides automated Python QA checks."
                             )
                         ),
-                        rate_limit={
-                            "calls_per_window": 1,
-                            "window_seconds": reactor_config.apply_diff_steering_rate_limit_seconds,
-                        },
+                        rate_limit=SteeringRuleRateLimit(
+                            calls_per_window=1,
+                            window_seconds=reactor_config.apply_diff_steering_rate_limit_seconds,
+                        ),
                     )
                 )
 

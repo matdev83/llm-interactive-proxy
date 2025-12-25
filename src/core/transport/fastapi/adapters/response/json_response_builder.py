@@ -37,7 +37,10 @@ from src.core.utils.usage_recalculation import (
 try:
     from src.core.utils.token_count import count_tokens
 except Exception:
-    count_tokens = None
+    def count_tokens_fallback(*args: Any, **kwargs: Any) -> int:
+        return 0
+    count_tokens = count_tokens_fallback
+
 
 if TYPE_CHECKING:
     from src.core.interfaces.usage_normalization_service_interface import (

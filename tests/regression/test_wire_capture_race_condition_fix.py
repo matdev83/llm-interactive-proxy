@@ -36,7 +36,7 @@ async def test_concurrent_writes_no_cache_corruption():
 
         # Verify cache consistency
         actual_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
-        20 * 50 * len("data-0-0\n")  # Rough minimum
+        # 20 * 50 * len("data-0-0\n")  # Rough minimum
 
         # Cache should be within reasonable bounds of actual size
         size_diff = abs(capture._cached_total_size - actual_size)
@@ -111,10 +111,11 @@ async def test_cache_update_thread_safety():
         await asyncio.gather(*tasks)
 
         # Final size should be sum of all writes (approximately)
-        # Each write is roughly 15-20 bytes
+        # Each write is roughly 11-14 bytes (e.g. "initial-0\n", "concurrent-0\n")
+        # 150 writes * 12 bytes = 1800 bytes
         total_writes = 100 + 50
-        expected_min = total_writes * 15  # Minimum expected bytes
-        expected_max = total_writes * 25  # Maximum expected bytes
+        expected_min = total_writes * 10  # Minimum expected bytes (10 bytes per line)
+        expected_max = total_writes * 20  # Maximum expected bytes (20 bytes per line)
 
         assert (
             expected_min <= capture._cached_total_size <= expected_max + 5000

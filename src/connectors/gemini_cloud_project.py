@@ -51,9 +51,10 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 
 import google.auth
 import google.auth.transport.requests
@@ -86,8 +87,9 @@ from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALU
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
-from .gemini import GeminiBackend
+from .gemini import GeminiApiConfig, GeminiBackend
 from .gemini_base.models import TokenUsage
+
 from .mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 
 # Code Assist API endpoint (same as personal OAuth)
@@ -223,31 +225,8 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Credentials file modified: {event.src_path}")
             # Schedule credential reload in the connector's event loop
-            # Since _schedule_credentials_reload is now async, we need to schedule it on the loop
-            loop = self.connector._main_loop
-            if loop and not loop.is_closed():
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        self.connector._schedule_credentials_reload(), loop
-                    )
-                except Exception as exc:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Failed to schedule credentials reload: {exc}")
-            else:
-                # Fallback: try to get running loop or create task
-                try:
-                    # Verify there's a running loop, then create task
-                    asyncio.get_running_loop()
-                    # Store task reference to prevent garbage collection
-                    _reload_task = asyncio.create_task(
-                        self.connector._schedule_credentials_reload()
-                    )
-                    # Task will continue running even if reference goes out of scope
-                    del _reload_task
-                except RuntimeError:
-                    # No running loop, can't schedule async operation
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Cannot schedule credentials reload: no event loop available")
+            self.connector._schedule_credentials_reload()
+
 
 
 class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
@@ -472,8 +451,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to start file watching: {e}")
 
-    async def _schedule_credentials_reload(self) -> None:
+    def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
+
         with self._reload_task_lock:
             if (
                 self._pending_reload_task is not None
@@ -977,8 +957,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
         api_key: str | None,
+        *,
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
+        key_name: str | None = None,
         **kwargs: Any,
-    ) -> tuple[str, dict[str, str]]:
+    ) -> GeminiApiConfig:
         """Override to use access_token from OAuth credentials."""
         if not self._oauth_credentials or not self._oauth_credentials.get(
             "access_token"
@@ -1001,7 +984,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
 
         access_token = self._oauth_credentials["access_token"]
-        return base.rstrip("/"), {"Authorization": f"Bearer {access_token}"}
+        return GeminiApiConfig(
+            base_url=base.rstrip("/"), headers={"Authorization": f"Bearer {access_token}"}
+        )
+
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity with project."""

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src import anthropic_converters
 from src.core.domain.billing import BillingInfo
 from src.core.domain.usage_summary import UsageSummary
@@ -13,7 +15,7 @@ def extract_billing_info_from_headers(
     headers = headers or {}
     backend_key = backend.lower()
 
-    provider_info = {}
+    provider_info: dict[str, JsonValue] = {}
     if backend_key == "anthropic":
         provider_info["note"] = "Anthropic backend - usage info in response only"
 

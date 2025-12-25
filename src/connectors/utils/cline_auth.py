@@ -858,6 +858,7 @@ class ClineAuthMixin:
         return None
 
     def _token_needs_conversion(self, token_data: ClineTokenData | Mapping[str, Any]) -> bool:
+        provider: Any | None = None
         if isinstance(token_data, ClineTokenData):
             provider = token_data.provider
         else:

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+
 from copy import deepcopy
 from typing import Any
 
@@ -262,7 +263,7 @@ class ToolSchemaResolver(IToolSchemaResolver):
 
     @staticmethod
     def _dict_tools_to_schemas(
-        tools: list[dict[str, Any] | CodexToolSchema],
+        tools: Sequence[dict[str, Any] | CodexToolSchema],
     ) -> list[CodexToolSchema]:
         """Convert tool schemas to CodexToolSchema instances.
 

@@ -38,11 +38,12 @@ For each selected case:
 3) Preserve behavior:
    - Do not change what is logged (only how it is formatted/guarded).
 4) Add/update focused tests only if logging behavior is important to correctness (rare).
-5) Run per-file QA (Windows):
+5) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+6) Run per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-6) Run only directly related tests (do NOT run the full suite).
+7) Run only directly related tests (do NOT run the full suite).
 
 Search rules (must follow)
 - Use `rg` for searches. Limit to ./src/.

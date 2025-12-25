@@ -83,6 +83,7 @@ class CodexToolSchema(BaseModel):
     description: str | None = None
     parameters: dict[str, object] = Field(default_factory=dict)
     type: str = "function"
+    format: dict[str, Any] | None = None
 
 
 

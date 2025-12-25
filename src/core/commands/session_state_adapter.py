@@ -49,7 +49,7 @@ class SessionStateAdapter(
         routes_dict = self._session.state.backend_config.failover_routes
         if routes_dict:
             return [
-                FailoverRoute(name=name, **data) for name, data in routes_dict.items()
+                FailoverRoute(name=name, **(data if isinstance(data, dict) else data.model_dump())) for name, data in routes_dict.items()
             ]
         return None
 
@@ -182,7 +182,7 @@ class SessionStateAdapter(
             BackendConfiguration, self._session.state.backend_config
         )
 
-        routes_dict = (
+        routes_dict: dict[str, Any] = (
             current_backend_config.failover_routes.copy()
             if current_backend_config.failover_routes
             else {}

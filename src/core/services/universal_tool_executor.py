@@ -47,7 +47,7 @@ class UniversalToolExecutor:
         self.result_format = result_format
         self.mcp_client = UniversalMCPClient()
         self._custom_tool_handlers: dict[
-            str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+            str, Callable[[dict[str, Any]], Awaitable[UniversalToolResult]]
         ] = {}
         self._register_built_in_handlers()
 
@@ -107,15 +107,15 @@ class UniversalToolExecutor:
 
             # 2. Check if it's an MCP tool from connected servers
             if self.mcp_client.is_mcp_tool(tool_name):
-                result = await self.mcp_client.execute_tool(tool_name, arguments)
-                return self._format_result_from_dict(tool_name, result)
+                mcp_result = await self.mcp_client.execute_tool(tool_name, arguments)
+                return self._format_result_from_dict(tool_name, mcp_result)
 
             # 3. Handle generic MCP tool execution pattern
             if tool_name == "use_mcp_tool":
-                result = await self._execute_generic_mcp_tool(arguments)
-                if isinstance(result, UniversalToolResult):
-                    return result
-                return self._format_result_from_dict(tool_name, result)
+                generic_result = await self._execute_generic_mcp_tool(arguments)
+                if isinstance(generic_result, UniversalToolResult):
+                    return generic_result
+                return self._format_result_from_dict(tool_name, generic_result)
 
             # 4. Unknown tool - return error
             available_tools = self.get_available_tools()
@@ -156,7 +156,7 @@ class UniversalToolExecutor:
     def register_tool_handler(
         self,
         tool_name: str,
-        handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+        handler: Callable[[dict[str, Any]], Awaitable[UniversalToolResult]],
     ) -> None:
         """Register a custom tool handler.
 
@@ -327,7 +327,7 @@ class UniversalToolExecutor:
                 if not output.startswith(f"[{tool_name}]"):
                     result["output"] = f"[{tool_name}] Result:\n{output}"
 
-            return result
+            return self._format_result_from_dict(tool_name, result)
 
         except Exception as e:
             error_msg = f"Error executing MCP tool '{tool_name}': {e!s}"
@@ -735,12 +735,13 @@ class UniversalToolExecutor:
         """Execute completion_marker tool."""
         result = arguments.get("result", "Task completed")
 
-        return {
-            "output": f"[COMPLETION] {result}",
-            "exit_code": 0,
-            "completion_result": result,
-            "marker_type": "completion",
-        }
+        return self._format_result(
+            output=f"[COMPLETION] {result}",
+            exit_code=0,
+            completion_result=result,
+            marker_type="completion",
+            tool_name="completion_marker",
+        )
 
     async def _execute_followup_marker(
         self, arguments: dict[str, Any]
@@ -748,12 +749,13 @@ class UniversalToolExecutor:
         """Execute followup_marker tool."""
         question = arguments.get("question", "Do you have any questions?")
 
-        return {
-            "output": f"[FOLLOWUP] {question}",
-            "exit_code": 0,
-            "followup_question": question,
-            "marker_type": "followup",
-        }
+        return self._format_result(
+            output=f"[FOLLOWUP] {question}",
+            exit_code=0,
+            followup_question=question,
+            marker_type="followup",
+            tool_name="followup_marker",
+        )
 
     async def _execute_shell(self, arguments: dict[str, Any]) -> UniversalToolResult:
         """Execute shell command with output capture and exit code handling.

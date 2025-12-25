@@ -222,7 +222,10 @@ class ListFailoverRoutesCommand(StatefulCommandBase):
 
         route_info = []
         for name, route in routes.items():
-            policy = route.policy if hasattr(route, "policy") else route.get("policy", "k")
+            if isinstance(route, dict):
+                policy = route.get("policy", "k")
+            else:
+                policy = getattr(route, "policy", "k")
             route_info.append(f"{name}:{policy}")
 
         message = "Failover routes: " + ", ".join(route_info)
@@ -300,7 +303,10 @@ class RouteListCommand(StatefulCommandBase):
         route_info = session.state.backend_config.failover_routes[
             name
         ]  # Changed session_state to session.state
-        policy = route_info.policy if hasattr(route_info, "policy") else route_info.get("policy", "k")
+        if isinstance(route_info, dict):
+            policy = route_info.get("policy", "k")
+        else:
+            policy = getattr(route_info, "policy", "k")
 
         if not elements:
             message = f"Failover route '{name}' (policy: {policy}) has no elements"

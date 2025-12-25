@@ -58,11 +58,12 @@ For each selected issue:
    - Do not add new third-party deps.
 3) Validate behavior:
    - Update/add focused tests if needed for tricky semantics (ordering, exceptions, streaming).
-4) Run per-file QA (Windows) for each changed Python file:
+4) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.   
+5) Run per-file QA (Windows) for each changed Python file:
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-5) Run only directly related tests (do NOT run the full suite) and keep fixing until green.
+6) Run only directly related tests (do NOT run the full suite) and keep fixing until green.
 
 Project constraints
 - Keep runtime behavior identical; performance changes must be behavior-preserving.

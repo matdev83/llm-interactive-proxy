@@ -496,13 +496,15 @@ class StreamingContentConverter:
                         )
 
                         service = get_usage_calculation_service()
-                        computed_usage = service.merge_streaming_usage(
+                        computed_usage_raw: Any = service.merge_streaming_usage(
                             accumulated_content=accumulated_content or "",
                             final_chunk_usage=computed_usage,
                             context=request_context,
                             model=model_name,
                             force_recalculation=force_usage_recalc,
                         )
+                        computed_usage = computed_usage_raw
+
 
                         normalizer = self._get_usage_normalizer()
                         normalized_usage = normalizer.normalize(computed_usage) or {}

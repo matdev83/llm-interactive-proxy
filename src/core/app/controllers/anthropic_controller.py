@@ -8,7 +8,8 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
-from typing import Any
+from typing import Any, cast
+
 
 from fastapi import HTTPException, Request, Response
 
@@ -345,9 +346,20 @@ class AnthropicController:
                         if "choices" in openai_response_data and (
                             isinstance(openai_response_data.get("choices"), list)
                         ):
-                            anthropic_response_data = openai_to_anthropic_response(
+                            anthropic_resp_obj = openai_to_anthropic_response(
                                 openai_response_data
                             )
+                            if isinstance(anthropic_resp_obj, dict):
+                                anthropic_response_data = anthropic_resp_obj
+                            elif hasattr(anthropic_resp_obj, "model_dump"):
+                                anthropic_response_data = anthropic_resp_obj.model_dump(
+                                    exclude_unset=True
+                                )
+                            else:
+                                anthropic_response_data = cast(
+                                    dict[str, Any], anthropic_resp_obj
+                                )
+
                         else:
                             # Ensure openai_response_data is a dictionary before using dict()
                             if isinstance(openai_response_data, dict):

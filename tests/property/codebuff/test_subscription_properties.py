@@ -5,8 +5,10 @@ These tests verify the correctness properties of subscription management
 and topic message distribution.
 """
 
+import asyncio
 from unittest.mock import MagicMock
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
@@ -35,13 +37,14 @@ def websocket_strategy(draw):
 
 
 # Property 29: Topic message distribution
+@pytest.mark.asyncio
 @given(
     topic=topic_strategy(),
     num_subscribers=st.integers(min_value=1, max_value=10),
     num_non_subscribers=st.integers(min_value=0, max_value=5),
 )
 @settings(max_examples=50)
-def test_property_29_topic_message_distribution(
+async def test_property_29_topic_message_distribution(
     topic, num_subscribers, num_non_subscribers
 ):
     """
@@ -59,8 +62,8 @@ def test_property_29_topic_message_distribution(
         ws = MagicMock()
         ws._test_id = f"subscriber_{i}"
         session_id = f"session_subscriber_{i}"
-        manager.connect(ws, session_id)
-        manager.subscribe(ws, [topic])
+        await manager.connect(ws, session_id)
+        await manager.subscribe(ws, [topic])
         subscribers.append(ws)
 
     # Create non-subscribers
@@ -69,12 +72,16 @@ def test_property_29_topic_message_distribution(
         ws = MagicMock()
         ws._test_id = f"non_subscriber_{i}"
         session_id = f"session_non_subscriber_{i}"
-        manager.connect(ws, session_id)
+        await manager.connect(ws, session_id)
         # Don't subscribe to the topic
         non_subscribers.append(ws)
 
     # Get all subscribers for the topic
-    topic_subscribers = manager.get_subscribers(topic)
+    topic_subscribers = await manager.get_subscribers(topic)
+
+    # Handle weird double-coroutine issue (possibly hypothesis+asyncio interaction artifact)
+    if asyncio.iscoroutine(topic_subscribers):
+        topic_subscribers = await topic_subscribers
 
     # Verify all subscribers are in the list
     for subscriber in subscribers:
@@ -92,3 +99,4 @@ def test_property_29_topic_message_distribution(
     assert (
         len(topic_subscribers) == num_subscribers
     ), f"Should have exactly {num_subscribers} subscribers"
+

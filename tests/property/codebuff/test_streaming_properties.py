@@ -11,6 +11,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 from src.codebuff.format_converter import FormatConverter
+from src.codebuff.schemas import ServerActionMessage
 
 
 @given(user_input_id=st.text(min_size=1, max_size=50), text=st.text(max_size=1000))
@@ -27,17 +28,26 @@ def test_property_11_chunk_conversion(user_input_id, text):
     # Create a response chunk
     chunk_message = converter.create_response_chunk(user_input_id, text)
 
-    # Verify the structure
-    assert isinstance(chunk_message, dict), "Chunk message must be a dictionary"
-    assert chunk_message["type"] == "action", "Message type must be 'action'"
-    assert "data" in chunk_message, "Message must have 'data' field"
+    # Verify the structure - can be either dict or ServerActionMessage
+    if isinstance(chunk_message, ServerActionMessage):
+        assert chunk_message.type == "action", "Message type must be 'action'"
+        data = chunk_message.data
+        assert data.type == "response-chunk", "Data type must be 'response-chunk'"
+        assert hasattr(data, "userInputId"), "Data must have 'userInputId' field"
+        assert hasattr(data, "chunk"), "Data must have 'chunk' field"
+        assert data.userInputId == user_input_id, "User input ID must match"
+        assert data.chunk == text, "Chunk text must match"
+    else:
+        assert isinstance(chunk_message, dict), "Chunk message must be a dictionary"
+        assert chunk_message["type"] == "action", "Message type must be 'action'"
+        assert "data" in chunk_message, "Message must have 'data' field"
 
-    data = chunk_message["data"]
-    assert data["type"] == "response-chunk", "Data type must be 'response-chunk'"
-    assert "userInputId" in data, "Data must have 'userInputId' field"
-    assert "chunk" in data, "Data must have 'chunk' field"
-    assert data["userInputId"] == user_input_id, "User input ID must match"
-    assert data["chunk"] == text, "Chunk text must match"
+        data = chunk_message["data"]
+        assert data["type"] == "response-chunk", "Data type must be 'response-chunk'"
+        assert "userInputId" in data, "Data must have 'userInputId' field"
+        assert "chunk" in data, "Data must have 'chunk' field"
+        assert data["userInputId"] == user_input_id, "User input ID must match"
+        assert data["chunk"] == text, "Chunk text must match"
 
 
 @given(
@@ -61,10 +71,15 @@ def test_property_12_user_input_id_correlation(user_input_id, chunks):
 
     # Verify all chunks have the same user input ID
     for chunk_message in chunk_messages:
-        data = chunk_message["data"]
+        if isinstance(chunk_message, ServerActionMessage):
+            data = chunk_message.data
+            actual_id = data.userInputId
+        else:
+            data = chunk_message["data"]
+            actual_id = data["userInputId"]
         assert (
-            data["userInputId"] == user_input_id
-        ), f"Expected user input ID {user_input_id}, got {data['userInputId']}"
+            actual_id == user_input_id
+        ), f"Expected user input ID {user_input_id}, got {actual_id}"
 
 
 @given(
@@ -86,7 +101,12 @@ def test_property_12_chunk_order_preservation(user_input_id, chunks):
     ]
 
     # Extract chunk text in order
-    extracted_chunks = [msg["data"]["chunk"] for msg in chunk_messages]
+    def get_chunk_text(msg):
+        if isinstance(msg, ServerActionMessage):
+            return msg.data.chunk
+        return msg["data"]["chunk"]
+
+    extracted_chunks = [get_chunk_text(msg) for msg in chunk_messages]
 
     # Verify order is preserved
     assert (
@@ -111,7 +131,13 @@ def test_property_11_empty_chunk_handling(user_input_id, text):
     chunk_message = converter.create_response_chunk(user_input_id, text)
 
     # Verify structure is valid even for empty chunks
-    assert chunk_message["type"] == "action"
-    assert chunk_message["data"]["type"] == "response-chunk"
-    assert chunk_message["data"]["chunk"] == text
-    assert isinstance(chunk_message["data"]["chunk"], str)
+    if isinstance(chunk_message, ServerActionMessage):
+        assert chunk_message.type == "action"
+        assert chunk_message.data.type == "response-chunk"
+        assert chunk_message.data.chunk == text
+        assert isinstance(chunk_message.data.chunk, str)
+    else:
+        assert chunk_message["type"] == "action"
+        assert chunk_message["data"]["type"] == "response-chunk"
+        assert chunk_message["data"]["chunk"] == text
+        assert isinstance(chunk_message["data"]["chunk"], str)

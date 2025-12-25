@@ -3,7 +3,7 @@
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, Literal, cast
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 
@@ -15,6 +15,7 @@ from src.anthropic_models import (
     AnthropicMessage,
     AnthropicMessagesRequest,
     AnthropicMessagesResponse,
+    Usage,
 )
 from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -331,17 +332,19 @@ def openai_to_anthropic_response(
             role="assistant",
             model=oai_dict.get("model", "unknown"),
             stop_reason="end_turn",
+            stop_sequence=None,
             content=[
                 {
                     "type": "text",
                     "text": "[Backend returned empty response]",
                 }
             ],
-            usage={
-                "input_tokens": usage.get("prompt_tokens", 0),
-                "output_tokens": usage.get("completion_tokens", 0),
-            },
+            usage=Usage(
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+            ),
         )
+
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Converting empty OpenAI response to Anthropic format: %r", oai_dict
@@ -379,14 +382,26 @@ def openai_to_anthropic_response(
         type="message",
         role="assistant",
         model=oai_dict.get("model", "unknown"),
-        stop_reason=stop_reason,
+        stop_reason=cast(
+            Literal[
+                "end_turn",
+                "max_tokens",
+                "stop_sequence",
+                "tool_use",
+                "pause_turn",
+                "refusal",
+            ]
+            | None,
+            stop_reason,
+        ),
         stop_sequence=stop_sequence,
-        content=content_blocks,
-        usage={
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-        },
+        content=cast(list[Any], content_blocks),
+        usage=Usage(
+            input_tokens=usage.get("prompt_tokens", 0),
+            output_tokens=usage.get("completion_tokens", 0),
+        ),
     )
+
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Converted OpenAI to Anthropic response: %r", response)
     return response

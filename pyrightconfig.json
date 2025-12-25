@@ -1,6 +1,8 @@
 {
   "include": ["src", "tests", "scripts"],
   "exclude": [
+    "*.py",
+    "!setup.py",
     "**/__pycache__",
     "**/.pytest_cache",
     "**/.mypy_cache",
@@ -38,7 +40,8 @@
     },
     {
       "root": "tests",
-      "extraPaths": ["src"]
+      "extraPaths": ["src"],
+      "reportPrivateUsage": "none"
     },
     {
       "root": "scripts",

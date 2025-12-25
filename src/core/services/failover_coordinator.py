@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from src.core.interfaces.failover_interface import IFailoverCoordinator
-from src.core.services.failover_service import FailoverAttempt, FailoverService
+from src.core.services.failover_service import (
+    FailoverAttempt,
+    FailoverRouteConfig,
+    FailoverService,
+)
 
 
 class FailoverCoordinator(IFailoverCoordinator):
@@ -32,6 +36,6 @@ class FailoverCoordinator(IFailoverCoordinator):
         adapter = _Adapter(dict(self._svc.failover_routes))
         return self._svc.get_failover_attempts(adapter, model, backend_type)
 
-    def register_route(self, model: str, route: dict) -> None:
+    def register_route(self, model: str, route: Any) -> None:
         # Route registration is handled on the underlying service.
-        self._svc.failover_routes[model] = route
+        self._svc.failover_routes[model] = FailoverRouteConfig.model_validate(route)

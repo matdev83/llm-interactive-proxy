@@ -7,6 +7,7 @@ Task: Code maintenance - timeout consistency for outbound I/O
 Goal
 - Improve reliability by making outbound I/O timeouts explicit and consistent (avoid accidental infinite hangs).
 - Prefer using existing timeout configuration/constants already present in the codebase.
+- IMPORTANT: A timeout refactor is not "done" until ALL dependent call sites/receivers and ALL directly related tests are updated to the new timeout wiring/contract.
 
 Non-goals (avoid churn)
 - Do NOT invent new timeout values out of thin air.
@@ -41,14 +42,22 @@ Refactor approach (required)
 For each selected case:
 1) Locate the subsystem's existing timeout source:
    - A config field, settings object, or module-level constant already used elsewhere.
-2) Apply the minimal safe fix:
+2) Build an "impact map" BEFORE changing the call wiring (required):
+   - Enumerate call sites (including tests) that share the same client/config path and record what must be updated (file:line + call expression).
+   - Enumerate receivers/assumptions (examples: wrappers that forward `timeout=...`, factories that build `httpx.AsyncClient`, mocks/fixtures asserting specific kwargs).
+   - Identify ALL directly related tests that import/call the affected module(s) and plan to run them at baseline.
+3) Apply the minimal safe fix:
    - Replace hard-coded literals with the existing timeout constant/config value.
    - If a call has no timeout and the same subsystem already uses a default timeout elsewhere, thread that same timeout into the call.
    - If there is no existing timeout source to reuse safely, DO NOT invent a new number; skip the change and report it as "found but not safely fixable without product decision".
-3) Preserve behavior as much as possible:
+4) Preserve behavior as much as possible:
    - Do not add new timeouts unless you can tie them directly to existing project configuration.
-4) Add/update focused unit tests where the timeout value is part of behavior (e.g., ensure it is passed to the client call).
-5) Run targeted tests plus per-file QA (Windows):
+5) Add/update focused unit tests where the timeout value is part of behavior (e.g., ensure it is passed to the client call).
+6) Contract-change completeness check (required, after code changes):
+   - Re-run `rg` to confirm you updated all previously recorded call sites.
+   - Add follow-up `rg` checks for the old patterns you removed (examples: the specific hard-coded literal(s), `timeout=None`, old config key name) and confirm there are no remaining hits for the target you changed.
+7) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.   
+8) Run targeted tests plus per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
@@ -72,6 +81,7 @@ Search rules (must follow)
 
 Completion gates (must be satisfied before reporting success)
 - Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> implement -> run related tests -> commit -> final report.
+- Contract-change completeness (required): For each timeout change, show the "impact map" you created (call sites/receivers/tests) and confirm every item was updated.
 - Git state (do not block on dirty): Record `git status --porcelain` before editing for context. If it is not empty, continue anyway; do NOT try to "clean" the tree (no stash/reset/checkout), and do NOT stage/commit unrelated changes.
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
@@ -95,10 +105,12 @@ Deliverables / reporting (in your final response)
 1) Short summary of the up to 3 fixes (call site, file, old timeout -> new timeout source, why it's materially better).
 2) List of files changed.
 3) Notes on any behavior-sensitive edge cases you verified (streaming, retries, exception propagation).
-4) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
-5) Any "found but not safely fixable without product decision" items (file + why).
-6) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
-7) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
+4) Impact map (required): call sites/receivers/tests you identified BEFORE changing timeout wiring (include the `rg` commands you used and a short list of results).
+5) Contract verification (required): the follow-up `rg` checks you ran to prove no missed call sites/old patterns remain.
+6) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
+7) Any "found but not safely fixable without product decision" items (file + why).
+8) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
+9) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
 
 Already fixed files (do not modify):
 {list-of-fixed-files}
@@ -118,12 +130,13 @@ Per-iteration checklist (for i = 1..50)
 4) After the subagent reports back, verify (read-only checks + report review):
    - Branch/HEAD safety: `git rev-parse --abbrev-ref HEAD` is unchanged and not `HEAD`.
    - If the subagent changed any files:
+     - Contract-change completeness: it included an "impact map" (call sites/receivers/tests) and follow-up `rg` checks showing no missed call sites/old patterns remain.
      - Tests: it ran baseline (pre-change) and post-change runs of ALL directly related tests and they passed (commands + PASS result are required).
      - Git: it reported exactly ONE commit hash for its work.
        - Verify the commit exists: `git cat-file -t <commit_hash>` returns `commit`.
        - Verify committed files: `git show --name-only --pretty=oneline <commit_hash>` matches the subagent's reported touched files.
        - Optional sanity check: `git merge-base --is-ancestor <commit_hash> HEAD` succeeds.
    - If the subagent made no changes: do NOT require tests/commit; count this as a "no-fix found" iteration.
-5) If (and only if) the subagent changed files and any required gate is missing (baseline tests missing/not green, post-change tests not green, no commit, commit hash missing/mismatch, commit includes extra files): before spawning the follow-up subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating. If the violation would require forbidden git operations to fix (branch switched/detached, history rewritten, or a bad commit that cannot be corrected without rewriting history), STOP iterating and report. Otherwise spawn a follow-up subagent with brief instructions to fix ONLY that (run/fix tests and/or commit hygiene). Do not fix it yourself.
+5) If (and only if) the subagent changed files and any required gate is missing (impact map missing, follow-up `rg` checks missing, baseline tests missing/not green, post-change tests not green, no commit, commit hash missing/mismatch, commit includes extra files): before spawning the follow-up subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating. If the violation would require forbidden git operations to fix (branch switched/detached, history rewritten, or a bad commit that cannot be corrected without rewriting history), STOP iterating and report. Otherwise spawn a follow-up subagent with brief instructions to fix ONLY that (complete missed call-site audit + update remaining call sites/tests and/or run/fix tests and/or commit hygiene). Do not fix it yourself.
 6) If the subagent failed to find at least one issue to fix in three consecutive iterations: stop iterating (job done).
 7) Append newly committed files to the "already fixed files" list before the next iteration (only when a commit was created).

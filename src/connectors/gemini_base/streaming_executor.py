@@ -41,7 +41,13 @@ from src.connectors.gemini_base.token_estimator import (
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
 from src.core.domain.gemini_metadata import create_gemini_response_metadata
+from src.core.domain.streaming.contracts import (
+    OpenAIError,
+    OpenAIErrorChoice,
+    OpenAIErrorChunk,
+)
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
@@ -130,7 +136,8 @@ class SSELineProcessor:
 
     def build_error_chunk(
         self, message: str, *, code: int = 500, error_type: str = "api_error"
-    ) -> dict[str, Any]:
+    ) -> OpenAIErrorChunk:
+
         """Build a standardized error chunk.
 
         Args:
@@ -849,18 +856,21 @@ class StreamingExecutor:
                     f"Details: {error_message}"
                 )
 
-            error_chunk = {
-                "id": f"chatcmpl-error-{now}",
-                "object": "chat.completion.chunk",
-                "created": now,
-                "model": prepared.effective_model,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-                "error": {
-                    "message": error_message,
-                    "type": error_type,
-                    "code": error_code,
-                },
-            }
+            error_chunk = OpenAIErrorChunk(
+                id=f"chatcmpl-error-{now}",
+                object="chat.completion.chunk",
+                created=now,
+                model=prepared.effective_model,
+                choices=[
+                    OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
+                ],
+                error=OpenAIError(
+                    message=error_message,
+                    type=error_type,
+                    code=error_code,
+                ),
+            )
+
             yield ProcessedResponse(
                 content=error_chunk,
                 metadata=self._build_error_metadata(error_chunk),
@@ -1122,30 +1132,34 @@ class StreamingExecutor:
 
         raise backend_error
 
-    def _build_error_metadata(self, error_chunk: dict[str, Any]) -> dict[str, Any]:
+    def _build_error_metadata(self, error_chunk: OpenAIErrorChunk) -> dict[str, Any]:
         """Build metadata for error responses."""
         return {
             "finish_reason": "error",
-            "error": error_chunk["error"],
-            "id": error_chunk["id"],
-            "model": error_chunk["model"],
-            "created": error_chunk["created"],
+            "error": error_chunk.error,
+            "id": error_chunk.id,
+            "model": error_chunk.model,
+            "created": error_chunk.created,
         }
 
-    def _build_auth_error_chunk(self, model: str) -> dict[str, Any]:
+    def _build_auth_error_chunk(self, model: str) -> OpenAIErrorChunk:
         """Build an authentication error chunk."""
-        return {
-            "id": f"chatcmpl-error-{int(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-            "error": {
-                "message": "Authentication failed. Please check your credentials.",
-                "type": "auth_error",
-                "code": 401,
-            },
-        }
+        now = int(time.time())
+        return OpenAIErrorChunk(
+            id=f"chatcmpl-error-{now}",
+            object="chat.completion.chunk",
+            created=now,
+            model=model,
+            choices=[
+                OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
+            ],
+            error=OpenAIError(
+                message="Authentication failed. Please check your credentials.",
+                type="auth_error",
+                code=401,
+            ),
+        )
+
 
 
 __all__ = [

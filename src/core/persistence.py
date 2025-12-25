@@ -652,7 +652,7 @@ class ConfigManager:
         }
 
         # Get model defaults
-        model_defaults_data = {}
+        model_defaults_data: dict[str, Any] = {}
         model_defaults = self.app_state.get_model_defaults()
         if model_defaults:
             for model_name, model_defaults_obj in model_defaults.items():

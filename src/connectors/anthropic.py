@@ -102,10 +102,11 @@ class AnthropicBackend(LLMBackend):
                     base_url=base_url, key_name=self.key_name, api_key=self.api_key
                 )
                 self.available_models = [
-                    str(m.get("name", m.get("id")))
-                    for m in data
-                    if isinstance(m, dict) and m.get("name", m.get("id")) is not None
+                    str(m.name or m.id)
+                    for m in data.data
+                    if m.name or m.id
                 ]
+
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(

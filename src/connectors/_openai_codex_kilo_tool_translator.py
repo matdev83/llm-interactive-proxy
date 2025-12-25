@@ -144,12 +144,13 @@ class KiloToolTranslator:
 
             else:
                 # Unsupported tool
-                raise create_parameter_validation_error(
-                    tool_name=parsed.canonical_name,
+                raise TranslationError(
                     message=f"Unsupported tool: {parsed.canonical_name}",
-                    original_xml=parsed.raw_xml,
+                    tool_name=parsed.canonical_name,
                     error_code=CompatibilityErrorCode.UNSUPPORTED_TOOL,
+                    original_xml=parsed.raw_xml,
                 )
+
 
             # Log telemetry
             if telemetry and result:

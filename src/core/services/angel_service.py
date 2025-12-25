@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any
 
 from src.core.domain.angel import AngelDecision
@@ -10,16 +11,23 @@ from src.core.services.angel_prompt_loader import (
     AngelPromptLoader,
 )
 
-# Global prompt loader instance
+# Global prompt loader instance with thread-safe initialization
 _prompt_loader: AngelPromptLoader | None = None
+_prompt_loader_lock = threading.Lock()
 
 
 def get_prompt_loader() -> AngelPromptLoader:
-    """Get or initialize the global prompt loader instance."""
+    """Get or initialize the global prompt loader instance.
+
+    Uses double-checked locking for thread-safe singleton initialization.
+    """
     global _prompt_loader
     if _prompt_loader is None:
-        _prompt_loader = AngelPromptLoader()
-        _prompt_loader.load_prompts()
+        with _prompt_loader_lock:
+            # Double-check after acquiring lock
+            if _prompt_loader is None:
+                _prompt_loader = AngelPromptLoader()
+                _prompt_loader.load_prompts()
     return _prompt_loader
 
 
@@ -109,7 +117,7 @@ class AngelService:
             }
         )
 
-        if isinstance(params, dict) and params:
+        if params:
             verification = verification.model_copy(update={**params})
 
         return verification

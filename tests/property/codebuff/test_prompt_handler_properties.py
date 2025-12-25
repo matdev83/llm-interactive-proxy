@@ -13,7 +13,8 @@ from hypothesis import strategies as st
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.prompt_handler import PromptHandler
-from src.codebuff.schemas import PromptAction
+from src.codebuff.schemas import PromptAction, ServerActionMessage
+from src.core.domain.chat import ChatMessage
 from tests.mocks.backend_factory import MockBackendFactory
 from tests.mocks.connection_manager import MockConnectionManager
 
@@ -110,9 +111,16 @@ def test_property_5_message_extraction(action):
 
     # Property: Each message should have required fields
     for msg in messages:
-        assert isinstance(msg, dict)
-        # Messages should have either role/content or be in a valid format
-        assert "role" in msg or "content" in msg or "text" in msg or "message" in msg
+        if isinstance(msg, ChatMessage):
+            # ChatMessage domain object - check it has role and content
+            assert hasattr(msg, "role"), "ChatMessage must have role attribute"
+            assert hasattr(msg, "content"), "ChatMessage must have content attribute"
+        else:
+            assert isinstance(msg, dict)
+            # Messages should have either role/content or be in a valid format
+            assert (
+                "role" in msg or "content" in msg or "text" in msg or "message" in msg
+            )
 
 
 @given(action=empty_prompt_action_strategy())
@@ -290,5 +298,9 @@ def test_property_32_middleware_application(messages):
         text="test content",
     )
     assert chunk is not None
-    assert isinstance(chunk, dict)
-    assert chunk["type"] == "action"
+    # chunk can be either dict or ServerActionMessage
+    if isinstance(chunk, ServerActionMessage):
+        assert chunk.type == "action"
+    else:
+        assert isinstance(chunk, dict)
+        assert chunk["type"] == "action"

@@ -52,7 +52,8 @@ For each selected case:
    - Multiple resources: prefer `contextlib.ExitStack` / `contextlib.AsyncExitStack` to keep code readable.
 3) Preserve error propagation and cancellation semantics (don't swallow errors; don't close shared clients prematurely).
 4) Add/update focused unit tests where the leak risk is meaningful (e.g., assert `aclose()` called via a stub).
-5) Run targeted tests plus per-file QA (Windows):
+5) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+6) Run targeted tests plus per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`

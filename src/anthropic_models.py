@@ -208,6 +208,7 @@ class AnthropicMessagesResponse(DomainModel):
     role: Literal["assistant"] = "assistant"
     content: list[ContentBlock]  # type: ignore[valid-type]
     model: str
+    usage: Usage
     stop_reason: (
         Literal[
             "end_turn",
@@ -223,7 +224,6 @@ class AnthropicMessagesResponse(DomainModel):
         None,
         description="The stop sequence that was matched, if stop_reason is 'stop_sequence'",
     )
-    usage: Usage
 
 
 class AnthropicError(DomainModel):

@@ -26,7 +26,8 @@ if TYPE_CHECKING:
     pass
 
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
-from src.connectors.gemini import GeminiBackend
+from src.connectors.gemini import GeminiApiConfig, GeminiBackend
+
 from src.connectors.gemini_base.chat_completion_coordinator import (
     GeminiChatCompletionCoordinator,
 )
@@ -1375,8 +1376,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
         api_key: str | None,
+        *,
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
+        key_name: str | None = None,
         **kwargs: Any,
-    ) -> tuple[str, dict[str, str]]:
+    ) -> GeminiApiConfig:
         """Override to use access_token from OAuth credentials instead of API key."""
         # Use the OAuth access token for authentication
         if not self._oauth_credentials or not self._oauth_credentials.get(
@@ -1412,7 +1416,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             raise HTTPException(
                 status_code=401, detail="Missing access_token after refresh."
             )
-        return base.rstrip("/"), {"Authorization": f"Bearer {access_token}"}
+
+        return GeminiApiConfig(
+            base_url=base.rstrip("/"), headers={"Authorization": f"Bearer {access_token}"}
+        )
+
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.

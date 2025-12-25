@@ -416,44 +416,44 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
         endpoints_list = []
         for url, state in health_states.items():
             backends_using_url = list(endpoint_registry.get_backends_for_url(url))
-            state_dict = state.to_dict()
             endpoints_list.append(
                 EndpointHealthStateInfo(
-                    api_url=str(state_dict.get("api_url", "")),
-                    is_healthy=bool(state_dict.get("is_healthy", False)),
-                    ping_check_success=bool(
-                        state_dict.get("ping_check_success", False)
+                    api_url=state.api_url,
+                    is_healthy=state.is_healthy,
+                    ping_check_success=state.ping_check_success,
+                    http_check_success=state.http_check_success,
+                    last_ping_check_timestamp=(
+                        state.last_ping_check_timestamp.isoformat()
+                        if state.last_ping_check_timestamp
+                        else None
                     ),
-                    http_check_success=bool(
-                        state_dict.get("http_check_success", False)
+                    last_http_check_timestamp=(
+                        state.last_http_check_timestamp.isoformat()
+                        if state.last_http_check_timestamp
+                        else None
                     ),
-                    last_ping_check_timestamp=state_dict.get(
-                        "last_ping_check_timestamp"
+                    last_successful_ping_timestamp=(
+                        state.last_successful_ping_timestamp.isoformat()
+                        if state.last_successful_ping_timestamp
+                        else None
                     ),
-                    last_http_check_timestamp=state_dict.get(
-                        "last_http_check_timestamp"
+                    last_successful_http_timestamp=(
+                        state.last_successful_http_timestamp.isoformat()
+                        if state.last_successful_http_timestamp
+                        else None
                     ),
-                    last_successful_ping_timestamp=state_dict.get(
-                        "last_successful_ping_timestamp"
-                    ),
-                    last_successful_http_timestamp=state_dict.get(
-                        "last_successful_http_timestamp"
-                    ),
-                    consecutive_ping_failures=int(
-                        state_dict.get("consecutive_ping_failures", 0)
-                    ),
-                    consecutive_http_failures=int(
-                        state_dict.get("consecutive_http_failures", 0)
-                    ),
-                    last_ping_latency_ms=state_dict.get("last_ping_latency_ms"),
-                    last_http_latency_ms=state_dict.get("last_http_latency_ms"),
-                    last_http_status_code=state_dict.get("last_http_status_code"),
-                    last_ping_error=state_dict.get("last_ping_error"),
-                    last_http_error=state_dict.get("last_http_error"),
+                    consecutive_ping_failures=state.consecutive_ping_failures,
+                    consecutive_http_failures=state.consecutive_http_failures,
+                    last_ping_latency_ms=state.last_ping_latency_ms,
+                    last_http_latency_ms=state.last_http_latency_ms,
+                    last_http_status_code=state.last_http_status_code,
+                    last_ping_error=state.last_ping_error,
+                    last_http_error=state.last_http_error,
                     backends_using_url=backends_using_url,
                 )
             )
         health_info.endpoints = endpoints_list
+
 
         # Get backend instance health info from notifier
         try:

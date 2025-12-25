@@ -381,8 +381,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
-        stream_format: str | None = None,
-    ) -> AsyncGenerator[Any, None]:
+        stream_format: str,
+    ) -> StreamingResponseHandle:
+
         """Override to add detailed logging for debugging.
 
         Also handles potential non-standard URL structure for ZAI API.

@@ -10,6 +10,7 @@ Goal
   1) Pydantic v2 models (BaseModel / RootModel) for structured data crossing module boundaries, I/O-like shapes, or "record" objects.
   2) dataclasses for simple internal value objects (small, immutable-ish, no validation needs).
   3) Lists/tuples of those models (e.g., list[MyModel]) where appropriate.
+- IMPORTANT: A typing refactor is not "done" until ALL dependent call sites/receivers and ALL directly related tests are updated to the new contract.
 
 Non-goals (avoid churn)
 - Do NOT change types just to "replace one type with another" if it doesn't clearly reduce complexity or improve readability/testing.
@@ -59,10 +60,22 @@ For each selected function:
    - If the function returns a list of records, return `list[Model]` (or `Sequence[Model]` if appropriate).
    - If it returns a single "record or error", prefer a single model that encodes status, or a well-named sum type pattern (two distinct models) only if it truly clarifies logic.
 3) Update the function signature and implementation to return the new type(s).
-4) Refactor ALL call sites and dependent code (including tests) to use the new typed interface.
-5) Add/adjust focused tests where the change improves confidence:
+4) Build an "impact map" BEFORE changing the signature (required):
+   - Enumerate call sites (including tests) with `rg` and record the results you must update (file:line + call expression).
+   - Enumerate receivers and shape assumptions (examples: `["key"]` lookups, tuple unpacking, `isinstance` branching, `len(...)` assumptions, `None` checks).
+   - Identify ALL directly related tests that import/call the function or its module, and plan to run them at baseline.
+5) Refactor ALL call sites and dependent code (including tests) to use the new typed interface (required):
+   - Update call sites AND any intermediate wrapper functions that forward/transform the return value.
+   - Update callers to avoid recreating the old weak shape (no converting the new model back into `dict[str, Any]` to "make existing code work").
+   - Update typing at boundaries (protocols/interfaces, adapters, mocks, fixtures) so mypy and tests agree on the new contract.
+6) Add/adjust focused tests where the change improves confidence and prevents regressions:
    - Prefer small unit tests over integration tests.
    - Only run tests directly related to changed files / modules (do NOT run the full suite).
+   - If you changed a return type used by multiple call sites, add/adjust tests so each call site path is exercised at least once (or explain why a call site is unreachable in tests).
+7) Contract-change completeness check (required, after code changes):
+   - Re-run `rg` to confirm you updated all previously recorded call sites.
+   - Add a follow-up `rg` for the old access patterns you removed (examples: old keys, old tuple unpacking, old type name) and confirm there are no remaining hits.
+8) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
 
 Project constraints
 - Use codebase standards and existing conventions for model placement/naming.
@@ -79,6 +92,7 @@ Search rules (must follow)
 
 Completion gates (must be satisfied before reporting success)
 - Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> implement -> run related tests -> commit -> final report.
+- Contract-change completeness (required): For each changed return type, show the "impact map" you created (call sites/receivers/tests) and confirm every item was updated.
 - Git state (do not block on dirty): Record `git status --porcelain` before editing for context. If it is not empty, continue anyway; do NOT try to "clean" the tree (no stash/reset/checkout), and do NOT stage/commit unrelated changes.
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
@@ -102,9 +116,11 @@ Deliverables / reporting (in your final response)
 1) Short summary of the up to 3 fixes (function name, file, old return type -> new return type, why it's materially better).
 2) List of files changed.
 3) Notes on any behavior-sensitive edge cases you verified.
-4) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
-5) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
-6) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
+4) Impact map (required): call sites/receivers/tests you identified BEFORE changing the return type (include the `rg` commands you used and a short list of results).
+5) Contract verification (required): the follow-up `rg` checks you ran to prove no call sites/old patterns remain.
+6) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
+7) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
+8) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
 
 Already fixed files (do not modify):
 {list-of-fixed-files}
@@ -124,12 +140,13 @@ Per-iteration checklist (for i = 1..50)
 4) After the subagent reports back, verify (read-only checks + report review):
    - Branch/HEAD safety: `git rev-parse --abbrev-ref HEAD` is unchanged and not `HEAD`.
    - If the subagent changed any files:
+     - Contract-change completeness: it included an "impact map" (call sites/receivers/tests) and follow-up `rg` checks showing no missed call sites/old patterns remain.
      - Tests: it ran baseline (pre-change) and post-change runs of ALL directly related tests and they passed (commands + PASS result are required).
      - Git: it reported exactly ONE commit hash for its work.
        - Verify the commit exists: `git cat-file -t <commit_hash>` returns `commit`.
        - Verify committed files: `git show --name-only --pretty=oneline <commit_hash>` matches the subagent's reported touched files.
        - Optional sanity check: `git merge-base --is-ancestor <commit_hash> HEAD` succeeds.
    - If the subagent made no changes: do NOT require tests/commit; count this as a "no-fix found" iteration.
-5) If (and only if) the subagent changed files and any required gate is missing (baseline tests missing/not green, post-change tests not green, no commit, commit hash missing/mismatch, commit includes extra files): before spawning the follow-up subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating. If the violation would require forbidden git operations to fix (branch switched/detached, history rewritten, or a bad commit that cannot be corrected without rewriting history), STOP iterating and report. Otherwise spawn a follow-up subagent with brief instructions to fix ONLY that (run/fix tests and/or commit hygiene). Do not fix it yourself.
+5) If (and only if) the subagent changed files and any required gate is missing (impact map missing, follow-up `rg` checks missing, baseline tests missing/not green, post-change tests not green, no commit, commit hash missing/mismatch, commit includes extra files): before spawning the follow-up subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating. If the violation would require forbidden git operations to fix (branch switched/detached, history rewritten, or a bad commit that cannot be corrected without rewriting history), STOP iterating and report. Otherwise spawn a follow-up subagent with brief instructions to fix ONLY that (complete missed call-site audit + update remaining call sites/tests and/or run/fix tests and/or commit hygiene). Do not fix it yourself.
 6) If the subagent failed to find at least one issue to fix in three consecutive iterations: stop iterating (job done).
 7) Append newly committed files to the "already fixed files" list before the next iteration (only when a commit was created).

@@ -7,7 +7,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from src.core.commands.models import Command
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.commands.tool_call_text_parser import (
     TextToolResult,
     parse_textual_tool_result,
@@ -94,14 +94,16 @@ class ToolCallCommandProcessor(ICommandProcessor):
             textual_tool_messages.append(index)
 
         # Execute remaining structured tool calls (non textual) via command service
-        command_results: list[ChatMessage] = []
+        command_results: list[CommandResultWrapper | Any] = []
         if tool_calls_to_execute:
             tasks = [
                 self._execute_tool_call(tool_call, session_id)
                 for tool_call in tool_calls_to_execute
             ]
             results = await asyncio.gather(*tasks)
-            command_results = [res for res in results if isinstance(res, ChatMessage)]
+            command_results = [
+                res for res in results if isinstance(res, ChatMessage)
+            ]
 
         command_executed = bool(command_results or textual_tool_messages)
         if not command_executed:

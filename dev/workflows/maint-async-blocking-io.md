@@ -50,7 +50,8 @@ For each selected case:
    - Do not swallow exceptions.
    - Do not accidentally convert `CancelledError` into a generic failure.
 4) Update tests or add focused unit tests for the changed function(s).
-5) Run targeted tests plus per-file QA (Windows):
+5) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+6) Run targeted tests plus per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`

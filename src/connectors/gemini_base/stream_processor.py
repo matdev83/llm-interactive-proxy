@@ -15,7 +15,11 @@ from typing import Any
 
 from src.connectors.gemini_base.models import RateLimitErrorDetails, TokenUsage
 from src.core.common.exceptions import BackendError
-from src.core.domain.streaming.contracts import OpenAIErrorChunk
+from src.core.domain.streaming.contracts import (
+    OpenAIError,
+    OpenAIErrorChoice,
+    OpenAIErrorChunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +30,7 @@ def build_error_chunk(
     code: int = 500,
     model: str = "unknown",
     error_type: str = "server_error",
-) -> dict[str, Any]:
+) -> OpenAIErrorChunk:
     """Build a standardized error chunk for streaming responses.
 
     Args:
@@ -36,20 +40,23 @@ def build_error_chunk(
         error_type: The type of error (e.g., "server_error", "quota_exceeded").
 
     Returns:
-        A dict representing an OpenAI-compatible error chunk.
+        An OpenAI-compatible error chunk.
     """
-    return {
-        "id": f"chatcmpl-error-{int(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-        "error": {
-            "message": message,
-            "type": error_type,
-            "code": code,
-        },
-    }
+    return OpenAIErrorChunk(
+        id=f"chatcmpl-error-{int(time.time())}",
+        object="chat.completion.chunk",
+        created=int(time.time()),
+        model=model,
+        choices=[
+            OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
+        ],
+        error=OpenAIError(
+            message=message,
+            type=error_type,
+            code=code,
+        ),
+    )
+
 
 
 def build_auth_error_chunk(model: str = "unknown") -> OpenAIErrorChunk:

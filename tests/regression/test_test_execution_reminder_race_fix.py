@@ -15,11 +15,11 @@ async def test_concurrent_mark_operations_no_race():
 
     async def mark_dirty_batch(sessions):
         for sid in sessions:
-            handler._mark_session_dirty(sid, "edit")
+            await handler._mark_session_dirty(sid, "edit")
 
     async def mark_clean_batch(sessions):
         for sid in sessions:
-            handler._mark_session_clean(sid, "pytest", "python", "pytest")
+            await handler._mark_session_clean(sid, "pytest", "python", "pytest")
 
     tasks = [mark_dirty_batch(session_ids) for _ in range(15)] + [
         mark_clean_batch(session_ids) for _ in range(15)

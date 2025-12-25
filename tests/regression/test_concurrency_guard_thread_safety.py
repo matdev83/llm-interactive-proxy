@@ -20,8 +20,8 @@ class TestConcurrencyGuardThreadSafety:
         policy = asyncio.WindowsSelectorEventLoopPolicy()
         asyncio.set_event_loop_policy(policy)
 
-    async def test_concurrent_acquire_rejection(self):
-        """Test that concurrent acquires are properly limited and counted."""
+    async def test_concurrent_acquire_queuing(self):
+        """Test that concurrent acquires are queued and processed."""
         guard = ConcurrencyGuard(max_concurrent=2, name="test-guard")
 
         success_count = 0
@@ -33,7 +33,7 @@ class TestConcurrencyGuardThreadSafety:
             try:
                 async with guard.acquire(f"operation_{i}"):
                     success_count += 1
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.01)
             except Exception as e:
                 if "limit reached" in str(e):
                     reject_count += 1
@@ -42,27 +42,25 @@ class TestConcurrencyGuardThreadSafety:
             finally:
                 completed_count += 1
 
-        # Launch 10 concurrent operations (limit is 2, should get 2 successes, 8 rejects)
+        # Launch 10 concurrent operations (limit is 2, should all succeed eventually)
         tasks = [try_acquire(i) for i in range(10)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Due to race condition in original code, results may vary
-        # The fixed code should ensure exactly 2 successes and 8 rejects
         print(
             f"Success: {success_count}, Rejected: {reject_count}, Total: {guard._total_operations}"
         )
 
-        # With limit of 2, we should get exactly 2 successes, 8 rejects
+        # With queuing, all should succeed
         assert (
-            success_count == 2
-        ), f"Expected 2 successful acquires, got {success_count}"
-        assert reject_count == 8, f"Expected 8 rejected acquires, got {reject_count}"
+            success_count == 10
+        ), f"Expected 10 successful acquires, got {success_count}"
+        assert reject_count == 0, f"Expected 0 rejected acquires, got {reject_count}"
         assert (
-            guard._total_operations == 2
-        ), f"Expected 2 total operations tracked, got {guard._total_operations}"
+            guard._total_operations == 10
+        ), f"Expected 10 total operations tracked, got {guard._total_operations}"
         assert (
-            guard._rejected_operations == 8
-        ), f"Expected 8 rejected operations, got {guard._rejected_operations}"
+            guard._rejected_operations == 0
+        ), f"Expected 0 rejected operations, got {guard._rejected_operations}"
         assert completed_count == 10, f"Expected 10 completions, got {completed_count}"
 
     async def test_active_operations_accounting(self):

@@ -54,13 +54,14 @@ class ConnectionManager:
         self._heartbeat_timeout = timedelta(seconds=heartbeat_timeout_seconds)
         self._max_connections = max_connections
         self._lock = asyncio.Lock()
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
                 "ConnectionManager initialized with heartbeat timeout: %d seconds, "
                 "max_connections: %d",
                 heartbeat_timeout_seconds,
                 max_connections,
             )
+
 
     @staticmethod
     def _safe(value: object) -> str:

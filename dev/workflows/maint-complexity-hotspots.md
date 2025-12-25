@@ -42,11 +42,12 @@ For each selected hotspot:
 3) Prefer early returns and guard clauses over deep nesting where behavior is identical.
 4) Keep exceptions, logging, and edge-case handling identical.
 5) Add/adjust focused unit tests only where needed to prove equivalence.
-6) Run per-file QA (Windows):
+6) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+7) Run per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-7) Run only directly related tests (do NOT run the full suite).
+8) Run only directly related tests (do NOT run the full suite).
 
 Search rules (must follow)
 - Use `rg` for searches. Limit to ./src/.
