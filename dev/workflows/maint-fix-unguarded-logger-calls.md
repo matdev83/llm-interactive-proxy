@@ -2,81 +2,65 @@ Please orchestrate execution of the following task. Create a counter and execute
 Each single task is as follows:
 
 ```
-Task: Code maintenance - timeout consistency for outbound I/O
+Task: Code maintenance - fix unguarded logger calls (single-file sweep)
 
 Goal
-- Improve reliability by making outbound I/O timeouts explicit and consistent (avoid accidental infinite hangs).
-- Prefer using existing timeout configuration/constants already present in the codebase.
+- Improve performance by guarding log calls that eagerly evaluate expensive strings/work (especially f-strings and `.format(...)`) when the log level is disabled.
+- Keep runtime behavior identical (same logs at enabled levels; no message content changes).
 
 Non-goals (avoid churn)
-- Do NOT invent new timeout values out of thin air.
-- Do NOT change retry strategy, backoff, or request semantics.
-- Do NOT make broad API signature refactors; prefer localized changes.
+- Do NOT introduce new functionality or change external behavior.
+- Do NOT add new dependencies or change packaging/config.
+- Do NOT refactor large control flow just to "clean up" logging.
 - Do NOT touch files listed in "already fixed files".
 
 Scope and limits
+- Choose EXACTLY ONE (1) Python file under `src/` (and its subfolders) that is not in "already fixed files" and contains at least one unguarded logger call.
+- Fix ALL instances of unguarded logger calls in that file.
+- Do NOT create new files, scripts, or do mass edits across the repo.
 - Scan only ./src/ and its subfolders.
 - Use `rg` for all searches.
 - Avoid scanning dot/underscore directories (folders starting with `.` or `_`) to skip caches and generated content.
-- Fix up to THREE (3) high-impact cases total in this session.
 
-What counts as a "timeout consistency" issue
-Prioritize cases where code performs outbound I/O and:
-1) Uses no timeout where a timeout is expected:
-   - HTTP client calls with no timeout argument and no client-level timeout configured
-2) Explicitly disables timeouts:
-   - `timeout=None`, `httpx.Timeout(None)`, or equivalent
-3) Uses inconsistent hard-coded timeout literals across the same subsystem:
-   - multiple different numeric values for essentially the same operation without rationale
+What counts as "unguarded logger calls"
+Prioritize logger calls that eagerly compute work when disabled, such as:
+1) f-strings: `logger.debug(f\"...\")`, `logger.info(f\"...\")`, `logger.warning(f\"...\")`
+2) `.format(...)` or string building in arguments: `logger.info(\"...\".format(...))`, `logger.info(\"\".join(...))`, `logger.info(json.dumps(...))`
+3) expensive computations inside the logger call args that run even when the level is off
 
-How to pick the best 1-3 refactors (high leverage)
-Choose call sites that:
-- Are in connectors/backends, routing, or any external network boundary.
-- Are on request/streaming hot paths.
-- Have multiple similar call sites that can be unified to one existing config value.
-Avoid:
-- Very low-risk, rarely executed code paths unless they are an obvious hang risk.
+Guarding rule (required)
+- Only add guards where the message computation is eager/expensive, typically:
+  - `if logger.isEnabledFor(logging.DEBUG): logger.debug(...)`
+  - `if logger.isEnabledFor(logging.INFO): logger.info(...)`
+  - `if logger.isEnabledFor(logging.WARNING): logger.warning(...)`
+- Do NOT guard `logger.error(...)` / `logger.exception(...)` unless you have a strong reason (they are typically important and not disabled in prod).
+- Prefer converting to lazy logging style (e.g., `logger.debug(\"x=%s\", x)`) when it preserves the message meaning and is clearly safe.
 
 Refactor approach (required)
-For each selected case:
-1) Locate the subsystem's existing timeout source:
-   - A config field, settings object, or module-level constant already used elsewhere.
-2) Apply the minimal safe fix:
-   - Replace hard-coded literals with the existing timeout constant/config value.
-   - If a call has no timeout and the same subsystem already uses a default timeout elsewhere, thread that same timeout into the call.
-   - If there is no existing timeout source to reuse safely, DO NOT invent a new number; skip the change and report it as "found but not safely fixable without product decision".
-3) Preserve behavior as much as possible:
-   - Do not add new timeouts unless you can tie them directly to existing project configuration.
-4) Add/update focused unit tests where the timeout value is part of behavior (e.g., ensure it is passed to the client call).
-5) Run targeted tests plus per-file QA (Windows):
+1) Pick one file with at least one unguarded call (not already fixed).
+2) Replace ALL unguarded calls in that file with guarded calls and/or lazy logging formatting.
+3) Keep indentation and control flow minimal.
+4) Run per-file QA (Windows):
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-   - `./.venv/Scripts/python.exe -m pytest <relevant_tests>`
-
-Project constraints
-- Use existing config patterns and staging/DI conventions.
-- Avoid import cycles.
-- Keep runtime behavior identical unless you can justify that a missing timeout is an existing correctness bug and you are reusing an existing configured value.
 
 Search rules (must follow)
 - Use `rg` for searches. Limit to ./src/.
 - Exclude directories starting with `.` or `_`.
 - IMPORTANT (Windows): this repo contains a `src/nul` file that can make ripgrep error; always exclude it.
   Example patterns (adapt as needed):
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\btimeout\\s*=\\s*None\\b'`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\bhttpx\\.Timeout\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\bhttpx\\.(Client|AsyncClient)\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\brequests\\.(get|post|put|delete|request)\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\b(timeout|connect_timeout|read_timeout|write_timeout)\\s*='`
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(f\"|logger\\.(debug|info|warning)\\(.*\\.format\\('`
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(.*(json\\.dumps|model_dump|join\\(|re\\.)'`
+  - Optional helper script (if helpful): `./.venv/Scripts/python.exe dev/scripts/find_unguarded_logger_calls.py`
 
 Completion gates (must be satisfied before reporting success)
-- Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> implement -> run related tests -> commit -> final report.
+- Progress tracking: Use a TODO/Task List tool to track: scan -> pick file -> baseline tests -> implement -> run tests -> commit -> final report.
 - Start clean: Run `git status --porcelain` before editing. If it is not empty, STOP and report back (do not stash/reset/checkout the whole tree).
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
   - Forbidden examples: `git checkout -b`, `git switch -c`, `git checkout <branch>`, `git switch <branch>`, `git pull`, `git push`, `git fetch`, `git remote ...`, `git submodule ...`, `git tag ...`.
-- Tests (required): Identify ALL test files directly related to the files you plan to change, then run them at baseline (pre-change) and again after your changes.
+- Tests (required): Identify ALL test files directly related to the file you plan to change, then run them at baseline (pre-change) and again after your changes.
   - Find related tests by searching `tests/` for imports/references to the changed module(s) and key symbols.
   - Baseline (pre-change): run BEFORE editing any file; they must be green. If they fail at baseline, do NOT proceed on this target; pick a different target or STOP and report.
   - Post-change: re-run the same tests after your changes; if any fail, keep fixing and re-run until all pass.
@@ -84,20 +68,17 @@ Completion gates (must be satisfied before reporting success)
   - Abort protocol: if you cannot get the post-change tests green after 3 fix->test cycles, restore only the files you changed (explicit paths, no globs) until `git status --porcelain` is clean, then report.
 - Git safety (required): Do NOT use git operations that can discard/rewrite/hide other agents' work (examples: `git reset --hard`, `git reset`, `git checkout .`, `git restore .`, `git clean -fd`, `git stash`, `git commit --amend`, `git rebase`, `git merge`).
   - If you must undo a broken change or abort the session, only restore files YOU modified, one-by-one with explicit paths: `git restore --source=HEAD -- <file>` (or `git checkout -- <file>`). No globs and never `.`.
-- Commit (required if you changed any files): Create exactly ONE commit for this session at the end, after baseline + post-change related tests are green; commit ONLY the files you changed for this session.
+- Commit (required if you changed any files): Create exactly ONE commit for this session at the end, after baseline + post-change related tests are green; commit ONLY the file you changed for this session.
   - Do NOT create multiple commits. Do NOT commit early.
   - Forbidden: `git add .`, `git add -A`, `git add --all`, `git add -u`, `git commit -am`, `git commit -a`, `git stash`.
-  - Stage explicitly: `git add <file1> <file2> ...`, then verify: `git diff --cached --name-only`.
+  - Stage explicitly: `git add <file>`, then verify: `git diff --cached --name-only`.
   - End state must be clean: `git status --porcelain` is empty.
 
 Deliverables / reporting (in your final response)
-1) Short summary of the up to 3 fixes (call site, file, old timeout -> new timeout source, why it's materially better).
-2) List of files changed.
-3) Notes on any behavior-sensitive edge cases you verified (streaming, retries, exception propagation).
-4) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
-5) Any "found but not safely fixable without product decision" items (file + why).
-6) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
-7) Post-commit `git status --porcelain` output (should be empty).
+1) File changed and what guarding pattern was applied.
+2) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
+3) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
+4) Post-commit `git status --porcelain` output (should be empty).
 
 Already fixed files (do not modify):
 {list-of-fixed-files}

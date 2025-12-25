@@ -2,16 +2,16 @@ Please orchestrate execution of the following task. Create a counter and execute
 Each single task is as follows:
 
 ```
-Task: Code maintenance - timeout consistency for outbound I/O
+Task: Code maintenance - <SHORT_TASK_NAME>
 
 Goal
-- Improve reliability by making outbound I/O timeouts explicit and consistent (avoid accidental infinite hangs).
-- Prefer using existing timeout configuration/constants already present in the codebase.
+- <PRIMARY_GOAL_1>
+- <PRIMARY_GOAL_2>
 
 Non-goals (avoid churn)
-- Do NOT invent new timeout values out of thin air.
-- Do NOT change retry strategy, backoff, or request semantics.
-- Do NOT make broad API signature refactors; prefer localized changes.
+- Do NOT introduce new functionality or change external behavior.
+- Do NOT add new dependencies or change packaging/config.
+- Do NOT refactor large control flow just to "clean up" style.
 - Do NOT touch files listed in "already fixed files".
 
 Scope and limits
@@ -20,58 +20,45 @@ Scope and limits
 - Avoid scanning dot/underscore directories (folders starting with `.` or `_`) to skip caches and generated content.
 - Fix up to THREE (3) high-impact cases total in this session.
 
-What counts as a "timeout consistency" issue
-Prioritize cases where code performs outbound I/O and:
-1) Uses no timeout where a timeout is expected:
-   - HTTP client calls with no timeout argument and no client-level timeout configured
-2) Explicitly disables timeouts:
-   - `timeout=None`, `httpx.Timeout(None)`, or equivalent
-3) Uses inconsistent hard-coded timeout literals across the same subsystem:
-   - multiple different numeric values for essentially the same operation without rationale
+What counts as "<ISSUE_CLASS>" issues
+Prioritize cases that:
+1) <CATEGORY_1>
+2) <CATEGORY_2>
+3) <CATEGORY_3>
 
-How to pick the best 1-3 refactors (high leverage)
-Choose call sites that:
-- Are in connectors/backends, routing, or any external network boundary.
-- Are on request/streaming hot paths.
-- Have multiple similar call sites that can be unified to one existing config value.
+How to pick the best 1-3 fixes (high leverage)
+Choose targets that:
+- <HIGH_LEVERAGE_HEURISTIC_1>
+- <HIGH_LEVERAGE_HEURISTIC_2>
 Avoid:
-- Very low-risk, rarely executed code paths unless they are an obvious hang risk.
+- <AVOID_HEURISTIC_1>
+- <AVOID_HEURISTIC_2>
 
 Refactor approach (required)
-For each selected case:
-1) Locate the subsystem's existing timeout source:
-   - A config field, settings object, or module-level constant already used elsewhere.
-2) Apply the minimal safe fix:
-   - Replace hard-coded literals with the existing timeout constant/config value.
-   - If a call has no timeout and the same subsystem already uses a default timeout elsewhere, thread that same timeout into the call.
-   - If there is no existing timeout source to reuse safely, DO NOT invent a new number; skip the change and report it as "found but not safely fixable without product decision".
-3) Preserve behavior as much as possible:
-   - Do not add new timeouts unless you can tie them directly to existing project configuration.
-4) Add/update focused unit tests where the timeout value is part of behavior (e.g., ensure it is passed to the client call).
-5) Run targeted tests plus per-file QA (Windows):
+For each selected issue:
+1) Identify the current pattern and why it is problematic.
+2) Apply the smallest safe change that improves it (behavior-preserving).
+3) Keep async correctness (no blocking I/O, no new concurrency hazards).
+4) Update/add focused tests if semantics are subtle (ordering, exceptions, streaming/cancellation).
+5) Run per-file QA (Windows) for each changed Python file:
    - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
    - `./.venv/Scripts/python.exe -m black <changed_file>`
    - `./.venv/Scripts/python.exe -m mypy <changed_file>`
-   - `./.venv/Scripts/python.exe -m pytest <relevant_tests>`
 
 Project constraints
-- Use existing config patterns and staging/DI conventions.
-- Avoid import cycles.
-- Keep runtime behavior identical unless you can justify that a missing timeout is an existing correctness bug and you are reusing an existing configured value.
+- Keep runtime behavior identical unless this maintenance task explicitly allows a bug fix.
+- Avoid import cycles and avoid introducing global state/caches unless you can prove it is safe and bounded.
 
 Search rules (must follow)
 - Use `rg` for searches. Limit to ./src/.
 - Exclude directories starting with `.` or `_`.
 - IMPORTANT (Windows): this repo contains a `src/nul` file that can make ripgrep error; always exclude it.
   Example patterns (adapt as needed):
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\btimeout\\s*=\\s*None\\b'`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\bhttpx\\.Timeout\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\bhttpx\\.(Client|AsyncClient)\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\brequests\\.(get|post|put|delete|request)\\('`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '\\b(timeout|connect_timeout|read_timeout|write_timeout)\\s*='`
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '<PATTERN_1>'`
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' '<PATTERN_2>'`
 
 Completion gates (must be satisfied before reporting success)
-- Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> implement -> run related tests -> commit -> final report.
+- Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> baseline tests -> implement -> run tests -> commit -> final report.
 - Start clean: Run `git status --porcelain` before editing. If it is not empty, STOP and report back (do not stash/reset/checkout the whole tree).
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
@@ -91,13 +78,12 @@ Completion gates (must be satisfied before reporting success)
   - End state must be clean: `git status --porcelain` is empty.
 
 Deliverables / reporting (in your final response)
-1) Short summary of the up to 3 fixes (call site, file, old timeout -> new timeout source, why it's materially better).
+1) Short summary of the up to 3 fixes (file/symbol, old pattern -> new pattern, why it's materially better).
 2) List of files changed.
-3) Notes on any behavior-sensitive edge cases you verified (streaming, retries, exception propagation).
+3) Notes on any behavior-sensitive edge cases you verified.
 4) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
-5) Any "found but not safely fixable without product decision" items (file + why).
-6) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
-7) Post-commit `git status --porcelain` output (should be empty).
+5) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
+6) Post-commit `git status --porcelain` output (should be empty).
 
 Already fixed files (do not modify):
 {list-of-fixed-files}
