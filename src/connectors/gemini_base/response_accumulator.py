@@ -71,7 +71,10 @@ class StreamingResponseAccumulator:
                 ) = result
 
         except Exception as e:
-            logger.warning(f"Error accumulating streaming response: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Error accumulating streaming response: %s", e, exc_info=True
+                )
             if error_data is None:
                 error_data = {
                     "message": f"Error processing response: {e}",
@@ -321,9 +324,11 @@ class StreamingResponseAccumulator:
             "choices": [],
             "error": error_data,
         }
-        logger.warning(
-            f"Returning error response for non-streaming request: {error_data.get('message', 'Unknown error')}"
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Returning error response for non-streaming request: %s",
+                error_data.get("message", "Unknown error"),
+            )
         return ResponseEnvelope(
             content=error_response,
             headers=headers,
