@@ -11,4 +11,6 @@ properties:
     type: array
     items:
       type: string
-required: []
+required:
+- request_patterns
+- response_patterns
