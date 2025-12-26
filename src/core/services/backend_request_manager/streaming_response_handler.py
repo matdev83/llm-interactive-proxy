@@ -216,11 +216,31 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         try:
             app_state = getattr(context, "app_state", None)
             if app_state is not None:
-                cfg = app_state.get_setting("app_config")
-                session_cfg = getattr(cfg, "session", None)
-                if session_cfg:
-                    angel_model_spec = getattr(session_cfg, "angel_model", None)
-                    angel_frequency = getattr(session_cfg, "angel_frequency", 1)
+                # Try get_setting method first (for test mocks), then fallback to app_config attribute
+                cfg = None
+                # Try get_setting method (for test mocks that support it)
+                # Use try/except to handle secure state services that raise on attribute access
+                try:
+                    get_setting = getattr(app_state, "get_setting", None)
+                    if get_setting is not None and callable(get_setting):
+                        try:
+                            cfg = get_setting("app_config")
+                        except Exception:
+                            pass
+                except Exception:
+                    # Secure state service or other access restriction - skip get_setting
+                    pass
+                if cfg is None:
+                    try:
+                        cfg = getattr(app_state, "app_config", None)
+                    except Exception:
+                        # Secure state service - cannot access app_config directly
+                        pass
+                if cfg is not None:
+                    session_cfg = getattr(cfg, "session", None)
+                    if session_cfg:
+                        angel_model_spec = getattr(session_cfg, "angel_model", None)
+                        angel_frequency = getattr(session_cfg, "angel_frequency", 1)
         except AttributeError:
             logger.warning(
                 "Failed to extract Angel configuration, using defaults",

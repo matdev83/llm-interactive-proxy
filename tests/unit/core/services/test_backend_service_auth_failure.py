@@ -13,6 +13,7 @@ from src.core.common.exceptions import (
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 
 from tests.unit.core.services.backend_flow_test_helper import (
     create_test_backend_completion_flow,
@@ -207,10 +208,10 @@ async def test_disabled_backend_fails_fast_without_failover(flow_fixture):
     flow, deps = flow_fixture
 
     deps["backend_lifecycle_manager"].get_disabled_backends.return_value = {
-        "openai": {
-            "reason": "invalid api key",
-            "timestamp": time.time(),
-        }
+        "openai": DisabledBackendInfo(
+            reason="invalid api key",
+            timestamp=time.time(),
+        )
     }
 
     request = ChatRequest(

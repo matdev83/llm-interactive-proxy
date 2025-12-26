@@ -100,9 +100,11 @@ class BackendPreparer(IBackendPreparer):
                     request, "model", ""
                 )
                 requested_model: str = str(_rm)
-                backend_key, model_name = parse_model_backend(
+                parsed = parse_model_backend(
                     requested_model, (backend_type or "")
                 )
+                backend_key: str = parsed.backend_type
+                model_name: str = parsed.model_name
 
                 # Candidate keys to look up defaults
                 candidate_keys: list[str] = []

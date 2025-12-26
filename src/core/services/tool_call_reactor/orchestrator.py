@@ -131,7 +131,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 stream_key = self._stream_context_resolver.resolve_stream_key(
                     session_id, None, response
                 )
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         # Use stream key from context (already resolved by feature/middleware)
@@ -143,10 +143,6 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             )
         buffer_state = context.buffer_state
 
-        # Clear lifecycle state for non-streaming to ensure fresh detection
-        if not is_streaming:
-            self._lifecycle_registry.clear_stream(stream_key)
-
         # Extract tool calls from response (fail-open per requirement 6.2)
         try:
             raw_tool_calls = self._extractor.extract(response)
@@ -157,11 +153,11 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 e,
                 exc_info=True,
             )
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         if not raw_tool_calls:
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         # Normalize tool calls to dictionaries (fail-open per requirement 6.2)
@@ -178,11 +174,11 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 e,
                 exc_info=True,
             )
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         if not normalized_tool_calls:
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         # Convert normalized dicts to ToolCall domain models
@@ -201,12 +197,12 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 continue
 
         if not tool_calls:
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         # Filter to new tool calls via deduplicator
         # Note: deduplicator handles buffered calls internally
-        new_tool_calls = self._deduplicator.filter_new_calls(
+        new_tool_calls = await self._deduplicator.filter_new_calls(
             tool_calls=tool_calls,
             stream_key=stream_key,
             buffer_state=buffer_state,
@@ -221,7 +217,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                     len(tool_calls),
                     session_id,
                 )
-            self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+            await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
         if logger.isEnabledFor(logging.DEBUG):
@@ -266,7 +262,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             signature = build_tool_call_signature(tool_call.model_dump())
 
             # Double-check if already processed (defensive)
-            if self._deduplicator.is_processed(stream_key, signature):
+            if await self._deduplicator.is_processed(stream_key, signature):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Skipping already-processed tool call (signature=%s) "
@@ -337,7 +333,9 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 result = await self._reactor.process_tool_call(tool_context)
 
                 # Mark as processed
-                self._deduplicator.mark_processed(stream_key, signature, buffer_state)
+                await self._deduplicator.mark_processed(
+                    stream_key, signature, buffer_state
+                )
 
                 # If swallowed, build replacement and return
                 if result and result.should_swallow:
@@ -369,7 +367,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                         reaction_metadata=reaction_metadata,
                     )
                     # Reset stream state before returning replacement response
-                    self._reset_stream_state_if_needed(
+                    await self._reset_stream_state_if_needed(
                         stream_key, response, is_streaming
                     )
                     return replacement_response
@@ -382,10 +380,12 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                     exc_info=True,
                 )
                 # Mark as processed even on error to prevent retry loops
-                self._deduplicator.mark_processed(stream_key, signature, buffer_state)
+                await self._deduplicator.mark_processed(
+                    stream_key, signature, buffer_state
+                )
 
         # No swallows occurred, return original response
-        self._reset_stream_state_if_needed(stream_key, response, is_streaming)
+        await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
         return response
 
     def _should_reset_stream_state(
@@ -400,9 +400,11 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 finish_reason = metadata.get("finish_reason")
                 if finish_reason in {"stop", "length", "tool_calls"}:
                     return True
-        return not is_streaming
+        # Don't clear lifecycle registry for non-streaming responses without finish_reason
+        # to allow deduplication across multiple process() calls
+        return False
 
-    def _reset_stream_state_if_needed(
+    async def _reset_stream_state_if_needed(
         self,
         stream_key: str,
         response: ProcessedResponse,
@@ -410,7 +412,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
     ) -> None:
         """Reset stream state if needed."""
         if self._should_reset_stream_state(response, is_streaming):
-            self._lifecycle_registry.clear_stream(stream_key)
+            await self._lifecycle_registry.clear_stream(stream_key)
 
     @staticmethod
     def _write_back_modified_arguments(

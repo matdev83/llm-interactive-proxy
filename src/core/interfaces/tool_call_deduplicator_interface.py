@@ -26,7 +26,7 @@ class IToolCallDeduplicator(ABC):
     """
 
     @abstractmethod
-    def filter_new_calls(
+    async def filter_new_calls(
         self,
         tool_calls: list[ToolCall],
         stream_key: str,
@@ -53,7 +53,7 @@ class IToolCallDeduplicator(ABC):
         """
 
     @abstractmethod
-    def mark_processed(
+    async def mark_processed(
         self,
         stream_key: str,
         signature: str,
@@ -72,7 +72,7 @@ class IToolCallDeduplicator(ABC):
         """
 
     @abstractmethod
-    def is_processed(
+    async def is_processed(
         self,
         stream_key: str,
         signature: str,

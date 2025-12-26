@@ -119,8 +119,13 @@ class FileWatcher:
             state: File watcher state container.
         """
         if state.file_observer is not None:
-            state.file_observer.stop()
-            state.file_observer.join()
+            observer = state.file_observer
+            observer.stop()
+            # Don't join if we're calling from the observer thread itself
+            # (e.g., when stopping from within the watchdog thread)
+            current_thread = threading.current_thread()
+            if observer is not current_thread:
+                observer.join()
             state.file_observer = None
             logger.debug("Stopped watching credentials file")
 

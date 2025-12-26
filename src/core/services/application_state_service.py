@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
@@ -21,6 +22,14 @@ from src.core.interfaces.application_state_interface import IApplicationState
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class ProviderValueResult:
+    """Result from provider value lookup with safety indicator."""
+
+    found: bool
+    value: Any
 
 
 class ApplicationStateService(IApplicationState):
@@ -56,17 +65,17 @@ class ApplicationStateService(IApplicationState):
             return bool(value)
         return bool(value)
 
-    def _get_provider_value(self, key: str) -> tuple[bool, Any]:
+    def _get_provider_value(self, key: str) -> ProviderValueResult:
         """Return provider value with indicator if it is safe to use."""
         if self._state_provider is None:
-            return False, None
+            return ProviderValueResult(found=False, value=None)
         try:
             value = getattr(self._state_provider, key)
         except AttributeError:
-            return False, None
+            return ProviderValueResult(found=False, value=None)
         if self._is_mock_like(value):
-            return False, None
-        return True, value
+            return ProviderValueResult(found=False, value=None)
+        return ProviderValueResult(found=True, value=value)
 
     def _sync_provider_from_local(self) -> None:
         """Copy local state into provider when one becomes available."""
@@ -96,9 +105,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_command_prefix(self) -> str | None:
         """Get the command prefix."""
-        has_value, provider_value = self._get_provider_value("command_prefix")
-        if has_value and isinstance(provider_value, str):
-            return provider_value
+        result = self._get_provider_value("command_prefix")
+        if result.found and isinstance(result.value, str):
+            return result.value
         local_prefix = self._local_state.get("command_prefix")
         return local_prefix if isinstance(local_prefix, str) else None
 
@@ -111,11 +120,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_api_key_redaction_enabled(self) -> bool:
         """Get whether API key redaction is enabled."""
-        has_value, provider_value = self._get_provider_value(
-            "api_key_redaction_enabled"
-        )
-        if has_value:
-            return self._coerce_bool(provider_value)
+        result = self._get_provider_value("api_key_redaction_enabled")
+        if result.found:
+            return self._coerce_bool(result.value)
         with self._lock:
             return self._coerce_bool(self._local_state.get("api_key_redaction_enabled"))
 
@@ -137,11 +144,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled."""
-        has_value, provider_value = self._get_provider_value(
-            "disable_interactive_commands"
-        )
-        if has_value:
-            return self._coerce_bool(provider_value)
+        result = self._get_provider_value("disable_interactive_commands")
+        if result.found:
+            return self._coerce_bool(result.value)
         with self._lock:
             return self._coerce_bool(
                 self._local_state.get("disable_interactive_commands")
@@ -156,9 +161,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_disable_commands(self) -> bool:
         """Get whether commands are disabled."""
-        has_value, provider_value = self._get_provider_value("disable_commands")
-        if has_value:
-            return self._coerce_bool(provider_value)
+        result = self._get_provider_value("disable_commands")
+        if result.found:
+            return self._coerce_bool(result.value)
         with self._lock:
             return self._coerce_bool(self._local_state.get("disable_commands"))
 
@@ -171,9 +176,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a generic setting by key."""
-        has_value, provider_value = self._get_provider_value(key)
-        if has_value:
-            return provider_value
+        result = self._get_provider_value(key)
+        if result.found:
+            return result.value
         with self._lock:
             return self._local_state.get(key, default)
 
@@ -235,9 +240,9 @@ class ApplicationStateService(IApplicationState):
                 return list(value)
             return []
 
-        has_value, provider_value = self._get_provider_value("functional_backends")
-        if has_value:
-            return _normalize_backends(provider_value)
+        result = self._get_provider_value("functional_backends")
+        if result.found:
+            return _normalize_backends(result.value)
         with self._lock:
             local_backends = self._local_state.get("functional_backends", [])
             return _normalize_backends(local_backends)
@@ -251,9 +256,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_backend_type(self) -> str | None:
         """Get current backend type."""
-        has_value, provider_value = self._get_provider_value("backend_type")
-        if has_value and isinstance(provider_value, str):
-            return provider_value
+        result = self._get_provider_value("backend_type")
+        if result.found and isinstance(result.value, str):
+            return result.value
         with self._lock:
             local_backend_type = self._local_state.get("backend_type")
             return local_backend_type if isinstance(local_backend_type, str) else None
@@ -267,9 +272,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_backend(self) -> LLMBackend | None:
         """Get current backend instance."""
-        has_value, provider_value = self._get_provider_value("backend")
-        if has_value:
-            return cast("LLMBackend | None", provider_value)
+        result = self._get_provider_value("backend")
+        if result.found:
+            return cast("LLMBackend | None", result.value)
         with self._lock:
             return cast("LLMBackend | None", self._local_state.get("backend"))
 
@@ -282,9 +287,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_model_defaults(self) -> dict[str, ModelDefaults]:
         """Get model defaults."""
-        has_value, provider_value = self._get_provider_value("model_defaults")
-        if has_value and isinstance(provider_value, dict):
-            return cast(dict[str, ModelDefaults], provider_value)
+        result = self._get_provider_value("model_defaults")
+        if result.found and isinstance(result.value, dict):
+            return cast(dict[str, ModelDefaults], result.value)
         with self._lock:
             local_defaults = self._local_state.get("model_defaults", {})
             return cast(
@@ -324,9 +329,9 @@ class ApplicationStateService(IApplicationState):
                 return result if result else None
             return None
 
-        has_value, provider_value = self._get_provider_value("failover_routes")
-        if has_value:
-            return _to_models(provider_value)
+        result = self._get_provider_value("failover_routes")
+        if result.found:
+            return _to_models(result.value)
 
         with self._lock:
             local_routes = self._local_state.get("failover_routes")

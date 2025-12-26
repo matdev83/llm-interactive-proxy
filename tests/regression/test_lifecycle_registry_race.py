@@ -24,7 +24,7 @@ async def test_lifecycle_registry_concurrent_register():
 
     async def register_task(task_id: int):
         """Try to register the same signature from multiple tasks"""
-        result = registry.register_detection(stream_key, signature)
+        result = await registry.register_detection(stream_key, signature)
         if result:
             successful_count[0] += 1
 
@@ -48,17 +48,17 @@ async def test_lifecycle_registry_register_then_mark():
     signature = "test-signature-002"
 
     # Register signature
-    assert registry.register_detection(stream_key, signature) is True
+    assert await registry.register_detection(stream_key, signature) is True
 
     # Mark as processed
-    registry.mark_processed(stream_key, signature)
+    await registry.mark_processed(stream_key, signature)
 
     # Register again - should now succeed since not in-flight
     # (it was moved to processed)
-    assert registry.register_detection(stream_key, signature) is True
+    assert await registry.register_detection(stream_key, signature) is True
 
     # Should be marked as processed
-    assert registry.is_processed(stream_key, signature) is True
+    assert await registry.is_processed(stream_key, signature) is True
 
 
 @pytest.mark.asyncio
@@ -70,7 +70,7 @@ async def test_lifecycle_registry_multiple_streams():
 
     async def register_for_stream(stream_id: int):
         """Register a signature for a specific stream"""
-        result = registry.register_detection(f"stream-{stream_id}", f"sig-{stream_id}")
+        result = await registry.register_detection(f"stream-{stream_id}", f"sig-{stream_id}")
         results.append(result)
 
     # Register for 5 different streams concurrently
@@ -90,14 +90,14 @@ async def test_lifecycle_registry_clear_stream():
 
     # Register some signatures
     for i in range(3):
-        registry.register_detection(stream_key, f"sig-{i}")
+        await registry.register_detection(stream_key, f"sig-{i}")
 
     # Clear the stream
-    registry.clear_stream(stream_key)
+    await registry.clear_stream(stream_key)
 
     # After clear, should be able to register the same signatures again
-    assert registry.register_detection(stream_key, "sig-0") is True
-    assert registry.register_detection(stream_key, "sig-1") is True
+    assert await registry.register_detection(stream_key, "sig-0") is True
+    assert await registry.register_detection(stream_key, "sig-1") is True
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-import asyncio
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -115,7 +115,7 @@ class ToolCallLifecycleRegistry:
             stream_key = "anonymous-stream"
 
         async with self._lock:
-            state = self._get_state(stream_key)
+            state = await self._get_state(stream_key)
             if signature in state.inflight_signatures:
                 return False
             state.inflight_signatures.add(signature)

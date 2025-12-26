@@ -133,9 +133,10 @@ class ModelSpecParser:
 
         # Parse reasoning model spec with URI parameters
         try:
-            reasoning_backend, reasoning_model, reasoning_params = (
-                parse_model_with_params(reasoning_spec)
-            )
+            parsed_reasoning = parse_model_with_params(reasoning_spec)
+            reasoning_backend = parsed_reasoning.backend_type
+            reasoning_model = parsed_reasoning.model_name
+            reasoning_params = parsed_reasoning.uri_params
         except Exception as e:
             # Log warning about parsing failure but provide helpful error message
             logger.warning(
@@ -161,9 +162,10 @@ class ModelSpecParser:
 
         # Parse execution model spec with URI parameters
         try:
-            execution_backend, execution_model, execution_params = (
-                parse_model_with_params(execution_spec)
-            )
+            parsed_execution = parse_model_with_params(execution_spec)
+            execution_backend = parsed_execution.backend_type
+            execution_model = parsed_execution.model_name
+            execution_params = parsed_execution.uri_params
         except Exception as e:
             # Log warning about parsing failure but provide helpful error message
             logger.warning(

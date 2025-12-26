@@ -43,7 +43,7 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
         """
         self._lifecycle_registry = lifecycle_registry
 
-    def filter_new_calls(
+    async def filter_new_calls(
         self,
         tool_calls: list[ToolCall],
         stream_key: str,
@@ -86,7 +86,7 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
                 continue
 
             # Check lifecycle registry for non-buffered calls
-            is_new = self._lifecycle_registry.register_detection(stream_key, signature)
+            is_new = await self._lifecycle_registry.register_detection(stream_key, signature)
             if not is_new:
                 continue
 
@@ -94,7 +94,7 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
 
         return new_calls
 
-    def mark_processed(
+    async def mark_processed(
         self,
         stream_key: str,
         signature: str,
@@ -114,16 +114,16 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
         # Ensure state exists in lifecycle registry by registering detection first
         # This matches the existing middleware behavior where mark_processed is
         # called after register_detection
-        self._lifecycle_registry.register_detection(stream_key, signature)
+        await self._lifecycle_registry.register_detection(stream_key, signature)
 
         # Mark in lifecycle registry (moves from inflight to processed)
-        self._lifecycle_registry.mark_processed(stream_key, signature)
+        await self._lifecycle_registry.mark_processed(stream_key, signature)
 
         # Mark in buffer state if available
         if buffer_state is not None:
             buffer_state.mark_processed(signature)
 
-    def is_processed(
+    async def is_processed(
         self,
         stream_key: str,
         signature: str,
@@ -137,4 +137,4 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
         Returns:
             True if the signature has been processed, False otherwise.
         """
-        return self._lifecycle_registry.is_processed(stream_key, signature)
+        return await self._lifecycle_registry.is_processed(stream_key, signature)

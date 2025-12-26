@@ -14,6 +14,9 @@ from src.core.services.tool_call_repair_service import (
     ToolCallRepairService,
 )
 
+# Mark memory-intensive tests with timeout to prevent hangs
+pytestmark = pytest.mark.timeout(60)
+
 
 class TestUnwrapNestedContentDoSRegression:
     """Regression tests for _unwrap_nested_content DoS vulnerability fix."""
@@ -44,9 +47,17 @@ class TestUnwrapNestedContentDoSRegression:
         result = repair_service._unwrap_nested_content(large_content)
 
         # Should return original arguments without unwrapping
+        # Check identity first to avoid expensive comparison of large objects
         assert (
-            result == large_content
-        ), "Large content should be rejected and original returned"
+            result is large_content
+        ), "Large content should be rejected and original returned (identity check)"
+
+        # Fallback to equality check if identity check fails (though it shouldn't)
+        if result is not large_content:
+            # Verify keys match without comparing the massive content value
+            assert result.keys() == large_content.keys()
+            # We assume content is the same if keys match and it wasn't unwrapped
+            # This avoids crashing pytest with massive string diffs
 
     def test_content_at_limit_boundary(
         self, repair_service: ToolCallRepairService
@@ -63,6 +74,8 @@ class TestUnwrapNestedContentDoSRegression:
         if len(small_json_string.encode("utf-8")) <= MAX_JSON_PARSE_SIZE:
             result = repair_service._unwrap_nested_content(small_content)
             assert isinstance(result, dict), "Content under limit should be unwrapped"
+            # Verify result content without full string comparison if possible
+            assert result["data"] == small_data["data"]
 
     def test_invalid_json_handled(self, repair_service: ToolCallRepairService) -> None:
         """Test that invalid JSON is handled gracefully."""

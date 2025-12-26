@@ -9,10 +9,27 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from src.core.domain.processed_result import ProcessedResult
+
+
+@dataclass(frozen=True)
+class MessageRoleAndContent:
+    """Extracted role and content from a message."""
+
+    role: Any
+    content: Any
+
+
+@dataclass(frozen=True)
+class MessageNormalizationResult:
+    """Result of message normalization with alteration flag."""
+
+    message: Any
+    altered: bool
 
 # Artifact preview constants
 _TRUNCATED_ARTIFACT_PREFIX = "<system-reminder> CRITICAL: This output was truncated."
@@ -58,80 +75,93 @@ class ArtifactService:
         for idx, raw_message in enumerate(messages):
             if idx in tail_index_set:
                 continue
-            message, altered = self._compress_existing_artifact_preview(raw_message)
-            if altered:
-                normalized_messages[idx] = message
+            result = self._compress_existing_artifact_preview(raw_message)
+            if result.altered:
+                normalized_messages[idx] = result.message
                 changed = True
 
         # Then expand truncated outputs for the most recent tool batch
         for idx in tail_indices:
             raw_message = normalized_messages[idx]
-            message, altered = self._normalize_tool_message(raw_message)
-            if altered:
-                normalized_messages[idx] = message
+            result = self._normalize_tool_message(raw_message)
+            if result.altered:
+                normalized_messages[idx] = result.message
                 changed = True
 
         if changed:
             processed_result.modified_messages = normalized_messages
 
-    def _normalize_tool_message(self, raw_message: Any) -> tuple[Any, bool]:
+    def _normalize_tool_message(self, raw_message: Any) -> MessageNormalizationResult:
         """Return tool message with expanded artifact content when possible."""
-        role, content = self._get_message_role_and_content(raw_message)
+        role_content = self._get_message_role_and_content(raw_message)
 
-        if role != "tool":
-            return raw_message, False
+        if role_content.role != "tool":
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
-        replacement = self._extract_truncated_artifact_preview(content)
+        replacement = self._extract_truncated_artifact_preview(role_content.content)
         if replacement is None:
-            return raw_message, False
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
         if isinstance(raw_message, dict):
             updated = dict(raw_message)
             updated["content"] = replacement
-            return updated, True
+            return MessageNormalizationResult(message=updated, altered=True)
 
         if hasattr(raw_message, "model_copy"):
-            return raw_message.model_copy(update={"content": replacement}), True
+            return MessageNormalizationResult(
+                message=raw_message.model_copy(update={"content": replacement}),
+                altered=True,
+            )
 
         # Fallback: attempt in-place assignment
         try:
             raw_message.content = replacement  # type: ignore[attr-defined]
-            return raw_message, True
+            return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
-            return raw_message, False
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
-    def _compress_existing_artifact_preview(self, raw_message: Any) -> tuple[Any, bool]:
+    def _compress_existing_artifact_preview(self, raw_message: Any) -> MessageNormalizationResult:
         """Trim previously expanded artifact previews to keep history compact."""
-        role, content = self._get_message_role_and_content(raw_message)
-        if role != "tool" or not isinstance(content, str):
-            return raw_message, False
+        role_content = self._get_message_role_and_content(raw_message)
+        if role_content.role != "tool" or not isinstance(role_content.content, str):
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
+        content = role_content.content
         if not content.startswith(_EXPANDED_ARTIFACT_PREFIX):
-            return raw_message, False
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
         summary = self._build_artifact_summary(content)
         if summary is None:
-            return raw_message, False
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
         if isinstance(raw_message, dict):
             updated = dict(raw_message)
             updated["content"] = summary
-            return updated, True
+            return MessageNormalizationResult(message=updated, altered=True)
 
         if hasattr(raw_message, "model_copy"):
-            return raw_message.model_copy(update={"content": summary}), True
+            return MessageNormalizationResult(
+                message=raw_message.model_copy(update={"content": summary}),
+                altered=True,
+            )
 
         try:
             raw_message.content = summary  # type: ignore[attr-defined]
-            return raw_message, True
+            return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
-            return raw_message, False
+            return MessageNormalizationResult(message=raw_message, altered=False)
 
-    def _get_message_role_and_content(self, raw_message: Any) -> tuple[Any, Any]:
+    def _get_message_role_and_content(self, raw_message: Any) -> MessageRoleAndContent:
         """Extract role and content from dicts or objects uniformly."""
         if isinstance(raw_message, dict):
-            return raw_message.get("role"), raw_message.get("content")
-        return getattr(raw_message, "role", None), getattr(raw_message, "content", None)
+            return MessageRoleAndContent(
+                role=raw_message.get("role"),
+                content=raw_message.get("content"),
+            )
+        return MessageRoleAndContent(
+            role=getattr(raw_message, "role", None),
+            content=getattr(raw_message, "content", None),
+        )
 
     def _extract_truncated_artifact_preview(self, content: Any) -> str | None:
         """Extract and truncate the artifact referenced by the tool output."""
@@ -211,7 +241,8 @@ class ArtifactService:
         """Return indices of contiguous trailing tool messages."""
         indices: list[int] = []
         for index in range(len(messages) - 1, -1, -1):
-            role, content = self._get_message_role_and_content(messages[index])
+            role_content = self._get_message_role_and_content(messages[index])
+            role = role_content.role
             if role != "tool":
                 break
             indices.append(index)

@@ -316,8 +316,6 @@ class ToolCallReactorService(IToolCallReactor):
                 "tool_calls_allowed": self._tool_calls_allowed_count,
             }
 
-
-
     @classmethod
     def _snapshot_tool_arguments(cls, arguments: Any) -> Any:
         """Create a bounded snapshot of tool arguments for history tracking.

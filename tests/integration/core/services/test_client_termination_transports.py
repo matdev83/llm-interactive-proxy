@@ -308,6 +308,7 @@ class TestCodebuffDisconnect:
         # Create mock WebSocket
         mock_websocket = MagicMock()
         mock_websocket.accept = AsyncMock()
+        mock_websocket.close = AsyncMock()
 
         # Mock identify message
         identify_message = '{"type": "identify", "clientSessionId": "test-session-123"}'
@@ -316,7 +317,7 @@ class TestCodebuffDisconnect:
         # Mock message processing to raise WebSocketDisconnect
         from fastapi import WebSocketDisconnect
 
-        async def process_messages_side_effect() -> None:
+        async def process_messages_side_effect(ws: Any) -> None:
             raise WebSocketDisconnect()
 
         server._process_messages = AsyncMock(side_effect=process_messages_side_effect)

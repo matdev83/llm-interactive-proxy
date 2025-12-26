@@ -18,6 +18,9 @@ from src.core.common.json_validation import (
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureMetadata
 from src.core.simulation.capture_decoder import CaptureDecoder
 
+# Mark memory-intensive tests with timeout to prevent hangs
+pytestmark = pytest.mark.timeout(60)
+
 
 class TestCaptureDecoderDoSRegression:
     """Regression tests for CaptureDecoder DoS vulnerability fix."""
@@ -64,6 +67,8 @@ class TestCaptureDecoderDoSRegression:
     def test_large_array_attack_rejected(self, decoder: CaptureDecoder) -> None:
         """Test that large arrays are rejected."""
         # Test with array size exceeding MAX_ARRAY_ELEMENTS
+        # Use MAX_ARRAY_ELEMENTS + 1 to test the boundary condition
+        # This is still a large array but necessary to test the validation
         large_data = self.create_large_array_json(MAX_ARRAY_ELEMENTS + 1)
         json_str = json.dumps(large_data)
         json_bytes = json_str.encode("utf-8")
@@ -134,6 +139,8 @@ class TestCaptureDecoderDoSRegression:
     def test_boundary_array_size_works(self, decoder: CaptureDecoder) -> None:
         """Test that arrays at maximum allowed size work."""
         # Test with array size exactly at MAX_ARRAY_ELEMENTS
+        # Note: This creates a large array, so it may take time or memory
+        # The validation should allow arrays at exactly the limit
         large_data = self.create_large_array_json(MAX_ARRAY_ELEMENTS)
         json_str = json.dumps(large_data)
         json_bytes = json_str.encode("utf-8")
@@ -148,17 +155,23 @@ class TestCaptureDecoderDoSRegression:
 
         result = decoder.decode_inbound_request(entry)
 
-        # Should succeed (at boundary) or fail gracefully
+        # At the boundary, validation should pass (array size == MAX_ARRAY_ELEMENTS is allowed)
+        # But the request might fail for other reasons (e.g., not a valid chat request)
+        # So we accept either outcome, but ensure it doesn't crash
         assert result.is_failure or result.is_success
 
     def test_combined_attack_rejected(self, decoder: CaptureDecoder) -> None:
         """Test that combined attack (deep nesting + large arrays) is rejected."""
         # Create payload with both deep nesting and large arrays
+        # Use smaller arrays to avoid memory exhaustion during parallel test execution
+        # but still test that combined attacks are detected
+        array_size = min(
+            MAX_ARRAY_ELEMENTS // 2, 100000
+        )  # Cap at 100k for test performance
         combined_data = {
-            "messages": [{"role": "user", "content": "test"}]
-            * (MAX_ARRAY_ELEMENTS // 2),
+            "messages": [{"role": "user", "content": "test"}] * array_size,
             "nested": self.create_deeply_nested_json(MAX_JSON_DEPTH // 2),
-            "large_array": list(range(MAX_ARRAY_ELEMENTS // 2)),
+            "large_array": list(range(array_size)),
         }
 
         json_str = json.dumps(combined_data)

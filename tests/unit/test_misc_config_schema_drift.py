@@ -5,6 +5,7 @@ for these config sections, matching the Python model definitions.
 """
 
 from pathlib import Path
+
 from src.core.config.models.misc import EmptyResponseConfig
 from src.core.config.models.rewriting import EditPrecisionConfig, RewritingConfig
 from src.core.config.yaml_validation import validate_yaml_against_schema

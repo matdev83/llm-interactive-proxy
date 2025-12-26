@@ -13,6 +13,7 @@ from src.core.interfaces.resilience_interface import (
 from src.core.services.backend_completion_flow.availability_checker import (
     BackendAvailabilityChecker,
 )
+from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 
 
 class TestBackendAvailabilityChecker:
@@ -37,7 +38,7 @@ class TestBackendAvailabilityChecker:
         self, checker, lifecycle_manager
     ):
         lifecycle_manager.get_disabled_backends.return_value = {
-            "openai": {"reason": "auth failed"}
+            "openai": DisabledBackendInfo(reason="auth failed", timestamp=0)
         }
 
         with pytest.raises(BackendError) as exc:
@@ -52,7 +53,7 @@ class TestBackendAvailabilityChecker:
         self, lifecycle_manager, resilience_coordinator
     ):
         lifecycle_manager.get_disabled_backends.return_value = {
-            "openai": {"reason": "auth failed"}
+            "openai": DisabledBackendInfo(reason="auth failed", timestamp=0)
         }
 
         # Checker with failover routes

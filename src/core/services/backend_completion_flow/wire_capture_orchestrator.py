@@ -326,11 +326,3 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     str(e),
                     exc_info=True,
                 )
-        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Wire capture (stream completion) failed for backend %s with model %s",
-                    backend_type,
-                    effective_model,
-                    exc_info=True,
-                )

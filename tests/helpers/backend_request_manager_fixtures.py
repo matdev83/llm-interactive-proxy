@@ -81,6 +81,10 @@ def create_backend_request_manager(
     if not hasattr(mock_provider, "get_required_service"):
         mock_provider.get_required_service = MagicMock(return_value=None)
 
+    # Ensure get_service is available even if mock_provider was passed but doesn't have it
+    if not hasattr(mock_provider, "get_service"):
+        mock_provider.get_service = MagicMock(return_value=None)
+
     structured_output_enforcer = StructuredOutputEnforcer(provider=mock_provider)
 
     # Create non-streaming handler

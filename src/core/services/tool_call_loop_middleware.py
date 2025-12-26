@@ -65,7 +65,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         self._max_cached_sessions = max_cached_sessions
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
 
-    def _process_response(
+    async def _process_response(
         self,
         response: Any,
         session_id: str,
@@ -125,7 +125,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         # Both streaming and non-streaming: clear lifecycle for fresh detection
         # This ensures parity - each response/chunk is evaluated independently
         if not is_streaming:
-            self._lifecycle.clear_stream(resolved_session_id)
+            await self._lifecycle.clear_stream(resolved_session_id)
 
         tracker = self._session_trackers.get(resolved_session_id)
         if tracker is None:
@@ -144,7 +144,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             signature = build_tool_call_signature(tool_call)
-            if not self._lifecycle.register_detection(resolved_session_id, signature):
+            if not await self._lifecycle.register_detection(
+                resolved_session_id, signature
+            ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Skipping duplicate in-flight tool call (signature=%s) "
@@ -179,7 +181,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
 
             if buffer_state is None:
                 tool_call["_already_processed"] = True
-            self._lifecycle.mark_processed(resolved_session_id, signature)
+            await self._lifecycle.mark_processed(resolved_session_id, signature)
 
         if buffer_state is None:
             self._mark_message_processed(response)
@@ -193,7 +195,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         context: dict[str, Any],
     ) -> Any:
         """Process non-streaming response for tool call loops."""
-        return self._process_response(response, session_id, context, is_streaming=False)
+        return await self._process_response(
+            response, session_id, context, is_streaming=False
+        )
 
     async def process_streaming(
         self,
@@ -202,14 +206,26 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         context: dict[str, Any],
     ) -> Any:
         """Process streaming chunk for tool call loops."""
-        return self._process_response(chunk, session_id, context, is_streaming=True)
+        return await self._process_response(
+            chunk, session_id, context, is_streaming=True
+        )
 
     def reset_session(self, session_id: str) -> None:
         """Reset the tracker for a session."""
         if session_id in self._session_trackers:
             del self._session_trackers[session_id]
         if self._lifecycle is not None:
-            self._lifecycle.clear_stream(session_id)
+            # clear_stream is async but we're in a sync method
+            # Schedule it as a fire-and-forget task if event loop is available
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                # Fire and forget - don't await
+                asyncio.create_task(self._lifecycle.clear_stream(session_id))
+            except RuntimeError:
+                # No event loop available, skip async cleanup
+                pass
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content."""
@@ -498,7 +514,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
         # Non-streaming responses should treat each detection pass independently
         if not is_streaming:
-            self._lifecycle.clear_stream(resolved_session_id)
+            await self._lifecycle.clear_stream(resolved_session_id)
 
         tracker = self._session_trackers.get(resolved_session_id)
         if tracker is None:
@@ -518,7 +534,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             signature = build_tool_call_signature(tool_call)
-            if not self._lifecycle.register_detection(resolved_session_id, signature):
+            if not await self._lifecycle.register_detection(
+                resolved_session_id, signature
+            ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Skipping duplicate in-flight tool call (signature=%s) for stream %s",
@@ -550,7 +568,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
             if buffer_state is None:
                 tool_call["_already_processed"] = True
-            self._lifecycle.mark_processed(resolved_session_id, signature)
+            await self._lifecycle.mark_processed(resolved_session_id, signature)
 
         if buffer_state is None:
             self._mark_message_processed(response)
@@ -567,7 +585,17 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if session_id in self._session_trackers:
             del self._session_trackers[session_id]
         if self._lifecycle is not None:
-            self._lifecycle.clear_stream(session_id)
+            # clear_stream is async but we're in a sync method
+            # Schedule it as a fire-and-forget task if event loop is available
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                # Fire and forget - don't await
+                asyncio.create_task(self._lifecycle.clear_stream(session_id))
+            except RuntimeError:
+                # No event loop available, skip async cleanup
+                pass
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.

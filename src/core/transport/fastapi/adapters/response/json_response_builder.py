@@ -563,6 +563,7 @@ class JSONResponseBuilder:
                     "SECURITY: Sanitized leaked steering data from non-streaming JSON response"
                 )
 
+
         # Headers are already sanitized by HeaderSanitizer, but ensure they're filtered
         # Allow provider-specific headers for usage tracking and rate limiting
         allowed_prefixes = ("x-", "access-control-", "anthropic-", "openai-", "zenmux-")

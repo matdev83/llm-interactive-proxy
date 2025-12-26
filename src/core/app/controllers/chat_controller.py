@@ -321,7 +321,7 @@ class ChatController:
             if (
                 not getattr(domain_request, "stream", False)
                 and parse_model_backend is not None
-                and parse_model_backend(str(domain_request.model or ""))[0]
+                and parse_model_backend(str(domain_request.model or "")).backend_type
                 in ("zai-coding-plan", "zai_coding_plan")
             ):
                 try:
@@ -346,11 +346,11 @@ class ChatController:
                             AnthropicMessage(role=m.role, content=content_str)
                         )
 
-                    _, parsed_model = parse_model_backend(
+                    parsed = parse_model_backend(
                         str(domain_request.model or ""),
                         default_backend="zai-coding-plan",
                     )
-                    normalized_model = parsed_model if parsed_model else "glm-4.6"
+                    normalized_model: str = parsed.model_name if parsed.model_name else "glm-4.6"
 
                     anth_req = AnthropicMessagesRequest(
                         model=normalized_model,

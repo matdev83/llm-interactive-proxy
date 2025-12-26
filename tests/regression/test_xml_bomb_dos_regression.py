@@ -10,8 +10,8 @@ Fixed: safe_xml_parse() function added protections against:
 """
 
 import pytest
-from src.core.auth.sso.exceptions import AuthenticationError
 from src.core.auth.sso.sso_service import safe_xml_parse
+from src.core.utils.xml_safety import XMLSafetyError
 
 
 class TestXMLBombDoSRegression:
@@ -48,7 +48,7 @@ class TestXMLBombDoSRegression:
         """Test that classic XML bomb (Billion Laughs attack) is rejected."""
         xml_bomb = self.create_xml_bomb()
 
-        with pytest.raises(AuthenticationError) as exc_info:
+        with pytest.raises(XMLSafetyError) as exc_info:
             safe_xml_parse(xml_bomb)
 
         assert exc_info.value.details.get("error") == "xml_entity_expansion"
@@ -58,7 +58,7 @@ class TestXMLBombDoSRegression:
         # Test with depth that should trigger entity expansion detection
         nested_bomb = self.create_nested_xml_bomb(100)
 
-        with pytest.raises(AuthenticationError) as exc_info:
+        with pytest.raises(XMLSafetyError) as exc_info:
             safe_xml_parse(nested_bomb)
 
         # Should be rejected either for entity expansion or depth
@@ -72,7 +72,7 @@ class TestXMLBombDoSRegression:
         large_xml += "A" * (11 * 1024 * 1024)  # 11MB > 10MB limit
         large_xml += "</root>"
 
-        with pytest.raises(AuthenticationError) as exc_info:
+        with pytest.raises(XMLSafetyError) as exc_info:
             safe_xml_parse(large_xml)
 
         assert exc_info.value.details.get("error") == "xml_too_large"
@@ -89,7 +89,7 @@ class TestXMLBombDoSRegression:
             nested_xml += "</nested>"
         nested_xml += "</root>"
 
-        with pytest.raises(AuthenticationError) as exc_info:
+        with pytest.raises(XMLSafetyError) as exc_info:
             safe_xml_parse(nested_xml)
 
         assert exc_info.value.details.get("error") == "xml_depth_exceeded"
