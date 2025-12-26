@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import re
@@ -84,10 +83,14 @@ class KiloCodeToolExecutor:
             resolved_path = resolved_path.resolve()
 
             # Security check: ensure path is within working directory or its subdirectories
-            with contextlib.suppress(ValueError):
+            try:
                 resolved_path.relative_to(self.working_directory.resolve())
-                # Allow reading files outside working directory for now (Codex behavior)
-                # In production, you might want to restrict this
+            except ValueError:
+                return KiloCodeToolResult(
+                    output=f"Error: Access denied. Path is outside working directory: {file_path}",
+                    exit_code=1,
+                    error=f"Access denied: {file_path}",
+                )
 
             if not resolved_path.exists():
                 return KiloCodeToolResult(
@@ -163,6 +166,16 @@ class KiloCodeToolExecutor:
             # Resolve path relative to working directory
             resolved_path = self.working_directory / dir_path
             resolved_path = resolved_path.resolve()
+
+            # Security check: ensure path is within working directory
+            try:
+                resolved_path.relative_to(self.working_directory.resolve())
+            except ValueError:
+                return KiloCodeToolResult(
+                    output=f"Error: Access denied. Path is outside working directory: {dir_path}",
+                    exit_code=1,
+                    error=f"Access denied: {dir_path}",
+                )
 
             if not resolved_path.exists():
                 return KiloCodeToolResult(
@@ -243,6 +256,16 @@ class KiloCodeToolExecutor:
             # Resolve path relative to working directory
             resolved_path = self.working_directory / search_path
             resolved_path = resolved_path.resolve()
+
+            # Security check: ensure path is within working directory
+            try:
+                resolved_path.relative_to(self.working_directory.resolve())
+            except ValueError:
+                return KiloCodeToolResult(
+                    output=f"Error: Access denied. Path is outside working directory: {search_path}",
+                    exit_code=1,
+                    error=f"Access denied: {search_path}",
+                )
 
             if not resolved_path.exists():
                 return KiloCodeToolResult(
