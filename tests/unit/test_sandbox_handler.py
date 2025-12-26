@@ -7,6 +7,7 @@ for unauthenticated users.
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -120,12 +121,12 @@ class TestSandboxHandler:
         response = handler.format_as_completion_response(message)
 
         # Verify message content
-        assert response.choices[0].message.content == message
+        assert response["choices"][0]["message"]["content"] == message
 
         # Verify response structure
-        assert response.object == "chat.completion"
-        assert response.model == "sandbox"
-        assert response.id == "chatcmpl-sandbox"
+        assert response["object"] == "chat.completion"
+        assert response["model"] == "sandbox"
+        assert response["id"] == "chatcmpl-sandbox"
 
     def test_format_as_completion_response_json_serializable(self) -> None:
         """Test that formatted response is JSON serializable."""
@@ -135,10 +136,10 @@ class TestSandboxHandler:
         response = handler.format_as_completion_response(message)
 
         # Should not raise exception
-        json_str = response.model_dump_json()
+        json_str = json.dumps(response)
         deserialized = json.loads(json_str)
 
-        assert deserialized == response.model_dump()
+        assert deserialized == response
 
     def test_detect_sandbox_history_empty_list(self) -> None:
         """Test sandbox detection with empty message list."""
@@ -259,7 +260,7 @@ class TestSandboxHandler:
         """Test sandbox detection handles None content gracefully."""
         handler = SandboxHandler("https://example.com/auth")
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "user", "content": None},
             {"role": "assistant", "content": "Hello"},
         ]
@@ -273,7 +274,7 @@ class TestSandboxHandler:
         """Test sandbox detection handles missing content key gracefully."""
         handler = SandboxHandler("https://example.com/auth")
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "user"},
             {"role": "assistant", "content": "Hello"},
         ]
@@ -339,8 +340,8 @@ class TestSandboxHandler:
         response = await handler.generate_login_banner()
 
         # Verify timestamp is present and positive
-        assert isinstance(response.created, int)
-        assert response.created > 0
+        assert isinstance(response["created"], int)
+        assert response["created"] > 0
 
     def test_format_as_completion_response_empty_message(self) -> None:
         """Test formatting empty message as completion response."""
@@ -348,8 +349,8 @@ class TestSandboxHandler:
         response = handler.format_as_completion_response("")
 
         # Should still have valid structure
-        assert response.choices[0].message.content == ""
-        assert response.object == "chat.completion"
+        assert response["choices"][0]["message"]["content"] == ""
+        assert response["object"] == "chat.completion"
 
     def test_format_as_completion_response_multiline_message(self) -> None:
         """Test formatting multiline message as completion response."""
@@ -358,7 +359,7 @@ class TestSandboxHandler:
 
         response = handler.format_as_completion_response(message)
 
-        assert response.choices[0].message.content == message
+        assert response["choices"][0]["message"]["content"] == message
 
     def test_format_as_completion_response_special_characters(self) -> None:
         """Test formatting message with special characters."""
@@ -367,7 +368,7 @@ class TestSandboxHandler:
 
         response = handler.format_as_completion_response(message)
 
-        assert response.choices[0].message.content == message
+        assert response["choices"][0]["message"]["content"] == message
 
     def test_detect_sandbox_history_with_mixed_content(self) -> None:
         """Test sandbox detection with mix of sandbox and regular content."""

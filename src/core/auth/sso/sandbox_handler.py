@@ -64,7 +64,7 @@ class SandboxHandler:
 
     async def generate_login_banner(
         self, auth_url: str | None = None, agent_token_id: str | None = None
-    ) -> ChatCompletionResponse:
+    ) -> dict[str, Any]:
         """
         Generate a chat completion response containing login instructions.
 
@@ -136,7 +136,7 @@ class SandboxHandler:
 
         return self.format_as_completion_response(message)
 
-    def format_as_completion_response(self, message: str) -> ChatCompletionResponse:
+    def format_as_completion_response(self, message: str) -> dict[str, Any]:
         """
         Format message as OpenAI-compatible chat completion response.
 
@@ -146,7 +146,7 @@ class SandboxHandler:
         Returns:
             OpenAI-compatible chat completion response
         """
-        return ChatCompletionResponse(
+        response = ChatCompletionResponse(
             id="chatcmpl-sandbox",
             object="chat.completion",
             created=int(time.time()),
@@ -162,6 +162,7 @@ class SandboxHandler:
                 prompt_tokens=0, completion_tokens=0, total_tokens=0
             ),
         )
+        return response.model_dump(mode="json")
 
     def detect_sandbox_history(self, messages: list[dict[str, Any]]) -> bool:
         """
