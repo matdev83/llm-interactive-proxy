@@ -74,7 +74,9 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
             )
 
         # Use backend:model parsing (colon separates backend selection from model identifier).
-        backend, model = parse_model_backend(route_value)
+        parsed = parse_model_backend(route_value)
+        backend = parsed.backend_type
+        model = parsed.model_name
         if not backend or not model:
             return CommandResult(
                 name=self.name,

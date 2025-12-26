@@ -79,7 +79,10 @@ def test_parse_model_with_params(
     expected_params: dict[str, str],
 ) -> None:
     svc = AngelService(spec)
-    backend, model, params = svc.parse_model()
+    parsed = svc.parse_model()
+    backend = parsed.backend_type
+    model = parsed.model_name
+    params = parsed.uri_params
     assert backend == expected_backend
     assert model == expected_model
     assert params == expected_params

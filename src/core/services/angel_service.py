@@ -6,7 +6,11 @@ from typing import Any
 
 from src.core.domain.angel import AngelDecision
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.model_utils import parse_model_backend, parse_model_with_params
+from src.core.domain.model_utils import (
+    ParsedModelWithParams,
+    parse_model_backend,
+    parse_model_with_params,
+)
 from src.core.services.angel_prompt_loader import (
     AngelPromptLoader,
 )
@@ -61,9 +65,8 @@ class AngelService:
             return False
         return user_turns % freq == 0
 
-    def parse_model(self, default_backend: str = "") -> tuple[str, str, dict[str, Any]]:
-        parsed = parse_model_with_params(self._model_spec, default_backend)
-        return parsed.backend_type, parsed.model_name, parsed.uri_params
+    def parse_model(self, default_backend: str = "") -> ParsedModelWithParams:
+        return parse_model_with_params(self._model_spec, default_backend)
 
     @staticmethod
     def _compose_model_identifier(backend: str, model: str) -> str:
@@ -79,7 +82,7 @@ class AngelService:
 
     def _resolve_model_for_request(
         self, original_request: ChatRequest | None
-    ) -> tuple[str, str, dict[str, Any]]:
+    ) -> ParsedModelWithParams:
         default_backend = ""
         if original_request is not None:
             try:
@@ -122,7 +125,10 @@ class AngelService:
     def build_verification_request(
         self, request: ChatRequest, assistant_response: Any
     ) -> ChatRequest:
-        backend, model, params = self._resolve_model_for_request(request)
+        parsed = self._resolve_model_for_request(request)
+        backend = parsed.backend_type
+        model = parsed.model_name
+        params = parsed.uri_params
         messages = self.build_verification_messages(request, assistant_response)
         target_model = self._compose_model_identifier(backend, model)
 
