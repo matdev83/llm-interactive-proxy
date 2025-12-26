@@ -259,7 +259,7 @@ config/
 ├── edit_precision_patterns.yaml            # Edit precision patterns
 ├── reasoning_aliases.yaml.example          # Reasoning aliases
 ├── tool_access_control_examples.yaml       # Tool access examples
-├── tool_call_reactor_config.yaml           # Tool call reactor config
+├── tool_call_reactor_config.yaml           # Tool call reactor config (validates against schemas/tool_call_reactor_config.schema.yaml)
 └── sample.env              # Sample environment variables
 ```
 

@@ -17,7 +17,7 @@ Tool Access Control operates at two levels: filtering tool definitions from requ
 
 ## Configuration
 
-Tool access policies are configured in the `tool_call_reactor_config.yaml` file under the `access_policies` section.
+Tool access policies are configured in `tool_call_reactor_config.yaml` file under the `access_policies` section. This file is validated against `config/schemas/tool_call_reactor_config.schema.yaml`.
 
 ### CLI Arguments
 
@@ -25,6 +25,53 @@ Tool access policies are configured in the `tool_call_reactor_config.yaml` file 
 --allowed-tools "read_.*,list_.*"      # Global allowed tool patterns
 --blocked-tools "delete_.*,rm_.*"      # Global blocked tool patterns
 --default-policy allow                 # Global default policy (allow or deny)
+```
+
+Example usage:
+
+```bash
+python -m src.core.cli \
+  --allowed-tools "read_.*,list_.*,search_.*" \
+  --blocked-tools "delete_.*,rm_.*" \
+  --default-policy allow
+```
+
+### YAML Configuration
+
+```yaml
+enabled: true
+access_policies:
+      # Example 1: Block dangerous file operations for all models
+      - name: block_dangerous_file_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - "delete_file"
+          - "rm_.*"
+          - "remove_directory"
+        block_message: "File deletion operations are not allowed by policy."
+        priority: 100
+
+      # Example 2: Whitelist specific tools for a particular model
+      - name: claude_limited_toolset
+        model_pattern: "anthropic:claude-.*"
+        agent_pattern: "production-agent"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "list_directory"
+          - "search_.*"
+        block_message: "Only read-only tools are allowed for this model."
+        priority: 50
+
+      # Example 3: Block all tools for a specific model
+      - name: no_tools_for_gpt4
+        model_pattern: "openai:gpt-4-.*"
+        default_policy: deny
+        allowed_patterns: []
+        blocked_patterns: []
+        block_message: "Tool calling is disabled for this model."
+        priority: 75
 ```
 
 Example usage:

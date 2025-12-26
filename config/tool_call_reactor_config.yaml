@@ -1,45 +1,43 @@
-session:
-  tool_call_reactor:
+enabled: true
+apply_diff_steering_enabled: false
+apply_diff_steering_rate_limit_seconds: 60
+apply_diff_steering_message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
+pytest_full_suite_steering_enabled: false
+pytest_full_suite_steering_message: "You requested to run the whole test suite. This may be a lengthy process. Please consider running only selected tests for optimal speed. If you still believe you need to run the whole test suite, please re-send your tool call and it will be executed."
+
+# Test execution reminder system
+# Tracks file modifications and test executions, reminding agents to run tests
+# before completing tasks when code changes haven't been verified.
+# When enabled, the system:
+# - Detects file modification tool calls (write_file, str_replace, apply_diff, etc.)
+# - Detects test execution commands across multiple languages (pytest, jest, cargo test, etc.)
+# - Maintains per-session dirty/clean state tracking
+# - Injects steering messages when agents attempt to complete tasks without running tests
+# Default: false (opt-in feature)
+test_execution_reminder_enabled: false
+# Optional custom reminder message. If not set, uses default message:
+# "You have made code changes but haven't run tests yet. Please run the test
+# suite to verify your changes before completing this task. Once tests pass,
+# you can proceed with task completion."
+test_execution_reminder_message: null
+
+steering_rules:
+  - name: apply_diff_to_patch_file
     enabled: true
-    apply_diff_steering_enabled: false
-    apply_diff_steering_rate_limit_seconds: 60
-    apply_diff_steering_message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
-    pytest_full_suite_steering_enabled: false
-    pytest_full_suite_steering_message: "You requested to run the whole test suite. This may be a lengthy process. Please consider running only selected tests for optimal speed. If you still believe you need to run the whole test suite, please re-send your tool call and it will be executed."
-    
-    # Test execution reminder system
-    # Tracks file modifications and test executions, reminding agents to run tests
-    # before completing tasks when code changes haven't been verified.
-    # When enabled, the system:
-    # - Detects file modification tool calls (write_file, str_replace, apply_diff, etc.)
-    # - Detects test execution commands across multiple languages (pytest, jest, cargo test, etc.)
-    # - Maintains per-session dirty/clean state tracking
-    # - Injects steering messages when agents attempt to complete tasks without running tests
-    # Default: false (opt-in feature)
-    test_execution_reminder_enabled: false
-    # Optional custom reminder message. If not set, uses default message:
-    # "You have made code changes but haven't run tests yet. Please run the test
-    # suite to verify your changes before completing this task. Once tests pass,
-    # you can proceed with task completion."
-    test_execution_reminder_message: null
-    
-    steering_rules:
-      - name: apply_diff_to_patch_file
-        enabled: true
-        priority: 100
-        triggers:
-          tool_names: ["apply_diff"]
-          phrases: []
-        message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
-        rate_limit:
-          calls_per_window: 1
-          window_seconds: 60
-    
-    # Tool Access Control Policies
-    # Define which tools LLMs can access and execute using regex patterns
-    # Policies are evaluated in priority order (higher priority first)
-    # Allowed patterns override blocked patterns
-    access_policies: []
+    priority: 100
+    triggers:
+      tool_names: ["apply_diff"]
+      phrases: []
+    message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
+    rate_limit:
+      calls_per_window: 1
+      window_seconds: 60
+
+# Tool Access Control Policies
+# Define which tools LLMs can access and execute using regex patterns
+# Policies are evaluated in priority order (higher priority first)
+# Allowed patterns override blocked patterns
+access_policies: []
       # Example 1: Block dangerous file operations for all models
       # - name: block_dangerous_file_ops
       #   model_pattern: ".*"

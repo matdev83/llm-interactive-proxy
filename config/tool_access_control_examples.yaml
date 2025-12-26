@@ -1,14 +1,12 @@
 # Tool Access Control Configuration Examples
-# 
+#
 # This file contains example configurations for various tool access control scenarios.
-# Copy the relevant examples to your config/tool_call_reactor_config.yaml file.
+# Copy relevant examples to your config/tool_call_reactor_config.yaml file.
 #
 # For full documentation, see: docs/tool_access_control.md
 
-session:
-  tool_call_reactor:
-    enabled: true
-    access_policies:
+enabled: true
+access_policies:
       
       # ============================================================================
       # SECURITY AND SAFETY EXAMPLES
