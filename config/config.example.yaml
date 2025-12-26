@@ -160,10 +160,6 @@ backends:
   qwen_oauth:
     # API key set via environment variables (OAuth flow)
     timeout: 120
-    extra:
-      # OAuth credentials configured via environment variables
-      client_id: null
-      client_secret: null
 
   zai:
     # API key set via ZAI_API_KEY environment variable

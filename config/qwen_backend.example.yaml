@@ -40,7 +40,6 @@
 
     qwen-oauth:
       timeout: 120
-      config_file: "config/backends/qwen-oauth/backend.yaml"
       # No additional config needed - uses OAuth credentials from ~/.qwen/oauth_creds.json
 
   # Model override - force all requests to use qwen-oauth backend
