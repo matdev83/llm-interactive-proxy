@@ -155,6 +155,7 @@ class TokenManager:
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                shell=False,
             )
             self._last_cli_refresh_attempt = now
             logger.info("Triggered Gemini CLI background refresh process")

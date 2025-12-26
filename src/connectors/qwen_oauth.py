@@ -238,6 +238,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                shell=False,
             )
             self._last_cli_refresh_attempt = now
             logger.info("Triggered Qwen CLI background refresh process")
