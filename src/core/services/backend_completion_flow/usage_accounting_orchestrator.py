@@ -158,7 +158,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         proxy_user=proxy_user,
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to record request usage: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Failed to record request usage: {e}")
 
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
