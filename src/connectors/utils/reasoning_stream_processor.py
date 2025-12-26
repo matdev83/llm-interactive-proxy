@@ -17,6 +17,7 @@ from typing import Any
 from src.connectors.utils.reasoning_models import (
     ReasoningCaptureResult,
     ReasoningDetectionMetadata,
+    ReasoningDetectionResult,
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -251,8 +252,9 @@ class ReasoningStreamProcessor:
                 detection_metadata.tokens_estimated = tokens
 
                 # Priority 1: Check for explicit closing tags
-                is_complete, tag = self.detect_by_tags(accumulated_content)
-                if is_complete:
+                detection_result = self.detect_by_tags(accumulated_content)
+                if detection_result.is_detected:
+                    tag = detection_result.detected_value
                     detection_metadata.method = f"explicit_tag:{tag}"
                     logger.debug(
                         f"Reasoning end detected by explicit tag: {tag} "
@@ -271,8 +273,9 @@ class ReasoningStreamProcessor:
                     break
 
                 # Priority 2: Check finish_reason in response metadata
-                is_complete, reason = self.detect_by_finish_reason(chunk)
-                if is_complete:
+                detection_result = self.detect_by_finish_reason(chunk)
+                if detection_result.is_detected:
+                    reason = detection_result.detected_value
                     detection_metadata.method = f"finish_reason:{reason}"
                     logger.debug(
                         f"Reasoning end detected by finish_reason: {reason} "
@@ -291,8 +294,11 @@ class ReasoningStreamProcessor:
                     break
 
                 # Priority 3: Check transition markers (with caution)
-                is_complete, marker = self.detect_by_markers(accumulated_content)
-                if is_complete and self._confirm_transition(accumulated_content):
+                detection_result = self.detect_by_markers(accumulated_content)
+                if detection_result.is_detected and self._confirm_transition(
+                    accumulated_content
+                ):
+                    marker = detection_result.detected_value
                     detection_metadata.method = f"transition_marker:{marker}"
                     logger.debug(
                         f"Reasoning end detected by transition marker: {marker} "
@@ -525,25 +531,27 @@ class ReasoningStreamProcessor:
 
         return None
 
-    def detect_by_tags(self, content: str) -> tuple[bool, str | None]:
+    def detect_by_tags(self, content: str) -> ReasoningDetectionResult:
         """
         Detect reasoning end by explicit closing tags.
 
-        This is the primary detection method with highest priority.
+        This is primary detection method with highest priority.
 
         Args:
             content: Content to check for tags
 
         Returns:
-            Tuple of (detected, tag_found)
+            ReasoningDetectionResult with detection status and tag found
         """
         content_lower = content.lower()
         for tag in self.REASONING_END_TAGS:
             if tag in content_lower:
-                return True, tag
-        return False, None
+                return ReasoningDetectionResult(is_detected=True, detected_value=tag)
+        return ReasoningDetectionResult(is_detected=False, detected_value=None)
 
-    def detect_by_finish_reason(self, chunk: dict[str, Any]) -> tuple[bool, str | None]:
+    def detect_by_finish_reason(
+        self, chunk: dict[str, Any]
+    ) -> ReasoningDetectionResult:
         """
         Detect reasoning end by finish_reason in response metadata.
 
@@ -553,16 +561,18 @@ class ReasoningStreamProcessor:
             chunk: Response chunk with potential finish_reason
 
         Returns:
-            Tuple of (detected, finish_reason)
+            ReasoningDetectionResult with detection status and finish_reason
         """
         choices = chunk.get("choices", [])
         for choice in choices:
             finish_reason = choice.get("finish_reason")
             if finish_reason and finish_reason not in ("null", None):
-                return True, finish_reason
-        return False, None
+                return ReasoningDetectionResult(
+                    is_detected=True, detected_value=finish_reason
+                )
+        return ReasoningDetectionResult(is_detected=False, detected_value=None)
 
-    def detect_by_markers(self, content: str) -> tuple[bool, str | None]:
+    def detect_by_markers(self, content: str) -> ReasoningDetectionResult:
         """
         Detect reasoning end by content transition markers.
 
@@ -573,13 +583,13 @@ class ReasoningStreamProcessor:
             content: Content to check for markers
 
         Returns:
-            Tuple of (detected, marker_found)
+            ReasoningDetectionResult with detection status and marker found
         """
         content_lower = content.lower()
         for marker in self.TRANSITION_MARKERS:
             if marker in content_lower:
-                return True, marker
-        return False, None
+                return ReasoningDetectionResult(is_detected=True, detected_value=marker)
+        return ReasoningDetectionResult(is_detected=False, detected_value=None)
 
     def _confirm_transition(self, content: str) -> bool:
         """

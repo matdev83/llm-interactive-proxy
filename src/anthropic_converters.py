@@ -3,6 +3,7 @@
 import json
 import logging
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel
@@ -10,6 +11,31 @@ from pydantic import BaseModel
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SseBufferResult:
+    """Result of consuming SSE buffer.
+
+    Returned by _consume_sse_buffer to provide structured access
+    to the remaining buffer and extracted payloads.
+    """
+
+    remaining_buffer: str
+    payloads: list[str]
+
+
+@dataclass(frozen=True)
+class PayloadTranslationResult:
+    """Result of translating a JSON payload string into Anthropic SSE events.
+
+    Returned by _translate_payload to provide structured access to
+    translation status and resulting events.
+    """
+
+    is_done_marker: bool
+    events: list[str]
+
 
 from src.anthropic_models import (
     AnthropicError,
@@ -722,7 +748,7 @@ async def openai_stream_to_anthropic_stream(
 
     buffer = ""
 
-    def _consume_sse_buffer(data: str) -> tuple[str, list[str]]:
+    def _consume_sse_buffer(data: str) -> SseBufferResult:
         """Split accumulated SSE data into payload strings, returning leftovers."""
         remaining = data
         payloads: list[str] = []
@@ -746,18 +772,17 @@ async def openai_stream_to_anthropic_stream(
             if data_lines:
                 payloads.append("\n".join(data_lines))
 
-        return remaining, payloads
+        return SseBufferResult(remaining_buffer=remaining, payloads=payloads)
 
-    def _translate_payload(payload_str: str) -> tuple[bool, list[str]]:
+    def _translate_payload(payload_str: str) -> PayloadTranslationResult:
         """Convert a JSON payload string into Anthropic SSE events."""
         nonlocal message_started, finish_reason_sent, active_tool_call_index
         events: list[str] = []
 
         if not payload_str:
-            return False, events
+            return PayloadTranslationResult(is_done_marker=False, events=events)
 
         stripped_payload = payload_str.strip()
-
         if stripped_payload == "[DONE]":
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, "Received [DONE] marker.")
@@ -790,14 +815,14 @@ async def openai_stream_to_anthropic_stream(
             events.append(stop_event)
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, "Stream conversion complete.")
-            return True, events
+            return PayloadTranslationResult(is_done_marker=True, events=events)
 
         try:
             openai_chunk = json.loads(stripped_payload)
         except (json.JSONDecodeError, IndexError) as exc:
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, f"Skipping chunk due to parsing error: {exc}")
-            return False, events
+            return PayloadTranslationResult(is_done_marker=False, events=events)
 
         choices = openai_chunk.get("choices", [])
         if logger.isEnabledFor(TRACE_LEVEL):
@@ -818,7 +843,7 @@ async def openai_stream_to_anthropic_stream(
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(TRACE_LEVEL, f"YIELDING usage delta: {usage_event!r}")
                 events.append(usage_event)
-            return False, events
+            return PayloadTranslationResult(is_done_marker=False, events=events)
 
         choice = choices[0]
         delta = choice.get("delta", {})
@@ -948,7 +973,7 @@ async def openai_stream_to_anthropic_stream(
             events.append(finish_event)
             finish_reason_sent = True
 
-        return False, events
+        return PayloadTranslationResult(is_done_marker=False, events=events)
 
     async for chunk_bytes in chunk_generator:
         if chunk_bytes is None:
@@ -972,22 +997,24 @@ async def openai_stream_to_anthropic_stream(
         normalized_chunk = chunk_data.replace("\r\n", "\n")
         buffer += normalized_chunk
 
-        buffer, payloads = _consume_sse_buffer(buffer)
+        buffer_result = _consume_sse_buffer(buffer)
+        buffer = buffer_result.remaining_buffer
 
-        for payload in payloads:
-            done, events = _translate_payload(payload)
-            for event in events:
+        for payload in buffer_result.payloads:
+            translation_result = _translate_payload(payload)
+            for event in translation_result.events:
                 yield event
-            if done:
+            if translation_result.is_done_marker:
                 return
 
     if buffer.strip():
-        buffer, payloads = _consume_sse_buffer(buffer + "\n\n")
-        for payload in payloads:
-            done, events = _translate_payload(payload)
-            for event in events:
+        buffer_result = _consume_sse_buffer(buffer + "\n\n")
+        buffer = buffer_result.remaining_buffer
+        for payload in buffer_result.payloads:
+            translation_result = _translate_payload(payload)
+            for event in translation_result.events:
                 yield event
-            if done:
+            if translation_result.is_done_marker:
                 return
 
     # Always send a final message_stop event if the stream ended unexpectedly

@@ -20,6 +20,17 @@ class ReasoningDetectionMetadata(BaseModel):
         arbitrary_types_allowed = True
 
 
+class ReasoningDetectionResult(BaseModel):
+    """Result of reasoning end detection.
+
+    Returned by detection methods to indicate whether reasoning phase ended
+    and which tag/reason/marker triggered the detection.
+    """
+
+    is_detected: bool
+    detected_value: str | None = None
+
+
 class ReasoningCaptureResult(BaseModel):
     reasoning_text: str
     reasoning_complete: bool
