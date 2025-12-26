@@ -136,7 +136,10 @@ class FileCredentialProvider:
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Gemini OAuth credentials not found at %s", creds_path
+                    )
                 return None
 
             # Check if file has been modified since last load
@@ -215,7 +218,8 @@ class FileCredentialProvider:
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Gemini OAuth credentials saved to %s", creds_path)
             return True
         except OSError as e:
             logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
