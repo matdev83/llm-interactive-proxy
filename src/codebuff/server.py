@@ -209,7 +209,7 @@ class CodebuffWebSocketServer:
                     logger.debug(
                         "Websocket already closed during cleanup: %s",
                         str(e),
-                        exc_info=False,
+                        exc_info=True,
                     )
 
             # Disconnect from connection manager if session was registered

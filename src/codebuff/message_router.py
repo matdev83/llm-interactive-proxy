@@ -83,7 +83,7 @@ class MessageRouter:
             return cast(dict[str, Any], json.loads(raw_message))
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to parse JSON message: {e}")
+                logger.error(f"Failed to parse JSON message: {e}", exc_info=True)
             raise CodebuffMessageError(
                 message=f"Invalid JSON: {e!s}",
                 message_type="unknown",
@@ -133,7 +133,8 @@ class MessageRouter:
         except ValidationError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Message validation failed for type '{message_type}': {e}"
+                    f"Message validation failed for type '{message_type}': {e}",
+                    exc_info=True,
                 )
             raise CodebuffValidationError(
                 message=f"Message validation failed: {e!s}",

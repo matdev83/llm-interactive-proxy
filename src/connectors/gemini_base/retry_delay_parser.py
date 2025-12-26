@@ -49,7 +49,7 @@ def parse_duration_string(duration: str) -> float | None:
                 current_val = ""
 
         return total_seconds if total_seconds > 0 else None
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
