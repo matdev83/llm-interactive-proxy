@@ -97,7 +97,11 @@ class InfrastructureStage(InitializationStage):
                 )
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not configure streaming sampler: {e}")
+                logger.warning(
+                    "Could not configure streaming sampler: %s",
+                    e,
+                    exc_info=True,
+                )
 
     def _register_http_client(self, services: ServiceCollection) -> None:
         """Register shared HTTP client as singleton."""

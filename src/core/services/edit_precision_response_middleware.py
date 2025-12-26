@@ -65,11 +65,24 @@ class EditPrecisionFeature(IResponseFeature):
             }
             for pattern in config_patterns:
                 if pattern not in default_pattern_strings:
-                    self._compiled.append(
-                        re.compile(pattern, re.IGNORECASE | re.DOTALL)
-                    )
-        except Exception:
-            pass
+                    try:
+                        self._compiled.append(
+                            re.compile(pattern, re.IGNORECASE | re.DOTALL)
+                        )
+                    except re.error as err:
+                        if self._logger.isEnabledFor(logging.WARNING):
+                            self._logger.warning(
+                                "Invalid edit precision pattern: %s - %s",
+                                pattern,
+                                err,
+                            )
+        except Exception as err:
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Failed to load edit precision patterns: %s",
+                    err,
+                    exc_info=True,
+                )
 
     @staticmethod
     def _extract_text_from_chunk(chunk: dict) -> str:

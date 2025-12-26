@@ -484,12 +484,19 @@ class BackendStage(InitializationStage):
                         ISessionCancellationCoordinator,
                     )
 
-                    cancellation_coordinator = provider.get_service(
+                    if provider.has_service(
                         cast(type, ISessionCancellationCoordinator)
-                    )
-                except Exception:
-                    # Cancellation coordinator not available (optional dependency)
-                    pass
+                    ):
+                        cancellation_coordinator = provider.get_service(
+                            cast(type, ISessionCancellationCoordinator)
+                        )
+                except Exception as err:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to resolve cancellation coordinator: %s",
+                            err,
+                            exc_info=True,
+                        )
 
                 # Construct BackendService with all explicit dependencies (Requirement 2.4)
                 return BackendService(  # noqa: DI-bypass (factory construction)
