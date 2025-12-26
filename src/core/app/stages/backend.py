@@ -81,7 +81,7 @@ class BackendStage(InitializationStage):
                     )
             except ImportError as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Failed to import connectors: {e}")
+                    logger.warning("Failed to import connectors: %s", e)
 
             # Validate static_route backend early - fail fast if invalid
             self._validate_static_route_backend(config)
@@ -116,7 +116,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend registry instance")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend registry: {e}")
+                logger.warning("Could not register backend registry: %s", e)
 
     def _register_backend_factory(self, services: ServiceCollection) -> None:
         """Register backend factory with HTTP client dependency."""
@@ -202,7 +202,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend factory with dependencies")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend factory: {e}")
+                logger.warning("Could not register backend factory: %s", e)
 
     def _register_translation_service(self, services: ServiceCollection) -> None:
         """Register translation service."""
@@ -247,7 +247,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered translation service")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register translation service: {e}")
+                logger.warning("Could not register translation service: %s", e)
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:
         """Register backend configuration provider."""
@@ -273,7 +273,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend config provider")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend config provider: {e}")
+                logger.warning("Could not register backend config provider: %s", e)
 
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register main backend service with all dependencies."""
@@ -543,7 +543,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend service with all dependencies")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend service: {e}")
+                logger.warning("Could not register backend service: %s", e)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that backend services can be registered and backends are functional."""
@@ -757,7 +757,7 @@ class BackendStage(InitializationStage):
                     if is_functional:
                         functional_backends.append(backend_name)
                         if logger.isEnabledFor(logging.INFO):
-                            logger.info(f"Backend '{backend_name}' is functional")
+                            logger.info("Backend '%s' is functional", backend_name)
                     else:
                         # Get error details if available
                         error_details = ""
@@ -950,7 +950,9 @@ class BackendStage(InitializationStage):
                         ):
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
-                                    f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
+                                    "Skipping validation for backend '%s' due to missing dependency: %s",
+                                    backend_name,
+                                    e,
                                 )
                             continue
                         raise
@@ -959,7 +961,9 @@ class BackendStage(InitializationStage):
                         # required parameters are not yet available. Log at DEBUG level.
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                f"Backend '{backend_name}' cannot be instantiated during validation: {create_error}"
+                                "Backend '%s' cannot be instantiated during validation: %s",
+                                backend_name,
+                                create_error,
                             )
                         continue
 
@@ -971,7 +975,7 @@ class BackendStage(InitializationStage):
                     if is_functional:
                         functional_backends.append(backend_name)
                         if logger.isEnabledFor(logging.INFO):
-                            logger.info(f"Backend '{backend_name}' is functional")
+                            logger.info("Backend '%s' is functional", backend_name)
                     else:
                         error_details = ""
                         if hasattr(backend, "get_validation_errors"):
@@ -1070,7 +1074,7 @@ class BackendStage(InitializationStage):
                         logger.debug("Cleaned up validation HTTP client")
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Error cleaning up validation HTTP client: {e}")
+                    logger.debug("Error cleaning up validation HTTP client: %s", e)
 
         # Wait for any pending cleanup tasks to complete
         # Ensure all tasks are properly awaited/cancelled even if cleanup fails
@@ -1094,11 +1098,11 @@ class BackendStage(InitializationStage):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Error awaiting cancelled cleanup tasks: {e}")
+                        logger.debug("Error awaiting cancelled cleanup tasks: %s", e)
             except Exception as e:
                 # If gather itself fails, still cancel and await tasks
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Error during cleanup task gather: {e}")
+                    logger.debug("Error during cleanup task gather: %s", e)
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()
