@@ -92,7 +92,12 @@ class DefaultSessionResolver(ISessionResolver):
                         eb_sid = extra.get("session_id")
                         if isinstance(eb_sid, str) and eb_sid:
                             session_id = eb_sid
-                except Exception:
+                except (AttributeError, TypeError) as e:
+                    logger.debug(
+                        "Could not extract session_id from domain_request.extra_body: %s",
+                        e,
+                        exc_info=True,
+                    )
                     session_id = None
 
         if not session_id:

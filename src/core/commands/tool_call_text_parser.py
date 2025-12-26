@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "TextToolInvocation",
@@ -214,7 +217,13 @@ def _parse_execute_command_invocation(text: str) -> TextToolInvocation | None:
 
     try:
         command_parts = shlex.split(command_text)
-    except Exception:
+    except (ValueError, TypeError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to parse command text with shlex.split, using raw text: %s",
+                command_text,
+                exc_info=True,
+            )
         command_parts = [command_text]
 
     arguments: dict[str, Any] = {"command": command_parts}

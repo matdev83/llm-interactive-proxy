@@ -34,11 +34,25 @@ from src.core.utils.usage_recalculation import (
     should_recalculate_usage,
 )
 
+if TYPE_CHECKING:
+    from src.core.interfaces.usage_normalization_service_interface import (
+        IUsageNormalizationService,
+    )
+
+logger = logging.getLogger(__name__)
+
 try:
     from src.core.utils.token_count import count_tokens
-except Exception:
+except (ImportError, ModuleNotFoundError):
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "Could not import count_tokens from src.core.utils.token_count, using fallback that returns 0",
+            exc_info=True,
+        )
+
     def count_tokens_fallback(*args: Any, **kwargs: Any) -> int:
         return 0
+
     count_tokens = count_tokens_fallback
 
 
