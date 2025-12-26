@@ -493,11 +493,13 @@ class OpencodeZenConnector(OpenAIConnector):
                 masked_token = (
                     f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "masked"
                 )
-                logger.warning(
-                    f"Received 401 from OpenCode Zen backend during streaming. "
-                    f"Token used: {masked_token}. "
-                    "Reloading credentials and retrying..."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Received 401 from OpenCode Zen backend during streaming. "
+                        "Token used: %s. "
+                        "Reloading credentials and retrying...",
+                        masked_token,
+                    )
                 if await self._load_oauth_credentials():
                     # Retry the stream
                     async for chunk in super().stream_completion(request):
