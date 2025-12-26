@@ -435,7 +435,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             provider = get_service_provider()
         except Exception:
             # DI not available, will construct locally
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "DI service provider not available during connector initialization, using local construction",
+                    exc_info=True,
+                )
 
         # Credential coordinator
         self._credential_coordinator: ICredentialCoordinator | None = None
@@ -1356,7 +1360,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             return ModelsListingResponse(object="list", data=model_infos)
 
-
         except httpx.TimeoutException as e:
             logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)
             raise ServiceUnavailableError(
@@ -1417,9 +1420,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
 
         return GeminiApiConfig(
-            base_url=base.rstrip("/"), headers={"Authorization": f"Bearer {access_token}"}
+            base_url=base.rstrip("/"),
+            headers={"Authorization": f"Bearer {access_token}"},
         )
-
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.

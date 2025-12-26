@@ -350,5 +350,11 @@ class MemoryCaptureMiddleware:
                             return parts[1:end]
                     return parts.split()[0]
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to parse commit message from command arguments: %s",
+                        joined,
+                        exc_info=True,
+                    )
                 return None
         return None
