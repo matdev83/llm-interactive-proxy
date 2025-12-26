@@ -82,7 +82,7 @@ class SandboxHandler:
                            of creating a new one.
 
         Returns:
-            OpenAI-compatible chat completion response with login banner
+            OpenAI-compatible chat completion response (ChatCompletionResponse) with login banner
         """
         base_url = auth_url or self.auth_url
 

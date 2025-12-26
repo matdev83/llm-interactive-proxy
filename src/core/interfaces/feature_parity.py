@@ -100,7 +100,7 @@ class FeatureParityRegistry:
         # Verify parity
         violations = registry.verify_parity()
         for v in violations:
-            logger.warning(f"Parity violation: {v.description}")
+            logger.warning("Parity violation: %s", v.description)
 
         # Get features by capability
         streaming_features = registry.get_features_by_capability("streaming")
