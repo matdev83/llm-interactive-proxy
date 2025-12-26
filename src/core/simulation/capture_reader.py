@@ -58,11 +58,15 @@ class CaptureReader:
         Raises:
             InvalidCaptureFileError: If the file is invalid or corrupted
             FileNotFoundError: If the file doesn't exist
+            ValueError: If the file extension is not .cbor
         """
-        self._file_path = Path(path)
+        self._file_path = Path(path).resolve()
 
         if not self._file_path.exists():
             raise FileNotFoundError(f"Capture file not found: {self._file_path}")
+
+        if self._file_path.suffix != ".cbor":
+            raise ValueError(f"Invalid capture file extension: {self._file_path.suffix}. Expected .cbor")
 
         try:
             with open(self._file_path, "rb") as f:

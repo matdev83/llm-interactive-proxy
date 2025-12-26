@@ -479,9 +479,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             self._main_loop = loop
 
         if loop is None:
-            logger.warning(
-                "Cannot schedule credentials reload: no running event loop available."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot schedule credentials reload: no running event loop available."
+                )
             with self._reload_task_lock:
                 self._pending_reload_task = None
                 self._reload_scheduling_in_progress = False
@@ -921,9 +922,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         try:
             await self._ensure_models_loaded()
         except Exception as e:
-            logger.warning(
-                f"Failed to load models during initialization: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to load models during initialization: {e}", exc_info=True
+                )
             # Continue with initialization even if model loading fails
 
         # 7) Start file watching and mark functional
@@ -972,9 +974,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             elif load_response.status_code != 200:
                 raise BackendError(f"Project validation failed: {load_response.text}")
 
-            logger.info(
-                f"Successfully validated access to project: {self.gcp_project_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Successfully validated access to project: {self.gcp_project_id}"
+                )
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to validate project access: {e}", exc_info=True)

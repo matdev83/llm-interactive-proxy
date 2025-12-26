@@ -348,5 +348,24 @@ class TestContentRewriterService(unittest.TestCase):
         self.assertEqual(len(service.prompt_system_rules), 2)
 
 
+    def test_ignore_symlink_rule(self):
+        """Verify that symlinked directories are ignored."""
+        target_dir = os.path.join(self.test_config_dir, "prompts", "system", "001_replace")
+        link_name = os.path.join(self.test_config_dir, "prompts", "system", "003_symlink")
+
+        try:
+            os.symlink(target_dir, link_name)
+        except OSError:
+            # Skip test if symlinks are not supported (e.g. Windows without privileges)
+            return
+
+        service = ContentRewriterService(config_path=self.test_config_dir)
+
+        # Should still be 2 rules, not 3
+        # (The original 2 rules from setUp)
+        self.assertEqual(len(service.prompt_system_rules), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
+
