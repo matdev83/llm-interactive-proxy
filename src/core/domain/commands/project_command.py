@@ -89,5 +89,5 @@ class ProjectCommand(StatelessCommandBase, BaseCommand):
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(error_message)
+                logger.error(error_message, exc_info=True)
             return CommandResult(success=False, message=error_message, name=self.name)

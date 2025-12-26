@@ -261,7 +261,7 @@ class AssessmentPromptLoader:
                 )
 
         except Exception as e:
-            logger.error(f"Failed to load assessment prompts: {e}")
+            logger.error(f"Failed to load assessment prompts: {e}", exc_info=True)
             raise
 
     @property
