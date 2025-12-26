@@ -9,6 +9,7 @@ enabling testing with mock implementations and avoiding coupling to concrete
 connector classes.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -193,9 +194,10 @@ class ChatRequestPreparer:
                 f"Failed to refresh OAuth token for {'streaming ' if is_streaming else ''}API call"
             )
 
-        # Increment request counter if available
+        # Increment request counter if available (offload to thread to avoid blocking)
         if self._request_counter:
-            self._request_counter.increment()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._request_counter.increment)
 
         # Create an authorized session using the access token directly
         # Uses IConnectorContext interface
