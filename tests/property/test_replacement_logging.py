@@ -180,6 +180,7 @@ def test_property_24_probability_check_logging(
 
     # Create a mock logger to capture debug log calls
     original_logger = logging.getLogger("src.core.services.model_replacement_service")
+    original_level = original_logger.level
     original_debug = original_logger.debug
 
     # Track debug log calls
@@ -189,6 +190,8 @@ def test_property_24_probability_check_logging(
         debug_calls.append(msg)
         original_debug(msg, *args, **kwargs)
 
+    # Enable DEBUG level and set capture
+    original_logger.setLevel(logging.DEBUG)
     original_logger.debug = capture_debug
 
     try:
@@ -225,6 +228,7 @@ def test_property_24_probability_check_logging(
     finally:
         # Restore original logger
         original_logger.debug = original_debug
+        original_logger.setLevel(original_level)
 
 
 def _is_valid_identifier(text: str) -> bool:
@@ -264,6 +268,7 @@ def test_property_23_routing_logging(
 
     # Create a mock logger to capture debug log calls
     original_logger = logging.getLogger("src.core.services.model_replacement_service")
+    original_level = original_logger.level
     original_debug = original_logger.debug
 
     # Track debug log calls
@@ -273,6 +278,8 @@ def test_property_23_routing_logging(
         debug_calls.append(msg)
         original_debug(msg, *args, **kwargs)
 
+    # Enable DEBUG level and set capture
+    original_logger.setLevel(logging.DEBUG)
     original_logger.debug = capture_debug
 
     try:
@@ -292,7 +299,7 @@ def test_property_23_routing_logging(
         debug_calls.clear()
 
         # Get effective backend:model - this should log routing decision
-        effective_backend, effective_model = service.get_effective_backend_model(
+        service.get_effective_backend_model(
             session_id, original_backend, original_model
         )
 
@@ -316,3 +323,4 @@ def test_property_23_routing_logging(
     finally:
         # Restore original logger
         original_logger.debug = original_debug
+        original_logger.setLevel(original_level)

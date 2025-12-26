@@ -143,13 +143,14 @@ class ModelReplacementService:
                 )
                 raise ValueError(f"Failed to validate replacement backend: {e}") from e
 
-        logger.info(
-            f"Model replacement service initialized: "
-            f"enabled={self._config.enabled}, "
-            f"probability={self._config.probability}, "
-            f"backend_model={self._config.backend_model}, "
-            f"turn_count={self._config.turn_count}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Model replacement service initialized: "
+                f"enabled={self._config.enabled}, "
+                f"probability={self._config.probability}, "
+                f"backend_model={self._config.backend_model}, "
+                f"turn_count={self._config.turn_count}"
+            )
 
     def should_replace(
         self,
@@ -171,7 +172,8 @@ class ModelReplacementService:
 
         # Check if session is disabled
         if session_id in self._disabled_sessions:
-            logger.debug(f"Replacement disabled for session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Replacement disabled for session {session_id}")
             # Track session-level opt-out (Requirement 9.2)
             self._metrics.record_opt_out(session_id, "session")
             return False
@@ -179,7 +181,8 @@ class ModelReplacementService:
         # Check for opt-out header
         disable_header = request_context.get_header("x-disable-replacement", "")
         if disable_header and disable_header.lower() == "true":
-            logger.debug(f"Replacement disabled by header for session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Replacement disabled by header for session {session_id}")
             # Track header-based opt-out (Requirement 9.1)
             self._metrics.record_opt_out(session_id, "header")
             return False
@@ -216,7 +219,7 @@ class ModelReplacementService:
         if (
             self._probability_log_counter == 1
             or self._probability_log_counter % self._probability_log_every_n == 0
-        ):
+        ) and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"Replacement probability check for session {session_id}: "
                 f"random={random_value:.4f}, threshold={self._cached_probability:.4f}, "
@@ -254,30 +257,33 @@ class ModelReplacementService:
         try:
             registered_backends = self._backend_registry.get_registered_backends()
             if state.replacement_backend not in registered_backends:
-                logger.warning(
-                    f"Replacement backend '{state.replacement_backend}' is no longer available "
-                    f"for session {session_id}. Falling back to original backend "
-                    f"'{original_backend}:{original_model}'. "
-                    f"Available backends: {', '.join(registered_backends)}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Replacement backend '{state.replacement_backend}' is no longer available "
+                        f"for session {session_id}. Falling back to original backend "
+                        f"'{original_backend}:{original_model}'. "
+                        f"Available backends: {', '.join(registered_backends)}"
+                    )
                 # Deactivate replacement and fall back to original
                 state.deactivate()
                 return (original_backend, original_model)
         except Exception as e:
-            logger.warning(
-                f"Error checking replacement backend availability for session {session_id}: {e}. "
-                f"Falling back to original backend '{original_backend}:{original_model}'",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Error checking replacement backend availability for session {session_id}: {e}. "
+                    f"Falling back to original backend '{original_backend}:{original_model}'",
+                    exc_info=True,
+                )
             # Deactivate replacement and fall back to original
             state.deactivate()
             return (original_backend, original_model)
 
         # If replacement is active, use replacement
-        logger.debug(
-            f"Using replacement model for session {session_id}: "
-            f"{state.replacement_backend}:{state.replacement_model}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Using replacement model for session {session_id}: "
+                f"{state.replacement_backend}:{state.replacement_model}"
+            )
         return (state.replacement_backend, state.replacement_model)
 
     async def activate_replacement(
@@ -332,12 +338,13 @@ class ModelReplacementService:
             # Track activation for metrics (Requirement 3.2)
             self._metrics.record_activation(session_id, self._cached_turn_count)
 
-            logger.info(
-                f"Replacement activated for session {session_id}: "
-                f"{original_backend}:{original_model} -> "
-                f"{replacement_backend}:{replacement_model} "
-                f"for {self._cached_turn_count} turns"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Replacement activated for session {session_id}: "
+                    f"{original_backend}:{original_model} -> "
+                    f"{replacement_backend}:{replacement_model} "
+                    f"for {self._cached_turn_count} turns"
+                )
 
     def complete_turn(self, session_id: str) -> None:
         """Mark a turn as complete and update replacement state.
@@ -354,7 +361,7 @@ class ModelReplacementService:
 
             state.decrement_turn()
 
-            if not state.active:
+            if not state.active and logger.isEnabledFor(logging.INFO):
                 logger.info(
                     f"Replacement deactivated for session {session_id}: "
                     f"returning to {state.original_backend}:{state.original_model}"
@@ -455,9 +462,10 @@ class ModelReplacementService:
         state = self._session_states.get(session_id)
         if state is not None and state.active:
             state.deactivate()
-            logger.info(
-                f"Replacement disabled and deactivated for session {session_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Replacement disabled and deactivated for session {session_id}"
+                )
 
     def cleanup_session(self, session_id: str) -> None:
         """Clean up state for an ended session.
@@ -534,11 +542,12 @@ class ModelReplacementService:
             active_count = sum(
                 1 for state in self._session_states.values() if state.active
             )
-            logger.warning(
-                f"Session states limit exceeded ({len(self._session_states)} > {MAX_SESSION_STATES}). "
-                f"All {active_count} remaining sessions are active and cannot be evicted. "
-                f"Consider increasing MAX_SESSION_STATES or ensuring EoS events are emitted."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Session states limit exceeded ({len(self._session_states)} > {MAX_SESSION_STATES}). "
+                    f"All {active_count} remaining sessions are active and cannot be evicted. "
+                    f"Consider increasing MAX_SESSION_STATES or ensuring EoS events are emitted."
+                )
 
         if evicted_count > 0 and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
