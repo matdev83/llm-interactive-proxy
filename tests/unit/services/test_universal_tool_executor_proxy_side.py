@@ -157,7 +157,7 @@ class TestListDirExecution:
         result = await executor.execute_tool("list_dir", {"path": "nonexistent"})
 
         assert result["exit_code"] == 1
-        assert "Directory not found" in result["output"]
+        assert "not found" in result["output"] or "does not exist" in result["output"]
 
     @pytest.mark.asyncio
     async def test_list_dir_not_directory(
@@ -616,7 +616,7 @@ class TestGrepFilesExecution:
         )
 
         assert result["exit_code"] == 1
-        assert "Path not found" in result["output"]
+        assert "not found" in result["output"] or "does not exist" in result["output"]
 
     @pytest.mark.asyncio
     async def test_grep_files_result_format(

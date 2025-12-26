@@ -9,7 +9,6 @@ import os
 import re
 import subprocess
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +76,52 @@ class UniversalToolExecutor:
                 "__proxy_access_mcp_resource": self._execute_access_mcp_resource,
             }
         )
+
+    def _validate_path(
+        self,
+        path_str: str,
+        check_exists: bool = False,
+        must_be_file: bool = False,
+        must_be_dir: bool = False,
+    ) -> Path:
+        """Resolve and validate path is within working directory.
+
+        Args:
+            path_str: The relative path string
+            check_exists: If True, raise if path doesn't exist
+            must_be_file: If True, raise if path exists but is not a file
+            must_be_dir: If True, raise if path exists but is not a directory
+
+        Returns:
+            Resolved absolute path
+
+        Raises:
+            ValueError: If path is outside working directory
+            FileNotFoundError: If check_exists is True and file missing
+            IsADirectoryError: If must_be_file is True and path is dir
+            NotADirectoryError: If must_be_dir is True and path is file
+        """
+        # Resolve path relative to working directory
+        resolved_path = (self.working_directory / path_str).resolve()
+
+        # Security check: ensure path is within working directory
+        try:
+            resolved_path.relative_to(self.working_directory.resolve())
+        except ValueError:
+            raise ValueError(
+                f"Access denied: Path '{path_str}' is outside working directory"
+            )
+
+        if check_exists and not resolved_path.exists():
+            raise FileNotFoundError(f"File not found: {path_str}")
+
+        if must_be_file and resolved_path.exists() and not resolved_path.is_file():
+            raise IsADirectoryError(f"Path is not a file: {path_str}")
+
+        if must_be_dir and resolved_path.exists() and not resolved_path.is_dir():
+            raise NotADirectoryError(f"Path is not a directory: {path_str}")
+
+        return resolved_path
 
     async def execute_tool(
         self, tool_name: str, arguments: dict[str, Any]
@@ -400,33 +445,9 @@ class UniversalToolExecutor:
             )
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / file_path
-            resolved_path = resolved_path.resolve()
-
-            # Security check: ensure path is within working directory or its subdirectories
-            with suppress(ValueError):
-                # Allow reading files outside working directory for now (Codex behavior)
-                # In production, you might want to restrict this
-                resolved_path.relative_to(self.working_directory.resolve())
-
-            if not resolved_path.exists():
-                error_msg = f"Error: File not found: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"File does not exist: {file_path}",
-                    tool_name="read_file",
-                )
-
-            if not resolved_path.is_file():
-                error_msg = f"Error: Path is not a file: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path is not a file: {file_path}",
-                    tool_name="read_file",
-                )
+            resolved_path = self._validate_path(
+                file_path, check_exists=True, must_be_file=True
+            )
 
             # Read file content
             content = await asyncio.to_thread(
@@ -498,27 +519,9 @@ class UniversalToolExecutor:
             recursive = True
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / dir_path
-            resolved_path = resolved_path.resolve()
-
-            if not resolved_path.exists():
-                error_msg = f"Error: Directory not found: {dir_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Directory does not exist: {dir_path}",
-                    tool_name="list_dir",
-                )
-
-            if not resolved_path.is_dir():
-                error_msg = f"Error: Path is not a directory: {dir_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path is not a directory: {dir_path}",
-                    tool_name="list_dir",
-                )
+            resolved_path = self._validate_path(
+                dir_path, check_exists=True, must_be_dir=True
+            )
 
             entries = []
 
@@ -600,18 +603,7 @@ class UniversalToolExecutor:
         exclude_pattern = arguments.get("exclude")
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / search_path
-            resolved_path = resolved_path.resolve()
-
-            if not resolved_path.exists():
-                error_msg = f"Error: Path not found: {search_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path does not exist: {search_path}",
-                    tool_name="grep_files",
-                )
+            resolved_path = self._validate_path(search_path, check_exists=True)
 
             # Compile regex pattern
             flags = 0 if case_sensitive else re.IGNORECASE
@@ -980,27 +972,9 @@ class UniversalToolExecutor:
             )
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / file_path
-            resolved_path = resolved_path.resolve()
-
-            if not resolved_path.exists():
-                error_msg = f"Error: File not found: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"File does not exist: {file_path}",
-                    tool_name="search_and_replace",
-                )
-
-            if not resolved_path.is_file():
-                error_msg = f"Error: Path is not a file: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path is not a file: {file_path}",
-                    tool_name="search_and_replace",
-                )
+            resolved_path = self._validate_path(
+                file_path, check_exists=True, must_be_file=True
+            )
 
             # Read file content
             content = await asyncio.to_thread(
@@ -1090,9 +1064,7 @@ class UniversalToolExecutor:
             )
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / file_path
-            resolved_path = resolved_path.resolve()
+            resolved_path = self._validate_path(file_path)
 
             # Create parent directories if they don't exist
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1166,27 +1138,9 @@ class UniversalToolExecutor:
             )
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / file_path
-            resolved_path = resolved_path.resolve()
-
-            if not resolved_path.exists():
-                error_msg = f"Error: File not found: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"File does not exist: {file_path}",
-                    tool_name="insert_content",
-                )
-
-            if not resolved_path.is_file():
-                error_msg = f"Error: Path is not a file: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path is not a file: {file_path}",
-                    tool_name="insert_content",
-                )
+            resolved_path = self._validate_path(
+                file_path, check_exists=True, must_be_file=True
+            )
 
             # Read file content
             existing_content = await asyncio.to_thread(
@@ -1269,27 +1223,9 @@ class UniversalToolExecutor:
             )
 
         try:
-            # Resolve path relative to working directory
-            resolved_path = self.working_directory / file_path
-            resolved_path = resolved_path.resolve()
-
-            if not resolved_path.exists():
-                error_msg = f"Error: File not found: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"File does not exist: {file_path}",
-                    tool_name="edit_file",
-                )
-
-            if not resolved_path.is_file():
-                error_msg = f"Error: Path is not a file: {file_path}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Path is not a file: {file_path}",
-                    tool_name="edit_file",
-                )
+            resolved_path = self._validate_path(
+                file_path, check_exists=True, must_be_file=True
+            )
 
             if content is not None:
                 # Replace entire file content
