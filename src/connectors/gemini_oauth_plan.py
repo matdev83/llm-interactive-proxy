@@ -255,7 +255,6 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 is_paid=is_paid, context_tokens=context_tokens, is_default=is_default
             )
 
-
         tier_to_use: dict[str, Any] | None = None
         if allowed_tiers:
             tier_to_use = max(allowed_tiers, key=_tier_score)
@@ -311,7 +310,7 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 )
 
                 self._project_id = discovered_project_id
-                logger.info(f"Discovered project ID: {self._project_id}")
+                logger.info("Discovered project ID: %s", self._project_id)
 
                 # Optionally save the project ID back to the credentials file
                 if self._oauth_credentials:
