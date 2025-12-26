@@ -73,7 +73,8 @@ async def record_request_usage(
 
         return record_id
     except Exception as e:
-        logger.warning(f"Failed to record request usage: {e}", exc_info=True)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("Failed to record request usage: %s", e, exc_info=True)
         return ""
 
 
@@ -140,7 +141,8 @@ async def record_response_usage(
             backend_reported_usage=backend_reported_dict,
         )
     except Exception as e:
-        logger.warning(f"Failed to record response usage: {e}", exc_info=True)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("Failed to record response usage: %s", e, exc_info=True)
 
 
 def extract_tool_calls_from_response(response: Any) -> tuple[int, list[str]]:
@@ -190,7 +192,8 @@ def extract_tool_calls_from_response(response: Any) -> tuple[int, list[str]]:
                                         if name:
                                             tool_names.append(name)
     except Exception as e:
-        logger.warning(f"Failed to extract tool calls from response: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("Failed to extract tool calls from response: %s", e)
 
     return tool_call_count, tool_names
 
@@ -230,6 +233,7 @@ def extract_backend_reported_usage(response: Any) -> OpenRouterUsage | None:
                 return OpenRouterUsage.from_dict(usage)
 
     except Exception as e:
-        logger.warning(f"Failed to extract backend-reported usage: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("Failed to extract backend-reported usage: %s", e)
 
     return None
