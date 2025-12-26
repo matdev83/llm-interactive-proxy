@@ -556,7 +556,7 @@ class StructuredWireCapture(IWireCapture):
         async with self._lock:
             # Check if rotation needed
             if self._should_rotate_time():
-                self._perform_rotation()
+                await asyncio.to_thread(self._perform_rotation)
 
             if self._max_bytes and self._max_bytes > 0:
                 try:
@@ -567,7 +567,7 @@ class StructuredWireCapture(IWireCapture):
                     )
                     incoming_size = len(json_str.encode("utf-8"))
                     if current_size + incoming_size > self._max_bytes:
-                        self._perform_rotation()
+                        await asyncio.to_thread(self._perform_rotation)
                 except OSError as e:
                     logger.warning(
                         "Error during structured wire capture rotation: %s",
@@ -575,16 +575,19 @@ class StructuredWireCapture(IWireCapture):
                         exc_info=True,
                     )
 
-            try:
-                with open(self._file_path, "a", encoding="utf-8") as f:
-                    f.write(json_str)
-            except OSError as e:
-                logger.warning(
-                    "Structured wire capture write failed: %s", e, exc_info=True
-                )
-                return
+            await asyncio.to_thread(self._write_entry_sync, json_str)
+            await asyncio.to_thread(self._enforce_total_cap)
 
-            self._enforce_total_cap()
+    def _write_entry_sync(self, json_str: str) -> None:
+        """Synchronously write a JSON entry to the capture file."""
+        if not self._file_path:
+            return
+        try:
+            with open(self._file_path, "a", encoding="utf-8") as f:
+                f.write(json_str)
+        except OSError as e:
+            logger.warning("Structured wire capture write failed: %s", e, exc_info=True)
+            return
 
     def _should_rotate_time(self) -> bool:
         if not self._file_path:
