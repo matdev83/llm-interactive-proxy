@@ -7,11 +7,14 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+import pydantic
+
 from src.core.commands.models import Command, CommandResultWrapper
 from src.core.commands.tool_call_text_parser import (
     TextToolResult,
     parse_textual_tool_result,
 )
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.chat import (
     ChatMessage,
     FunctionCall,
@@ -163,8 +166,13 @@ class ToolCallCommandProcessor(ICommandProcessor):
                 },
             )
 
-        except Exception:
-            logger.error("Error executing tool call '%s'", command_name, exc_info=True)
+        except (LLMProxyError, Exception) as err:
+            logger.error(
+                "Error executing tool call '%s': %s",
+                command_name,
+                err,
+                exc_info=True,
+            )
             return ChatMessage(
                 role="tool",
                 content=f"Exception executing tool {command_name}",
@@ -185,7 +193,7 @@ class ToolCallCommandProcessor(ICommandProcessor):
                 continue
             try:
                 cloned.append(ChatMessage(**message))
-            except Exception:
+            except (pydantic.ValidationError, TypeError, ValueError):
                 logger.debug("Failed to coerce message into ChatMessage", exc_info=True)
         return cloned
 

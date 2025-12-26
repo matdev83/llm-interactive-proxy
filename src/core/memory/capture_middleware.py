@@ -277,6 +277,10 @@ class MemoryCaptureMiddleware:
                 if isinstance(parsed, dict):
                     return parsed
             except (json.JSONDecodeError, TypeError):
+                logger.debug(
+                    "Failed to parse tool call arguments as JSON",
+                    exc_info=True,
+                )
                 return {}
         return {}
 
@@ -349,7 +353,7 @@ class MemoryCaptureMiddleware:
                         if end > 1:
                             return parts[1:end]
                     return parts.split()[0]
-            except Exception:
+            except (IndexError, ValueError, TypeError, AttributeError):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to parse commit message from command arguments: %s",

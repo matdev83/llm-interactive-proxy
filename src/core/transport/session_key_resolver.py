@@ -93,7 +93,7 @@ def resolve_session_key_from_request_context(
                         group_id = conv_id.strip()
                         if not group_id:
                             group_id = None
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Failed to extract conversation_id from domain_request: %s",
