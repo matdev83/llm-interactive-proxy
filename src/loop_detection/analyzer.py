@@ -11,6 +11,13 @@ from .hasher import ContentHasher
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex pattern for skipping chunks with markdown elements.
+# Module-level constant avoids recompiling on every PatternAnalyzer instantiation.
+_SKIP_PATTERN = re.compile(
+    r"(^|\n)\s*((\|.*\|)|([|+-]{3,})|([*-+]|\d+\.)\s)|^[+-_=*\u2500-\u257F]+$",
+    re.MULTILINE,
+)
+
 
 @dataclass(frozen=True)
 class PatternAnalyzerState:
@@ -46,11 +53,8 @@ class PatternAnalyzer:
         self.config = config
         self.hasher = hasher
         self.history: list[LoopDetectionEvent] = []  # To store detected events
-        # Compiled regex for skipping chunks with markdown elements
-        self._skip_pattern = re.compile(
-            r"(^|\n)\s*((\|.*\|)|([|+-]{3,})|([*-+]|\d+\.)\s)|^[+-_=*\u2500-\u257F]+$",
-            re.MULTILINE,
-        )
+        # Use module-level pre-compiled pattern (avoids recompiling on each instantiation)
+        self._skip_pattern = _SKIP_PATTERN
         self.reset()
 
     def analyze_chunk(

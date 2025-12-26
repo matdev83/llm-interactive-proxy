@@ -151,12 +151,14 @@ class ProxyCommandFilter:
         if not text or not text.strip():
             return text
 
-        # Get the last non-blank line
+        # Get the last non-blank line and its index (avoids O(n) .index() later)
         lines = text.split("\n")
         last_line = ""
-        for line in reversed(lines):
-            if line.strip():  # Non-blank line
-                last_line = line
+        last_line_idx = -1
+        for idx in range(len(lines) - 1, -1, -1):
+            if lines[idx].strip():  # Non-blank line
+                last_line = lines[idx]
+                last_line_idx = idx
                 break
 
         if not last_line:
@@ -174,6 +176,8 @@ class ProxyCommandFilter:
                 )
 
                 # Log each detected command for debugging
+                # Use pre-computed last_line_idx instead of O(n) .index()
+                line_number = len(lines) - last_line_idx
                 for i, match in enumerate(matches, 1):
                     command_text = match.group(0)
                     if logger.isEnabledFor(logging.WARNING):
@@ -183,7 +187,7 @@ class ProxyCommandFilter:
                             command_text,
                             match.start(),
                             match.end(),
-                            len(lines) - lines.index(last_line),
+                            line_number,
                         )
 
             # Remove commands from the original text by finding and replacing them
@@ -279,12 +283,14 @@ class ProxyCommandFilter:
         if not text or not text.strip():
             return text
 
-        # Get the last non-blank line
+        # Get the last non-blank line and its index (avoids O(n) .index() later)
         lines = text.split("\n")
         last_line = ""
-        for line in reversed(lines):
-            if line.strip():  # Non-blank line
-                last_line = line
+        last_line_idx = -1
+        for idx in range(len(lines) - 1, -1, -1):
+            if lines[idx].strip():  # Non-blank line
+                last_line = lines[idx]
+                last_line_idx = idx
                 break
 
         if not last_line:
@@ -302,6 +308,8 @@ class ProxyCommandFilter:
                 )
 
                 # Log each detected command for debugging
+                # Use pre-computed last_line_idx instead of O(n) .index()
+                line_number = len(lines) - last_line_idx
                 for i, match in enumerate(matches, 1):
                     command_text = match.group(0)
                     if logger.isEnabledFor(logging.WARNING):
@@ -311,7 +319,7 @@ class ProxyCommandFilter:
                             command_text,
                             match.start(),
                             match.end(),
-                            len(lines) - lines.index(last_line),
+                            line_number,
                         )
 
             # Remove commands from the original text by finding and replacing them

@@ -18,6 +18,10 @@ from src.core.domain.chat import ChatMessage
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex pattern for extracting topic tokens.
+# Module-level constant avoids recompiling on every service instantiation.
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]{3,}")
+
 
 @dataclass
 class ConversationFingerprint:
@@ -50,7 +54,8 @@ class ConversationFingerprintService:
             fingerprint_message_count: Number of recent messages to include in fingerprint
         """
         self._fingerprint_message_count = fingerprint_message_count
-        self._token_pattern = re.compile(r"[a-z0-9]{3,}")
+        # Use module-level pre-compiled pattern (avoids recompiling on each instantiation)
+        self._token_pattern = _TOKEN_PATTERN
         self._topic_token_limit = 128
 
     def compute_fingerprint(
