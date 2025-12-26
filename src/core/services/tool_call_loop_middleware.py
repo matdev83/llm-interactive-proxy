@@ -154,9 +154,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
                     )
                 continue
 
-            tracking_result = tracker.track_tool_call(
-                tool_name, arguments
-            )
+            tracking_result = tracker.track_tool_call(tool_name, arguments)
 
             if tracking_result.should_block:
                 logger.warning(
@@ -337,7 +335,6 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
     def _resolve_buffer_state(
         self, context: dict[str, Any] | None
     ) -> ToolCallBufferState | None:
-        """Resolve buffer state from context."""
         if not context:
             return None
         candidate = context.get("tool_call_buffer_state")
@@ -351,7 +348,13 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         registry = get_global_streaming_context_registry()
         try:
             return registry.get_tool_call_buffer(str(stream_identifier))
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to get tool call buffer for stream %s",
+                    stream_identifier,
+                    exc_info=True,
+                )
             return None
 
     @staticmethod
@@ -525,9 +528,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 continue
 
             # Track the tool call
-            tracking_result = tracker.track_tool_call(
-                tool_name, arguments
-            )
+            tracking_result = tracker.track_tool_call(tool_name, arguments)
 
             if tracking_result.should_block:
                 logger.warning(
@@ -731,7 +732,13 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         registry = get_global_streaming_context_registry()
         try:
             return registry.get_tool_call_buffer(str(stream_identifier))
-        except Exception:
+        except (AttributeError, KeyError, TypeError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to get tool call buffer for stream %s",
+                    stream_identifier,
+                    exc_info=True,
+                )
             return None
 
     @staticmethod

@@ -42,12 +42,14 @@ def _get_from_global_provider(
 ) -> IRequestProcessor | None:
     try:
         from src.core.di.services import get_service_provider
-    except Exception:  # pragma: no cover - defensive guard
+    except ImportError:  # pragma: no cover - defensive guard
+        logger.debug("Failed to import get_service_provider", exc_info=True)
         return None
 
     try:
         global_provider = get_service_provider()
     except Exception:  # pragma: no cover - defensive guard
+        logger.debug("Failed to get global service provider", exc_info=True)
         return None
 
     if global_provider is None or global_provider is local_provider:

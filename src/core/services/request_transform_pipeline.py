@@ -123,7 +123,12 @@ class RequestTransformPipeline(IRequestTransformPipeline):
     def _get_session_state(self, session: object) -> Any | None:
         try:
             return getattr(session, "state", None)
-        except Exception:
+        except AttributeError:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to get session.state",
+                    exc_info=True,
+                )
             return None
 
     def _should_redact_api_keys(self, session: object, app_config: Any | None) -> bool:
@@ -164,8 +169,12 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     session_prefix = session_prefix.strip()
                     if session_prefix:
                         return session_prefix
-        except Exception:
-            pass
+        except (AttributeError, TypeError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to resolve session-level command prefix",
+                    exc_info=True,
+                )
 
         # 2) App state
         if self._app_state is not None:
