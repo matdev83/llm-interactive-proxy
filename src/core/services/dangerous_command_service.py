@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Any
 
@@ -13,6 +14,8 @@ from src.core.domain.configuration.dangerous_command_config import (
 
 _SUBSHELL_GIT_PATTERN = re.compile(r"\$\((?:which|command\s+-v)\s+git\)", re.IGNORECASE)
 _ENV_PREFIX_PATTERN = re.compile(r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)", re.IGNORECASE)
+
+logger = logging.getLogger(__name__)
 
 
 class DangerousCommandMatch(BaseModel):
@@ -34,9 +37,7 @@ class DangerousCommandService:
         # Optional command extraction service for safe dev tool checks
         self._command_service = command_service
 
-    def scan_tool_call(
-        self, tool_call: ToolCall
-    ) -> DangerousCommandMatch | None:
+    def scan_tool_call(self, tool_call: ToolCall) -> DangerousCommandMatch | None:
         """
         Scans a tool call for dangerous commands.
 
@@ -49,7 +50,6 @@ class DangerousCommandService:
         return self.scan(tool_call.function.name, tool_call.function.arguments)
 
     def _extract_command_string(self, arguments: Any) -> str | None:
-
         """Extract a shell command string from tool arguments.
 
         Supports:
@@ -87,7 +87,13 @@ class DangerousCommandService:
             if isinstance(args, list) and args:
                 try:
                     return " ".join(str(a) for a in args)
-                except Exception:
+                except (TypeError, ValueError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to convert args array to command string: %s",
+                            e,
+                            exc_info=True,
+                        )
                     return None
             return None
 
@@ -95,7 +101,13 @@ class DangerousCommandService:
         if isinstance(arguments, list):
             try:
                 return " ".join(str(a) for a in arguments)
-            except Exception:
+            except (TypeError, ValueError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to convert arguments list to command string: %s",
+                        e,
+                        exc_info=True,
+                    )
                 return None
         return None
 
@@ -166,9 +178,7 @@ class DangerousCommandService:
 
         return " ".join(["git"] + tokens[idx:]).strip()
 
-    def scan(
-        self, tool_name: str, arguments: Any
-    ) -> DangerousCommandMatch | None:
+    def scan(self, tool_name: str, arguments: Any) -> DangerousCommandMatch | None:
         """Scan tool_name and arguments for dangerous command.
 
         Returns DangerousCommandMatch object, or None.
@@ -218,7 +228,6 @@ class DangerousCommandService:
                 if rule.pattern.search(candidate):
                     return DangerousCommandMatch(rule=rule, command=original_command)
         return None
-
 
     def might_be_dangerous(self, tool_name: str, arguments: Any) -> bool:
         """Fast pre-check for whether arguments contain a dangerous command.

@@ -13,6 +13,8 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from pydantic import ValidationError
+
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.processed_result import ProcessedResult
@@ -248,13 +250,25 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     dumped = candidate.model_dump()
                     if isinstance(dumped, dict):
                         return ChatMessage(**dumped)
-                except Exception:
+                except (ValidationError, TypeError, ValueError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to coerce object with model_dump to ChatMessage: %s",
+                            e,
+                            exc_info=True,
+                        )
                     return None
 
             if isinstance(candidate, dict):
                 try:
                     return ChatMessage(**candidate)
-                except Exception:
+                except (ValidationError, TypeError, ValueError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to coerce dict to ChatMessage: %s",
+                            e,
+                            exc_info=True,
+                        )
                     return None
             return None
 

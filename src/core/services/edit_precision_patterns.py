@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 
@@ -7,6 +8,9 @@ try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
     yaml = None  # type: ignore
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_REQUEST_PATTERNS: list[str] = [
@@ -42,7 +46,14 @@ def _load_yaml(path: str) -> dict | None:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
             return data if isinstance(data, dict) else None
-    except Exception:
+    except (FileNotFoundError, PermissionError, OSError, yaml.YAMLError) as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to load edit precision patterns from %s: %s",
+                path,
+                e,
+                exc_info=True,
+            )
         return None
 
 
