@@ -2358,7 +2358,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         try:
             # Make a simple test request to check if model is working
-            logger.debug(f"Probing recovery for model {model}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Probing recovery for model %s", model)
 
             # Create a minimal test request
             test_request = CanonicalChatRequest(
@@ -2387,10 +2388,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )  # Clear cooldown (set to past time)
                 state.attempts = 0
                 state.probe_success_count = 0
-                logger.info(f"Model {model} recovered from cooldown")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Model %s recovered from cooldown", model)
                 return True
 
-            logger.debug(f"Model {model} probe {state.probe_success_count}/2 succeeded")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Model %s probe %d/2 succeeded",
+                    model,
+                    state.probe_success_count,
+                )
 
         except AuthenticationError as auth_err:
             state.probe_success_count = 0
@@ -2490,7 +2497,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning(f"Error in recovery probing loop: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error in recovery probing loop: %s",
+                        e,
+                    )
 
     @abc.abstractmethod
     async def _discover_project_id(self, auth_session) -> str:
