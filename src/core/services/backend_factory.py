@@ -94,10 +94,12 @@ class BackendFactory(IBackendFactory):
             return
         try:
             self._backend_notifier.unregister_backend(backend)
-        except Exception as exc:
+        except (ValueError, KeyError, RuntimeError) as exc:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to unregister backend from notifications: %s", exc
+                    "Failed to unregister backend from notifications: %s",
+                    exc,
+                    exc_info=True,
                 )
 
     async def initialize_backend(
@@ -286,12 +288,13 @@ class BackendFactory(IBackendFactory):
                 logger.debug(
                     "Configured activity tracking for backend %s", instance_name
                 )
-        except Exception as e:
+        except (AttributeError, RuntimeError, ValueError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to configure activity tracking for backend %s: %s",
                     instance_name,
                     e,
+                    exc_info=True,
                 )
 
     def _register_endpoint_for_health_check(
@@ -322,12 +325,13 @@ class BackendFactory(IBackendFactory):
 
         try:
             self._endpoint_registry.register_backend(backend_name, api_url)
-        except Exception as e:
+        except (ValueError, KeyError, RuntimeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to register backend %s for health checks: %s",
                     backend_name,
                     e,
+                    exc_info=True,
                 )
 
     def _register_backend_for_notifications(self, backend: LLMBackend) -> None:
@@ -348,11 +352,12 @@ class BackendFactory(IBackendFactory):
 
         try:
             self._backend_notifier.register_backend(backend)
-        except Exception as e:
+        except (ValueError, KeyError, RuntimeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to register backend for health notifications: %s",
                     e,
+                    exc_info=True,
                 )
 
     @staticmethod

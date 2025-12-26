@@ -115,12 +115,21 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     key_name=key_name,
                     request_payload=domain_request,
                 )
-        except Exception:
+        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Wire capture (request) failed for backend %s with model %s",
                     backend_type,
                     effective_model,
+                    exc_info=True,
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (request) failed for backend %s with model %s: %s",
+                    backend_type,
+                    effective_model,
+                    str(e),
                     exc_info=True,
                 )
 
@@ -157,9 +166,14 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name
-        except Exception:
+        except (ValueError, TypeError, AttributeError, KeyError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("_detect_key_name failed", exc_info=True)
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "_detect_key_name failed unexpectedly: %s", str(e), exc_info=True
+                )
         return backend_type
 
     async def capture_inbound_response(
@@ -194,12 +208,21 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     response_content=response_content,
                     canonical_usage=canonical_usage,
                 )
-        except Exception:
+        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Wire capture (response) failed for backend %s with model %s",
                     backend_type,
                     effective_model,
+                    exc_info=True,
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (response) failed for backend %s with model %s: %s",
+                    backend_type,
+                    effective_model,
+                    str(e),
                     exc_info=True,
                 )
 
@@ -235,12 +258,21 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     key_name=key_name,
                     stream=stream,
                 )
-        except Exception:
+        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Wire capture (stream wrap) failed for backend %s with model %s",
                     backend_type,
                     effective_model,
+                    exc_info=True,
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (stream wrap) failed for backend %s with model %s: %s",
+                    backend_type,
+                    effective_model,
+                    str(e),
                     exc_info=True,
                 )
         return stream
@@ -277,7 +309,24 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     canonical_usage=canonical_usage,
                     eos_metadata=eos_metadata,
                 )
-        except Exception:
+        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (stream completion) failed for backend %s with model %s",
+                    backend_type,
+                    effective_model,
+                    exc_info=True,
+                )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture (stream completion) failed for backend %s with model %s: %s",
+                    backend_type,
+                    effective_model,
+                    str(e),
+                    exc_info=True,
+                )
+        except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Wire capture (stream completion) failed for backend %s with model %s",

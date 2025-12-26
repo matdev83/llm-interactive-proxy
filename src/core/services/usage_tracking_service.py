@@ -171,9 +171,11 @@ class UsageTrackingService(IUsageTrackingService):
         try:
             # Add single record (using batch_insert for list of 1)
             await self._usage_repo.batch_insert([record])
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
             logger.error(f"Failed to record request usage: {e}", exc_info=True)
             # We don't raise here to avoid blocking the main flow, but we log error
+        except Exception as e:
+            logger.error(f"Failed to record request usage: {e}", exc_info=True)
 
         return record_id
 
@@ -338,6 +340,8 @@ class UsageTrackingService(IUsageTrackingService):
             # Persist update
             await self._usage_repo.batch_update([record])
 
+        except (ValueError, TypeError, AttributeError, RuntimeError, KeyError) as e:
+            logger.error(f"Failed to record response usage: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Failed to record response usage: {e}", exc_info=True)
 
@@ -364,7 +368,9 @@ class UsageTrackingService(IUsageTrackingService):
             # Avoid division by zero
             tokens_per_session = 0.0
             if repo_stats.unique_sessions > 0:
-                tokens_per_session = repo_stats.total_tokens / repo_stats.unique_sessions
+                tokens_per_session = (
+                    repo_stats.total_tokens / repo_stats.unique_sessions
+                )
 
             # For TPS, we need a time window. If not provided in filters (via date range),
             # we might use first/last timestamp from stats.
@@ -424,6 +430,16 @@ class UsageTrackingService(IUsageTrackingService):
                 time_window_seconds=time_window,
             )
 
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            RuntimeError,
+            KeyError,
+            ZeroDivisionError,
+        ) as e:
+            logger.error(f"Failed to get usage stats: {e}", exc_info=True)
+            return AggregatedStats()
         except Exception as e:
             logger.error(f"Failed to get usage stats: {e}", exc_info=True)
             return AggregatedStats()
@@ -436,6 +452,9 @@ class UsageTrackingService(IUsageTrackingService):
         """Get recent usage records."""
         try:
             return await self._usage_repo.query_with_filter(filters, limit=limit)
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+            logger.error(f"Failed to get recent usage: {e}", exc_info=True)
+            return []
         except Exception as e:
             logger.error(f"Failed to get recent usage: {e}", exc_info=True)
             return []
