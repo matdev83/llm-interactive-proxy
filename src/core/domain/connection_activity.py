@@ -9,7 +9,8 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+
+from pydantic import BaseModel
 
 
 class ConnectionType(str, Enum):
@@ -17,6 +18,39 @@ class ConnectionType(str, Enum):
 
     STREAMING = "streaming"
     NON_STREAMING = "non_streaming"
+
+
+class ConnectionActivityDict(BaseModel):
+    """Serialized form of ConnectionActivity for API responses."""
+
+    session_id: str
+    backend_name: str
+    connection_type: str
+    started_at: float
+    duration_seconds: float
+    model: str | None
+    bytes_rx: int
+    bytes_tx: int
+
+
+class BackendActivitySnapshotDict(BaseModel):
+    """Serialized form of BackendActivitySnapshot for API responses."""
+
+    backend_name: str
+    active_connections: int
+    connections: list[ConnectionActivityDict]
+    total_bytes_rx: int
+    total_bytes_tx: int
+
+
+class GlobalActivitySnapshotDict(BaseModel):
+    """Serialized form of GlobalActivitySnapshot for API responses."""
+
+    timestamp: float
+    backends: list[BackendActivitySnapshotDict]
+    total_active_connections: int
+    total_bytes_rx: int
+    total_bytes_tx: int
 
 
 @dataclass
@@ -46,18 +80,18 @@ class ConnectionActivity:
         """Get the duration of the connection in seconds."""
         return time.time() - self.started_at
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ConnectionActivityDict:
         """Convert to dictionary for API serialization."""
-        return {
-            "session_id": self.session_id,
-            "backend_name": self.backend_name,
-            "connection_type": self.connection_type.value,
-            "started_at": self.started_at,
-            "duration_seconds": round(self.duration_seconds, 3),
-            "model": self.model,
-            "bytes_rx": self.bytes_rx,
-            "bytes_tx": self.bytes_tx,
-        }
+        return ConnectionActivityDict(
+            session_id=self.session_id,
+            backend_name=self.backend_name,
+            connection_type=self.connection_type.value,
+            started_at=self.started_at,
+            duration_seconds=round(self.duration_seconds, 3),
+            model=self.model,
+            bytes_rx=self.bytes_rx,
+            bytes_tx=self.bytes_tx,
+        )
 
 
 @dataclass
@@ -78,15 +112,15 @@ class BackendActivitySnapshot:
     total_bytes_rx: int = 0
     total_bytes_tx: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> BackendActivitySnapshotDict:
         """Convert to dictionary for API serialization."""
-        return {
-            "backend_name": self.backend_name,
-            "active_connections": self.active_connections,
-            "connections": [c.to_dict() for c in self.connections],
-            "total_bytes_rx": self.total_bytes_rx,
-            "total_bytes_tx": self.total_bytes_tx,
-        }
+        return BackendActivitySnapshotDict(
+            backend_name=self.backend_name,
+            active_connections=self.active_connections,
+            connections=[c.to_dict() for c in self.connections],
+            total_bytes_rx=self.total_bytes_rx,
+            total_bytes_tx=self.total_bytes_tx,
+        )
 
 
 @dataclass
@@ -107,12 +141,12 @@ class GlobalActivitySnapshot:
     total_bytes_rx: int = 0
     total_bytes_tx: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> GlobalActivitySnapshotDict:
         """Convert to dictionary for API serialization."""
-        return {
-            "timestamp": self.timestamp,
-            "backends": [b.to_dict() for b in self.backends],
-            "total_active_connections": self.total_active_connections,
-            "total_bytes_rx": self.total_bytes_rx,
-            "total_bytes_tx": self.total_bytes_tx,
-        }
+        return GlobalActivitySnapshotDict(
+            timestamp=self.timestamp,
+            backends=[b.to_dict() for b in self.backends],
+            total_active_connections=self.total_active_connections,
+            total_bytes_rx=self.total_bytes_rx,
+            total_bytes_tx=self.total_bytes_tx,
+        )

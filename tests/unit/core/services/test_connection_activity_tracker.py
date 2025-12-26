@@ -63,14 +63,14 @@ class TestConnectionActivity:
 
         data = activity.to_dict()
 
-        assert data["session_id"] == "session-123"
-        assert data["backend_name"] == "anthropic.1"
-        assert data["connection_type"] == "streaming"
-        assert data["model"] == "claude-3-sonnet"
-        assert data["bytes_rx"] == 1000
-        assert data["bytes_tx"] == 500
-        assert "duration_seconds" in data
-        assert "started_at" in data
+        assert data.session_id == "session-123"
+        assert data.backend_name == "anthropic.1"
+        assert data.connection_type == "streaming"
+        assert data.model == "claude-3-sonnet"
+        assert data.bytes_rx == 1000
+        assert data.bytes_tx == 500
+        assert "duration_seconds" in data.model_dump()
+        assert "started_at" in data.model_dump()
 
 
 class TestBackendActivitySnapshot:
@@ -105,11 +105,11 @@ class TestBackendActivitySnapshot:
 
         data = snapshot.to_dict()
 
-        assert data["backend_name"] == "openai.1"
-        assert data["active_connections"] == 1
-        assert len(data["connections"]) == 1
-        assert data["total_bytes_rx"] == 100
-        assert data["total_bytes_tx"] == 50
+        assert data.backend_name == "openai.1"
+        assert data.active_connections == 1
+        assert len(data.connections) == 1
+        assert data.total_bytes_rx == 100
+        assert data.total_bytes_tx == 50
 
 
 class TestConnectionActivityTracker:

@@ -6,10 +6,23 @@ duplicate requests from being sent to backends within a configurable time window
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from src.core.domain.chat import ChatRequest
+
+
+class DeduplicationStats(BaseModel):
+    """Statistics for request deduplication service."""
+
+    enabled: bool
+    window_seconds: float
+    cache_size: int
+    duplicates_blocked: int
+    requests_processed: int
+    dedup_rate: float
 
 
 class IRequestDeduplicationService(Protocol):
@@ -31,11 +44,11 @@ class IRequestDeduplicationService(Protocol):
         """
         ...
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> DeduplicationStats:
         """Return deduplication statistics.
 
         Returns:
-            Dictionary with stats including:
+            DeduplicationStats object with stats including:
             - enabled: Whether deduplication is enabled
             - window_seconds: The dedup window in seconds
             - cache_size: Current number of cached entries

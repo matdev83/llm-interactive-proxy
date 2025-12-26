@@ -144,18 +144,18 @@ class TestRequestDeduplicationService:
     ) -> None:
         """Stats should correctly track requests and duplicates."""
         initial_stats = service.get_stats()
-        assert initial_stats["requests_processed"] == 0
-        assert initial_stats["duplicates_blocked"] == 0
+        assert initial_stats.requests_processed == 0
+        assert initial_stats.duplicates_blocked == 0
 
         await service.check_and_register(sample_request, "session-1")
         await service.check_and_register(sample_request, "session-1")
         await service.check_and_register(sample_request, "session-1")
 
         stats = service.get_stats()
-        assert stats["requests_processed"] == 3
-        assert stats["duplicates_blocked"] == 2
-        assert stats["cache_size"] == 1
-        assert stats["dedup_rate"] == pytest.approx(2 / 3, rel=0.01)
+        assert stats.requests_processed == 3
+        assert stats.duplicates_blocked == 2
+        assert stats.cache_size == 1
+        assert stats.dedup_rate == pytest.approx(2 / 3, rel=0.01)
 
     @pytest.mark.asyncio
     async def test_cleanup_removes_expired_entries(
@@ -165,13 +165,13 @@ class TestRequestDeduplicationService:
     ) -> None:
         """Cleanup should remove expired entries."""
         await short_window_service.check_and_register(sample_request, "session-1")
-        assert short_window_service.get_stats()["cache_size"] == 1
+        assert short_window_service.get_stats().cache_size == 1
 
         await asyncio.sleep(0.15)
 
         removed = await short_window_service.cleanup()
         assert removed == 1
-        assert short_window_service.get_stats()["cache_size"] == 0
+        assert short_window_service.get_stats().cache_size == 0
 
     @pytest.mark.asyncio
     async def test_cache_size_limit_enforced(self) -> None:
@@ -192,8 +192,8 @@ class TestRequestDeduplicationService:
             await service.check_and_register(request, f"session-{i}")
 
         # After cleanup, size should be at most max_cache_size
-        # Note: cleanup happens when size EXCEEDS max, so final size <= max
-        final_size = service.get_stats()["cache_size"]
+        # Note: cleanup triggers when size EXCEEDS max, so final size <= max
+        final_size = service.get_stats().cache_size
         # Due to cleanup triggering after exceeding, allow some slack
         assert final_size <= 10, f"Cache size {final_size} should be bounded"
 
@@ -220,7 +220,7 @@ class TestRequestDeduplicationService:
         assert all(isinstance(r[1], str) for r in results)
 
         stats = service.get_stats()
-        assert stats["requests_processed"] == 20
+        assert stats.requests_processed == 20
 
     @pytest.mark.asyncio
     async def test_different_models_not_duplicate(

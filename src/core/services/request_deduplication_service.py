@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from src.core.domain.chat import ChatRequest
 
+from src.core.interfaces.request_deduplication_interface import DeduplicationStats
+
 logger = logging.getLogger(__name__)
 
 
@@ -196,21 +198,22 @@ class RequestDeduplicationService:
 
             return initial_size - len(self._cache)
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> DeduplicationStats:
         """Return deduplication statistics (non-blocking read).
 
         Returns:
-            Dictionary with deduplication statistics
+            DeduplicationStats object with deduplication statistics
         """
-        return {
-            "enabled": self._enabled,
-            "window_seconds": self._window_seconds,
-            "cache_size": len(self._cache),
-            "duplicates_blocked": self._duplicates_blocked,
-            "requests_processed": self._requests_processed,
-            "dedup_rate": (
-                self._duplicates_blocked / self._requests_processed
-                if self._requests_processed > 0
-                else 0.0
-            ),
-        }
+        dedup_rate = (
+            self._duplicates_blocked / self._requests_processed
+            if self._requests_processed > 0
+            else 0.0
+        )
+        return DeduplicationStats(
+            enabled=self._enabled,
+            window_seconds=self._window_seconds,
+            cache_size=len(self._cache),
+            duplicates_blocked=self._duplicates_blocked,
+            requests_processed=self._requests_processed,
+            dedup_rate=dedup_rate,
+        )

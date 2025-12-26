@@ -19,9 +19,38 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.domain.chat import FunctionCall, ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+class ParsedParameters(BaseModel):
+    """Parsed tool call parameters from XML.
+
+    This represents a structured result of parsing XML parameter
+    elements, with typed field access instead of dict lookups.
+    """
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow dict-like access for backward compatibility."""
+        return getattr(self, key, None)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Allow dict-like get for backward compatibility."""
+        return getattr(self, key, default)
+
+    def items(self):
+        """Allow dict-like items() for backward compatibility."""
+        return self.model_dump(exclude_none=True, exclude_unset=True).items()
+
+    def keys(self):
+        """Allow dict-like keys() for backward compatibility."""
+        return self.model_dump(exclude_none=True, exclude_unset=True).keys()
+
+    model_config = {"extra": "allow", "arbitrary_types_allowed": True}
+
 
 # Pre-compiled patterns for parse_vtc_xml cleanup operations
 _EMPTY_FUNCTION_CALLS_PATTERN = re.compile(
@@ -257,7 +286,7 @@ def _extract_simple_tool(content: str, tool_name: str) -> tuple[list[ToolCall], 
     return tool_calls, cleaned
 
 
-def _parse_parameters(params_xml: str) -> dict[str, Any]:
+def _parse_parameters(params_xml: str) -> ParsedParameters:
     """
     Parse <parameter name="...">...</parameter> elements.
 
@@ -265,7 +294,7 @@ def _parse_parameters(params_xml: str) -> dict[str, Any]:
         params_xml: XML string containing parameter elements.
 
     Returns:
-        Dictionary of parameter name -> value.
+        ParsedParameters object with parameter name -> value mapping.
     """
     params: dict[str, Any] = {}
 
@@ -276,10 +305,10 @@ def _parse_parameters(params_xml: str) -> dict[str, Any]:
 
         params[param_name] = _parse_param_value(param_value)
 
-    return params
+    return ParsedParameters(**params)
 
 
-def _parse_simple_parameters(inner_content: str) -> dict[str, Any]:
+def _parse_simple_parameters(inner_content: str) -> ParsedParameters:
     """
     Parse <param_name>value</param_name> elements.
 
@@ -287,7 +316,7 @@ def _parse_simple_parameters(inner_content: str) -> dict[str, Any]:
         inner_content: XML string containing parameter elements.
 
     Returns:
-        Dictionary of parameter name -> value.
+        ParsedParameters object with parameter name -> value mapping.
     """
     params: dict[str, Any] = {}
 
@@ -300,7 +329,7 @@ def _parse_simple_parameters(inner_content: str) -> dict[str, Any]:
 
         params[param_name] = _parse_param_value(param_value)
 
-    return params
+    return ParsedParameters(**params)
 
 
 def _parse_param_value(value: str) -> Any:
@@ -334,7 +363,9 @@ def _parse_param_value(value: str) -> Any:
     return value
 
 
-def _create_tool_call(tool_name: str, params: dict[str, Any]) -> ToolCall:
+def _create_tool_call(
+    tool_name: str, params: dict[str, Any] | ParsedParameters
+) -> ToolCall:
     """
     Create a tool call in OpenAI format.
 
@@ -345,12 +376,17 @@ def _create_tool_call(tool_name: str, params: dict[str, Any]) -> ToolCall:
     Returns:
         ToolCall object.
     """
+    params_dict: dict[str, Any]
+    if isinstance(params, ParsedParameters):
+        params_dict = params.model_dump(exclude_none=True, exclude_unset=True)
+    else:
+        params_dict = params
     return ToolCall(
         id=f"vtc_{uuid.uuid4().hex[:12]}",
         type="function",
         function=FunctionCall(
             name=tool_name,
-            arguments=json.dumps(params),
+            arguments=json.dumps(params_dict),
         ),
     )
 
