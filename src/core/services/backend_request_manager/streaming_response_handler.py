@@ -221,8 +221,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 if session_cfg:
                     angel_model_spec = getattr(session_cfg, "angel_model", None)
                     angel_frequency = getattr(session_cfg, "angel_frequency", 1)
-        except Exception:
-            pass
+        except AttributeError:
+            logger.warning(
+                "Failed to extract Angel configuration, using defaults",
+                exc_info=True,
+            )
         return angel_model_spec, angel_frequency
 
     def _wrap_with_middleware(

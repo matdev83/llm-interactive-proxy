@@ -50,22 +50,38 @@ class PlanningPhaseManager(IPlanningPhaseManager):
             turn_count = int(
                 getattr(session.state, "planning_phase_turn_count", 0) or 0
             )
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            logger.warning(
+                "Failed to extract planning_phase_turn_count, using default 0",
+                exc_info=True,
+            )
             turn_count = 0
         try:
             file_write_count = int(
                 getattr(session.state, "planning_phase_file_write_count", 0) or 0
             )
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            logger.warning(
+                "Failed to extract planning_phase_file_write_count, using default 0",
+                exc_info=True,
+            )
             file_write_count = 0
 
         try:
             _max_turns = int(getattr(planning_config, "max_turns", 0) or 0)
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            logger.warning(
+                "Failed to extract max_turns, using default 0",
+                exc_info=True,
+            )
             _max_turns = 0
         try:
             _max_writes = int(getattr(planning_config, "max_file_writes", 0) or 0)
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            logger.warning(
+                "Failed to extract max_file_writes, using default 0",
+                exc_info=True,
+            )
             _max_writes = 0
 
         if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
@@ -76,12 +92,14 @@ class PlanningPhaseManager(IPlanningPhaseManager):
         from src.core.domain.model_utils import parse_model_backend
         from src.core.interfaces.configuration_interface import IBackendConfig
 
-        requested_backend, requested_model = parse_model_backend(
+        requested = parse_model_backend(
             session.state.backend_config.model or "", default_backend
         )
-        strong_backend, strong_model = parse_model_backend(
-            planning_config.strong_model, default_backend
-        )
+        requested_backend = requested.backend_type
+        requested_model = requested.model_name
+        strong = parse_model_backend(planning_config.strong_model, default_backend)
+        strong_backend = strong.backend_type
+        strong_model = strong.model_name
 
         current_full_model = f"{requested_backend}:{requested_model}"
         strong_full_model = f"{strong_backend}:{strong_model}"
@@ -97,7 +115,11 @@ class PlanningPhaseManager(IPlanningPhaseManager):
             has_original_model = bool(
                 getattr(session.state, "planning_phase_original_model", None)
             )
-        except Exception:
+        except AttributeError:
+            logger.warning(
+                "Failed to extract planning_phase_original_backend/model, treating as False",
+                exc_info=True,
+            )
             has_original_backend = False
             has_original_model = False
 
@@ -235,7 +257,11 @@ class PlanningPhaseManager(IPlanningPhaseManager):
             original_model = getattr(
                 session.state, "planning_phase_original_model", None
             )
-        except Exception:
+        except AttributeError:
+            logger.warning(
+                "Failed to extract planning_phase_original_backend/model, skipping restoration",
+                exc_info=True,
+            )
             return
 
         if original_backend is None and original_model is None:

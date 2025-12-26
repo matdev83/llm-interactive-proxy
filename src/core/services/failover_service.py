@@ -110,7 +110,12 @@ class FailoverService:
             for key, candidate in backend_config.failover_routes.items():
                 try:
                     key_normalized = str(key).strip().lower()
-                except Exception:
+                except (TypeError, AttributeError):
+                    logger.warning(
+                        "Failed to normalize failover route key, skipping",
+                        key=key,
+                        exc_info=True,
+                    )
                     key_normalized = ""
 
                 if key_normalized in {"default", "*"}:
@@ -144,12 +149,13 @@ class FailoverService:
         attempts = []
         for element in elements:
             try:
-                # Parse the element into backend and model
-                elem_backend, elem_model = parse_model_backend(
-                    element, default_backend=backend_type
-                )
+                parsed = parse_model_backend(element, default_backend=backend_type)
+                elem_backend = parsed.backend_type
+                elem_model = parsed.model_name
+                if not elem_backend or not elem_model:
+                    continue
                 attempts.append(FailoverAttempt(backend=elem_backend, model=elem_model))
-            except ValueError:
+            except Exception:
                 logger.warning(
                     "Failed to parse failover route element",
                     element=element,
