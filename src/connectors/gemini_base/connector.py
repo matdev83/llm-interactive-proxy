@@ -661,7 +661,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if response.status_code >= 400:
             try:
                 error_detail = response.json()
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to parse streaming error response as JSON, using text fallback: %s",
+                        e,
+                        exc_info=True,
+                    )
                 error_detail = response.text
 
             error_message = ""
@@ -1330,7 +1336,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
-                except Exception:
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to parse model fetch error response as JSON, using text fallback: %s",
+                            e,
+                            exc_info=True,
+                        )
                     error_detail = response.text
                 raise BackendError(
                     message=str(error_detail),

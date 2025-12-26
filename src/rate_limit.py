@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Iterable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitRegistry:
@@ -100,8 +103,14 @@ def _find_retry_delay_in_details(details_list: list[Any]) -> float | None:
 
         try:
             return float(delay_str[:-1])
-        except ValueError:
-            pass  # Malformed delay string in this item, try next
+        except ValueError as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Malformed retry delay string '%s': %s",
+                    delay_str,
+                    e,
+                    exc_info=True,
+                )
 
     return None
 
@@ -132,7 +141,13 @@ def _as_dict(detail: object) -> dict[str, Any] | None:
         try:
             loaded = json.loads(detail)
             return loaded if isinstance(loaded, dict) else None
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to parse error detail as JSON: %s",
+                    e,
+                    exc_info=True,
+                )
             start = detail.find("{")
             end = detail.rfind("}")
             if start != -1 and end != -1 and end > start:
@@ -143,7 +158,13 @@ def _as_dict(detail: object) -> dict[str, Any] | None:
                 try:
                     loaded = json.loads(json_part)
                     return loaded if isinstance(loaded, dict) else None
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to parse extracted JSON part: %s",
+                            e,
+                            exc_info=True,
+                        )
                     return None
     # Handle None and other non-string, non-dict types
     if detail is None:

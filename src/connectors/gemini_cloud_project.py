@@ -1391,7 +1391,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                         # Graceful error handling - yield error chunk instead of raising exception
                         try:
                             error_detail = response.json()
-                        except Exception:
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to parse error response as JSON, using text fallback: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             error_detail = response.text
 
                         error_message = ""
