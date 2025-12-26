@@ -226,7 +226,6 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             self.connector._schedule_credentials_reload()
 
 
-
 class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
     """Connector that uses OAuth authentication with user-specified GCP project.
 
@@ -277,13 +276,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             self.is_functional = False
 
         # Optional: Allow custom credentials path
-        self.credentials_path = (
-            kwargs.get("credentials_path") or getattr(config, "gemini_credentials_path", None)
+        self.credentials_path = kwargs.get("credentials_path") or getattr(
+            config, "gemini_credentials_path", None
         )
 
         # Check if health checks should be disabled
         self._health_checked: bool = getattr(config, "disable_health_checks", False)
-
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -722,7 +720,6 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     scopes=oauth_config.scopes,
                 )
 
-
                 request = google.auth.transport.requests.Request()
                 credentials.refresh(request)
 
@@ -808,8 +805,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             except OSError:
                 pass
 
-            with open(creds_path, encoding="utf-8") as f:
-                credentials = json.load(f)
+            def _read_sync() -> dict[str, Any]:
+                with open(creds_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            credentials: dict[str, Any] = await asyncio.to_thread(_read_sync)
 
             if "access_token" not in credentials:
                 if logger.isEnabledFor(logging.WARNING):
@@ -983,9 +983,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         access_token = self._oauth_credentials["access_token"]
         return GeminiApiConfig(
-            base_url=base.rstrip("/"), headers={"Authorization": f"Bearer {access_token}"}
+            base_url=base.rstrip("/"),
+            headers={"Authorization": f"Bearer {access_token}"},
         )
-
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity with project."""

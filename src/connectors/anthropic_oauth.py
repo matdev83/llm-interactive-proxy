@@ -433,8 +433,11 @@ class AnthropicOAuthBackend(AnthropicBackend):
             except OSError:
                 pass
 
-            with open(creds_path, encoding="utf-8") as f:
-                data: dict[str, Any] = json.load(f)
+            def _read_sync():
+                with open(creds_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            data: dict[str, Any] = await asyncio.to_thread(_read_sync)
 
             # We expect an access_token (preferred) or api_key
             token: str | None = None
