@@ -10,42 +10,72 @@ from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Define schema to example file mappings
 schema_example_pairs = [
-    ("config/schemas/app_config.schema.yaml", [
-        "config/config.example.yaml",
-        "config/codebuff.example.yaml",
-        "config/qwen_backend.example.yaml",
-        "config/identity_kilocode.example.yaml",
-        "config/identity_factory_droid.example.yaml",
-        "config/sso_auth.example.yaml",
-    ]),
-    ("config/schemas/openai_codex_backend.schema.yaml", [
-        "config/backends/openai_codex/backend.example.yaml",
-        "config/backends/openai_codex.yaml.example",
-    ]),
-    ("config/schemas/tool_call_reactor_config.schema.yaml", [
-        # This is a real config file, not an example
-    ]),
-    ("config/schemas/edit_precision_temperatures.schema.yaml", [
-        # This is a real config file, not an example
-    ]),
-    ("config/schemas/edit_precision_patterns.schema.yaml", [
-        # This is a real config file, not an example
-    ]),
-    ("config/schemas/zai_default_models.schema.yaml", [
-        # This is a real config file, not an example
-    ]),
-    ("config/schemas/replacement_config.schema.yaml", [
-        # No example file for this one
-    ]),
-    ("config/schemas/reasoning_aliases.schema.yaml", [
-        # This is a real config file, not an example
-    ]),
-    ("config/schemas/assessment_config.schema.yaml", [
-        # No example file for this one
-    ]),
-    ("config/schemas/health_check.yaml", [
-        # No example file for this one
-    ]),
+    (
+        "config/schemas/app_config.schema.yaml",
+        [
+            "config/config.example.yaml",
+            "config/codebuff.example.yaml",
+            "config/qwen_backend.example.yaml",
+            "config/identity_kilocode.example.yaml",
+            "config/identity_factory_droid.example.yaml",
+            "config/sso_auth.example.yaml",
+        ],
+    ),
+    (
+        "config/schemas/openai_codex_backend.schema.yaml",
+        [
+            "config/backends/openai_codex/backend.example.yaml",
+            "config/backends/openai_codex.yaml.example",
+        ],
+    ),
+    (
+        "config/schemas/tool_call_reactor_config.schema.yaml",
+        [
+            # This is a real config file, not an example
+        ],
+    ),
+    (
+        "config/schemas/edit_precision_temperatures.schema.yaml",
+        [
+            # This is a real config file, not an example
+        ],
+    ),
+    (
+        "config/schemas/edit_precision_patterns.schema.yaml",
+        [
+            # This is a real config file, not an example
+        ],
+    ),
+    (
+        "config/schemas/zai_default_models.schema.yaml",
+        [
+            # This is a real config file, not an example
+        ],
+    ),
+    (
+        "config/schemas/replacement_config.schema.yaml",
+        [
+            # No example file for this one
+        ],
+    ),
+    (
+        "config/schemas/reasoning_aliases.schema.yaml",
+        [
+            # This is a real config file, not an example
+        ],
+    ),
+    (
+        "config/schemas/assessment_config.schema.yaml",
+        [
+            # No example file for this one
+        ],
+    ),
+    (
+        "config/schemas/health_check.yaml",
+        [
+            # No example file for this one
+        ],
+    ),
 ]
 
 total_checks = 0
@@ -82,11 +112,26 @@ print(f"Summary: {passed}/{total_checks} passed, {failed}/{total_checks} failed"
 
 # Check for real config files that should validate
 real_configs = [
-    ("config/schemas/tool_call_reactor_config.schema.yaml", "config/tool_call_reactor_config.yaml"),
-    ("config/schemas/openai_codex_backend.schema.yaml", "config/backends/openai_codex/backend.yaml"),
-    ("config/schemas/edit_precision_patterns.schema.yaml", "config/edit_precision_patterns.yaml"),
-    ("config/schemas/zai_default_models.schema.yaml", "config/backends/zai/default_models.yaml"),
-    ("config/schemas/edit_precision_temperatures.schema.yaml", "config/edit_precision_model_temperatures.yaml"),
+    (
+        "config/schemas/tool_call_reactor_config.schema.yaml",
+        "config/tool_call_reactor_config.yaml",
+    ),
+    (
+        "config/schemas/openai_codex_backend.schema.yaml",
+        "config/backends/openai_codex/backend.yaml",
+    ),
+    (
+        "config/schemas/edit_precision_patterns.schema.yaml",
+        "config/edit_precision_patterns.yaml",
+    ),
+    (
+        "config/schemas/zai_default_models.schema.yaml",
+        "config/backends/zai/default_models.yaml",
+    ),
+    (
+        "config/schemas/edit_precision_temperatures.schema.yaml",
+        "config/edit_precision_model_temperatures.yaml",
+    ),
 ]
 
 print("\n" + "=" * 60)
