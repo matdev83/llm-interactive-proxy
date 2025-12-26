@@ -19,7 +19,7 @@ Non-goals (avoid churn / forbidden shortcuts)
 Scope and limits
 - Primary target: `./tests/` slow tests and their fixtures.
 - You may optimize production code in `./src/` ONLY when it is the clear cause of slowness for the selected tests, and only with behavior-preserving changes.
-- Fix up to THREE (3) slow tests total in this session.
+- Fix up to FIVE (5) slow tests total in this session.
 
 Baseline measurement (required)
 1) Record total suite time and top-20 slowest tests by running the FULL suite with timings enabled:
