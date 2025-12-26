@@ -7,7 +7,10 @@ which uses code pages that can't represent all Unicode characters.
 
 from __future__ import annotations
 
+import logging
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 def safe_str(text: str, max_length: int | None = None) -> str:
@@ -56,7 +59,7 @@ def safe_bytes_preview(data: bytes, max_length: int = 100) -> str:
     try:
         # Try to decode as UTF-8 first
         text = preview_data.decode("utf-8", errors="replace")
-    except Exception:
+    except (UnicodeDecodeError, ValueError):
         # Fall back to latin-1 which can decode any byte sequence
         text = preview_data.decode("latin-1", errors="replace")
 
@@ -100,8 +103,14 @@ def configure_console_encoding() -> None:
 
             kernel32 = ctypes.windll.kernel32
             kernel32.SetConsoleOutputCP(65001)  # UTF-8 code page
-        except Exception:
-            pass  # Ignore errors, we'll handle encoding issues in print
+        except (OSError, AttributeError) as e:
+            # Console encoding is best-effort; log for visibility but don't fail
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Could not set console to UTF-8: %s",
+                    e,
+                    exc_info=True,
+                )
 
     # Reconfigure stdout/stderr to use UTF-8 with error handling
     try:
@@ -109,5 +118,11 @@ def configure_console_encoding() -> None:
             sys.stdout.reconfigure(errors="replace")
         if hasattr(sys.stderr, "reconfigure"):
             sys.stderr.reconfigure(errors="replace")
-    except Exception:
-        pass  # Ignore if reconfigure is not available
+    except (OSError, AttributeError, ValueError) as e:
+        # Console reconfiguration is best-effort; log for visibility but don't fail
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Could not reconfigure console streams: %s",
+                e,
+                exc_info=True,
+            )

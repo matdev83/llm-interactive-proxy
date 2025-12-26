@@ -5,6 +5,7 @@ This module provides SQLite database operations for token storage,
 authorization tracking, and rate limiting with async support.
 """
 
+import logging
 import os
 import secrets
 import stat
@@ -14,6 +15,8 @@ from pathlib import Path
 import aiosqlite
 
 from src.core.auth.sso.exceptions import SSOException
+
+logger = logging.getLogger(__name__)
 from src.core.auth.sso.models import (
     TokenRecord,
 )
@@ -171,9 +174,15 @@ class DatabaseManager:
             if db_path.exists():
                 # Set to owner read/write only (0o600)
                 os.chmod(self.database_path, stat.S_IRUSR | stat.S_IWUSR)
-        except Exception:
+        except OSError as e:
             # Permission setting is best-effort on Windows
-            pass
+            # Log for visibility but don't fail database initialization
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to set restrictive permissions on SSO database: %s",
+                    e,
+                    exc_info=True,
+                )
 
 
 class TokenRepository:
@@ -592,6 +601,13 @@ class TokenRepository:
                 await db.commit()
                 return (True, agent_token_id)
 
-        except Exception:
-            # On any error, assume invalid
+        except (aiosqlite.Error, ValueError) as e:
+            # Log the error for debugging, but still return invalid
+            # to maintain original semantics (fail-safe behavior)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Error verifying/consuming login token: %s",
+                    e,
+                    exc_info=True,
+                )
             return (False, None)
