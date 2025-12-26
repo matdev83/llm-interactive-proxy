@@ -188,7 +188,7 @@ properties:
           provider: { type: string, enum: [cloudflare_turnstile] }
           site_key: { type: ["string", "null"] }
           secret_key: { type: ["string", "null"] }
-          verify_url: { type: ["string", "null"] }
+          verify_url: { type: string }
           widget_mode: { type: string, enum: [invisible, managed] }
           timeout_seconds: { type: number, minimum: 0 }
   session:
