@@ -579,10 +579,12 @@ class CredentialManager(ICredentialManager):
 
             if response.status_code >= 400:
                 body = response.text
+                # Truncate body to avoid leaking excessive info or filling logs
+                safe_body = body[:200] + "..." if len(body) > 200 else body
                 logger.warning(
                     "OpenAI Codex token refresh failed with status %s: %s",
                     response.status_code,
-                    body,
+                    safe_body,
                 )
                 return False
 

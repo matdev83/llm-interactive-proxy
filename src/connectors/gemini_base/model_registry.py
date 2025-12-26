@@ -95,26 +95,33 @@ class GeminiModelRegistry(IModelRegistry):
                 self._available_models = sorted(models)
                 self._available_models_set = set(models)
                 self._models_from_api = True
-                logger.info(
-                    f"Loaded {len(self._available_models)} models from API discovery"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Loaded %d models from API discovery",
+                        len(self._available_models),
+                    )
             else:
                 # API returned empty, use fallback
                 self._available_models = self._model_discovery.get_fallback_models()
                 self._available_models_set = set(self._available_models)
                 self._models_from_api = False
-                logger.info(
-                    f"API discovery returned no models, using {len(self._available_models)} fallback models"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "API discovery returned no models, using %d fallback models",
+                        len(self._available_models),
+                    )
         except Exception as e:
-            logger.warning(f"Failed to load models from API: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to load models from API: %s", e, exc_info=True)
             # Fallback to hardcoded list
             self._available_models = self._model_discovery.get_fallback_models()
             self._available_models_set = set(self._available_models)
             self._models_from_api = False
-            logger.info(
-                f"Using {len(self._available_models)} fallback models due to API error"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Using %d fallback models due to API error",
+                    len(self._available_models),
+                )
 
         self._loaded = True
 

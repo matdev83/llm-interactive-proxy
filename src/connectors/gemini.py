@@ -949,7 +949,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 )
             data = response.json()
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Gemini response headers: %s", dict(response.headers))
+                safe_headers = dict(response.headers)
+                for sensitive_key in ["Authorization", "Set-Cookie"]:
+                    if sensitive_key in safe_headers:
+                        safe_headers[sensitive_key] = "[REDACTED]"
+                logger.debug("Gemini response headers: %s", safe_headers)
 
             # Extract usage from Gemini response
             usage = self._extract_gemini_usage(data)

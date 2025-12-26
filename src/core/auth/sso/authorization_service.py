@@ -347,8 +347,13 @@ class AuthorizationService:
                 response = await client.post(self.config.api_url, json=payload)
 
                 if response.status_code != 200:
+                    safe_text = (
+                        response.text[:200] + "..."
+                        if len(response.text) > 200
+                        else response.text
+                    )
                     logger.error(
-                        f"Authorization API returned status {response.status_code}: {response.text}"
+                        f"Authorization API returned status {response.status_code}: {safe_text}"
                     )
                     return AuthorizationResult(
                         authorized=False,
