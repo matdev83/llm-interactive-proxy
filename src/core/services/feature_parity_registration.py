@@ -12,6 +12,7 @@ import logging
 
 from src.core.interfaces.feature_parity import (
     FeatureParityRegistry,
+    ParityViolation,
     get_global_registry,
 )
 from src.core.interfaces.response_processor_interface import (
@@ -167,7 +168,7 @@ def get_parity_report() -> str:
     return registry.get_parity_report()
 
 
-def verify_parity(strict: bool = False) -> list:
+def verify_parity(strict: bool = False) -> list[ParityViolation]:
     """Verify parity of all registered features.
 
     Args:

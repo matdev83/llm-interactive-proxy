@@ -8,6 +8,7 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 """
 
 import logging
+from dataclasses import dataclass
 
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -19,6 +20,17 @@ from src.core.interfaces.assessment_service_interface import (
 from src.core.services.assessment_prompts import get_steering_template
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class MiddlewareInfo:
+    """Information about assessment middleware state."""
+
+    enabled: bool
+    turn_threshold: int
+    confidence_threshold: float
+    backend: str
+    model: str
 
 
 class AssessmentMiddleware:
@@ -243,17 +255,17 @@ class AssessmentMiddleware:
 
         return False
 
-    def get_middleware_info(self) -> dict:
+    def get_middleware_info(self) -> MiddlewareInfo:
         """
         Get information about middleware state.
 
         Returns:
-            Dictionary with middleware information
+            MiddlewareInfo with middleware state
         """
-        return {
-            "enabled": self.config.enabled,
-            "turn_threshold": self.config.turn_threshold,
-            "confidence_threshold": self.config.confidence_threshold,
-            "backend": self.config.backend,
-            "model": self.config.model,
-        }
+        return MiddlewareInfo(
+            enabled=self.config.enabled,
+            turn_threshold=self.config.turn_threshold,
+            confidence_threshold=self.config.confidence_threshold,
+            backend=self.config.backend,
+            model=self.config.model,
+        )

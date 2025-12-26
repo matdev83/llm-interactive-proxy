@@ -115,8 +115,8 @@ class TestResolvedParameters:
         debug_info = params.get_debug_info()
 
         assert "temperature" in debug_info
-        assert debug_info["temperature"]["effective_value"] == 0.5
-        assert debug_info["temperature"]["source"] == "uri"
+        assert debug_info["temperature"].effective_value == 0.5
+        assert debug_info["temperature"].source == "uri"
 
     def test_get_debug_info_with_reasoning_effort(self):
         """Test get_debug_info with reasoning_effort."""
@@ -124,8 +124,8 @@ class TestResolvedParameters:
         debug_info = params.get_debug_info()
 
         assert "reasoning_effort" in debug_info
-        assert debug_info["reasoning_effort"]["effective_value"] == "high"
-        assert debug_info["reasoning_effort"]["source"] == "session"
+        assert debug_info["reasoning_effort"].effective_value == "high"
+        assert debug_info["reasoning_effort"].source == "session"
 
     def test_get_debug_info_with_both_parameters(self):
         """Test get_debug_info with both parameters."""
@@ -136,10 +136,10 @@ class TestResolvedParameters:
         debug_info = params.get_debug_info()
 
         assert len(debug_info) == 2
-        assert debug_info["temperature"]["effective_value"] == 0.8
-        assert debug_info["temperature"]["source"] == "config"
-        assert debug_info["reasoning_effort"]["effective_value"] == "low"
-        assert debug_info["reasoning_effort"]["source"] == "header"
+        assert debug_info["temperature"].effective_value == 0.8
+        assert debug_info["temperature"].source == "config"
+        assert debug_info["reasoning_effort"].effective_value == "low"
+        assert debug_info["reasoning_effort"].source == "header"
 
     def test_get_debug_info_with_top_parameters(self):
         """Test get_debug_info includes top_p and top_k entries."""
@@ -150,11 +150,11 @@ class TestResolvedParameters:
         debug_info = params.get_debug_info()
 
         assert "top_p" in debug_info
-        assert debug_info["top_p"]["effective_value"] == 0.85
-        assert debug_info["top_p"]["source"] == "uri"
+        assert debug_info["top_p"].effective_value == 0.85
+        assert debug_info["top_p"].source == "uri"
         assert "top_k" in debug_info
-        assert debug_info["top_k"]["effective_value"] == 16
-        assert debug_info["top_k"]["source"] == "session"
+        assert debug_info["top_k"].effective_value == 16
+        assert debug_info["top_k"].source == "session"
 
 
 class TestParameterResolutionService:
@@ -446,10 +446,10 @@ class TestParameterResolutionService:
 
         assert "temperature" in debug_info
         assert "reasoning_effort" in debug_info
-        assert debug_info["temperature"]["effective_value"] == 0.5
-        assert debug_info["temperature"]["source"] == "uri"
-        assert debug_info["reasoning_effort"]["effective_value"] == "high"
-        assert debug_info["reasoning_effort"]["source"] == "uri"
+        assert debug_info["temperature"].effective_value == 0.5
+        assert debug_info["temperature"].source == "uri"
+        assert debug_info["reasoning_effort"].effective_value == "high"
+        assert debug_info["reasoning_effort"].source == "uri"
 
     # ========================================================================
     # Missing Sources Tests

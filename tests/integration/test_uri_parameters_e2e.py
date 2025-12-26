@@ -301,10 +301,10 @@ class TestParameterResolution:
 
         debug_info = resolved.get_debug_info()
         assert "temperature" in debug_info
-        assert debug_info["temperature"]["effective_value"] == 0.5
-        assert debug_info["temperature"]["source"] == "uri"
+        assert debug_info["temperature"].effective_value == 0.5
+        assert debug_info["temperature"].source == "uri"
         assert "reasoning_effort" in debug_info
-        assert debug_info["reasoning_effort"]["effective_value"] == "high"
+        assert debug_info["reasoning_effort"].effective_value == "high"
 
 
 class TestEndToEndURIParameterFlow:

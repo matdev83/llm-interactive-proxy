@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, Field
 from pydantic.types import JsonValue
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,17 @@ class ParameterSource:
 
     def __repr__(self) -> str:
         return f"ParameterSource(value={self.value!r}, source={self.source!r})"
+
+
+class ParameterDebugInfo(BaseModel):
+    """Debug information for a single resolved parameter."""
+
+    effective_value: Any = Field(
+        ..., description="The effective parameter value after resolution"
+    )
+    source: str = Field(..., description="The source that provided this value")
+
+    model_config = {"extra": "forbid"}
 
 
 @dataclass
@@ -68,7 +80,7 @@ class ResolvedParameters:
 
         return result
 
-    def get_debug_info(self) -> dict[str, dict[str, Any]]:
+    def get_debug_info(self) -> dict[str, ParameterDebugInfo]:
         """
         Get parameter sources and values for debugging.
 
@@ -82,37 +94,31 @@ class ResolvedParameters:
             ... )
             >>> params.get_debug_info()
             {
-                "temperature": {
-                    "effective_value": 0.5,
-                    "source": "uri"
-                }
+                "temperature": ParameterDebugInfo(effective_value=0.5, source="uri")
             }
         """
-        result: dict[str, dict[str, Any]] = {}
+        result: dict[str, ParameterDebugInfo] = {}
 
         if self.temperature is not None:
-            result["temperature"] = {
-                "effective_value": self.temperature.value,
-                "source": self.temperature.source,
-            }
+            result["temperature"] = ParameterDebugInfo(
+                effective_value=self.temperature.value, source=self.temperature.source
+            )
 
         if self.top_p is not None:
-            result["top_p"] = {
-                "effective_value": self.top_p.value,
-                "source": self.top_p.source,
-            }
+            result["top_p"] = ParameterDebugInfo(
+                effective_value=self.top_p.value, source=self.top_p.source
+            )
 
         if self.top_k is not None:
-            result["top_k"] = {
-                "effective_value": self.top_k.value,
-                "source": self.top_k.source,
-            }
+            result["top_k"] = ParameterDebugInfo(
+                effective_value=self.top_k.value, source=self.top_k.source
+            )
 
         if self.reasoning_effort is not None:
-            result["reasoning_effort"] = {
-                "effective_value": self.reasoning_effort.value,
-                "source": self.reasoning_effort.source,
-            }
+            result["reasoning_effort"] = ParameterDebugInfo(
+                effective_value=self.reasoning_effort.value,
+                source=self.reasoning_effort.source,
+            )
 
         return result
 
@@ -277,8 +283,8 @@ class ParameterResolutionService:
         log_lines = [f"Parameter resolution for {backend}:"]
 
         for param_name, info in debug_info.items():
-            effective_value = info["effective_value"]
-            source = info["source"]
+            effective_value = info.effective_value
+            source = info.source
 
             # Build override information
             overrides = overridden_sources.get(param_name, [])
