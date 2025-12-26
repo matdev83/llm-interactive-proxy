@@ -1,9 +1,10 @@
 """
 File-based credential provider for Gemini OAuth connectors.
 
-Loads OAuth credentials from the standard gemini-cli oauth_creds.json file.
+Loads OAuth credentials from standard gemini-cli oauth_creds.json file.
 """
 
+import asyncio
 import datetime
 import hashlib
 import json
@@ -125,7 +126,8 @@ class FileCredentialProvider:
         Returns:
             Credentials dictionary or None if loading failed.
         """
-        try:
+
+        def _load_sync() -> dict[str, Any] | None:
             creds_path = self.get_path()
             if creds_path is None:
                 logger.warning("No credentials path configured")
@@ -184,6 +186,8 @@ class FileCredentialProvider:
 
             return credentials
 
+        try:
+            return await asyncio.to_thread(_load_sync)
         except json.JSONDecodeError as e:
             logger.error(
                 f"Error decoding Gemini OAuth credentials JSON: {e}",

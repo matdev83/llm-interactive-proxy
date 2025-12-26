@@ -725,22 +725,27 @@ class QwenOAuthConnector(OpenAIConnector):
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
-        try:
+
+        def _save_sync() -> None:
             home_dir = Path.home()
             qwen_dir = home_dir / ".qwen"
-            qwen_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+            qwen_dir.mkdir(parents=True, exist_ok=True)
             creds_path = qwen_dir / "oauth_creds.json"
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Qwen OAuth credentials saved to %s", creds_path)
+
+        try:
+            await asyncio.to_thread(_save_sync)
         except Exception as e:
             logger.error(f"Error saving Qwen OAuth credentials: {e}")
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
-        try:
+
+        def _load_sync() -> bool:
             home_dir = Path.home()
             creds_path = home_dir / ".qwen" / "oauth_creds.json"
             self._credentials_path = creds_path
@@ -783,6 +788,9 @@ class QwenOAuthConnector(OpenAIConnector):
 
             logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
+
+        try:
+            return await asyncio.to_thread(_load_sync)
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
             return False
