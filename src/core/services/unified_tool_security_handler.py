@@ -198,7 +198,8 @@ class DangerousCommandCheck(ISecurityCheck):
                     compiled = re.compile(pattern, re.IGNORECASE)
                     self._compiled_patterns.append((name, compiled, desc))
                 except re.error:
-                    logger.warning(f"Failed to compile built-in pattern: {name}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to compile built-in pattern: %s", name)
 
         # Add custom rules
         for rule in config.rules:
@@ -209,7 +210,10 @@ class DangerousCommandCheck(ISecurityCheck):
                         (rule.name, compiled, rule.description)
                     )
                 except re.error:
-                    logger.warning(f"Failed to compile custom pattern: {rule.name}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to compile custom pattern: %s", rule.name
+                        )
 
     @property
     def name(self) -> str:
@@ -464,7 +468,8 @@ class FileSandboxingCheck(ISecurityCheck):
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir
         except Exception as e:
-            logger.debug(f"Could not get session for sandboxing: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Could not get session for sandboxing: %s", e)
             return SecurityCheckResult.allow()
 
         if not project_dir:
@@ -669,9 +674,11 @@ class UnifiedToolSecurityHandler(IToolCallHandler):
             else self._DEFAULT_ESCALATING_MESSAGES
         )
 
-        logger.info(
-            f"UnifiedToolSecurityHandler initialized with {len(self._checks)} active checks"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "UnifiedToolSecurityHandler initialized with %s active checks",
+                len(self._checks),
+            )
 
     @property
     def name(self) -> str:
@@ -702,14 +709,21 @@ class UnifiedToolSecurityHandler(IToolCallHandler):
             try:
                 result = await check.check(context, self._command_service)
                 if result.blocked:
-                    logger.info(
-                        f"Security check '{check.name}' blocked tool call: {result.reason}"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Security check '%s' blocked tool call: %s",
+                            check.name,
+                            result.reason,
+                        )
                     return self._create_block_result(context, check.name, result)
             except Exception as e:
-                logger.warning(
-                    f"Security check '{check.name}' failed: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Security check '%s' failed: %s",
+                        check.name,
+                        e,
+                        exc_info=True,
+                    )
                 # Fail open on errors
                 continue
 
