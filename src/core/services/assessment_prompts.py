@@ -11,7 +11,10 @@ import logging
 from typing import Any
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
-from src.core.services.assessment_prompt_loader import AssessmentPromptLoader
+from src.core.services.assessment_prompt_loader import (
+    AssessmentPromptLoader,
+    PromptInfo,
+)
 
 logger = get_logger(__name__)
 
@@ -118,12 +121,12 @@ def is_initialized() -> bool:
     return loader.is_loaded
 
 
-def get_prompt_info() -> dict[str, Any]:
+def get_prompt_info() -> PromptInfo:
     """
     Get information about loaded prompts.
 
     Returns:
-        Dictionary with prompt information
+        PromptInfo with loading status and metadata
     """
     loader = get_prompt_loader()
     return loader.get_prompt_info()

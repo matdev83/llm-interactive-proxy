@@ -1051,10 +1051,10 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
     except json.JSONDecodeError:
         # Ignore bad JSON chunk
         return ""
-    except Exception as e:
+    except (KeyError, TypeError, AttributeError) as e:
         # Log for debugging but return empty to keep stream alive
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Failed to convert stream chunk: %s", e)
+            logger.debug("Failed to convert stream chunk: %s", e, exc_info=True)
         return ""
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive

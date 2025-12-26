@@ -129,7 +129,8 @@ async def test_backend_service_captures_streaming() -> None:
         )
         res = await svc.call_completion(req, stream=True)
         assert isinstance(res, StreamingResponseEnvelope)
-        out: list[ProcessedResponse] = []
+        out: list[Any] = []
         async for chunk in res.content:
             out.append(chunk)
-            out.append(chunk)
+        # Verify that we received chunks
+        assert len(out) > 0

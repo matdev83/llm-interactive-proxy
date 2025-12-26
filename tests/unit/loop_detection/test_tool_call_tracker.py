@@ -1,5 +1,6 @@
 """Unit tests for the tool call loop detection tracker."""
 
+import asyncio
 import datetime
 import json
 from typing import Any
@@ -559,3 +560,39 @@ class TestToolCallLoopConfigParsing:
         )
 
         assert config.enabled is expected
+
+
+class TestToolCallTrackerConcurrency:
+    """Tests for concurrent access to ToolCallTracker."""
+
+    @pytest.fixture
+    def config(self) -> ToolCallLoopConfig:
+        """Create a default configuration for testing."""
+        return ToolCallLoopConfig(
+            enabled=True, max_repeats=3, ttl_seconds=60, mode=ToolLoopMode.BREAK
+        )
+
+    async def test_concurrent_track_tool_calls_safety(self, config):
+        """Concurrent track_tool_call calls should not cause data corruption."""
+        tracker = ToolCallTracker(config)
+
+        # Create multiple concurrent tasks that track the same tool call
+        async def track_calls():
+            for i in range(5):
+                result = tracker.track_tool_call("test_tool", f'{{"value": {i}}}')
+                if result.should_block:
+                    break
+
+        # Run 10 concurrent tasks
+        tasks = [track_calls() for _ in range(10)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # The tracker should remain in a consistent state
+        # All signatures should be unique or properly counted
+        assert len(tracker.signatures) <= tracker.max_signatures
+        # All consecutive_repeat counts should be non-negative
+        for count in tracker.consecutive_repeats.values():
+            assert count >= 0
+        # chance_given should only contain bool values
+        for value in tracker.chance_given.values():
+            assert isinstance(value, bool)

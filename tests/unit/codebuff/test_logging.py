@@ -40,16 +40,20 @@ class TestConnectionLogging:
 
     def test_connection_initialization_logged(self):
         """Test that ConnectionManager initialization is logged."""
-        with patch.object(
-            logging.getLogger("src.codebuff.connection_manager"), "info"
-        ) as mock_log:
-            ConnectionManager(heartbeat_timeout_seconds=30)
+        logger = logging.getLogger("src.codebuff.connection_manager")
+        original_level = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            with patch.object(logger, "debug") as mock_log:
+                ConnectionManager(heartbeat_timeout_seconds=30)
 
-            # Verify initialization was logged
-            assert mock_log.called
-            call_args = mock_log.call_args[0]
-            assert "ConnectionManager initialized" in call_args[0]
-            assert 30 in call_args
+                # Verify initialization was logged
+                assert mock_log.called
+                call_args = mock_log.call_args[0]
+                assert "ConnectionManager initialized" in call_args[0]
+                assert 30 in call_args
+        finally:
+            logger.setLevel(original_level)
 
 
 class TestMessageLogging:

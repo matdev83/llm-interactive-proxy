@@ -14,6 +14,7 @@ import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+import pydantic
 import requests  # type: ignore[import-untyped]
 
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
@@ -48,11 +49,26 @@ from src.core.domain.streaming.contracts import (
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
-
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+
+class ErrorMetadata(pydantic.BaseModel):
+    """Metadata for error responses in streaming.
+
+    Provides a strongly-typed contract for error metadata
+    including finish reason, error details, and timing information.
+    """
+
+    finish_reason: str = "error"
+    error: OpenAIError
+    id: str
+    model: str
+    created: int
+
+    model_config = {"extra": "forbid"}
 
 
 @runtime_checkable
@@ -1132,15 +1148,39 @@ class StreamingExecutor:
 
         raise backend_error
 
-    def _build_error_metadata(self, error_chunk: OpenAIErrorChunk) -> dict[str, Any]:
-        """Build metadata for error responses."""
-        return {
-            "finish_reason": "error",
-            "error": error_chunk.error,
-            "id": error_chunk.id,
-            "model": error_chunk.model,
-            "created": error_chunk.created,
-        }
+    def _build_error_metadata(self, error_chunk: OpenAIErrorChunk | dict[str, Any]) -> ErrorMetadata:
+        """Build metadata for error responses.
+        
+        Args:
+            error_chunk: Either an OpenAIErrorChunk object or a dict with error chunk data.
+        """
+        # Handle both OpenAIErrorChunk objects and dicts (for test compatibility)
+        if isinstance(error_chunk, dict):
+            error_data = error_chunk.get("error", {})
+            if isinstance(error_data, dict):
+                error = OpenAIError(
+                    message=error_data.get("message", ""),
+                    type=error_data.get("type", "api_error"),
+                    code=error_data.get("code", 500),
+                )
+            else:
+                error = error_data
+            return ErrorMetadata(
+                finish_reason="error",
+                error=error,
+                id=error_chunk.get("id", ""),
+                model=error_chunk.get("model", "unknown"),
+                created=error_chunk.get("created", 0),
+            )
+        else:
+            # OpenAIErrorChunk object
+            return ErrorMetadata(
+                finish_reason="error",
+                error=error_chunk.error,
+                id=error_chunk.id,
+                model=error_chunk.model,
+                created=error_chunk.created,
+            )
 
     def _build_auth_error_chunk(self, model: str) -> OpenAIErrorChunk:
         """Build an authentication error chunk."""

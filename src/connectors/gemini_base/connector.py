@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.gemini import GeminiApiConfig, GeminiBackend
-
 from src.connectors.gemini_base.chat_completion_coordinator import (
     GeminiChatCompletionCoordinator,
 )

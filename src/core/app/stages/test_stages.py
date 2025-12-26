@@ -67,9 +67,11 @@ class BaseTestBackendStage(InitializationStage):
                 implementation_factory=session_service_factory,
             )
 
-            logger.debug("Overrode session service to ensure real Session objects")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Overrode session service to ensure real Session objects")
         except ImportError as e:
-            logger.warning(f"Could not override session service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not override session service: %s", e)
 
 
 class MockBackendStage(BaseTestBackendStage):
@@ -92,7 +94,8 @@ class MockBackendStage(BaseTestBackendStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register mock backend services."""
-        logger.info("Initializing mock backend services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing mock backend services...")
 
         # Register backend services (including TranslationService) via backend registrar
         # This ensures TranslationService is available before we try to use it
@@ -111,7 +114,8 @@ class MockBackendStage(BaseTestBackendStage):
 
         # Register mock backend factory first before trying to resolve it
         self._register_mock_backend_factory(services, translation_service)
-        logger.debug("Registered mock backend factory")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered mock backend factory")
 
         # Rebuild the provider to include the newly registered mock factory
         provider = services.build_service_provider()
@@ -120,7 +124,8 @@ class MockBackendStage(BaseTestBackendStage):
         self._register_mock_backend_service(
             services, config, backend_factory, translation_service
         )
-        logger.debug("Registered mock backend service")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered mock backend service")
 
         # Override session service to ensure real sessions instead of mocks
         self._override_session_service_for_test_compatibility(services)
@@ -128,7 +133,8 @@ class MockBackendStage(BaseTestBackendStage):
         # Skip real backend service registration in test environment
         # The mock backend service should be sufficient for testing
 
-        logger.info("Mock backend services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Mock backend services initialized successfully")
 
     def _resolve_httpx_client(
         self, services: ServiceCollection
@@ -171,9 +177,11 @@ class MockBackendStage(BaseTestBackendStage):
                 implementation_factory=backend_config_provider_factory,
             )
 
-            logger.debug("Registered mock backend config provider")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered mock backend config provider")
         except ImportError as e:
-            logger.warning(f"Could not register mock backend config provider: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock backend config provider: %s", e)
 
     def _register_mock_backend_service(
         self,
@@ -402,9 +410,11 @@ class MockBackendStage(BaseTestBackendStage):
                 if not stream_value and "stream" in kwargs:
                     stream_value = kwargs.get("stream", False)
                 if stream_value:
-                    logger.info(
-                        f"Mock backend returning streaming response for model: {response_data['model']}"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Mock backend returning streaming response for model: %s",
+                            response_data["model"],
+                        )
                     from src.core.domain.streaming_test_helpers import (
                         create_streaming_generator,
                     )
@@ -424,12 +434,17 @@ class MockBackendStage(BaseTestBackendStage):
                         media_type="text/event-stream",
                         headers={"content-type": "text/event-stream"},
                     )
-                    logger.info(f"Created streaming envelope: {streaming_envelope}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Created streaming envelope: %s", streaming_envelope
+                        )
                     return streaming_envelope
                 else:
-                    logger.info(
-                        f"Mock backend returning JSON response for model: {response_data['model']}"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Mock backend returning JSON response for model: %s",
+                            response_data["model"],
+                        )
 
                 return ResponseEnvelope(
                     content=response_data,
@@ -512,10 +527,13 @@ class MockBackendStage(BaseTestBackendStage):
                         return await mock_chat_completions(*args, **kwargs)
 
                 except Exception as e:
-                    logger.warning(
-                        f"Delegation in _call_completion_delegate failed: {e}. "
-                        "Falling back to generic mock response."
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Delegation in _call_completion_delegate failed: %s. "
+                            "Falling back to generic mock response.",
+                            str(e),
+                            exc_info=True,
+                        )
                     # Fall back to global mock behavior
                     return await mock_chat_completions(*args, **kwargs)
 
@@ -573,10 +591,11 @@ class MockBackendStage(BaseTestBackendStage):
                     httpx_client = self._resolve_httpx_client(services)
 
                     if httpx_client is None:
-                        logger.debug(
-                            "No shared HTTP client available for backend; "
-                            "falling back to mock"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "No shared HTTP client available for backend; "
+                                "falling back to mock"
+                            )
                         mock_backend = MagicMock()
                         mock_backend.chat_completions = AsyncMock(
                             side_effect=mock_chat_completions
@@ -618,9 +637,13 @@ class MockBackendStage(BaseTestBackendStage):
             # Always register the mock service instance to ensure it overrides any
             # previously registered real service.
             services.add_instance(IBackendService, mock_backend_service)
-            logger.debug("Registered mock backend service with full method coverage")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Registered mock backend service with full method coverage"
+                )
         except ImportError as e:
-            logger.warning(f"Could not register mock backend service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock backend service: %s", e)
 
     def _register_mock_backend_factory(
         self, services: ServiceCollection, translation_service: ITranslationService
@@ -664,9 +687,11 @@ class MockBackendStage(BaseTestBackendStage):
             services.add_instance(BackendFactory, mock_factory)
             # Register the interface to resolve to the same mock factory instance
             services.add_instance(IBackendFactory, mock_factory)
-            logger.debug("Registered mock backend factory")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered mock backend factory")
         except ImportError as e:
-            logger.warning(f"Could not register mock backend factory: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock backend factory: %s", e)
 
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register BackendService with the proper dependencies."""
@@ -829,9 +854,11 @@ class MockBackendStage(BaseTestBackendStage):
                 implementation_factory=backend_service_factory,
             )
 
-            logger.debug("Registered BackendService with all dependencies")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered BackendService with all dependencies")
         except ImportError as e:
-            logger.warning(f"Could not register mock backend factory: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock backend factory: %s", e)
 
 
 class MinimalTestStage(InitializationStage):
@@ -854,7 +881,8 @@ class MinimalTestStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register minimal test services."""
-        logger.info("Initializing minimal test services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing minimal test services...")
 
         # Register mock command service
         self._register_mock_command_service(services)
@@ -862,7 +890,8 @@ class MinimalTestStage(InitializationStage):
         # Register mock request processor
         self._register_mock_request_processor(services)
 
-        logger.info("Minimal test services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Minimal test services initialized successfully")
 
     def _register_mock_command_service(self, services: ServiceCollection) -> None:
         """Register a simple mock command service."""
@@ -875,9 +904,11 @@ class MinimalTestStage(InitializationStage):
 
             services.add_instance(ICommandService, mock_command_service)
 
-            logger.debug("Registered mock command service")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered mock command service")
         except ImportError as e:
-            logger.warning(f"Could not register mock command service: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock command service: %s", e)
 
     def _register_mock_request_processor(self, services: ServiceCollection) -> None:
         """Register a simple mock request processor."""
@@ -900,9 +931,11 @@ class MinimalTestStage(InitializationStage):
 
             services.add_instance(IRequestProcessor, mock_request_processor)
 
-            logger.debug("Registered mock request processor")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered mock request processor")
         except ImportError as e:
-            logger.warning(f"Could not register mock request processor: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register mock request processor: %s", e)
 
 
 class RealBackendTestStage(BaseTestBackendStage):
@@ -937,7 +970,10 @@ class RealBackendTestStage(BaseTestBackendStage):
         # Override session service to ensure real sessions instead of mocks
         self._override_session_service_for_test_compatibility(services)
 
-        logger.info("Real backend services for HTTP mocking initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Real backend services for HTTP mocking initialized successfully"
+            )
 
 
 class CustomTestStage(InitializationStage):
@@ -978,10 +1014,15 @@ class CustomTestStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register custom services."""
-        logger.info(f"Initializing custom test stage: {self._stage_name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing custom test stage: %s", self._stage_name)
 
         for service_type, instance in self._services_to_register.items():
             services.add_instance(service_type, instance)
-            logger.debug(f"Registered custom service: {service_type.__name__}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered custom service: %s", service_type.__name__)
 
-        logger.info(f"Custom test stage '{self._stage_name}' initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Custom test stage '%s' initialized successfully", self._stage_name
+            )

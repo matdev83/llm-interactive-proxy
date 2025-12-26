@@ -5,10 +5,13 @@ This module defines the data structures for wire capture entries,
 replacing manual dictionary construction with type-safe Pydantic models.
 """
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class WireCaptureTimestamp(BaseModel):
@@ -179,7 +182,8 @@ def create_wire_capture_entry(
 
                 payload_str = json.dumps(payload, ensure_ascii=False)
                 byte_count = len(payload_str.encode("utf-8"))
-        except Exception:
+        except (TypeError, ValueError, UnicodeEncodeError) as e:
+            logger.debug("Failed to calculate byte count for payload: %s", e, exc_info=True)
             byte_count = -1
 
     # Create timestamp

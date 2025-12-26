@@ -39,6 +39,17 @@ def _extract_command_text_from_arguments(arguments: str | None) -> str | None:
         return None
     try:
         parsed = json.loads(arguments)
+    except json.JSONDecodeError as e:
+        logger.debug("Failed to parse command arguments JSON: %s", e, exc_info=True)
+        return None
+    command_value = parsed.get("command")
+    if isinstance(command_value, list | tuple):
+        return " ".join(str(part) for part in command_value)
+    if isinstance(command_value, str):
+        return command_value
+    return None
+    try:
+        parsed = json.loads(arguments)
     except Exception:
         return None
     command_value = parsed.get("command")

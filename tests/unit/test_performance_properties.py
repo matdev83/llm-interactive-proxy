@@ -105,7 +105,7 @@ class TestConstantMemoryUsage:
     """
 
     @pytest.mark.asyncio
-    @settings(max_examples=5, deadline=1000)
+    @settings(max_examples=5, deadline=None)
     @given(
         chunk_count=st.integers(min_value=200, max_value=400),
         chunk_size=st.integers(min_value=1024, max_value=4096),

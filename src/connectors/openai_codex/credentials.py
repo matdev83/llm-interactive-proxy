@@ -110,13 +110,15 @@ class CredentialWatcher:
             watch_dir = auth_path.parent
             self._observer.schedule(handler, str(watch_dir), recursive=False)
             self._observer.start()
-            logger.debug(
-                f"Started watching OpenAI Codex credentials directory: {watch_dir}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Started watching OpenAI Codex credentials directory: %s", watch_dir
+                )
         except Exception as e:
-            logger.warning(
-                f"Failed to start file watching for OpenAI Codex credentials: {e}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to start file watching for OpenAI Codex credentials: %s", e
+                )
 
     def stop(self) -> None:
         """Stop watching the credentials file."""
@@ -125,7 +127,8 @@ class CredentialWatcher:
                 self._observer.stop()
                 self._observer.join(timeout=1.0)
             except Exception as e:
-                logger.debug(f"Error stopping OpenAI Codex file watcher: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Error stopping OpenAI Codex file watcher: %s", e)
             finally:
                 self._observer = None
 
@@ -167,7 +170,8 @@ class CredentialWatcher:
 
         async def reload_task() -> None:
             try:
-                logger.debug("Reloading OpenAI Codex credentials due to file change")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Reloading OpenAI Codex credentials due to file change")
                 # Use force_reload=True to bypass cache
                 loaded = await self._credential_manager._load_auth(force_reload=True)
                 if loaded:
@@ -176,12 +180,15 @@ class CredentialWatcher:
                             self._credential_manager._auth_credentials
                         )
                         if not res:
-                            logger.warning(
-                                f"Credential structure validation failed after reload: {'; '.join(res.errors)}"
-                            )
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Credential structure validation failed after reload: %s",
+                                    "; ".join(res.errors),
+                                )
 
                 else:
-                    logger.warning("Failed to reload credentials from file")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("Failed to reload credentials from file")
             except Exception as e:
                 logger.error(f"Error during OpenAI Codex credentials reload: {e}")
 
@@ -190,15 +197,17 @@ class CredentialWatcher:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                logger.warning(
-                    "Cannot schedule credentials reload: no running event loop available."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Cannot schedule credentials reload: no running event loop available."
+                    )
                 self._reload_scheduling_event.clear()
                 return
             self._event_loop = loop
 
         if loop.is_closed():
-            logger.warning("Cannot schedule credentials reload: event loop is closed.")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Cannot schedule credentials reload: event loop is closed.")
             self._reload_scheduling_event.clear()
             return
 

@@ -1470,6 +1470,11 @@ class OpenAICodexConnector(OpenAIConnector):
     # File watching methods (stale token handling pattern)
     # -----------------------------
     def _start_file_watching(self) -> None:
+        if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get(
+            "ENABLE_CODEX_FILE_WATCH", ""
+        ).lower() not in {"1", "true", "yes"}:
+            logger.debug("Skipping OpenAI Codex credentials watcher under pytest.")
+            return
         if self._auth_path is None or self._file_observer is not None:
             return
 
@@ -1907,6 +1912,11 @@ class OpenAICodexConnector(OpenAIConnector):
 
     def __del__(self) -> None:
         self._stop_file_watching()
+
+    async def shutdown(self) -> None:
+        """Stop background file watchers to avoid thread leaks."""
+        self._stop_file_watching()
+        self._reload_scheduling_event.clear()
 
 
 backend_registry.register_backend("openai-codex", OpenAICodexConnector)

@@ -177,11 +177,12 @@ class TestPromptTooLongErrorHandling:
         metadata = chunks[0].metadata
 
         # Verify required metadata fields
-        assert metadata["finish_reason"] == "error"
-        assert "error" in metadata
-        assert "id" in metadata
-        assert "model" in metadata
-        assert "created" in metadata
+        # metadata is an ErrorMetadata object (Pydantic model), access attributes directly
+        assert metadata.finish_reason == "error"
+        assert hasattr(metadata, "error")
+        assert hasattr(metadata, "id")
+        assert hasattr(metadata, "model")
+        assert hasattr(metadata, "created")
 
     @pytest.mark.asyncio
     async def test_non_400_errors_still_raise(

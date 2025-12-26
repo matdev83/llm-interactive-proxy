@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -303,21 +304,25 @@ class SteeringLeakError(Exception):
 
 
 # Global singleton instance
-_GLOBAL_PROTECTOR: SteeringLeakProtector | None = None
+_global_protector: SteeringLeakProtector | None = None
+_global_lock = threading.Lock()
 
 
 def get_steering_leak_protector() -> SteeringLeakProtector:
     """Get the global steering leak protector instance."""
-    global _GLOBAL_PROTECTOR
-    if _GLOBAL_PROTECTOR is None:
-        _GLOBAL_PROTECTOR = SteeringLeakProtector()
-    return _GLOBAL_PROTECTOR
+    global _global_protector
+    if _global_protector is None:
+        with _global_lock:
+            if _global_protector is None:
+                _global_protector = SteeringLeakProtector()
+    return _global_protector
 
 
 def set_steering_leak_protector(protector: SteeringLeakProtector) -> None:
     """Set the global steering leak protector instance."""
-    global _GLOBAL_PROTECTOR
-    _GLOBAL_PROTECTOR = protector
+    global _global_protector
+    with _global_lock:
+        _global_protector = protector
 
 
 def check_and_sanitize_response(content: Any) -> tuple[Any, bool]:

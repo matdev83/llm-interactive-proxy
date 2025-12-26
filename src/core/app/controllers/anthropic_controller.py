@@ -124,7 +124,7 @@ class AnthropicController:
         )
 
 
-    async def handle_anthropic_messages(
+    async def handle_anthropic_messages(  # noqa: C901
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
     ) -> Response:
         """Handle Anthropic messages requests.

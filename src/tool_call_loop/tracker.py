@@ -10,6 +10,7 @@ import datetime
 import hashlib
 import json
 import logging
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from reprlib import repr as limited_repr
@@ -181,6 +182,8 @@ class ToolCallTracker:
         self.chance_given: dict[str, bool] = {}
         # Maximum number of signatures to store
         self.max_signatures = max_signatures
+        # Lock for thread-safe concurrent access (used in async contexts)
+        self._lock = threading.Lock()
 
     def prune_expired(self) -> int:
         """Remove expired signatures based on TTL.
@@ -188,56 +191,56 @@ class ToolCallTracker:
         Returns:
             Number of signatures pruned
         """
-        if not self.signatures:
-            return 0
+        with self._lock:
+            if not self.signatures:
+                return 0
 
-        original_count = len(self.signatures)
-        self.signatures = [
-            sig
-            for sig in self.signatures
-            if not sig.is_expired(self.config.ttl_seconds)
-        ]
+            original_count = len(self.signatures)
+            self.signatures = [
+                sig
+                for sig in self.signatures
+                if not sig.is_expired(self.config.ttl_seconds)
+            ]
 
-        pruned_count = original_count - len(self.signatures)
-        if pruned_count > 0 and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Pruned %d expired tool call signatures", pruned_count)
+            pruned_count = original_count - len(self.signatures)
+            if pruned_count > 0 and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Pruned %d expired tool call signatures", pruned_count)
 
-        current_signatures = [sig.get_full_signature() for sig in self.signatures]
-        if pruned_count > 0:
-            active_signatures = set(current_signatures)
-            for sig in list(self.consecutive_repeats.keys()):
-                if sig not in active_signatures:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Resetting consecutive count for expired signature: %s", sig
-                        )
-                    del self.consecutive_repeats[sig]
-                    # Also clear chance status if present
-                    self.chance_given.pop(sig, None)
+            pruned_signature_strs = [sig.get_full_signature() for sig in self.signatures]
+            if pruned_count > 0:
+                active_signatures = set(pruned_signature_strs)
+                for sig in list(self.consecutive_repeats.keys()):
+                    if sig not in active_signatures:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Resetting consecutive count for expired signature: %s", sig
+                            )
+                        del self.consecutive_repeats[sig]
+                        self.chance_given.pop(sig, None)
 
-            # Recompute consecutive repeat counters based on remaining signatures
-            new_counts: dict[str, int] = {}
-            current_sig: str | None = None
-            current_run = 0
-            for sig in current_signatures:
-                if sig == current_sig:
-                    current_run += 1
-                else:
-                    if current_sig is not None:
-                        new_counts[current_sig] = current_run
-                    current_sig = sig
-                    current_run = 1
-            if current_sig is not None:
-                new_counts[current_sig] = current_run
+                # Recompute consecutive repeat counters based on remaining signatures
+                new_counts: dict[str, int] = {}
+                current_sig: str | None = None
+                current_run = 0
+                for sig in pruned_signature_strs:
+                    if sig == current_sig:
+                        current_run += 1
+                    else:
+                        if current_sig is not None:
+                            new_counts[current_sig] = current_run
+                        current_sig = sig
+                        current_run = 1
+                if current_sig is not None:
+                    new_counts[current_sig] = current_run
 
-            self.consecutive_repeats = new_counts
+                self.consecutive_repeats = new_counts
 
-            # Clear chance markers for signatures whose streak reset below the threshold
-            for sig in list(self.chance_given.keys()):
-                if sig not in new_counts or new_counts[sig] < self.config.max_repeats:
-                    self.chance_given.pop(sig, None)
+                # Clear chance markers for signatures whose streak reset below the threshold
+                for sig in list(self.chance_given.keys()):
+                    if sig not in new_counts or new_counts[sig] < self.config.max_repeats:
+                        self.chance_given.pop(sig, None)
 
-        return pruned_count
+            return pruned_count
 
     def track_tool_call(
         self, tool_name: str, arguments: str, force_block: bool = False
@@ -264,111 +267,168 @@ class ToolCallTracker:
                 should_block=True, reason=reason, repeat_count=self.config.max_repeats
             )
 
-        # Prune expired signatures first
-        self.prune_expired()
+        with self._lock:
+            # Prune expired signatures first
+            if not self.signatures:
+                pass  # Nothing to prune
+            else:
+                original_count = len(self.signatures)
+                self.signatures = [
+                    sig
+                    for sig in self.signatures
+                    if not sig.is_expired(self.config.ttl_seconds)
+                ]
 
-        # Create signature for this call
-        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
-        full_sig = signature.get_full_signature()
+                pruned_count = original_count - len(self.signatures)
+                if pruned_count > 0 and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Pruned %d expired tool call signatures", pruned_count)
 
-        # Count repeats within the TTL window (even if interleaved with other tools)
-        total_count = self._count_recent(full_sig) + 1  # include the pending call
+                current_signatures = [
+                    sig.get_full_signature() for sig in self.signatures
+                ]
+                if pruned_count > 0:
+                    active_signatures = set(current_signatures)
+                    for sig in list(self.consecutive_repeats.keys()):
+                        if sig not in active_signatures:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Resetting consecutive count for expired signature: %s",
+                                    sig,
+                                )
+                            del self.consecutive_repeats[sig]
+                            self.chance_given.pop(sig, None)
 
-        # Check if this is a repeat of the most recent signature
-        if self.signatures and self.signatures[-1].get_full_signature() == full_sig:
-            self.consecutive_repeats[full_sig] = (
-                self.consecutive_repeats.get(full_sig, 1) + 1
-            )
-            repeat_count = self.consecutive_repeats[full_sig]
+                    # Recompute consecutive repeat counters based on remaining signatures
+                    new_counts: dict[str, int] = {}
+                    current_sig: str | None = None
+                    current_run = 0
+                    for sig in current_signatures:
+                        if sig == current_sig:
+                            current_run += 1
+                        else:
+                            if current_sig is not None:
+                                new_counts[current_sig] = current_run
+                            current_sig = sig
+                            current_run = 1
+                    if current_sig is not None:
+                        new_counts[current_sig] = current_run
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Repeated tool call: %s (count: %d)", tool_name, repeat_count
+                    self.consecutive_repeats = new_counts
+
+                    # Clear chance markers for signatures whose streak reset below the threshold
+                    for sig in list(self.chance_given.keys()):
+                        if (
+                            sig not in new_counts
+                            or new_counts[sig] < self.config.max_repeats
+                        ):
+                            self.chance_given.pop(sig, None)
+
+            # Create signature for this call
+            signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+            full_sig = signature.get_full_signature()
+
+            # Count repeats within the TTL window (even if interleaved with other tools)
+            total_count = (
+                sum(
+                    1 for sig in self.signatures if sig.get_full_signature() == full_sig
                 )
+                + 1
+            )  # include the pending call
 
-            # Check if we need to block based on threshold and mode
-            if repeat_count >= self.config.max_repeats:
-                # Handle based on mode
+            # Check if this is a repeat of the most recent signature
+            if self.signatures and self.signatures[-1].get_full_signature() == full_sig:
+                self.consecutive_repeats[full_sig] = (
+                    self.consecutive_repeats.get(full_sig, 1) + 1
+                )
+                repeat_count = self.consecutive_repeats[full_sig]
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Repeated tool call: %s (count: %d)", tool_name, repeat_count
+                    )
+
+                # Check if we need to block based on threshold and mode
+                if repeat_count >= self.config.max_repeats:
+                    # Handle based on mode
+                    if self.config.mode == ToolLoopMode.BREAK:
+                        reason = self._format_block_reason(tool_name, repeat_count)
+                        return ToolCallTrackingResult(
+                            should_block=True, reason=reason, repeat_count=repeat_count
+                        )
+                    elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
+                        # If we've already given a chance for this signature
+                        if self.chance_given.get(full_sig, False):
+                            reason = self._format_block_reason(
+                                tool_name, repeat_count, second_chance=True
+                            )
+                            return ToolCallTrackingResult(
+                                should_block=True,
+                                reason=reason,
+                                repeat_count=repeat_count,
+                            )
+                        else:
+                            # Give one chance
+                            self.chance_given[full_sig] = True
+                            reason = self._format_chance_reason(tool_name, repeat_count)
+                            return ToolCallTrackingResult(
+                                should_block=True,
+                                reason=reason,
+                                repeat_count=repeat_count,
+                            )
+            else:
+                # Not a repeat of the most recent call, reset counter for this signature
+                self.consecutive_repeats[full_sig] = 1
+                # Also reset chance status
+                self.chance_given.pop(full_sig, None)
+
+            # Guard against repeated calls within the TTL window even if interleaved
+            if total_count >= self.config.max_repeats:
                 if self.config.mode == ToolLoopMode.BREAK:
-                    reason = self._format_block_reason(tool_name, repeat_count)
-                    return ToolCallTrackingResult(
-                        should_block=True, reason=reason, repeat_count=repeat_count
-                    )
-                elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
-                    # If we've already given a chance for this signature
-                    if self.chance_given.get(full_sig, False):
-                        reason = self._format_block_reason(
-                            tool_name, repeat_count, second_chance=True
-                        )
-                        return ToolCallTrackingResult(
-                            should_block=True, reason=reason, repeat_count=repeat_count
-                        )
-                    else:
-                        # Give one chance
-                        self.chance_given[full_sig] = True
-                        reason = self._format_chance_reason(tool_name, repeat_count)
-                        return ToolCallTrackingResult(
-                            should_block=True, reason=reason, repeat_count=repeat_count
-                        )
-        else:
-            # Not a repeat of the most recent call, reset counter for this signature
-            self.consecutive_repeats[full_sig] = 1
-            # Also reset chance status
-            self.chance_given.pop(full_sig, None)
-
-        # Guard against repeated calls within the TTL window even if interleaved
-        if total_count >= self.config.max_repeats:
-            if self.config.mode == ToolLoopMode.BREAK:
-                reason = self._format_block_reason(tool_name, total_count)
-                return ToolCallTrackingResult(
-                    should_block=True, reason=reason, repeat_count=total_count
-                )
-            elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
-                if self.chance_given.get(full_sig, False):
-                    reason = self._format_block_reason(
-                        tool_name, total_count, second_chance=True
-                    )
+                    reason = self._format_block_reason(tool_name, total_count)
                     return ToolCallTrackingResult(
                         should_block=True, reason=reason, repeat_count=total_count
                     )
-                self.chance_given[full_sig] = True
-                reason = self._format_chance_reason(tool_name, total_count)
-                return ToolCallTrackingResult(
-                    should_block=True, reason=reason, repeat_count=total_count
-                )
-
-        # Add to history (with size limit to prevent unbounded growth)
-        self.signatures.append(signature)
-
-        # Enforce maximum size limit by removing oldest entries if needed
-        if len(self.signatures) > self.max_signatures:
-            # Remove oldest entries that exceed the limit
-            excess = len(self.signatures) - self.max_signatures
-            if excess > 0:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Trimming %d oldest signatures to maintain size limit", excess
+                elif self.config.mode == ToolLoopMode.CHANCE_THEN_BREAK:
+                    if self.chance_given.get(full_sig, False):
+                        reason = self._format_block_reason(
+                            tool_name, total_count, second_chance=True
+                        )
+                        return ToolCallTrackingResult(
+                            should_block=True, reason=reason, repeat_count=total_count
+                        )
+                    self.chance_given[full_sig] = True
+                    reason = self._format_chance_reason(tool_name, total_count)
+                    return ToolCallTrackingResult(
+                        should_block=True, reason=reason, repeat_count=total_count
                     )
-                # Remove oldest entries (at the beginning of the list)
-                self.signatures = self.signatures[excess:]
 
-                # Clean up related dictionaries for removed signatures
-                current_signatures = {
-                    sig.get_full_signature() for sig in self.signatures
-                }
-                for sig in list(self.consecutive_repeats.keys()):
-                    if sig not in current_signatures:
-                        self.consecutive_repeats.pop(sig, None)
-                        self.chance_given.pop(sig, None)
+            # Add to history (with size limit to prevent unbounded growth)
+            self.signatures.append(signature)
+
+            # Enforce maximum size limit by removing oldest entries if needed
+            if len(self.signatures) > self.max_signatures:
+                # Remove oldest entries that exceed the limit
+                excess = len(self.signatures) - self.max_signatures
+                if excess > 0:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Trimming %d oldest signatures to maintain size limit",
+                            excess,
+                        )
+                    # Remove oldest entries (at the beginning of the list)
+                    self.signatures = self.signatures[excess:]
+
+                    # Clean up related dictionaries for removed signatures
+                    remaining_signature_strs = {
+                        sig.get_full_signature() for sig in self.signatures
+                    }
+                    for sig in list(self.consecutive_repeats.keys()):
+                        if sig not in remaining_signature_strs:
+                            self.consecutive_repeats.pop(sig, None)
+                            self.chance_given.pop(sig, None)
 
         # Not blocked
         return ToolCallTrackingResult(should_block=False)
-
-    def _count_recent(self, full_signature: str) -> int:
-        """Count occurrences of a signature within the current (pruned) TTL window."""
-        return sum(
-            1 for sig in self.signatures if sig.get_full_signature() == full_signature
-        )
 
     def _format_block_reason(
         self, tool_name: str, repeat_count: int, second_chance: bool = False

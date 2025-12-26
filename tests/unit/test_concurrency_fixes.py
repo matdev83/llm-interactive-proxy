@@ -4,8 +4,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import pytest
-
 from src.core.auth.sso.sso_service import JWKSCache
 from src.core.ports.streaming_metrics import (
     get_metrics_instance,
@@ -134,7 +132,7 @@ class TestStreamingMetricsSingletonConcurrency:
                 future.result()
 
         # All instances should be the same
-        unique_instances = set(id(i) for i in instances)
+        unique_instances = {id(i) for i in instances}
         assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"
 
     def test_concurrent_get_sampler_instance(self):
@@ -159,7 +157,7 @@ class TestStreamingMetricsSingletonConcurrency:
                 future.result()
 
         # All instances should be the same
-        unique_instances = set(id(i) for i in instances)
+        unique_instances = {id(i) for i in instances}
         assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"
 
 
@@ -188,5 +186,5 @@ class TestUsageCalculationServiceSingletonConcurrency:
                 future.result()
 
         # All instances should be the same
-        unique_instances = set(id(i) for i in instances)
+        unique_instances = {id(i) for i in instances}
         assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"

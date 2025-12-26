@@ -210,7 +210,7 @@ class TestAssessmentPromptLoader:
         info = loader.get_prompt_info()
 
         # Assert
-        assert info["loaded"] is False
+        assert info.loaded is False
 
     def test_get_prompt_info_loaded(self, temp_prompts_dir):
         """Test prompt info when loaded."""
@@ -222,12 +222,12 @@ class TestAssessmentPromptLoader:
         info = loader.get_prompt_info()
 
         # Assert
-        assert info["loaded"] is True
-        assert info["prompts_dir"] == str(temp_prompts_dir)
-        assert info["system_prompt_length"] > 0
-        assert info["task_prompt_length"] > 0
-        assert "reasoning" in info["schema_properties"]
-        assert "confidence" in info["schema_properties"]
+        assert info.loaded is True
+        assert info.prompts_dir == str(temp_prompts_dir)
+        assert info.system_prompt_length > 0
+        assert info.task_prompt_length > 0
+        assert "reasoning" in info.schema_properties
+        assert "confidence" in info.schema_properties
 
     def test_default_prompts_directory(self):
         """Test that default prompts directory is set correctly."""

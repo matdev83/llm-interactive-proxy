@@ -42,6 +42,24 @@ HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
 HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
 _SESSION_LOOP: asyncio.AbstractEventLoop | None = None
 _TEST_CLIENTS: weakref.WeakSet[TestClient] = weakref.WeakSet()
+_ORIGINAL_EVENT_LOOP_POLICY = asyncio.get_event_loop_policy()
+
+
+def _ensure_windows_selector_event_loop_policy() -> None:
+    """Use the Selector event loop on Windows to avoid Proactor shutdown hangs."""
+
+    if sys.platform != "win32":
+        return
+    if os.environ.get("PYTEST_USE_PROACTOR_EVENT_LOOP", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        return
 
 
 if HAS_PYTEST_ASYNCIO:
@@ -260,6 +278,7 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
     _cleanup_root_artifacts()
     _install_global_warning_filters()
     _install_test_client_tracker()
+    _ensure_windows_selector_event_loop_policy()
     global _SESSION_LOOP
     try:
         _SESSION_LOOP = asyncio.get_event_loop()
@@ -275,10 +294,10 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untype
     global _SESSION_LOOP
     if _SESSION_LOOP is not None:
         try:
-            if not _SESSION_LOOP.is_closed():
-                _SESSION_LOOP.close()
+            asyncio.set_event_loop(None)
         finally:
-            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+            with contextlib.suppress(Exception):
+                asyncio.set_event_loop_policy(_ORIGINAL_EVENT_LOOP_POLICY)
         _SESSION_LOOP = None
 
 

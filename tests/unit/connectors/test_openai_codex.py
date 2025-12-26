@@ -150,6 +150,7 @@ async def test_openai_codex_reload_scheduled_from_thread(
 @pytest.mark.asyncio
 async def test_start_file_watching_success(auth_dir: Path):
     """Test that file watching starts successfully."""
+    import os
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
@@ -158,7 +159,9 @@ async def test_start_file_watching_success(auth_dir: Path):
         ts = TranslationService()
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
+        # Enable file watching for this test
         with (
+            patch.dict(os.environ, {"ENABLE_CODEX_FILE_WATCH": "1"}),
             patch.object(
                 backend, "_validate_credentials_file_exists", return_value=(True, [])
             ),
@@ -203,6 +206,7 @@ async def test_start_file_watching_no_credentials_path():
 @pytest.mark.asyncio
 async def test_stop_file_watching_success(auth_dir: Path):
     """Test that file watching stops successfully."""
+    import os
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
@@ -211,7 +215,9 @@ async def test_stop_file_watching_success(auth_dir: Path):
         ts = TranslationService()
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
+        # Enable file watching for this test
         with (
+            patch.dict(os.environ, {"ENABLE_CODEX_FILE_WATCH": "1"}),
             patch.object(
                 backend, "_validate_credentials_file_exists", return_value=(True, [])
             ),

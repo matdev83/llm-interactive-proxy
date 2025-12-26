@@ -10,9 +10,28 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.common.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class PromptInfo(BaseModel):
+    """Information about loaded assessment prompts.
+
+    Provides a strongly-typed contract for prompt metadata
+    including loading status, file locations, and content lengths.
+    """
+
+    loaded: bool
+    prompts_dir: str | None = None
+    system_prompt_length: int = 0
+    task_prompt_length: int = 0
+    steering_template_length: int = 0
+    schema_properties: list[str] = []
+
+    model_config = {"extra": "forbid"}
 
 
 # Fallback hardcoded prompts (used when files are missing)
@@ -327,23 +346,23 @@ class AssessmentPromptLoader:
         self._loaded = False
         self.load_prompts()
 
-    def get_prompt_info(self) -> dict[str, Any]:
+    def get_prompt_info(self) -> PromptInfo:
         """
         Get information about loaded prompts.
 
         Returns:
-            Dictionary with prompt information
+            PromptInfo with loading status and metadata
         """
         if not self._loaded:
-            return {"loaded": False}
+            return PromptInfo(loaded=False)
 
-        return {
-            "loaded": True,
-            "prompts_dir": str(self.prompts_dir),
-            "system_prompt_length": len(self._system_prompt or ""),
-            "task_prompt_length": len(self._task_prompt or ""),
-            "steering_template_length": len(self._steering_template or ""),
-            "schema_properties": list(
+        return PromptInfo(
+            loaded=True,
+            prompts_dir=str(self.prompts_dir),
+            system_prompt_length=len(self._system_prompt or ""),
+            task_prompt_length=len(self._task_prompt or ""),
+            steering_template_length=len(self._steering_template or ""),
+            schema_properties=list(
                 (self._response_schema or {}).get("properties", {}).keys()
             ),
-        }
+        )

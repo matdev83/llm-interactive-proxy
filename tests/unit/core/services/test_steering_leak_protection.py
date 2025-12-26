@@ -332,3 +332,37 @@ class TestRealWorldScenarios:
         sanitized, had_leak = protector.sanitize_bytes(sse_chunk)
         assert had_leak is True
         assert b"chatcmpl-steering" not in sanitized
+
+
+class TestGlobalProtectorConcurrency:
+    """Tests for concurrent access to global singleton."""
+
+    async def test_concurrent_get_and_set_global_protector(self):
+        """Concurrent calls to get and set should not cause race."""
+        import asyncio
+
+        from src.core.services.steering_leak_protection import (
+            SteeringLeakProtector,
+            get_steering_leak_protector,
+            set_steering_leak_protector,
+        )
+
+        # Reset global state first
+        set_steering_leak_protector(None)
+
+        # Create multiple concurrent tasks
+        async def get_and_set():
+            protector = get_steering_leak_protector()
+            # Modify to verify we got same instance
+            set_steering_leak_protector(protector)
+            return id(protector)
+
+        tasks = [get_and_set() for _ in range(20)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All IDs should be same (only one instance created)
+        unique_ids = set(results)
+        assert len(unique_ids) == 1
+        # Verify that global state is consistent
+        final_protector = get_steering_leak_protector()
+        assert isinstance(final_protector, SteeringLeakProtector)

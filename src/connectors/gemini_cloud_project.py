@@ -55,7 +55,6 @@ from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-
 import google.auth
 import google.auth.transport.requests
 import google.oauth2.credentials
@@ -89,7 +88,6 @@ from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiApiConfig, GeminiBackend
 from .gemini_base.models import TokenUsage
-
 from .mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 
 # Code Assist API endpoint (same as personal OAuth)
