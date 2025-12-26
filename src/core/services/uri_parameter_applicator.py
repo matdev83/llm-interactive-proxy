@@ -171,12 +171,13 @@ class URIParameterApplicator(IURIParameterApplicator):
                     ", ".join(errors),
                 )
             return normalized
-        except Exception as exc:
+        except (ImportError, AttributeError, TypeError, ValueError) as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     "Failed to validate URI parameters for %s: %s. Continuing without URI parameters.",
                     backend_type,
                     exc,
+                    exc_info=True,
                 )
             return None
 

@@ -144,7 +144,11 @@ class AppConfig(AppConfigModel):
                 else:
                     value = getattr(value, k, default)
             return value
-        except Exception:
+        except (AttributeError, KeyError, TypeError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get configuration value for key '%s': %s", key, e
+                )
             return default
 
     def set(self, key: str, value: Any) -> None:

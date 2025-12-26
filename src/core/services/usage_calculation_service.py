@@ -57,9 +57,11 @@ class UsageCalculationService:
         try:
             prompt_text = extract_prompt_text(messages)
             return count_tokens(prompt_text, model=model)
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to calculate prompt tokens", exc_info=True)
+                logger.warning(
+                    "Failed to calculate prompt tokens: %s", e, exc_info=True
+                )
             return 0
 
     def calculate_completion_tokens(
@@ -81,9 +83,11 @@ class UsageCalculationService:
             if not text:
                 return 0
             return count_tokens(text, model=model)
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to calculate completion tokens", exc_info=True)
+                logger.warning(
+                    "Failed to calculate completion tokens: %s", e, exc_info=True
+                )
             return 0
 
     def _extract_completion_text(self, content: Any) -> str:
@@ -126,8 +130,13 @@ class UsageCalculationService:
         if hasattr(content, "model_dump"):
             try:
                 return self._extract_completion_text(content.model_dump())
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract text from Pydantic model: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         return ""
 
