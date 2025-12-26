@@ -66,15 +66,25 @@ def _extract_bytes(payload: Any) -> bytes:
             return json.dumps(
                 payload.model_dump(), ensure_ascii=False, separators=(",", ":")
             ).encode("utf-8")
-        except Exception:
-            pass
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(
+                "Failed to serialize payload with model_dump: %s, type: %s",
+                e,
+                type(payload).__name__,
+                exc_info=True,
+            )
     if hasattr(payload, "__dict__"):
         try:
             return json.dumps(
                 dict(payload.__dict__), ensure_ascii=False, separators=(",", ":")
             ).encode("utf-8")
-        except Exception:
-            pass
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(
+                "Failed to serialize payload with __dict__: %s, type: %s",
+                e,
+                type(payload).__name__,
+                exc_info=True,
+            )
     return str(payload).encode("utf-8")
 
 
@@ -167,12 +177,15 @@ class CborWireCaptureService(IWireCapture):
         try:
             log_file = getattr(getattr(config, "logging", None), "log_file", None)
             if log_file:
-                # Extract base name without extension
                 log_path = Path(log_file)
-                base_name = log_path.stem  # e.g., "proxy-1819" from "proxy-1819.log"
+                base_name = log_path.stem
                 return base_name
-        except Exception:
-            pass
+        except (AttributeError, TypeError, ValueError) as e:
+            logger.debug(
+                "Failed to derive session ID from log file config: %s",
+                e,
+                exc_info=True,
+            )
 
         # Fallback to UUID if log file not configured or error occurs
         return uuid4().hex
@@ -713,7 +726,19 @@ class CborWireCaptureService(IWireCapture):
                             await self._flush_buffer()
                 except asyncio.CancelledError:
                     break
-                except Exception:
+                except OSError as e:
+                    logger.error(
+                        "Background flush failed due to OS error: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    continue
+                except Exception as e:
+                    logger.error(
+                        "Background flush failed unexpectedly: %s",
+                        e,
+                        exc_info=True,
+                    )
                     continue
         except asyncio.CancelledError:
             pass
@@ -724,8 +749,18 @@ class CborWireCaptureService(IWireCapture):
                     async with self._buffer_lock:
                         if self._buffer:
                             await self._flush_buffer()
-                except Exception:
-                    pass
+                except OSError as e:
+                    logger.error(
+                        "Final flush failed due to OS error: %s",
+                        e,
+                        exc_info=True,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Final flush failed unexpectedly: %s",
+                        e,
+                        exc_info=True,
+                    )
 
     async def shutdown(self) -> None:
         """Gracefully stop capture and flush remaining data."""

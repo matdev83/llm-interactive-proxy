@@ -112,7 +112,13 @@ def _sanitize_metadata_value(value: Any) -> Any:
         return value
     try:
         return str(value)
-    except Exception:
+    except (TypeError, ValueError, AttributeError) as e:
+        logger.debug(
+            "Failed to convert payload to string, using repr: %s, type: %s",
+            e,
+            type(value).__name__,
+            exc_info=True,
+        )
         return repr(value)
 
 
@@ -304,18 +310,26 @@ class BufferedWireCapture(IWireCapture):
                 loop = asyncio.get_running_loop()
                 self._flush_task = loop.create_task(self._background_flush_loop())
             except RuntimeError:
-                # No running loop at init time (common in sync contexts/tests).
-                # Keep capture enabled; we'll start the task on first use.
                 self._flush_task = None
 
-        except Exception:
-            # Don't use logger here - this is wire capture, not application logging
-            # Store error in a way that doesn't contaminate wire capture
+        except OSError as e:
+            logger.warning(
+                "Wire capture initialization failed due to OS error, disabling: %s",
+                e,
+                exc_info=True,
+            )
             self._enabled = False
-            # Cancel background task if it was started
             if self._flush_task:
                 self._flush_task.cancel()
-            # Could write to a separate error file or stderr, but not to wire capture file
+        except Exception as e:
+            logger.error(
+                "Wire capture initialization failed unexpectedly, disabling: %s",
+                e,
+                exc_info=True,
+            )
+            self._enabled = False
+            if self._flush_task:
+                self._flush_task.cancel()
 
     def enabled(self) -> bool:
         """Return True if wire capture is enabled and functional."""
@@ -947,9 +961,18 @@ class BufferedWireCapture(IWireCapture):
             # Check for rotation after writing
             self._check_rotation()
 
-        except Exception:
-            # Don't use logger here
-            pass
+        except OSError as e:
+            logger.warning(
+                "Wire capture write failed due to OS error (continuing): %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.error(
+                "Wire capture write failed unexpectedly (continuing): %s",
+                e,
+                exc_info=True,
+            )
 
     def _write_entry_sync(self, entry: WireCaptureEntry) -> None:
         """Write a single entry synchronously (used during initialization)."""
@@ -958,11 +981,20 @@ class BufferedWireCapture(IWireCapture):
 
         try:
             with open(self._file_path, "a", encoding="utf-8") as f:
-                # PERFORMANCE OPTIMIZATION: Use cached JSON serialization
                 json_line = self._serialize_entry_cached(entry)
                 f.write(json_line + "\n")
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(
+                "Wire capture entry write failed during init (continuing): %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.error(
+                "Wire capture entry write failed unexpectedly during init (continuing): %s",
+                e,
+                exc_info=True,
+            )
 
     def _check_rotation(self) -> None:
         """Check if file rotation is needed."""
@@ -974,8 +1006,18 @@ class BufferedWireCapture(IWireCapture):
                 current_size = os.path.getsize(self._file_path)
                 if current_size > self._max_bytes:
                     self._perform_rotation()
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning(
+                "Wire capture rotation check failed (continuing): %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.error(
+                "Wire capture rotation check failed unexpectedly (continuing): %s",
+                e,
+                exc_info=True,
+            )
 
     def _robust_replace(
         self, src: str, dst: str, retries: int = 5, delay: float = 0.1
@@ -1019,9 +1061,18 @@ class BufferedWireCapture(IWireCapture):
             # 4. Ensure a fresh file exists for subsequent writes
             with open(self._file_path, "a", encoding="utf-8"):
                 pass
-        except Exception:
-            # Suppress errors during rotation to avoid crashing the service
-            pass
+        except OSError as e:
+            logger.warning(
+                "Wire capture rotation failed due to OS error (continuing): %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.error(
+                "Wire capture rotation failed unexpectedly (continuing): %s",
+                e,
+                exc_info=True,
+            )
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""
@@ -1036,24 +1087,41 @@ class BufferedWireCapture(IWireCapture):
                         if any(self._buffers.values()):
                             await self._flush_buffer()
                 except asyncio.CancelledError:
-                    # Task was cancelled, exit cleanly
                     break
-                except Exception:
-                    # Don't use logger, but continue processing
+                except OSError as e:
+                    logger.warning(
+                        "Background wire capture flush failed due to OS error (continuing): %s",
+                        e,
+                        exc_info=True,
+                    )
+                    continue
+                except Exception as e:
+                    logger.error(
+                        "Background wire capture flush failed unexpectedly (continuing): %s",
+                        e,
+                        exc_info=True,
+                    )
                     continue
         except asyncio.CancelledError:
-            # Handle outer cancellation
             pass
         finally:
-            # Final flush attempt on exit if still enabled
             if self._enabled:
                 try:
                     async with self._buffer_lock:
                         if any(self._buffers.values()):
                             await self._flush_buffer()
-                except Exception:
-                    # Best effort flush on exit
-                    pass
+                except OSError as e:
+                    logger.warning(
+                        "Final wire capture flush failed due to OS error (continuing): %s",
+                        e,
+                        exc_info=True,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Final wire capture flush failed unexpectedly (continuing): %s",
+                        e,
+                        exc_info=True,
+                    )
 
     async def shutdown(self) -> None:
         """Shutdown wire capture and flush remaining data."""
@@ -1068,11 +1136,13 @@ class BufferedWireCapture(IWireCapture):
             try:
                 await self._flush_task
             except asyncio.CancelledError:
-                # Expected when we cancel the task
                 pass
-            except Exception:
-                # Suppress other exceptions during shutdown
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Unexpected exception during wire capture shutdown: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Ensure task reference is cleared
         self._flush_task = None
