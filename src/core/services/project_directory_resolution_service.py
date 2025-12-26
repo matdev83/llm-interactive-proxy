@@ -7,8 +7,6 @@ import os
 import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
-from xml.etree import ElementTree
-from xml.etree.ElementTree import ParseError
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -18,6 +16,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.domain.session import Session
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.utils.xml_safety import safe_xml_parse
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +87,10 @@ class ProjectDirectoryResolutionService:
         backend_type: str | None = None
         model_name: str | None = None
         if self._model_spec:
-            backend_candidate, model_candidate = parse_model_backend(
-                self._model_spec, ""
-            )
-            if backend_candidate and model_candidate:
-                backend_type = backend_candidate
-                model_name = model_candidate
+            parsed = parse_model_backend(self._model_spec, "")
+            if parsed.backend_type and parsed.model_name:
+                backend_type = parsed.backend_type
+                model_name = parsed.model_name
             else:
                 logger.warning(
                     "Invalid project directory resolution model specification: %s",
@@ -846,9 +843,9 @@ class ProjectDirectoryResolutionService:
         self, response_text: str
     ) -> tuple[str | None, str | None]:
         try:
-            root = ElementTree.fromstring(response_text.strip())
-        except ParseError:
-            return None, "invalid XML"
+            root = safe_xml_parse(response_text.strip())
+        except Exception as e:
+            return None, f"invalid XML: {e}"
         if root.tag != "directory-resolution-response":
             return None, "unexpected root tag"
         directory_elem = root.find("project-absolute-directory")

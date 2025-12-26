@@ -9,7 +9,6 @@ import logging
 import threading
 import time
 import uuid
-import xml.etree.ElementTree as ET  # noqa: N817
 import zlib
 from collections import OrderedDict
 from dataclasses import asdict
@@ -25,6 +24,7 @@ from authlib.jose.errors import DecodeError, JoseError  # type: ignore
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
 from src.core.auth.sso.models import JWK, JWKS, SAMLMetadata, SSOResult
+from src.core.utils.xml_safety import safe_xml_parse
 
 logger = logging.getLogger(__name__)
 
@@ -32,117 +32,6 @@ logger = logging.getLogger(__name__)
 # 100 entries is sufficient for most deployments (typically 1-10 providers).
 # Each entry is roughly 1-5 KB, so 100 entries = ~100-500 KB total.
 MAX_SAML_METADATA_CACHE_SIZE = 100
-
-
-def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
-    """
-    Safely parse XML data with protection against DoS attacks.
-
-    Protects against:
-    - XML bomb attacks (Billion Laughs) - exponential entity expansion
-    - Deeply nested XML - stack overflow
-    - Large XML content - memory exhaustion
-
-    Args:
-        xml_data: XML string or bytes to parse
-
-    Returns:
-        Parsed XML element
-
-    Raises:
-        AuthenticationError: If XML is unsafe or malformed
-    """
-    # Import sys inside function to avoid circular import issues
-    import sys
-
-    # Convert bytes to string if needed
-    if isinstance(xml_data, bytes):
-        try:
-            xml_str = xml_data.decode("utf-8")
-        except UnicodeDecodeError as e:
-            raise AuthenticationError(
-                f"XML data contains invalid UTF-8: {e!s}",
-                details={"error": "invalid_encoding"},
-                original_error=e,
-            ) from e
-    else:
-        xml_str = xml_data
-
-    # Check size limits (prevent memory exhaustion)
-    MAX_XML_SIZE = 10 * 1024 * 1024  # 10MB
-    if len(xml_str) > MAX_XML_SIZE:
-        raise AuthenticationError(
-            f"XML data too large: {len(xml_str)} bytes (limit: {MAX_XML_SIZE} bytes)",
-            details={
-                "error": "xml_too_large",
-                "actual_size": len(xml_str),
-                "max_size": MAX_XML_SIZE,
-            },
-        )
-
-    # Check for XML bomb patterns (entity expansion attacks)
-    if "<!DOCTYPE" in xml_str and ("<!ENTITY" in xml_str):
-        # Look for entity expansion patterns typical in XML bombs
-        import re
-
-        entity_pattern = r'<!ENTITY\s+\w+\s+"&\w+;'
-        if re.search(entity_pattern, xml_str, re.IGNORECASE):
-            raise AuthenticationError(
-                "XML contains potentially malicious entity expansion",
-                details={"error": "xml_entity_expansion"},
-            )
-
-    # Limit nesting depth to prevent stack overflow
-    max_depth = 100
-
-    # Count nested tags to estimate depth
-    open_tags = 0
-    for char in xml_str:
-        if char == "<":
-            open_tags += 1
-            if open_tags > max_depth:
-                raise AuthenticationError(
-                    f"XML nesting depth exceeds limit: {open_tags} (limit: {max_depth})",
-                    details={
-                        "error": "xml_depth_exceeded",
-                        "actual_depth": open_tags,
-                        "max_depth": max_depth,
-                    },
-                )
-
-    # Parse with safety measures
-    try:
-        original_limit = sys.getrecursionlimit()
-        sys.setrecursionlimit(min(max_depth * 2, original_limit))
-
-        try:
-            # Create safe parser (basic XMLParser without external entity support)
-            parser = ET.XMLParser()
-
-            root = ET.fromstring(xml_str, parser)
-            return root
-
-        finally:
-            sys.setrecursionlimit(original_limit)
-
-    except ET.ParseError as e:
-        raise AuthenticationError(
-            f"XML parsing failed: {e!s}",
-            details={"error": "xml_parse_error", "parse_error": str(e)},
-            original_error=e,
-        ) from e
-    except RecursionError as e:
-        raise AuthenticationError(
-            "XML nesting depth caused stack overflow",
-            details={"error": "xml_stack_overflow"},
-            original_error=e,
-        ) from e
-    except Exception as e:
-        raise AuthenticationError(
-            f"Unexpected error parsing XML: {e!s}",
-            details={"error": "xml_unexpected_error"},
-            original_error=e,
-        ) from e
 
 
 class JWKSCache:
