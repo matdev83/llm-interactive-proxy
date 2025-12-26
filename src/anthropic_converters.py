@@ -273,7 +273,11 @@ def anthropic_to_openai_request(
                 ]
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to convert tool_calls to dict format: %s", e)
+                    logger.warning(
+                        "Failed to convert tool_calls to dict format: %s",
+                        e,
+                        exc_info=True,
+                    )
                 openai_msg["tool_calls"] = list(msg_tool_calls or [])
 
         msg_tool_call_id = getattr(msg, "tool_call_id", None)
@@ -333,7 +337,9 @@ def anthropic_to_openai_request(
             )
         except (TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to convert metadata to dict: %s", e)
+                logger.warning(
+                    "Failed to convert metadata to dict: %s", e, exc_info=True
+                )
             metadata_dict = {}
         user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
         if user_id is not None:

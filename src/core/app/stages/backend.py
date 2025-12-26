@@ -148,8 +148,11 @@ class BackendStage(InitializationStage):
                     )
 
                     endpoint_registry = provider.get_service(EndpointRegistry)
-                except Exception:
-                    pass  # Health checks not enabled or not yet registered
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "EndpointRegistry not available: %s", e, exc_info=True
+                        )
 
                 # Get backend notifier if available (for health notifications)
                 backend_notifier = None
@@ -159,8 +162,11 @@ class BackendStage(InitializationStage):
                     )
 
                     backend_notifier = provider.get_service(BackendHealthNotifier)
-                except Exception:
-                    pass  # Health notifications not enabled or not yet registered
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "BackendHealthNotifier not available: %s", e, exc_info=True
+                        )
 
                 # Get activity tracker if available (for connection monitoring)
                 activity_tracker = None
@@ -170,8 +176,13 @@ class BackendStage(InitializationStage):
                     )
 
                     activity_tracker = provider.get_service(ConnectionActivityTracker)
-                except Exception:
-                    pass  # Activity tracking not enabled or not yet registered
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "ConnectionActivityTracker not available: %s",
+                            e,
+                            exc_info=True,
+                        )
 
                 return BackendFactory(  # noqa: DI-bypass (factory construction)
                     httpx_client,
