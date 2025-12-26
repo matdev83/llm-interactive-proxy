@@ -12,18 +12,27 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
-from typing import Any
+from typing import Any, NamedTuple
 
 from src.connectors.utils.reasoning_models import (
     ReasoningCaptureResult,
     ReasoningDetectionMetadata,
-    ReasoningDetectionResult,
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import StreamingContent
 
 logger = logging.getLogger(__name__)
+
+
+class DetectionResult(NamedTuple):
+    """Result of reasoning phase detection.
+
+    Provides named fields for clarity when unpacking result.
+    """
+
+    detected: bool
+    reason: str | None
 
 
 class ReasoningStreamProcessor:
@@ -252,107 +261,118 @@ class ReasoningStreamProcessor:
                 detection_metadata.tokens_estimated = tokens
 
                 # Priority 1: Check for explicit closing tags
-                detection_result = self.detect_by_tags(accumulated_content)
-                if detection_result.is_detected:
-                    tag = detection_result.detected_value
+                is_complete, tag = self.detect_by_tags(accumulated_content)
+                if is_complete:
                     detection_metadata.method = f"explicit_tag:{tag}"
-                    logger.debug(
-                        f"Reasoning end detected by explicit tag: {tag} "
-                        f"(chunks: {detection_metadata.chunks_processed}, "
-                        f"chars: {detection_metadata.chars_captured})"
-                    )
-                    logger.debug(
-                        "Stream capture stopping - reasoning phase complete",
-                        extra={
-                            "detection_method": "explicit_tag",
-                            "tag": tag,
-                            "chunks_processed": detection_metadata.chunks_processed,
-                            "chars_captured": detection_metadata.chars_captured,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Reasoning end detected by explicit tag: %s (chunks: %d, chars: %d)",
+                            tag,
+                            detection_metadata.chunks_processed,
+                            detection_metadata.chars_captured,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stream capture stopping - reasoning phase complete",
+                            extra={
+                                "detection_method": "explicit_tag",
+                                "tag": tag,
+                                "chunks_processed": detection_metadata.chunks_processed,
+                                "chars_captured": detection_metadata.chars_captured,
+                            },
+                        )
                     break
 
                 # Priority 2: Check finish_reason in response metadata
-                detection_result = self.detect_by_finish_reason(chunk)
-                if detection_result.is_detected:
-                    reason = detection_result.detected_value
+                is_complete, reason = self.detect_by_finish_reason(chunk)
+                if is_complete:
                     detection_metadata.method = f"finish_reason:{reason}"
-                    logger.debug(
-                        f"Reasoning end detected by finish_reason: {reason} "
-                        f"(chunks: {detection_metadata.chunks_processed}, "
-                        f"chars: {detection_metadata.chars_captured})"
-                    )
-                    logger.debug(
-                        "Stream capture stopping - reasoning phase complete",
-                        extra={
-                            "detection_method": "finish_reason",
-                            "finish_reason": reason,
-                            "chunks_processed": detection_metadata.chunks_processed,
-                            "chars_captured": detection_metadata.chars_captured,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Reasoning end detected by finish_reason: %s (chunks: %d, chars: %d)",
+                            reason,
+                            detection_metadata.chunks_processed,
+                            detection_metadata.chars_captured,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stream capture stopping - reasoning phase complete",
+                            extra={
+                                "detection_method": "finish_reason",
+                                "finish_reason": reason,
+                                "chunks_processed": detection_metadata.chunks_processed,
+                                "chars_captured": detection_metadata.chars_captured,
+                            },
+                        )
                     break
 
                 # Priority 3: Check transition markers (with caution)
-                detection_result = self.detect_by_markers(accumulated_content)
-                if detection_result.is_detected and self._confirm_transition(
-                    accumulated_content
-                ):
-                    marker = detection_result.detected_value
+                is_complete, marker = self.detect_by_markers(accumulated_content)
+                if is_complete and self._confirm_transition(accumulated_content):
                     detection_metadata.method = f"transition_marker:{marker}"
-                    logger.debug(
-                        f"Reasoning end detected by transition marker: {marker} "
-                        f"(chunks: {detection_metadata.chunks_processed}, "
-                        f"chars: {detection_metadata.chars_captured})"
-                    )
-                    logger.debug(
-                        "Stream capture stopping - reasoning phase complete",
-                        extra={
-                            "detection_method": "transition_marker",
-                            "marker": marker,
-                            "chunks_processed": detection_metadata.chunks_processed,
-                            "chars_captured": detection_metadata.chars_captured,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Reasoning end detected by transition marker: %s (chunks: %d, chars: %d)",
+                            marker,
+                            detection_metadata.chunks_processed,
+                            detection_metadata.chars_captured,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stream capture stopping - reasoning phase complete",
+                            extra={
+                                "detection_method": "transition_marker",
+                                "marker": marker,
+                                "chunks_processed": detection_metadata.chunks_processed,
+                                "chars_captured": detection_metadata.chars_captured,
+                            },
+                        )
                     break
 
                 # Priority 4: Safety limit - token count
                 if tokens >= max_tokens:
                     detection_metadata.method = "token_limit"
-                    logger.warning(
-                        f"Reasoning capture stopped at token limit: {tokens} >= {max_tokens} "
-                        f"(chunks: {detection_metadata.chunks_processed}, "
-                        f"chars: {detection_metadata.chars_captured})"
-                    )
-                    logger.debug(
-                        "Stream capture stopping - token limit reached",
-                        extra={
-                            "detection_method": "token_limit",
-                            "tokens": tokens,
-                            "max_tokens": max_tokens,
-                            "chunks_processed": detection_metadata.chunks_processed,
-                            "chars_captured": detection_metadata.chars_captured,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Reasoning capture stopped at token limit: %d >= %d (chunks: %d, chars: %d)",
+                            tokens,
+                            max_tokens,
+                            detection_metadata.chunks_processed,
+                            detection_metadata.chars_captured,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stream capture stopping - token limit reached",
+                            extra={
+                                "detection_method": "token_limit",
+                                "tokens": tokens,
+                                "max_tokens": max_tokens,
+                                "chunks_processed": detection_metadata.chunks_processed,
+                                "chars_captured": detection_metadata.chars_captured,
+                            },
+                        )
                     break
 
                 # Priority 4: Safety limit - character count
                 if len(accumulated_content) >= max_chars:
                     detection_metadata.method = "char_limit"
-                    logger.warning(
-                        f"Reasoning capture stopped at character limit: "
-                        f"{len(accumulated_content)} >= {max_chars} "
-                        f"(chunks: {detection_metadata.chunks_processed})"
-                    )
-                    logger.debug(
-                        "Stream capture stopping - character limit reached",
-                        extra={
-                            "detection_method": "char_limit",
-                            "chars": len(accumulated_content),
-                            "max_chars": max_chars,
-                            "chunks_processed": detection_metadata.chunks_processed,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Reasoning capture stopped at character limit: %d >= %d (chunks: %d)",
+                            len(accumulated_content),
+                            max_chars,
+                            detection_metadata.chunks_processed,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Stream capture stopping - character limit reached",
+                            extra={
+                                "detection_method": "char_limit",
+                                "chars": len(accumulated_content),
+                                "max_chars": max_chars,
+                                "chunks_processed": detection_metadata.chunks_processed,
+                            },
+                        )
                     break
 
         except Exception as e:
@@ -531,27 +551,25 @@ class ReasoningStreamProcessor:
 
         return None
 
-    def detect_by_tags(self, content: str) -> ReasoningDetectionResult:
+    def detect_by_tags(self, content: str) -> DetectionResult:
         """
         Detect reasoning end by explicit closing tags.
 
-        This is primary detection method with highest priority.
+        This is the primary detection method with highest priority.
 
         Args:
             content: Content to check for tags
 
         Returns:
-            ReasoningDetectionResult with detection status and tag found
+            DetectionResult with detected flag and reason (tag)
         """
         content_lower = content.lower()
         for tag in self.REASONING_END_TAGS:
             if tag in content_lower:
-                return ReasoningDetectionResult(is_detected=True, detected_value=tag)
-        return ReasoningDetectionResult(is_detected=False, detected_value=None)
+                return DetectionResult(True, tag)
+        return DetectionResult(False, None)
 
-    def detect_by_finish_reason(
-        self, chunk: dict[str, Any]
-    ) -> ReasoningDetectionResult:
+    def detect_by_finish_reason(self, chunk: dict[str, Any]) -> DetectionResult:
         """
         Detect reasoning end by finish_reason in response metadata.
 
@@ -561,18 +579,16 @@ class ReasoningStreamProcessor:
             chunk: Response chunk with potential finish_reason
 
         Returns:
-            ReasoningDetectionResult with detection status and finish_reason
+            DetectionResult with detected flag and reason (finish_reason)
         """
         choices = chunk.get("choices", [])
         for choice in choices:
             finish_reason = choice.get("finish_reason")
             if finish_reason and finish_reason not in ("null", None):
-                return ReasoningDetectionResult(
-                    is_detected=True, detected_value=finish_reason
-                )
-        return ReasoningDetectionResult(is_detected=False, detected_value=None)
+                return DetectionResult(True, finish_reason)
+        return DetectionResult(False, None)
 
-    def detect_by_markers(self, content: str) -> ReasoningDetectionResult:
+    def detect_by_markers(self, content: str) -> DetectionResult:
         """
         Detect reasoning end by content transition markers.
 
@@ -583,13 +599,13 @@ class ReasoningStreamProcessor:
             content: Content to check for markers
 
         Returns:
-            ReasoningDetectionResult with detection status and marker found
+            DetectionResult with detected flag and reason (marker)
         """
         content_lower = content.lower()
         for marker in self.TRANSITION_MARKERS:
             if marker in content_lower:
-                return ReasoningDetectionResult(is_detected=True, detected_value=marker)
-        return ReasoningDetectionResult(is_detected=False, detected_value=None)
+                return DetectionResult(True, marker)
+        return DetectionResult(False, None)
 
     def _confirm_transition(self, content: str) -> bool:
         """
