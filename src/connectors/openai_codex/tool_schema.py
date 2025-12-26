@@ -11,6 +11,8 @@ from collections.abc import Callable, Sequence
 from copy import deepcopy
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.connectors.openai_codex.contracts import (
     CodexConnectorSettings,
     CodexRequestContext,
@@ -139,7 +141,6 @@ class ToolSchemaResolver(IToolSchemaResolver):
 
         return tools
 
-
     def resolve_tool_schema(
         self, context: CodexRequestContext
     ) -> list[CodexToolSchema]:
@@ -243,19 +244,19 @@ class ToolSchemaResolver(IToolSchemaResolver):
                     if name_value in merged_tools:
                         new_sig = json.dumps(params, sort_keys=True)
                         if new_sig != tool_signatures.get(name_value):
-                            logger.warning(
-                                "Tool schema collision: tool '%s' defined with different parameters. "
-                                "Keeping default definition. Custom parameters: %s",
-                                name_value,
-                                json.dumps(params)[:200],
-                            )
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Tool schema collision: tool '%s' defined with different parameters. "
+                                    "Keeping default definition. Custom parameters: %s",
+                                    name_value,
+                                    json.dumps(params)[:200],
+                                )
                             continue  # Keep default, skip custom
                     # No collision or same parameters - merge (custom overwrites)
                     merged_tools[name_value] = deepcopy(tool)
                     tool_signatures[name_value] = json.dumps(params, sort_keys=True)
 
             return self._dict_tools_to_schemas(list(merged_tools.values()))
-
 
         # Default: codex_default mode
         return self._dict_tools_to_schemas(default_tools)
@@ -278,8 +279,12 @@ class ToolSchemaResolver(IToolSchemaResolver):
                 schemas.append(tool)
                 continue
 
-            # Deep copy to avoid modifying original
-            tool_dict = deepcopy(tool)
+            if isinstance(tool, dict):
+                tool_dict = deepcopy(tool)
+            elif isinstance(tool, BaseModel):
+                tool_dict = tool.model_dump(mode="python")
+            else:
+                continue
 
             # Remove fields that are explicitly passed as keyword arguments
             name = tool_dict.pop("name", None)
@@ -301,4 +306,3 @@ class ToolSchemaResolver(IToolSchemaResolver):
                 )
             )
         return schemas
-
