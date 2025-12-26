@@ -30,7 +30,7 @@ properties:
     type: object
     additionalProperties: false
     properties:
-      level: { type: string, enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL] }
+      level: { type: string, enum: [TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL] }
       request_logging: { type: boolean }
       response_logging: { type: boolean }
       log_file: { type: ["string", "null"] }

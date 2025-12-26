@@ -5,6 +5,18 @@ additionalProperties: false
 properties:
   enabled:
     type: boolean
+  unified_steering_enabled:
+    type: boolean
+  emit_legacy_steering_log:
+    type: boolean
+  steering_policy_priorities:
+    type: ["object", "null"]
+  steering_session_ttl_seconds:
+    type: integer
+    minimum: 0
+  steering_max_sessions:
+    type: integer
+    minimum: 1
   apply_diff_steering_enabled:
     type: boolean
   apply_diff_steering_rate_limit_seconds:
@@ -32,6 +44,10 @@ properties:
     type:
       - string
       - "null"
+  pytest_context_saving_enabled:
+    type: boolean
+  fix_think_tags_enabled:
+    type: boolean
   test_execution_reminder_enabled:
     type: boolean
   test_execution_reminder_message:
