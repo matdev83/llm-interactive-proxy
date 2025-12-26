@@ -741,11 +741,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 # Await cancelled tasks to ensure they complete
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
             except Exception:
-                # Suppress errors during cleanup
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error during cancellation task cleanup", exc_info=True
-                    )
+                logger.warning(
+                    "Error during cancellation task cleanup; suppressing to allow cleanup to continue",
+                    exc_info=True,
+                    extra={"pending_tasks_count": len(pending_tasks)},
+                )
             finally:
                 # Clear set to prevent memory leaks
                 with self._cancellation_tasks_lock:

@@ -15,6 +15,8 @@ from src.core.interfaces.di_interface import IServiceProvider
 # Global provider state
 _service_provider: IServiceProvider | None = None
 
+logger = logging.getLogger(__name__)
+
 
 def _get_di_diagnostics() -> bool:
     """Get DI diagnostics setting from environment."""
@@ -48,7 +50,8 @@ def get_or_build_service_provider() -> IServiceProvider:
             else:
                 _service_provider = cast(IServiceProvider, legacy_provider)
     except Exception:
-        pass
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Failed to sync with legacy _service_provider", exc_info=True)
     if _service_provider is None:
         # Import here to avoid circular import
         from src.core.di.services import get_service_collection
@@ -69,7 +72,10 @@ def get_or_build_service_provider() -> IServiceProvider:
 
             di_services._service_provider = _service_provider  # type: ignore[attr-defined]
         except Exception:
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to sync legacy _service_provider after build", exc_info=True
+                )
     return _service_provider
 
 
@@ -86,7 +92,11 @@ def set_service_provider(provider: IServiceProvider | None) -> None:
 
         di_services._service_provider = provider  # type: ignore[attr-defined]
     except Exception:
-        pass
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to sync legacy _service_provider in set_service_provider",
+                exc_info=True,
+            )
 
 
 def get_service_provider() -> IServiceProvider:
@@ -157,7 +167,8 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
             if loop_detector is not None:
                 registry.register_feature(LoopDetectionFeature(loop_detector))
         except Exception:
-            pass  # LoopDetector may not be available
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to register LoopDetectionFeature", exc_info=True)
 
         # Register middleware instances from the middleware manager
         try:
@@ -182,7 +193,10 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
                         name=mw_name,
                     )
         except Exception:
-            pass  # Middleware manager may not be available yet
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to register middleware in parity registry", exc_info=True
+                )
 
         parity_logger = logging.getLogger("llm.feature_parity")
         if parity_logger.isEnabledFor(logging.DEBUG):
@@ -192,9 +206,9 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
             )
     except Exception as e:
         # Don't fail startup due to parity registration issues
-        logger = logging.getLogger(__name__)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Feature parity initialization skipped: %s", e)
+        init_logger = logging.getLogger(__name__)
+        if init_logger.isEnabledFor(logging.DEBUG):
+            init_logger.debug("Feature parity initialization skipped: %s", e)
 
 
 def _register_tool_call_handlers(provider: IServiceProvider) -> None:

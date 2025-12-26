@@ -284,6 +284,11 @@ class DangerousCommandCheck(ISecurityCheck):
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir
         except Exception:
+            logger.warning(
+                "Failed to get session for project root integrity check; allowing command",
+                exc_info=True,
+                extra={"session_id": context.session_id},
+            )
             return SecurityCheckResult.allow()
 
         if not project_dir:
