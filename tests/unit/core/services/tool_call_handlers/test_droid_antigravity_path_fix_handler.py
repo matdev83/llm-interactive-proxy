@@ -293,6 +293,13 @@ class TestDroidAntigravityPathFixHandler:
             "pyproject.toml"
         )
 
+    def test_fix_path_traversal_detection(
+        self, enabled_handler: DroidAntigravityPathFixHandler
+    ) -> None:
+        """Path fix should detect traversal out of CWD and return original path."""
+        traversal_path = "../../../../../../../../../../../../../windows/system32"
+        assert enabled_handler._fix_path(traversal_path) == traversal_path
+
     def test_extract_path_from_dict(
         self, enabled_handler: DroidAntigravityPathFixHandler
     ) -> None:

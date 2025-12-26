@@ -8,6 +8,7 @@ errors when the dedicated DroidAntigravityPathFixHandler is not active.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any
@@ -132,14 +133,38 @@ class DroidPathFixup:
             path: The relative path to fix.
 
         Returns:
-            Fixed absolute path including drive letter.
+            Fixed absolute path including drive letter, or original path if
+            traversal out of CWD is detected.
         """
         # Strip potential leading separators to ensure we append to CWD
         # instead of resolving to drive root
         cleaned_path = path.lstrip("/\\")
 
         # Join with CWD to get full path
-        full_path = os.path.join(os.getcwd(), cleaned_path)
+        cwd = os.getcwd()
+        full_path = os.path.join(cwd, cleaned_path)
 
         # Normalize (resolves .. and separators)
-        return os.path.abspath(full_path)
+        resolved_path = os.path.abspath(full_path)
+
+        # Security check: ensure resolved path is within CWD
+        try:
+            if os.path.commonpath([cwd, resolved_path]) != cwd:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "DroidPathFixup: Path traversal detected. "
+                        "Resolved path '%s' is outside CWD '%s'. Returning original path.",
+                        resolved_path,
+                        cwd,
+                    )
+                return path
+        except ValueError:
+            # Can happen if paths are on different drives
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "DroidPathFixup: Path traversal detected (drive mismatch). "
+                    "Returning original path."
+                )
+            return path
+
+        return resolved_path

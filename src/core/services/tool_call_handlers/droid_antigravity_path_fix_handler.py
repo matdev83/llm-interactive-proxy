@@ -207,7 +207,8 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
             path: The path to fix
 
         Returns:
-            Fixed absolute path including drive letter
+            Fixed absolute path including drive letter, or original path if
+            traversal out of CWD is detected.
         """
         import os
 
@@ -216,10 +217,32 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
         cleaned_path = path.lstrip("/\\")
 
         # Join with CWD to get full path
-        full_path = os.path.join(os.getcwd(), cleaned_path)
+        cwd = os.getcwd()
+        full_path = os.path.join(cwd, cleaned_path)
 
         # Normalize (resolves .. and separators)
-        return os.path.abspath(full_path)
+        resolved_path = os.path.abspath(full_path)
+
+        # Security check: ensure resolved path is within CWD
+        # We use os.path.commonpath to handle paths correctly
+        try:
+            if os.path.commonpath([cwd, resolved_path]) != cwd:
+                logger.warning(
+                    "DroidAntigravityPathFixHandler: Path traversal detected. "
+                    "Resolved path '%s' is outside CWD '%s'. Returning original path.",
+                    resolved_path,
+                    cwd,
+                )
+                return path
+        except ValueError:
+            # Can happen if paths are on different drives
+            logger.warning(
+                "DroidAntigravityPathFixHandler: Path traversal detected (drive mismatch). "
+                "Returning original path."
+            )
+            return path
+
+        return resolved_path
 
     def _update_path(self, arguments: Any, fixed_path: str) -> None:
         """Update the path in tool arguments.

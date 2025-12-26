@@ -149,9 +149,12 @@ class TestFixPath:
         # Should not start with double separators
         assert not fixed.startswith("//")
 
-    @patch("os.getcwd", return_value="/test/cwd")
+    @patch("os.getcwd")
     def test_fix_path_joins_with_cwd(self, mock_cwd: pytest.Mock) -> None:
         """Test that fix_path joins with current working directory."""
+        # Use platform-appropriate path to avoid traversal detection (drive mismatch)
+        mock_cwd.return_value = "C:\\test\\cwd" if os.name == "nt" else "/test/cwd"
+
         fixup = DroidPathFixup()
         relative_path = "relative/path"
 
@@ -160,6 +163,17 @@ class TestFixPath:
         assert os.path.isabs(fixed)
         # Should contain cwd components
         assert "test" in fixed or "cwd" in fixed
+
+    def test_fix_path_detects_traversal(self) -> None:
+        """Test that fix_path returns original path if traversal detected."""
+        fixup = DroidPathFixup()
+        # Traverse out of CWD
+        relative_path = "../../../../../../../../../../../../../windows/system32"
+
+        fixed = fixup._fix_path(relative_path)
+
+        # Should return original path because it's outside CWD
+        assert fixed == relative_path
 
 
 class TestApply:
