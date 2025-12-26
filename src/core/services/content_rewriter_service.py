@@ -34,10 +34,6 @@ class ContentRewriterService:
             self.config_path = app_config.rewriting.config_path
         else:
             self.config_path = "config/replacements"
-        
-        # Hardening: Resolve path to absolute
-        self.config_path = os.path.abspath(self.config_path)
-
         self.prompt_system_rules: list[ReplacementRule] = []
         self.prompt_user_rules: list[ReplacementRule] = []
         self.reply_rules: list[ReplacementRule] = []
@@ -64,14 +60,6 @@ class ContentRewriterService:
         for subdir in sorted(os.listdir(directory)):
             subdir_path = os.path.join(directory, subdir)
             if not os.path.isdir(subdir_path):
-                continue
-
-            # Hardening: skip symlinks to prevent directory traversal
-            if os.path.islink(subdir_path):
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Skipping symlink in content replacement rules: %s", subdir_path
-                    )
                 continue
 
             search_file = os.path.join(subdir_path, "SEARCH.txt")
