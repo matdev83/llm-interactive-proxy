@@ -61,14 +61,13 @@ class MessageAugmentor:
         Returns:
             Messages with reasoning in system message
         """
-        messages_copy = copy.deepcopy(messages)
-
-        # Format reasoning with appropriate tags
+        # Format reasoning with appropriate tags first to avoid copying if not needed
         formatted_reasoning = self._markup_processor.format_for_model(
             reasoning_output, execution_backend
         )
         if not formatted_reasoning:
-            return messages_copy
+            # Return shallow copy since we're not modifying anything
+            return list(messages)
 
         # Create system message content
         system_content = (
@@ -76,19 +75,21 @@ class MessageAugmentor:
             f"{formatted_reasoning}"
         )
 
+        # Shallow copy the list - we'll only deepcopy the specific message we modify
+        messages_copy = list(messages)
+
         # Check if there's already a system message
-        has_system_message = False
         for i, msg in enumerate(messages_copy):
             if isinstance(msg, dict) and msg.get("role") == "system":
-                # Augment existing system message
-                messages_copy[i]["content"] = f"{msg['content']}\n\n{system_content}"
-                has_system_message = True
-                break
+                # Augment existing system message - deepcopy only this message
+                modified_msg = copy.deepcopy(msg)
+                modified_msg["content"] = f"{msg['content']}\n\n{system_content}"
+                messages_copy[i] = modified_msg
+                return messages_copy
 
         # If no system message exists, create one at the beginning
-        if not has_system_message:
-            system_message = {"role": "system", "content": system_content}
-            messages_copy.insert(0, system_message)
+        system_message = {"role": "system", "content": system_content}
+        messages_copy.insert(0, system_message)
 
         return messages_copy
 
@@ -105,23 +106,25 @@ class MessageAugmentor:
         Returns:
             Messages with reasoning prepended to first user message
         """
-        messages_copy = copy.deepcopy(messages)
-
-        # Format reasoning with appropriate tags
+        # Format reasoning with appropriate tags first to avoid copying if not needed
         formatted_reasoning = self._markup_processor.format_for_model(
             reasoning_output, execution_backend
         )
         if not formatted_reasoning:
-            return messages_copy
+            # Return shallow copy since we're not modifying anything
+            return list(messages)
+
+        # Shallow copy the list - we'll only deepcopy the specific message we modify
+        messages_copy = list(messages)
 
         # Find first user message
         for i, msg in enumerate(messages_copy):
             if isinstance(msg, dict) and msg.get("role") == "user":
-                # Prepend reasoning to user message
+                # Prepend reasoning to user message - deepcopy only this message
+                modified_msg = copy.deepcopy(msg)
                 original_content = msg.get("content", "")
-                messages_copy[i][
-                    "content"
-                ] = f"{formatted_reasoning}\n\n{original_content}"
+                modified_msg["content"] = f"{formatted_reasoning}\n\n{original_content}"
+                messages_copy[i] = modified_msg
                 break
 
         return messages_copy

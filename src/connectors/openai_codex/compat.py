@@ -17,6 +17,7 @@ from src.connectors.openai_codex.contracts import (
     CompatibilityState,
     ProcessedMessage,
     ProviderStreamChunk,
+    ToolArguments,
     ToolCall,
     ToolExecutionResult,
 )
@@ -189,8 +190,6 @@ class CompatibilityLayer(ICompatibilityLayer):
             if self._tool_execution_service:
                 for tool in proxy_tools:
                     try:
-                        from src.connectors.openai_codex.contracts import ToolArguments
-
                         result = await self._tool_execution_service.execute_proxy_tool(
                             tool.name,
                             ToolArguments(payload=tool.parameters),
@@ -221,8 +220,6 @@ class CompatibilityLayer(ICompatibilityLayer):
                 # Execute MCP tools
                 for tool in mcp_tools:
                     try:
-                        from src.connectors.openai_codex.contracts import ToolArguments
-
                         result = await self._tool_execution_service.execute_mcp_tool(
                             tool.name,
                             ToolArguments(payload=tool.parameters),

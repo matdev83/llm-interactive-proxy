@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.connectors.openai_codex.contracts import (
     CodexConnectorSettings,
+    CodexInputItem,
     CodexPayload,
     CodexRequestContext,
     CodexToolSchema,
@@ -377,8 +378,6 @@ class PayloadBuilder(IPayloadBuilder):
         # Convert input items while preserving structure
         input_items = []
         for item in payload_dict.get("input", []):
-            from src.connectors.openai_codex.contracts import CodexInputItem
-
             if isinstance(item, dict):
                 item_dict = dict(item)
                 if "type" not in item_dict and (
