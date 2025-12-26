@@ -200,11 +200,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             await super().initialize(**kwargs)
         except Exception as exc:
             # Never propagate init errors so other backends remain usable.
-            logger.warning(
-                "Failed to initialize antigravity-oauth backend: %s",
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to initialize antigravity-oauth backend: %s",
+                    exc,
+                    exc_info=True,
+                )
             # Close custom client if initialization fails
             if self._owns_custom_client and custom_client is not None:
                 try:
@@ -255,10 +256,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             HTTPException: If the debugging override flag is not enabled
         """
         if not self._enable_antigravity_backend_debugging_override:
-            logger.warning(
-                "Rejected request: Antigravity backend requires debugging override flag. "
-                "To enable, use the --enable-antigravity-backend-debugging-override flag."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Rejected request: Antigravity backend requires debugging override flag. "
+                    "To enable, use by --enable-antigravity-backend-debugging-override flag."
+                )
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -331,11 +333,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 tool_json = match.group(1)
                 # DoS protection: Check size before parsing
                 if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
-                    logger.warning(
-                        "Tool JSON payload too large: %d bytes (limit: %d bytes), skipping parsing",
-                        len(tool_json.encode("utf-8")),
-                        MAX_JSON_PARSE_SIZE,
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Tool JSON payload too large: %d bytes (limit: %d bytes), skipping parsing",
+                            len(tool_json.encode("utf-8")),
+                            MAX_JSON_PARSE_SIZE,
+                        )
                 else:
                     try:
                         tools_data = json.loads(tool_json)
@@ -440,11 +443,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         tool_json = match.group(1)
                         # DoS protection: Check size before parsing
                         if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
-                            logger.warning(
-                                "Tool JSON payload too large in stream: %d bytes (limit: %d bytes), skipping parsing",
-                                len(tool_json.encode("utf-8")),
-                                MAX_JSON_PARSE_SIZE,
-                            )
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Tool JSON payload too large in stream: %d bytes (limit: %d bytes), skipping parsing",
+                                    len(tool_json.encode("utf-8")),
+                                    MAX_JSON_PARSE_SIZE,
+                                )
                         else:
                             try:
                                 tools_data = json.loads(tool_json)
@@ -654,12 +658,13 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             # high, medium, or any other value defaults to high
             internal_model = "gemini-3-pro-high"
 
-        logger.debug(
-            "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
-            model_name,
-            reasoning_effort,
-            internal_model,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
+                model_name,
+                reasoning_effort,
+                internal_model,
+            )
 
         return internal_model
 
@@ -677,11 +682,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         # Always map to thinking variant, ignoring reasoning_effort
         internal_model = "claude-opus-4-5-thinking"
 
-        logger.debug(
-            "Mapped model '%s' to internal model '%s' (always thinking variant)",
-            model_name,
-            internal_model,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Mapped model '%s' to internal model '%s' (always thinking variant)",
+                model_name,
+                internal_model,
+            )
 
         return internal_model
 
@@ -711,12 +717,13 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             # low, or default -> base model
             internal_model = "claude-sonnet-4-5"
 
-        logger.debug(
-            "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
-            model_name,
-            reasoning_effort or "(default)",
-            internal_model,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Mapped model '%s' with reasoning_effort='%s' to internal model '%s'",
+                model_name,
+                reasoning_effort or "(default)",
+                internal_model,
+            )
 
         return internal_model
 
@@ -731,11 +738,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         # Always map to medium variant, ignoring reasoning_effort
         internal_model = "gpt-oss-120b-medium"
 
-        logger.debug(
-            "Mapped model '%s' to internal model '%s' (always medium variant)",
-            model_name,
-            internal_model,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Mapped model '%s' to internal model '%s' (always medium variant)",
+                model_name,
+                internal_model,
+            )
 
         return internal_model
 
@@ -752,9 +760,18 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             base_url = sandbox_url
 
         if base_url == sandbox_url:
-            logger.info(
-                "Skipping fetchAvailableModels for Antigravity sandbox; using fallback model list."
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Skipping fetchAvailableModels for Antigravity sandbox; using fallback model list."
+                )
+            # Load models from FallbackModelDiscovery strategy
+            self.available_models = self._model_discovery.get_fallback_models()
+            self._available_models_set = set(self.available_models)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Loaded %d Antigravity models (fallback list)",
+                    len(self.available_models),
+                )
             # Load models from the FallbackModelDiscovery strategy
             self.available_models = self._model_discovery.get_fallback_models()
             self._available_models_set = set(self.available_models)
@@ -831,9 +848,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             return str(self._project_id)
 
         if not auth_session:
-            logger.warning(
-                "auth_session required for Antigravity project discovery but missing"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "auth_session required for Antigravity project discovery but missing"
+                )
             initial = (
                 self._oauth_credentials.get("project_id")
                 if self._oauth_credentials
@@ -936,9 +954,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             if not selected_tier_id:
                 selected_tier_id = "paid-tier"
 
-            logger.info(
-                "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
+                )
 
             onboard_request = {
                 "tierId": selected_tier_id,
@@ -974,25 +993,28 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         "id", initial_project_id or "default"
                     )
                     self._project_id = discovered_project_id
-                    logger.info(
-                        "Discovered Antigravity project ID: %s", self._project_id
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Discovered Antigravity project ID: %s", self._project_id
+                        )
                     return str(self._project_id)
 
                 retry_count += 1
                 await asyncio.sleep(2)
 
-            logger.warning(
-                "Onboarding timed out for Antigravity; falling back to project '%s'",
-                fallback_project_id,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Onboarding timed out for Antigravity; falling back to project '%s'",
+                    fallback_project_id,
+                )
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Antigravity project discovery failed, using fallback project '%s': %s",
-                fallback_project_id,
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Antigravity project discovery failed, using fallback project '%s': %s",
+                    fallback_project_id,
+                    exc,
+                    exc_info=True,
+                )
 
         self._project_id = fallback_project_id
         return str(self._project_id)
@@ -1012,9 +1034,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if override:
             override_path = Path(override)
             if str(override_path).strip():
-                logger.debug(
-                    f"Using explicit ANTIGRAVITY_STATE_DB override: {override_path}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Using explicit ANTIGRAVITY_STATE_DB override: %s",
+                        override_path,
+                    )
                 return [override_path]
 
         candidates: list[Path] = []
@@ -1131,14 +1155,16 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 raw_value = row[0]
                 return self._parse_auth_status_value(raw_value)
         except sqlite3.Error as exc:
-            logger.warning(
-                "Unable to read Antigravity state database at %s: %s", db_path, exc
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unable to read Antigravity state database at %s: %s", db_path, exc
+                )
             return None
         except Exception as exc:  # pragma: no cover - defensive guardrail
-            logger.warning(
-                "Unexpected error reading Antigravity state db %s: %s", db_path, exc
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc
+                )
             return None
 
     def _parse_auth_status_value(
@@ -1161,22 +1187,25 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             # Ensure raw_value is a string before calling strip()
             raw_value_str = str(raw_value)
             if not raw_value_str.strip():
-                logger.debug("Auth status value is empty.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is empty.")
                 return None
 
             # DoS protection: Check size before parsing
             if len(raw_value_str.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
-                logger.warning(
-                    "Auth status JSON payload too large: %d bytes (limit: %d bytes)",
-                    len(raw_value_str.encode("utf-8")),
-                    MAX_JSON_PARSE_SIZE,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Auth status JSON payload too large: %d bytes (limit: %d bytes)",
+                        len(raw_value_str.encode("utf-8")),
+                        MAX_JSON_PARSE_SIZE,
+                    )
                 return None
 
             auth_data = json.loads(raw_value_str)
 
             if auth_data is None:
-                logger.debug("Auth status value is null/None.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is null/None.")
                 return None
 
             if isinstance(auth_data, dict):
@@ -1195,7 +1224,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 )
             return None
         except json.JSONDecodeError as exc:
-            logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):
@@ -1268,7 +1298,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         for path in candidate_paths:
             try:
                 if not path.exists():
-                    logger.debug("Path does not exist: %s", path)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Path does not exist: %s", path)
                     continue
 
                 current_modified = None
@@ -1285,9 +1316,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     and current_modified is not None
                     and current_modified == self._last_modified
                 ):
-                    logger.debug(
-                        "Antigravity credentials unchanged; using cached copy."
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Antigravity credentials unchanged; using cached copy."
+                        )
                     return True
 
                 credentials = self._extract_credentials_from_db(path)
@@ -1307,9 +1339,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 )
                 errors.extend(validation_errors)
                 if not is_valid:
-                    logger.warning(
-                        f"Invalid credentials in {path}: {validation_errors}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Invalid credentials in %s: %s", path, validation_errors
+                        )
                     continue
 
                 self._oauth_credentials = normalized_credentials
@@ -1319,14 +1352,18 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     normalized_credentials
                 )
                 try:
+
+                    def _hash_file(target_path: Path) -> str:
+                        return hashlib.sha256(target_path.read_bytes()).hexdigest()
+
                     credentials_file_hash: str | None = await asyncio.to_thread(
-                        lambda: hashlib.sha256(path.read_bytes()).hexdigest()
+                        _hash_file, path
                     )
                 except OSError:
                     credentials_file_hash = None
                 self._credentials_file_hash = credentials_file_hash
                 self._last_credentials_event_hash = credentials_file_hash
-                if not silent:
+                if not silent and logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Loaded Antigravity OAuth credentials from %s%s",
                         path,
@@ -1335,9 +1372,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 return True
             except Exception as exc:
                 errors.append(f"Unexpected error reading {path}: {exc}")
-                logger.warning(
-                    "Error loading Antigravity credentials from %s: %s", path, exc
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error loading Antigravity credentials from %s: %s", path, exc
+                    )
 
         if errors:
             self._credential_validation_errors = errors
