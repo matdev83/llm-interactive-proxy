@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import pydantic
 import requests  # type: ignore[import-untyped]
+from pydantic.types import JsonValue
 
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.config import DEFAULT_READ_TIMEOUT
@@ -69,6 +70,10 @@ class ErrorMetadata(pydantic.BaseModel):
     created: int
 
     model_config = {"extra": "forbid"}
+
+    def to_metadata(self) -> dict[str, JsonValue]:
+        # Note: OpenAIError is a Pydantic model; dump to JSON-compatible primitives.
+        return self.model_dump()
 
 
 @runtime_checkable
@@ -153,7 +158,6 @@ class SSELineProcessor:
     def build_error_chunk(
         self, message: str, *, code: int = 500, error_type: str = "api_error"
     ) -> OpenAIErrorChunk:
-
         """Build a standardized error chunk.
 
         Args:
@@ -260,7 +264,7 @@ class SSELineProcessor:
             return result
 
         except Exception as e:
-            logger.error("Failed to process streaming chunk: %s", str(e))
+            logger.error("Failed to process streaming chunk: %s", str(e), exc_info=True)
             return None
 
 
@@ -877,9 +881,7 @@ class StreamingExecutor:
                 object="chat.completion.chunk",
                 created=now,
                 model=prepared.effective_model,
-                choices=[
-                    OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
-                ],
+                choices=[OpenAIErrorChoice(index=0, delta={}, finish_reason="error")],
                 error=OpenAIError(
                     message=error_message,
                     type=error_type,
@@ -1148,9 +1150,11 @@ class StreamingExecutor:
 
         raise backend_error
 
-    def _build_error_metadata(self, error_chunk: OpenAIErrorChunk | dict[str, Any]) -> ErrorMetadata:
+    def _build_error_metadata(
+        self, error_chunk: OpenAIErrorChunk | dict[str, Any]
+    ) -> dict[str, JsonValue]:
         """Build metadata for error responses.
-        
+
         Args:
             error_chunk: Either an OpenAIErrorChunk object or a dict with error chunk data.
         """
@@ -1171,7 +1175,7 @@ class StreamingExecutor:
                 id=error_chunk.get("id", ""),
                 model=error_chunk.get("model", "unknown"),
                 created=error_chunk.get("created", 0),
-            )
+            ).to_metadata()
         else:
             # OpenAIErrorChunk object
             return ErrorMetadata(
@@ -1180,7 +1184,7 @@ class StreamingExecutor:
                 id=error_chunk.id,
                 model=error_chunk.model,
                 created=error_chunk.created,
-            )
+            ).to_metadata()
 
     def _build_auth_error_chunk(self, model: str) -> OpenAIErrorChunk:
         """Build an authentication error chunk."""
@@ -1190,16 +1194,13 @@ class StreamingExecutor:
             object="chat.completion.chunk",
             created=now,
             model=model,
-            choices=[
-                OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
-            ],
+            choices=[OpenAIErrorChoice(index=0, delta={}, finish_reason="error")],
             error=OpenAIError(
                 message="Authentication failed. Please check your credentials.",
                 type="auth_error",
                 code=401,
             ),
         )
-
 
 
 __all__ = [

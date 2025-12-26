@@ -144,7 +144,13 @@ class OpenAIConnector(LLMBackend):
         if identity is not None:
             try:
                 identity_headers = identity.get_resolved_headers(None)
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to get identity headers, using empty headers: %s",
+                        e,
+                        exc_info=True,
+                    )
                 identity_headers = {}
             else:
                 identity_headers = dict(identity_headers)
@@ -401,7 +407,13 @@ class OpenAIConnector(LLMBackend):
         base_headers: dict[str, str] | None
         try:
             base_headers = self.get_headers(identity=identity)
-        except Exception:
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get base headers for chat_completions request: %s",
+                    e,
+                    exc_info=True,
+                )
             base_headers = None
 
         if headers_override is not None:
@@ -644,7 +656,21 @@ class OpenAIConnector(LLMBackend):
             # This will be replaced in a future update with domain exceptions.
             try:
                 err = response.json()
-            except Exception:
+            except JSONDecodeError as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to parse error response as JSON, using raw text: %s",
+                        e,
+                        exc_info=True,
+                    )
+                err = response.text
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error parsing error response, using raw text: %s",
+                        e,
+                        exc_info=True,
+                    )
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
@@ -1052,7 +1078,13 @@ class OpenAIConnector(LLMBackend):
         base_headers: dict[str, str] | None
         try:
             base_headers = self.get_headers(identity=identity)
-        except Exception:
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get base headers for responses request: %s",
+                    e,
+                    exc_info=True,
+                )
             base_headers = None
 
         headers: dict[str, str] | None = None
@@ -1116,7 +1148,21 @@ class OpenAIConnector(LLMBackend):
         if int(response.status_code) >= 400:
             try:
                 err = response.json()
-            except Exception:
+            except JSONDecodeError as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to parse error response as JSON, using raw text: %s",
+                        e,
+                        exc_info=True,
+                    )
+                err = response.text
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error parsing error response, using raw text: %s",
+                        e,
+                        exc_info=True,
+                    )
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
@@ -1137,11 +1183,31 @@ class OpenAIConnector(LLMBackend):
 
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except AttributeError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to access response.headers, trying getattr: %s",
+                    e,
+                    exc_info=True,
+                )
             try:
                 response_headers = dict(getattr(response, "headers", {}) or {})
-            except Exception:
+            except Exception as e2:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to get response headers via getattr, using empty dict: %s",
+                        e2,
+                        exc_info=True,
+                    )
                 response_headers = {}
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error accessing response headers, using empty dict: %s",
+                    e,
+                    exc_info=True,
+                )
+            response_headers = {}
 
         return ResponseEnvelope(
             content=responses_content,

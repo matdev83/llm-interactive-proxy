@@ -102,9 +102,7 @@ class AnthropicBackend(LLMBackend):
                     base_url=base_url, key_name=self.key_name, api_key=self.api_key
                 )
                 self.available_models = [
-                    str(m.name or m.id)
-                    for m in data.data
-                    if m.name or m.id
+                    str(m.name or m.id) for m in data.data if m.name or m.id
                 ]
 
             except Exception as e:
@@ -534,7 +532,11 @@ class AnthropicBackend(LLMBackend):
             raise
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Unexpected error in Anthropic response handling: {e}")
+                logger.error(
+                    "Unexpected error in Anthropic response handling: %s",
+                    e,
+                    exc_info=True,
+                )
             raise ServiceUnavailableError(f"Anthropic API error: {e}") from e
 
         data = response.json()
