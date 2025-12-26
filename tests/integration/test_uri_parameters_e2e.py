@@ -36,14 +36,14 @@ def mock_app_config() -> AppConfig:
     """Fixture for a mock AppConfig with all backends configured."""
     backends = BackendSettings(
         openrouter=BackendConfig(
-            api_key=["test-openrouter-key"], api_url="https://openrouter.ai/api/v1"
+            api_key="test-openrouter-key", api_url="https://openrouter.ai/api/v1"
         ),
         gemini=BackendConfig(
-            api_key=["test-gemini-key"],
+            api_key="test-gemini-key",
             api_url="https://generativelanguage.googleapis.com",
         ),
         anthropic=BackendConfig(
-            api_key=["test-anthropic-key"], api_url="https://api.anthropic.com/v1"
+            api_key="test-anthropic-key", api_url="https://api.anthropic.com/v1"
         ),
     )
     config = AppConfig(backends=backends)
@@ -101,41 +101,39 @@ class TestURIParameterParsing:
 
     def test_parse_simple_model_with_temperature(self) -> None:
         """Test parsing model string with temperature parameter."""
-        backend, model, params = parse_model_with_params("openai:gpt-4?temperature=0.5")
+        result = parse_model_with_params("openai:gpt-4?temperature=0.5")
 
-        assert backend == "openai"
-        assert model == "gpt-4"
-        assert params == {"temperature": "0.5"}
+        assert result.backend_type == "openai"
+        assert result.model_name == "gpt-4"
+        assert result.uri_params == {"temperature": "0.5"}
 
     def test_parse_model_with_multiple_parameters(self) -> None:
         """Test parsing model string with multiple URI parameters."""
-        backend, model, params = parse_model_with_params(
+        result = parse_model_with_params(
             "anthropic:claude-3?temperature=0.7&reasoning_effort=high"
         )
 
-        assert backend == "anthropic"
-        assert model == "claude-3"
-        assert params == {"temperature": "0.7", "reasoning_effort": "high"}
+        assert result.backend_type == "anthropic"
+        assert result.model_name == "claude-3"
+        assert result.uri_params == {"temperature": "0.7", "reasoning_effort": "high"}
 
     def test_parse_model_with_complex_path_and_parameters(self) -> None:
         """Test parsing model string with complex model path and parameters."""
-        backend, model, params = parse_model_with_params(
+        result = parse_model_with_params(
             "openrouter:anthropic/claude-3-haiku:beta?temperature=0.3&reasoning_effort=medium"
         )
 
-        assert backend == "openrouter"
-        assert model == "anthropic/claude-3-haiku:beta"
-        assert params == {"temperature": "0.3", "reasoning_effort": "medium"}
+        assert result.backend_type == "openrouter"
+        assert result.model_name == "anthropic/claude-3-haiku:beta"
+        assert result.uri_params == {"temperature": "0.3", "reasoning_effort": "medium"}
 
     def test_parse_model_with_sampling_parameters(self) -> None:
         """Test parsing model string including top_p and top_k parameters."""
-        backend, model, params = parse_model_with_params(
-            "openrouter:gpt-4?top_p=0.9&top_k=40"
-        )
+        result = parse_model_with_params("openrouter:gpt-4?top_p=0.9&top_k=40")
 
-        assert backend == "openrouter"
-        assert model == "gpt-4"
-        assert params == {"top_p": "0.9", "top_k": "40"}
+        assert result.backend_type == "openrouter"
+        assert result.model_name == "gpt-4"
+        assert result.uri_params == {"top_p": "0.9", "top_k": "40"}
 
 
 class TestURIParameterValidation:
@@ -331,9 +329,9 @@ class TestEndToEndURIParameterFlow:
         )
 
         # Parse model string with URI parameters
-        backend_type, model_name, uri_params = parse_model_with_params(
-            "openrouter:gpt-4?temperature=0.5"
-        )
+        parsed_model = parse_model_with_params("openrouter:gpt-4?temperature=0.5")
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         # Validate and normalize URI parameters
         validator = URIParameterValidator()
@@ -375,9 +373,9 @@ class TestEndToEndURIParameterFlow:
             key_name="openrouter",
         )
 
-        _, model_name, uri_params = parse_model_with_params(
-            "openrouter:gpt-4?top_p=0.95&top_k=40"
-        )
+        parsed_model = parse_model_with_params("openrouter:gpt-4?top_p=0.95&top_k=40")
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         validator = URIParameterValidator()
         normalized_params, errors = validator.validate_and_normalize(uri_params)
@@ -410,9 +408,11 @@ class TestEndToEndURIParameterFlow:
         await backend.initialize(api_key="test-key", key_name="anthropic")
 
         # Parse model string with URI parameters
-        backend_type, model_name, uri_params = parse_model_with_params(
+        parsed_model = parse_model_with_params(
             "anthropic:claude-3?reasoning_effort=high"
         )
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         # Validate and normalize URI parameters
         validator = URIParameterValidator()
@@ -452,9 +452,11 @@ class TestEndToEndURIParameterFlow:
             gemini_api_base_url="https://generativelanguage.googleapis.com",
         )
 
-        _, model_name, uri_params = parse_model_with_params(
+        parsed_model = parse_model_with_params(
             "gemini:models/gemini-pro?top_p=0.85&top_k=32"
         )
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         validator = URIParameterValidator()
         normalized_params, errors = validator.validate_and_normalize(uri_params)
@@ -494,9 +496,9 @@ class TestEndToEndURIParameterFlow:
         )
 
         # Parse model string with URI parameters
-        _, model_name, uri_params = parse_model_with_params(
-            "openrouter:gpt-4?temperature=0.5"
-        )
+        parsed_model = parse_model_with_params("openrouter:gpt-4?temperature=0.5")
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         # Validate URI parameters
         validator = URIParameterValidator()
@@ -558,9 +560,8 @@ class TestEndToEndURIParameterFlow:
         )
 
         # Parse model string with URI parameters
-        _, model_name, uri_params = parse_model_with_params(
-            "openrouter:gpt-4?temperature=0.5"
-        )
+        parsed_model = parse_model_with_params("openrouter:gpt-4?temperature=0.5")
+        uri_params = parsed_model.uri_params
 
         # Validate URI parameters
         validator = URIParameterValidator()
@@ -757,11 +758,11 @@ class TestGracefulErrorHandling:
     def test_malformed_query_string_graceful_fallback(self) -> None:
         """Test that malformed query strings are handled gracefully."""
         # This should not raise an exception
-        backend, model, params = parse_model_with_params("backend:model?invalid")
+        result = parse_model_with_params("backend:model?invalid")
 
-        assert backend == "backend"
-        assert model == "model"
-        assert isinstance(params, dict)
+        assert result.backend_type == "backend"
+        assert result.model_name == "model"
+        assert isinstance(result.uri_params, dict)
 
     def test_invalid_parameter_value_continues_processing(
         self,
@@ -779,11 +780,11 @@ class TestGracefulErrorHandling:
 
     def test_empty_query_string_handled_gracefully(self) -> None:
         """Test that empty query strings are handled gracefully."""
-        backend, model, params = parse_model_with_params("backend:model?")
+        result = parse_model_with_params("backend:model?")
 
-        assert backend == "backend"
-        assert model == "model"
-        assert params == {}
+        assert result.backend_type == "backend"
+        assert result.model_name == "model"
+        assert result.uri_params == {}
 
     @pytest.mark.asyncio
     async def test_request_continues_with_invalid_uri_params(
@@ -804,9 +805,9 @@ class TestGracefulErrorHandling:
         )
 
         # Parse model string with invalid URI parameter
-        _, model_name, uri_params = parse_model_with_params(
-            "openrouter:gpt-4?temperature=invalid"
-        )
+        parsed_model = parse_model_with_params("openrouter:gpt-4?temperature=invalid")
+        model_name = parsed_model.model_name
+        uri_params = parsed_model.uri_params
 
         # Validate - should exclude invalid parameter
         validator = URIParameterValidator()

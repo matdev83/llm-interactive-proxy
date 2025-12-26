@@ -1705,7 +1705,12 @@ class OpenAICodexConnector(OpenAIConnector):
             model_for_parsing = model_for_parsing.split(":", 1)[1]
 
         try:
-            _, parsed_model, uri_params = parse_model_with_params(model_for_parsing)
+            parsed = parse_model_with_params(model_for_parsing)
+            _, parsed_model, uri_params = (
+                parsed.backend_type,
+                parsed.model_name,
+                parsed.uri_params,
+            )
             effective_model = strip_vendor_prefix(parsed_model, OPENAI_VENDOR_PREFIX)
         except Exception as exc:
             logger.debug("Failed to parse model URI params: %s", exc)

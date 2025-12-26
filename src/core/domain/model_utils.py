@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from urllib.parse import parse_qs
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic.types import JsonValue
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,32 @@ from src.core.domain.model_capabilities import ModelLimits
 from src.core.interfaces.model_bases import DomainModel
 
 
-def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str]:
+class ParsedModelWithParams(BaseModel):
+    """Result of parsing a model string with URI parameters.
+
+    Contains the parsed backend type, model name, and any URI parameters.
+    """
+
+    backend_type: str = Field(
+        description="The backend type (e.g., 'openai', 'anthropic')"
+    )
+    model_name: str = Field(description="The model name (e.g., 'gpt-4', 'claude-3')")
+    uri_params: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="URI parameters parsed from query string (e.g., {'temperature': '0.5'})",
+    )
+
+
+class ParsedModel(BaseModel):
+    """Result of parsing a model string into backend and model name."""
+
+    backend_type: str = Field(
+        description="The backend type (e.g., 'openai', 'anthropic')"
+    )
+    model_name: str = Field(description="The model name (e.g., 'gpt-4', 'claude-3')")
+
+
+def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     """Parse model string to extract backend and actual model name.
 
     Supported formats:
@@ -33,21 +58,21 @@ def parse_model_backend(model: str, default_backend: str = "") -> tuple[str, str
         default_backend: Default backend to use if no prefix is specified
 
     Returns:
-        Tuple of (backend_type, model_name)
+        ParsedModel with backend_type and model_name fields
     """
     # IMPORTANT: Backend selection uses ONLY ":".
-    # "/" is part of the model identifier (e.g., "vendor/model") and must not be
+    # "/" is part of model identifier (e.g., "vendor/model") and must not be
     # treated as a backend separator.
     if ":" in model:
         backend, model_name = model.split(":", 1)
-        return backend, model_name
+        return ParsedModel(backend_type=backend, model_name=model_name)
 
-    return default_backend, model
+    return ParsedModel(backend_type=default_backend, model_name=model)
 
 
 def parse_model_with_params(
     model: str, default_backend: str = ""
-) -> tuple[str, str, dict[str, JsonValue]]:
+) -> ParsedModelWithParams:
     """Parse model string with optional URI parameters.
 
     Handles multiple formats with optional query parameters:
@@ -56,7 +81,7 @@ def parse_model_with_params(
     - model?params (e.g., "gpt-4?temperature=0.5" - uses default backend)
     - vendor/model?params (e.g., "openai/gpt-4o?temperature=0.5" - treated as a model identifier)
 
-    Query parameters are parsed from the portion after '?' using standard URL query syntax.
+    Query parameters are parsed from portion after '?' using standard URL query syntax.
     Multiple parameters can be specified: ?temperature=0.5&reasoning_effort=high
 
     Args:
@@ -64,18 +89,23 @@ def parse_model_with_params(
         default_backend: Default backend to use if no prefix is specified
 
     Returns:
-        Tuple of (backend_type, model_name, uri_params)
-        where uri_params is a dict with JSON-serializable parameter values (strings from query parsing)
+        ParsedModelWithParams with backend_type, model_name, and uri_params fields
 
     Examples:
-        >>> parse_model_with_params("openai:gpt-4?temperature=0.5")
-        ("openai", "gpt-4", {"temperature": "0.5"})
+        >>> result = parse_model_with_params("openai:gpt-4?temperature=0.5")
+        result.backend_type == "openai"
+        result.model_name == "gpt-4"
+        result.uri_params == {"temperature": "0.5"}
 
-        >>> parse_model_with_params("backend:model_group/model?temperature=0.2&reasoning_effort=low")
-        ("backend", "model_group/model", {"temperature": "0.2", "reasoning_effort": "low"})
+        >>> result = parse_model_with_params("backend:model_group/model?temperature=0.2&reasoning_effort=low")
+        result.backend_type == "backend"
+        result.model_name == "model_group/model"
+        result.uri_params == {"temperature": "0.2", "reasoning_effort": "low"}
 
-        >>> parse_model_with_params("openai:gpt-4")
-        ("openai", "gpt-4", {})
+        >>> result = parse_model_with_params("openai:gpt-4")
+        result.backend_type == "openai"
+        result.model_name == "gpt-4"
+        result.uri_params == {}
     """
     uri_params: dict[str, JsonValue] = {}
 
@@ -108,7 +138,7 @@ def parse_model_with_params(
                     if len(value_list) == 1:
                         uri_params[key] = value_list[0]
                     else:
-                        # Multiple values for same parameter - use the last one
+                        # Multiple values for same parameter - use last one
                         uri_params[key] = value_list[-1]
                         logger.debug(
                             f"Multiple values for parameter '{key}': {value_list}, using last value: {value_list[-1]}"
@@ -125,10 +155,14 @@ def parse_model_with_params(
                 )
                 uri_params = {}
 
-        # Parse the base model string (without query parameters) using existing function
-        backend_type, model_name = parse_model_backend(base_model, default_backend)
+        # Parse base model string (without query parameters) using existing function
+        parsed_model = parse_model_backend(base_model, default_backend)
 
-        return backend_type, model_name, uri_params
+        return ParsedModelWithParams(
+            backend_type=parsed_model.backend_type,
+            model_name=parsed_model.model_name,
+            uri_params=uri_params,
+        )
 
     except Exception as e:
         # Graceful error handling - log warning and fall back to no parameters
@@ -138,7 +172,9 @@ def parse_model_with_params(
         )
         # Fall back to existing parse_model_backend
         try:
-            backend_type, model_name = parse_model_backend(model, default_backend)
+            parsed_model = parse_model_backend(model, default_backend)
+            backend_type = parsed_model.backend_type
+            model_name = parsed_model.model_name
         except Exception as fallback_error:
             # If even the fallback fails, log error and use defaults
             logger.error(
@@ -147,7 +183,9 @@ def parse_model_with_params(
             )
             backend_type = default_backend if default_backend else "openai"
             model_name = model
-        return backend_type, model_name, {}
+        return ParsedModelWithParams(
+            backend_type=backend_type, model_name=model_name, uri_params={}
+        )
 
 
 # Model-specific reasoning configuration for config files

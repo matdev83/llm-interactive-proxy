@@ -496,7 +496,9 @@ class ConfigManager:
                 f"Invalid element format '{elem_str}' in route '{route_name}', must be string.",
             )
 
-        backend_name, model_name = parse_model_backend(elem_str)
+        parsed = parse_model_backend(elem_str)
+        backend_name = parsed.backend_type
+        model_name = parsed.model_name
         if not backend_name or not model_name:
             return (
                 None,
@@ -539,7 +541,9 @@ class ConfigManager:
             and all(
                 self.app_state.app_config.model_is_functional(element)
                 for element in (
-                    route.elements if hasattr(route, "elements") else route.get("elements", [])
+                    route.elements
+                    if hasattr(route, "elements")
+                    else route.get("elements", [])
                 )
             )
         }
@@ -669,7 +673,9 @@ class ConfigManager:
         if routes_list:
             for route in routes_list:
                 if hasattr(route, "model_dump"):
-                    failover_routes_data[route.name] = route.model_dump(exclude={"name"})
+                    failover_routes_data[route.name] = route.model_dump(
+                        exclude={"name"}
+                    )
                 elif isinstance(route, dict) and "name" in route:
                     failover_routes_data[route["name"]] = {
                         k: v for k, v in route.items() if k != "name"

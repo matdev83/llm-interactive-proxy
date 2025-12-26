@@ -227,10 +227,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     def _select_model(self, requested_model: str | None) -> str:
         """Pick an appropriate provider model, honoring availability."""
         candidate = requested_model or self._DEFAULT_MODEL
-        _, normalized = parse_model_backend(
-            str(candidate), default_backend=self.backend_type
-        )
-        normalized = normalized or self._DEFAULT_MODEL
+        parsed = parse_model_backend(str(candidate), default_backend=self.backend_type)
+        normalized = parsed.model_name or self._DEFAULT_MODEL
         available = self.available_models or list(self._SUPPORTED_MODELS)
         if normalized in available:
             return normalized
@@ -383,7 +381,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         session_id: str,
         stream_format: str,
     ) -> StreamingResponseHandle:
-
         """Override to add detailed logging for debugging.
 
         Also handles potential non-standard URL structure for ZAI API.

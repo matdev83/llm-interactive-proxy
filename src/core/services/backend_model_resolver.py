@@ -143,21 +143,20 @@ class BackendModelResolver(IBackendModelResolver):
             from src.core.domain.model_utils import parse_model_with_params
 
             # Pass empty string as default to detect if backend was specified
-            parsed_backend, parsed_model, uri_params = parse_model_with_params(
-                effective_model, ""
-            )
+            parsed = parse_model_with_params(effective_model, "")
 
             # Try backend discovery if no backend was parsed
-            if not parsed_backend and self._routing_service:
+            if not parsed.backend_type and self._routing_service:
                 discovered = self._routing_service.resolve_backend_instance(
-                    None, parsed_model, excluded_backends
+                    None, parsed.model_name, excluded_backends
                 )
                 if discovered:
-                    parsed_backend = discovered
+                    parsed.backend_type = discovered
 
             # Fallback to default backend if discovery failed or not used
-            backend_type = parsed_backend or default_backend
-            effective_model = parsed_model
+            backend_type = parsed.backend_type or default_backend
+            effective_model = parsed.model_name
+            uri_params = parsed.uri_params
 
             # Route the backend type (either parsed or default)
             if self._routing_service:
@@ -177,7 +176,9 @@ class BackendModelResolver(IBackendModelResolver):
             from src.core.domain.model_utils import parse_model_with_params
 
             # Parse with empty default backend since we already have backend_type
-            _, parsed_model, uri_params = parse_model_with_params(effective_model, "")
+            parsed = parse_model_with_params(effective_model, "")
+            parsed_model = parsed.model_name
+            uri_params = parsed.uri_params
             effective_model = parsed_model
 
             # Try to route the explicitly set backend
