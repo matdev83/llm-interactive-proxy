@@ -56,9 +56,10 @@ class AntigravitySQLiteCredentialProvider:
         if override:
             override_path = Path(override)
             if str(override_path).strip():
-                logger.debug(
-                    f"Using explicit ANTIGRAVITY_STATE_DB override: {override_path}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Using explicit ANTIGRAVITY_STATE_DB override: {override_path}"
+                    )
                 return [override_path]
 
         candidates: list[Path] = []
@@ -162,13 +163,15 @@ class AntigravitySQLiteCredentialProvider:
 
             raw_value_str = str(raw_value)
             if not raw_value_str.strip():
-                logger.debug("Auth status value is empty.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is empty.")
                 return None
 
             auth_data = json.loads(raw_value_str)
 
             if auth_data is None:
-                logger.debug("Auth status value is null/None.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is null/None.")
                 return None
 
             if isinstance(auth_data, dict):
@@ -302,9 +305,10 @@ class AntigravitySQLiteCredentialProvider:
                     and current_modified is not None
                     and current_modified == self._last_modified
                 ):
-                    logger.debug(
-                        "Antigravity credentials unchanged; using cached copy."
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Antigravity credentials unchanged; using cached copy."
+                        )
                     return self._cached_credentials
 
                 credentials = self._load_auth_status_from_db(path)
@@ -321,9 +325,10 @@ class AntigravitySQLiteCredentialProvider:
                 is_valid, validation_errors = self.validate(credentials, silent=silent)
                 errors.extend(validation_errors)
                 if not is_valid:
-                    logger.warning(
-                        f"Invalid credentials in {path}: {validation_errors}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Invalid credentials in {path}: {validation_errors}"
+                        )
                     continue
 
                 self._cached_credentials = credentials
