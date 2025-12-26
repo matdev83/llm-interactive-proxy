@@ -392,10 +392,6 @@ properties:
       persistence_path: { type: string }
       flush_interval_seconds: { type: number, minimum: 0.1 }
       max_records_in_memory: { type: integer, minimum: 1000 }
-      use_database_persistence: { type: boolean }
-      write_queue_batch_size: { type: integer, minimum: 1 }
-      write_queue_flush_interval_seconds: { type: number, minimum: 0.1 }
-      write_queue_max_size: { type: integer, minimum: 1 }
   end_of_session:
     type: object
     additionalProperties: false

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 from src.core.config.models.logging import LogLevel
+from src.core.config.models.misc import UsageTrackingConfig
 from src.core.config.models.session import ToolCallReactorConfig
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
@@ -190,3 +191,18 @@ reasoning_aliases:
             raise AssertionError(f"Reasoning aliases config failed validation: {e}")
         finally:
             test_file.unlink()
+
+    def test_usage_tracking_schema_matches_code_fields(self):
+        """Verify usage_tracking schema only contains fields present in UsageTrackingConfig."""
+        schema_path = Path("config/schemas/app_config.schema.yaml")
+        with schema_path.open() as f:
+            schema = yaml.safe_load(f)
+
+        schema_fields = set(schema["properties"]["usage_tracking"]["properties"].keys())
+        code_fields = set(UsageTrackingConfig.model_fields.keys())
+
+        extra_in_schema = schema_fields - code_fields
+        missing_in_schema = code_fields - schema_fields
+
+        assert not extra_in_schema, f"Schema has fields not in code: {extra_in_schema}"
+        assert not missing_in_schema, f"Code has fields not in schema: {missing_in_schema}"
