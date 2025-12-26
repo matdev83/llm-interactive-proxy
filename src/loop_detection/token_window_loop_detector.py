@@ -15,7 +15,6 @@ The algorithm is designed to work out-of-the-box without manual tuning and inclu
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from typing import Any
@@ -81,7 +80,7 @@ class TokenWindowLoopDetector(ILoopDetector):
 
         # Content streaming tracking
         self.stream_content_history = ""
-        self.content_stats: dict[str, list[int]] = {}
+        self.content_stats: dict[int, list[int]] = {}
         self.last_content_index = 0
         self.loop_detected = False
         self.in_code_block = False
@@ -245,7 +244,10 @@ class TokenWindowLoopDetector(ILoopDetector):
                 self.last_content_index : self.last_content_index
                 + self.content_chunk_size
             ]
-            chunk_hash = hashlib.sha256(current_chunk.encode("utf-8")).hexdigest()
+            # PERFORMANCE: Use Python's built-in hash() instead of SHA256.
+            # SHA256 is cryptographically secure but slow (~5x slower).
+            # We verify actual content match later (line 301), so fast hash is safe.
+            chunk_hash = hash(current_chunk)
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
                 if logger.isEnabledFor(logging.WARNING):
@@ -266,7 +268,7 @@ class TokenWindowLoopDetector(ILoopDetector):
             self.stream_content_history
         )
 
-    def _is_loop_detected_for_chunk(self, chunk: str, hash_val: str) -> bool:
+    def _is_loop_detected_for_chunk(self, chunk: str, hash_val: int) -> bool:
         """
         Determines if a content chunk indicates a loop pattern.
 
@@ -280,15 +282,24 @@ class TokenWindowLoopDetector(ILoopDetector):
 
         Args:
             chunk: Current content chunk
-            hash_val: SHA256 hash of the chunk
+            hash_val: Built-in hash of the chunk (verified with content match)
 
         Returns:
             True if a loop is detected for this chunk, False otherwise
         """
         # Filter out chunks that are primarily non-letter characters to avoid false positives
         # with common formatting patterns like "===", "---", "###", etc.
-        letter_count = sum(1 for c in chunk if c.isalpha())
-        if letter_count < len(chunk) * 0.5:  # Less than 50% letters
+        # PERFORMANCE: Use early exit instead of counting all letters.
+        # We only need to know if >= 50% are letters.
+        chunk_len = len(chunk)
+        threshold = chunk_len // 2  # Integer division for 50% threshold
+        letter_count = 0
+        for c in chunk:
+            if c.isalpha():
+                letter_count += 1
+                if letter_count >= threshold:
+                    break  # Early exit: already at 50%
+        if letter_count < threshold:
             return False
 
         existing_indices = self.content_stats.get(hash_val)

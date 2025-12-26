@@ -18,6 +18,8 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
     """Naive fallback: detect short substring repeated consecutively at least 3 times.
 
     Looks for 1-6 char token repeated; returns (pattern, count) or (None, 0).
+
+    PERFORMANCE: Optimized to skip redundant positions after finding repeats.
     """
     try:
         # Fast path: common noisy token
@@ -26,20 +28,35 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
             count = text.count(token)
             return (token.strip(), count)
 
+        # PERFORMANCE: Limit text length early to avoid slicing costs in loop
+        text_len = len(text)
+        scan_limit = min(text_len, 256)
+
         # Generic short-pattern repetition
         max_token_len = 6
         for size in range(1, max_token_len + 1):
-            for i in range(min(len(text), 256) - size * 3 + 1):
+            # Minimum text needed for 3 repeats of this size
+            min_needed = size * 3
+            if scan_limit < min_needed:
+                continue
+
+            i = 0
+            end_pos = scan_limit - min_needed + 1
+            while i < end_pos:
                 candidate = text[i : i + size]
                 if not candidate.strip():
+                    i += 1
                     continue
                 repeats = 1
                 j = i + size
-                while j + size <= len(text) and text[j : j + size] == candidate:
+                while j + size <= text_len and text[j : j + size] == candidate:
                     repeats += 1
                     j += size
                 if repeats >= 3:
                     return (candidate, repeats)
+                # PERFORMANCE: Skip past the matched repeats (if any),
+                # since we already checked those positions implicitly
+                i += max(1, repeats * size - size + 1)
         return (None, 0)
     except IndexError as e:
         logger.debug("Error during simple repetition detection: %s", e)
