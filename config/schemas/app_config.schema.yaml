@@ -83,6 +83,7 @@ properties:
             type: { type: string, enum: [oauth2, saml] }
             client_id: { type: string }
             client_secret: { type: string }
+            enabled: { type: boolean }
             discovery_url: { type: ["string", "null"] }
             metadata_url: { type: ["string", "null"] }
             authorize_url: { type: ["string", "null"] }
@@ -128,7 +129,6 @@ properties:
       json_repair_strict_mode: { type: boolean }
       json_repair_schema: { type: ["object", "null"] }
       json_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
-      content_accumulation_buffer_cap_bytes: { type: integer, minimum: 0 }
       tool_call_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
       streaming_sampler:
         type: object

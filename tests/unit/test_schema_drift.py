@@ -109,3 +109,18 @@ access_policies: []
             )
         finally:
             test_file.unlink()
+
+    def test_example_configs_validate_against_schema(self):
+        """Verify all example YAML configs validate against app_config schema."""
+        schema_path = Path("config/schemas/app_config.schema.yaml")
+
+        # Get all example config files
+        example_configs = list(Path("config").glob("*.example.yaml"))
+
+        for example_path in example_configs:
+            try:
+                validate_yaml_against_schema(example_path, schema_path)
+            except Exception as e:
+                raise AssertionError(
+                    f"Example config {example_path.name} failed schema validation: {e}"
+                )
