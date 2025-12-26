@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from src.core.app.controllers.models_controller import get_backend_service
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.backend_service import IBackendService
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,9 @@ def _is_activity_tracking_enabled() -> bool:
         provider = get_or_build_service_provider()
         tracker = provider.get_service(ConnectionActivityTracker)
         return tracker is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError) as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Activity tracking not available: %s", e, exc_info=True)
         return False
 
 
@@ -43,7 +46,9 @@ def _get_activity_tracker_if_enabled():
 
         provider = get_or_build_service_provider()
         return provider.get_service(ConnectionActivityTracker)
-    except Exception:
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError) as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Activity tracker not available: %s", e, exc_info=True)
         return None
 
 
@@ -155,9 +160,15 @@ async def get_diagnostics(
         try:
             available = backend.get_available_models()
             models = [ModelInfo(name=m) for m in available]
-        except Exception:
+        except (AttributeError, NotImplementedError, RuntimeError) as e:
             # If listing models fails, return empty list but still show backend status
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to get models for backend %s: %s",
+                    name,
+                    e,
+                    exc_info=True,
+                )
 
         # Check functional status
         is_functional = True

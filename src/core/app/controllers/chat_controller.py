@@ -184,15 +184,26 @@ class ChatController:
                         return text_attr
                     if isinstance(text_attr, bytes | bytearray):
                         return text_attr.decode("utf-8", errors="ignore")
-            except Exception:
+            except (AttributeError, UnicodeDecodeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unable to access text attribute: %s",
+                        e,
+                        exc_info=True,
+                    )
                 # If we can't access the text attribute, continue with other processing
-                pass
 
         # Handle objects with model_dump method
         if hasattr(content, "model_dump"):
             try:
                 dumped = content.model_dump()
-            except Exception:  # pragma: no cover - defensive
+            except (AttributeError, TypeError, RuntimeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "model_dump() failed on content object: %s",
+                        e,
+                        exc_info=True,
+                    )
                 dumped = None
             if dumped is not None:
                 return ChatController._coerce_message_content_to_text(
@@ -261,13 +272,23 @@ class ChatController:
 
             try:
                 raw_body_bytes = await request.body()
-            except Exception:
+            except (asyncio.TimeoutError, RuntimeError, HTTPException) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Failed to read request body: {e}",
+                        exc_info=True,
+                    )
                 raw_body_bytes = b""
             if raw_body_bytes:
                 preview = raw_body_bytes[:1024]
                 try:
                     rendered_preview = preview.decode("utf-8", errors="replace")
-                except Exception:
+                except (UnicodeDecodeError, AttributeError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to decode request body preview: {e}",
+                            exc_info=True,
+                        )
                     rendered_preview = repr(preview)
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
@@ -289,7 +310,12 @@ class ChatController:
             # to ensure identical headers/payload behavior as /anthropic/v1/messages
             try:
                 from src.core.domain.model_utils import parse_model_backend
-            except Exception:
+            except (ImportError, ModuleNotFoundError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Unable to import parse_model_backend: {e}",
+                        exc_info=True,
+                    )
                 parse_model_backend = None  # type: ignore[assignment]
 
             if (

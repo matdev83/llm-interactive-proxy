@@ -4,12 +4,12 @@ Anthropic Controller
 Handles Anthropic API endpoints.
 """
 
+import asyncio
 import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
 from typing import Any, cast
-
 
 from fastapi import HTTPException, Request, Response
 
@@ -159,7 +159,12 @@ class AnthropicController:
                     # Fallback: try to coerce to dict via vars() for objects with __dict__
                     try:
                         payload = vars(request_data)  # type: ignore[arg-type]
-                    except Exception:
+                    except (TypeError, AttributeError) as e:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Unable to convert request_data to dict via vars(): {e}",
+                                exc_info=True,
+                            )
                         # Last resort: empty payload
                         payload = {}
 
@@ -181,7 +186,12 @@ class AnthropicController:
             # Read raw body bytes for capture and context
             try:
                 raw_body_bytes = await request.body()
-            except Exception:
+            except (asyncio.TimeoutError, RuntimeError, HTTPException) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Failed to read request body: {e}",
+                        exc_info=True,
+                    )
                 raw_body_bytes = b""
 
             # Log request body preview for debugging
@@ -189,7 +199,12 @@ class AnthropicController:
                 preview = raw_body_bytes[:1024]
                 try:
                     rendered_preview = preview.decode("utf-8", errors="replace")
-                except Exception:
+                except (UnicodeDecodeError, AttributeError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to decode request body preview: {e}",
+                            exc_info=True,
+                        )
                     rendered_preview = repr(preview)
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
@@ -230,8 +245,6 @@ class AnthropicController:
             response = await self._processor.process_request(ctx, chat_request)
 
             # Check if response is a coroutine and await it if needed
-            import asyncio
-
             if asyncio.iscoroutine(response):
                 response = await response
 
