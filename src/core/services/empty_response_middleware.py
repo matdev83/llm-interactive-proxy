@@ -7,6 +7,7 @@ and automatically retries with a recovery prompt to prevent agent loop breakage.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import MutableMapping
 from pathlib import Path
@@ -88,7 +89,7 @@ class EmptyResponseFeature(IResponseFeature):
 
         return has_tool_calls
 
-    def _load_recovery_prompt(self) -> str:
+    async def _load_recovery_prompt(self) -> str:
         """Load the recovery prompt from the config file."""
         if self._recovery_prompt is not None:
             return self._recovery_prompt
@@ -109,8 +110,12 @@ class EmptyResponseFeature(IResponseFeature):
                     break
 
             if prompt_path and prompt_path.exists():
-                with open(prompt_path, encoding="utf-8") as f:
-                    self._recovery_prompt = f.read().strip()
+
+                def _read_file() -> str:
+                    with open(prompt_path, encoding="utf-8") as f:
+                        return f.read().strip()
+
+                self._recovery_prompt = await asyncio.to_thread(_read_file)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Loaded recovery prompt from %s", prompt_path)
             else:
@@ -297,7 +302,7 @@ class EmptyResponseFeature(IResponseFeature):
                     )
                     return response
 
-                recovery_prompt = self._load_recovery_prompt()
+                recovery_prompt = await self._load_recovery_prompt()
                 next_retry_count = retry_count + 1
                 self._retry_counts[session_id] = next_retry_count
 
@@ -451,7 +456,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
         return has_tool_calls
 
-    def _load_recovery_prompt(self) -> str:
+    async def _load_recovery_prompt(self) -> str:
         """Load the recovery prompt from the config file."""
         if self._recovery_prompt is not None:
             return self._recovery_prompt
@@ -472,8 +477,12 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     break
 
             if prompt_path and prompt_path.exists():
-                with open(prompt_path, encoding="utf-8") as f:
-                    self._recovery_prompt = f.read().strip()
+
+                def _read_file() -> str:
+                    with open(prompt_path, encoding="utf-8") as f:
+                        return f.read().strip()
+
+                self._recovery_prompt = await asyncio.to_thread(_read_file)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Loaded recovery prompt from %s", prompt_path)
             else:
@@ -661,7 +670,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     return response
 
                 # Load recovery prompt only when a retry can actually happen
-                recovery_prompt = self._load_recovery_prompt()
+                recovery_prompt = await self._load_recovery_prompt()
                 next_retry_count = retry_count + 1
                 self._retry_counts[session_id] = next_retry_count
 

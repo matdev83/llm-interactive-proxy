@@ -30,26 +30,29 @@ class TestEmptyResponseMiddleware:
         assert middleware._enabled is False
         assert middleware._max_retries == 3
 
+    @pytest.mark.asyncio
     @patch("builtins.open", mock_open(read_data="Test recovery prompt"))
     @patch("pathlib.Path.exists", return_value=True)
-    def test_load_recovery_prompt_from_file(self, mock_exists):
+    async def test_load_recovery_prompt_from_file(self, mock_exists):
         """Test loading recovery prompt from file."""
         middleware = EmptyResponseMiddleware()
-        prompt = middleware._load_recovery_prompt()
+        prompt = await middleware._load_recovery_prompt()
         assert prompt == "Test recovery prompt"
 
+    @pytest.mark.asyncio
     @patch("pathlib.Path.exists", return_value=False)
-    def test_load_recovery_prompt_fallback(self, mock_exists):
+    async def test_load_recovery_prompt_fallback(self, mock_exists):
         """Test fallback recovery prompt when file doesn't exist."""
         middleware = EmptyResponseMiddleware()
-        prompt = middleware._load_recovery_prompt()
+        prompt = await middleware._load_recovery_prompt()
         assert "empty response" in prompt.lower()
         assert "valid response" in prompt.lower()
 
-    def test_load_recovery_prompt_uses_repository_prompt(self):
+    @pytest.mark.asyncio
+    async def test_load_recovery_prompt_uses_repository_prompt(self):
         """Ensure the real repository prompt file is loaded when present."""
         middleware = EmptyResponseMiddleware()
-        prompt = middleware._load_recovery_prompt()
+        prompt = await middleware._load_recovery_prompt()
 
         search_root = Path(__file__).resolve().parent
         expected_prompt: str | None = None

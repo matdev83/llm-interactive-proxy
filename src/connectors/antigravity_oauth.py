@@ -1319,9 +1319,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     normalized_credentials
                 )
                 try:
-                    credentials_file_hash = hashlib.sha256(
-                        path.read_bytes()
-                    ).hexdigest()
+                    credentials_file_hash: str | None = await asyncio.to_thread(
+                        lambda: hashlib.sha256(path.read_bytes()).hexdigest()
+                    )
                 except OSError:
                     credentials_file_hash = None
                 self._credentials_file_hash = credentials_file_hash
