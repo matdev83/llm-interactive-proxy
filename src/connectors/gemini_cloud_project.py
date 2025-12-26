@@ -403,6 +403,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 f"Permission denied reading credentials file: {creds_path}"
             )
         except Exception as e:
+            logger.error(
+                "Unexpected error reading credentials file",
+                exc_info=True,
+            )
             return ValidationResult.failure(
                 f"Unexpected error reading credentials file: {e}"
             )
@@ -443,9 +447,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.info(
                     f"Started watching credentials file: {self._credentials_path}"
                 )
-        except Exception as e:
+        except Exception:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to start file watching: {e}")
+                logger.warning(
+                    "Failed to start file watching",
+                    exc_info=True,
+                )
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
@@ -517,9 +524,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             try:
                 task = loop.create_task(reload_task())
                 _assign_task(task)
-            except Exception as exc:
+            except Exception:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to schedule credentials reload: %s", exc)
+                    logger.warning(
+                        "Failed to schedule credentials reload", exc_info=True
+                    )
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
 
@@ -540,16 +549,36 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file."""
         observer = self._file_observer
-        if observer:
-            try:
-                observer.stop()
-                observer.join()
-                self._file_observer = None
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Stopped watching credentials file")
-            except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error stopping file watcher: {e}")
+        if observer is None:
+            return
+
+        # Clear state early to avoid re-entrancy issues during shutdown.
+        self._file_observer = None
+
+        try:
+            observer.stop()
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Error stopping file watcher (stop)", exc_info=True)
+
+        # If stop is invoked from within the observer thread (e.g. via a file event
+        # callback), joining would raise `RuntimeError: cannot join current thread`.
+        import threading
+
+        if observer is threading.current_thread():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping credentials watcher join because stop was called from the observer thread"
+                )
+            return
+
+        try:
+            observer.join(timeout=1.0)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Stopped watching credentials file")
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Error stopping file watcher (join)", exc_info=True)
 
     async def _handle_credentials_file_change(self) -> None:
         """Handle credentials file change event."""
@@ -745,13 +774,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     self._recover()
                 return True
 
-            except RefreshError as e:
+            except RefreshError:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Google Auth token refresh error: {e}")
+                    logger.error("Google Auth token refresh error", exc_info=True)
                 return False
-            except Exception as e:
+            except Exception:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Unexpected error during token refresh: {e}")
+                    logger.error("Unexpected error during token refresh", exc_info=True)
                 return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
@@ -771,9 +800,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 json.dump(credentials, f, indent=4)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"OAuth credentials saved to {creds_path}")
-        except Exception as e:
+        except Exception:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error saving OAuth credentials: {e}")
+                logger.error("Error saving OAuth credentials", exc_info=True)
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -824,9 +853,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error decoding OAuth credentials JSON: {e}")
             return False
-        except Exception as e:
+        except Exception:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error loading OAuth credentials: {e}")
+                logger.error("Error loading OAuth credentials", exc_info=True)
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -884,6 +913,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         try:
             await self._validate_project_access()
         except Exception as e:
+            logger.error("Failed to validate project access", exc_info=True)
             self._fail_init([f"Failed to validate project access: {e}"])
             return
 
@@ -1520,12 +1550,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             raise BackendError(f"Unexpected error during streaming API call: {e}")
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
-        cfg: dict[str, Any] = {
+        top_k = getattr(request_data, "top_k", None)
+        cfg = {
             "temperature": float(getattr(request_data, "temperature", 0.7)),
             "maxOutputTokens": int(getattr(request_data, "max_tokens", 1024)),
             "topP": float(getattr(request_data, "top_p", 0.95)),
         }
-        top_k = getattr(request_data, "top_k", None)
         if top_k is not None:
             with contextlib.suppress(Exception):
                 cfg["topK"] = int(top_k)

@@ -224,10 +224,11 @@ class ResponsesController:
                                     f"Response converted from dict via TranslationService - request_id={request_id}"
                                 )
                             return converted_response
-                        except Exception as e:
+                        except Exception:
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
-                                    f"Failed to convert dict to ChatResponse - request_id={request_id}, error={e}"
+                                    f"Failed to convert dict to ChatResponse - request_id={request_id}",
+                                    exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
 
@@ -316,6 +317,10 @@ class ResponsesController:
                         try:
                             text = _json.dumps(content)
                         except Exception:
+                            logger.debug(
+                                f"Failed to JSON serialize content, using str - request_id={request_id}",
+                                exc_info=True,
+                            )
                             text = str(content)
 
                     # Try to parse the content as JSON for structured output
@@ -356,10 +361,11 @@ class ResponsesController:
                             "total_tokens": 0,
                         },
                     }
-                except Exception as e:
+                except Exception:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Error in response conversion, returning original content - request_id={request_id}, error={e}"
+                            f"Error in response conversion, returning original content - request_id={request_id}",
+                            exc_info=True,
                         )
                     return content
 
@@ -447,10 +453,10 @@ class ResponsesController:
         except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "JSON schema validation failed - request_id=%s, schema_name=%s, error=%s",
+                    "JSON schema validation failed - request_id=%s, schema_name=%s",
                     request_id,
                     schema_name,
-                    exc,
+                    exc_info=True,
                 )
             raise HTTPException(
                 status_code=400,

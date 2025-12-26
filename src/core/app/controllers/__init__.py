@@ -328,11 +328,19 @@ def register_routes(app: FastAPI) -> None:
                     rp = sp.get_service(IRequestProcessor)
                     result.IRequestProcessor_resolvable = rp is not None
                 except Exception as e:
+                    logger.warning(
+                        "Failed to resolve IRequestProcessor in health check",
+                        exc_info=True,
+                    )
                     result.IRequestProcessor_error = str(e)
                 try:
                     cc = sp.get_service(ChatController)
                     result.ChatController_resolvable = cc is not None
                 except Exception as e:
+                    logger.warning(
+                        "Failed to resolve ChatController in health check",
+                        exc_info=True,
+                    )
                     result.ChatController_error = str(e)
 
                 # Include endpoint health states
@@ -349,6 +357,10 @@ def register_routes(app: FastAPI) -> None:
                 ]
                 result.registered_descriptors = names
             except Exception as e:
+                logger.warning(
+                    "Failed to get registered descriptors in health check",
+                    exc_info=True,
+                )
                 result.descriptor_error = str(e)
             # Debug-only: log resolvability against global provider for easier diagnosis
             try:
@@ -366,17 +378,29 @@ def register_routes(app: FastAPI) -> None:
                             gp.get_service(cast(type, IRequestProcessor)) is not None,
                         )
                     except Exception as e:
-                        dbg.debug("global IRequestProcessor resolution error: %s", e)
+                        dbg.debug(
+                            "global IRequestProcessor resolution error: %s",
+                            e,
+                            exc_info=True,
+                        )
                     try:
                         dbg.debug(
                             "global ChatController resolvable: %s",
                             gp.get_service(ChatController) is not None,
                         )
                     except Exception as e:
-                        dbg.debug("global ChatController resolution error: %s", e)
+                        dbg.debug(
+                            "global ChatController resolution error: %s",
+                            e,
+                            exc_info=True,
+                        )
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to debug resolvability against global provider",
+                    exc_info=True,
+                )
         except Exception as e:
+            logger.error("Health check endpoint error", exc_info=True)
             result.error = str(e)
         return result
 
@@ -453,7 +477,6 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
                 )
             )
         health_info.endpoints = endpoints_list
-
 
         # Get backend instance health info from notifier
         try:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import threading
+import asyncio
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -97,13 +97,13 @@ class ToolCallLifecycleRegistry:
     """Registry that prevents duplicate tool call processing across the pipeline."""
 
     def __init__(self, max_streams: int = 1024) -> None:
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self._max_streams = max_streams
         self._states: MutableMapping[str, ToolCallStreamState] = TTLCache(
             maxsize=max_streams, ttl=3600
         )
 
-    def register_detection(self, stream_key: str, signature: str) -> bool:
+    async def register_detection(self, stream_key: str, signature: str) -> bool:
         """
         Record that a tool call with the given signature was observed.
 
@@ -114,48 +114,48 @@ class ToolCallLifecycleRegistry:
         if not stream_key:
             stream_key = "anonymous-stream"
 
-        with self._lock:
+        async with self._lock:
             state = self._get_state(stream_key)
             if signature in state.inflight_signatures:
                 return False
             state.inflight_signatures.add(signature)
             return True
 
-    def mark_processed(self, stream_key: str, signature: str) -> None:
+    async def mark_processed(self, stream_key: str, signature: str) -> None:
         """Mark a tool call signature as fully processed by the reactor."""
 
         if not stream_key:
             stream_key = "anonymous-stream"
 
-        with self._lock:
+        async with self._lock:
             state = self._states.get(stream_key)
             if state is None:
                 return
             state.inflight_signatures.discard(signature)
             state.processed_signatures.add(signature)
 
-    def is_processed(self, stream_key: str, signature: str) -> bool:
+    async def is_processed(self, stream_key: str, signature: str) -> bool:
         """Return True if the signature has already completed processing."""
 
         if not stream_key:
             stream_key = "anonymous-stream"
 
-        with self._lock:
+        async with self._lock:
             state = self._states.get(stream_key)
             if state is None:
                 return False
             return signature in state.processed_signatures
 
-    def clear_stream(self, stream_key: str) -> None:
+    async def clear_stream(self, stream_key: str) -> None:
         """Forget lifecycle state for a completed stream."""
 
         if not stream_key:
             stream_key = "anonymous-stream"
 
-        with self._lock:
+        async with self._lock:
             self._states.pop(stream_key, None)
 
-    def _get_state(self, stream_key: str) -> ToolCallStreamState:
+    async def _get_state(self, stream_key: str) -> ToolCallStreamState:
         state = self._states.get(stream_key)
         if state is None:
             state = ToolCallStreamState()
