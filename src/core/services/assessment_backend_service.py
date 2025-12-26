@@ -41,7 +41,9 @@ class AssessmentBackendService(IAssessmentBackendService):
         self.backend_service = backend_service
         self.config = config
 
-    async def perform_assessment(self, request: AssessmentRequest) -> LLMAssessmentResponse:
+    async def perform_assessment(
+        self, request: AssessmentRequest
+    ) -> LLMAssessmentResponse:
         """
         Perform assessment using the configured backend.
 
@@ -158,7 +160,8 @@ class AssessmentBackendService(IAssessmentBackendService):
             return True
 
         except Exception as e:
-            logger.warning(f"Assessment backend health check failed: {e}")
+            if is_log_level_enabled(logger, logging.WARNING):
+                logger.warning(f"Assessment backend health check failed: {e}")
             return False
 
     def _create_chat_request(self, request: AssessmentRequest) -> ChatRequest:
