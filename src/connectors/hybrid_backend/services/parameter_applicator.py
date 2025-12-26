@@ -44,7 +44,7 @@ class ParameterApplicator:
         # Log the overrides
         for key, value in params.items():
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Applying override {key}={value} to request")
+                logger.debug("Applying override %s=%s to request", key, value)
 
         # Handle Pydantic models (includes CanonicalChatRequest)
         if isinstance(request_data, DomainModel):
@@ -108,7 +108,8 @@ class ParameterApplicator:
             return request_dict
         # Fallback: return original if type is not supported
         logger.warning(
-            f"Unsupported request_data type in _apply_parameter_overrides: {type(request_data).__name__}"
+            "Unsupported request_data type in _apply_parameter_overrides: %s",
+            type(request_data).__name__,
         )
         return request_data
 
