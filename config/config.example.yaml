@@ -207,6 +207,17 @@ failover_routes:
 #   backend_model: "qwen-oauth:qwen3-coder-plus"  # Replacement backend:model to use
 #   turn_count: 3  # Number of consecutive turns to use replacement model once activated
 
+# LLM Assessment Configuration
+# Enables an LLM-based conversation assessment system to detect cognitive loops
+# and provide steering interventions. See dev/features/llm-assessment/ for details.
+# assessment:
+#   enabled: false  # Set to true to enable LLM assessment
+#   turn_threshold: 30  # Number of turns before assessment begins
+#   confidence_threshold: 0.9  # Threshold for triggering interventions
+#   backend: "openai"  # Backend to use for assessment
+#   model: "gpt-4o-mini"  # Model to use for assessment
+#   history_window: 20  # Number of recent turns to include
+
 # Codebuff WebSocket server settings
 # Enables WebSocket server implementing the Codebuff protocol for coding agents
 # See docs/user_guide/features/codebuff-backend.md for complete documentation

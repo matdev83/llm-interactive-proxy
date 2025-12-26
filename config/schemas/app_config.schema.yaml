@@ -21,7 +21,36 @@ properties:
   default_rate_window: { type: integer, minimum: 0 }
   model_defaults: { type: object, additionalProperties: true }
   failover_routes: { type: object, additionalProperties: true }
-  identity: { type: object, additionalProperties: true }
+  identity:
+    type: object
+    additionalProperties: false
+    properties:
+      session_id: { type: ["string", "null"] }
+      session_turn_count: { type: integer, minimum: 0 }
+      title:
+        type: object
+        additionalProperties: false
+        properties:
+          mode: { type: string, enum: [default, passthrough, override] }
+          override_value: { type: ["string", "null"] }
+          default_value: { type: string }
+          passthrough_name: { type: string }
+      url:
+        type: object
+        additionalProperties: false
+        properties:
+          mode: { type: string, enum: [default, passthrough, override] }
+          override_value: { type: ["string", "null"] }
+          default_value: { type: string }
+          passthrough_name: { type: string }
+      user_agent:
+        type: object
+        additionalProperties: false
+        properties:
+          mode: { type: string, enum: [default, passthrough, override] }
+          override_value: { type: ["string", "null"] }
+          default_value: { type: string }
+          passthrough_name: { type: string }
   empty_response: { type: object, additionalProperties: true }
   edit_precision: { type: object, additionalProperties: true }
   rewriting: { type: object, additionalProperties: true }
@@ -234,7 +263,29 @@ properties:
       hybrid_reasoning_backoff_turns: { type: integer, minimum: 0 }
   reasoning_aliases:
     type: object
-    additionalProperties: true
+    additionalProperties: false
+    properties:
+      reasoning_alias_settings:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [model, modes]
+          properties:
+            model:
+              type: string
+            modes:
+              type: object
+              additionalProperties:
+                type: object
+                additionalProperties: false
+                properties:
+                  max_reasoning_tokens: { type: ["integer", "null"], minimum: 0 }
+                  reasoning_effort: { type: ["string", "null"] }
+                  user_prompt_prefix: { type: ["string", "null"] }
+                  user_prompt_suffix: { type: ["string", "null"] }
+                  temperature: { type: ["number", "null"], minimum: 0.0, maximum: 2.0 }
+                  top_p: { type: ["number", "null"], minimum: 0.0, maximum: 1.0 }
   model_aliases:
     type: array
     items:

@@ -124,3 +124,69 @@ access_policies: []
                 raise AssertionError(
                     f"Example config {example_path.name} failed schema validation: {e}"
                 )
+
+    def test_identity_config_validates_with_new_schema(self):
+        """Verify identity configs with HeaderConfig structure validate."""
+        import tempfile
+
+        schema_path = Path("config/schemas/app_config.schema.yaml")
+
+        # Test identity config with override mode (like identity_kilocode.example.yaml)
+        test_config = """
+identity:
+  user_agent:
+    mode: override
+    override_value: "Kilo-Code/4.122.1"
+  url:
+    mode: override
+    override_value: "https://kilocode.com"
+  title:
+    mode: override
+    override_value: "Kilo Code"
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(test_config)
+            test_file = Path(f.name)
+
+        try:
+            validate_yaml_against_schema(test_file, schema_path)
+        except Exception as e:
+            raise AssertionError(
+                f"Identity config with override mode failed validation: {e}"
+            )
+        finally:
+            test_file.unlink()
+
+    def test_reasoning_aliases_config_validates_with_new_schema(self):
+        """Verify reasoning_aliases config with reasoning_alias_settings validates."""
+        import tempfile
+
+        schema_path = Path("config/schemas/app_config.schema.yaml")
+
+        test_config = """
+reasoning_aliases:
+  reasoning_alias_settings:
+    - model: "claude-sonnet-4"
+      modes:
+        low:
+          max_reasoning_tokens: 2048
+          reasoning_effort: "low"
+        medium:
+          max_reasoning_tokens: 8192
+          reasoning_effort: "medium"
+        high:
+          max_reasoning_tokens: 32768
+          reasoning_effort: "high"
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(test_config)
+            test_file = Path(f.name)
+
+        try:
+            validate_yaml_against_schema(test_file, schema_path)
+        except Exception as e:
+            raise AssertionError(f"Reasoning aliases config failed validation: {e}")
+        finally:
+            test_file.unlink()
