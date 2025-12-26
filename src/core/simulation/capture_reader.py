@@ -247,6 +247,9 @@ class CaptureReader:
 
         # For each session, pair requests with responses
         for _sid, entries in by_session.items():
+            # Pre-compute position map to avoid O(n^2) .index() calls
+            entry_position: dict[int, int] = {id(e): i for i, e in enumerate(entries)}
+
             requests = [
                 e
                 for e in entries
@@ -258,8 +261,8 @@ class CaptureReader:
             ]
 
             for req in requests:
-                # Find responses after this request
-                req_idx = entries.index(req)
+                # Find responses after this request (O(1) lookup via pre-computed map)
+                req_idx = entry_position[id(req)]
                 responses = [
                     e
                     for e in entries[req_idx + 1 :]
