@@ -141,7 +141,11 @@ def _get_json_builder() -> JSONResponseBuilder:
     """Get or create JSON response builder singleton."""
     global _json_builder
     if _json_builder is None:
-        _json_builder = _resolve_service(JSONResponseBuilder) or JSONResponseBuilder()
+        with _json_builder_lock:
+            if _json_builder is None:
+                _json_builder = (
+                    _resolve_service(JSONResponseBuilder) or JSONResponseBuilder()
+                )
     return _json_builder
 
 
@@ -149,9 +153,12 @@ def _get_streaming_builder() -> StreamingResponseBuilder:
     """Get or create streaming response builder singleton."""
     global _streaming_builder
     if _streaming_builder is None:
-        _streaming_builder = (
-            _resolve_service(StreamingResponseBuilder) or StreamingResponseBuilder()
-        )
+        with _streaming_builder_lock:
+            if _streaming_builder is None:
+                _streaming_builder = (
+                    _resolve_service(StreamingResponseBuilder)
+                    or StreamingResponseBuilder()
+                )
     return _streaming_builder
 
 
@@ -159,9 +166,11 @@ def _get_other_builder() -> OtherResponseBuilder:
     """Get or create other response builder singleton."""
     global _other_builder
     if _other_builder is None:
-        _other_builder = (
-            _resolve_service(OtherResponseBuilder) or OtherResponseBuilder()
-        )
+        with _other_builder_lock:
+            if _other_builder is None:
+                _other_builder = (
+                    _resolve_service(OtherResponseBuilder) or OtherResponseBuilder()
+                )
     return _other_builder
 
 
@@ -169,28 +178,32 @@ def _get_content_converter() -> StreamingContentConverter:
     """Get or create streaming content converter singleton."""
     global _content_converter
     if _content_converter is None:
-        # Try to resolve from DI first
-        converter = _resolve_service(StreamingContentConverter)
+        with _content_converter_lock:
+            if _content_converter is None:
+                # Try to resolve from DI first
+                converter = _resolve_service(StreamingContentConverter)
 
-        if converter is None:
-            # Manually create with dependencies from DI if available
-            # This ensures we share the StreamingContextRegistry singleton
-            # to prevent memory leaks from split registry instances
-            from src.core.services.streaming.stream_context_registry import (
-                StreamingContextRegistry,
-            )
-            from src.core.transport.fastapi.adapters.streaming.tool_block_buffer import (
-                ToolBlockBuffer,
-            )
+                if converter is None:
+                    # Manually create with dependencies from DI if available
+                    # This ensures we share the StreamingContextRegistry singleton
+                    # to prevent memory leaks from split registry instances
+                    from src.core.services.streaming.stream_context_registry import (
+                        StreamingContextRegistry,
+                    )
+                    from src.core.transport.fastapi.adapters.streaming.tool_block_buffer import (
+                        ToolBlockBuffer,
+                    )
 
-            registry = _resolve_service(StreamingContextRegistry)
-            tool_block_buffer = None
-            if registry:
-                tool_block_buffer = ToolBlockBuffer(registry=registry)
+                    registry = _resolve_service(StreamingContextRegistry)
+                    tool_block_buffer = None
+                    if registry:
+                        tool_block_buffer = ToolBlockBuffer(registry=registry)
 
-            converter = StreamingContentConverter(tool_block_buffer=tool_block_buffer)
+                    converter = StreamingContentConverter(
+                        tool_block_buffer=tool_block_buffer
+                    )
 
-        _content_converter = converter
+                _content_converter = converter
     return _content_converter
 
 
@@ -198,7 +211,9 @@ def _get_sse_assembler() -> SSEAssembler:
     """Get or create SSE assembler singleton."""
     global _sse_assembler
     if _sse_assembler is None:
-        _sse_assembler = _resolve_service(SSEAssembler) or SSEAssembler()
+        with _sse_assembler_lock:
+            if _sse_assembler is None:
+                _sse_assembler = _resolve_service(SSEAssembler) or SSEAssembler()
     return _sse_assembler
 
 
@@ -208,9 +223,13 @@ def _get_wire_capture_coordinator(
     """Get or create wire capture coordinator singleton."""
     global _wire_capture_coordinator
     if _wire_capture_coordinator is None:
-        _wire_capture_coordinator = WireCaptureCoordinator(wire_capture=wire_capture)
+        with _wire_capture_coordinator_lock:
+            if _wire_capture_coordinator is None:
+                _wire_capture_coordinator = WireCaptureCoordinator(
+                    wire_capture=wire_capture
+                )
     elif wire_capture is not None:
-        # Update wire capture if provided
+        # Update wire capture if provided (outside lock - safe assignment)
         _wire_capture_coordinator = WireCaptureCoordinator(wire_capture=wire_capture)
     return _wire_capture_coordinator
 

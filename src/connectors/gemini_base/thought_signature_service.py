@@ -2,10 +2,11 @@
 Thought signature service for Gemini Code Assist.
 
 This module provides an injectable service for thought signature management,
-wrapping the ThoughtSignatureManager with a clean interface for DI.
+wrapping ThoughtSignatureManager with a clean interface for DI.
 """
 
 import logging
+import threading
 from typing import Any
 
 from src.connectors.gemini_base.thought_signature_manager import (
@@ -131,6 +132,7 @@ class ThoughtSignatureService:
 
 # Default instance for convenience
 _default_service: ThoughtSignatureService | None = None
+_default_service_lock = threading.Lock()
 
 
 def get_default_thought_signature_service() -> ThoughtSignatureService:
@@ -140,7 +142,9 @@ def get_default_thought_signature_service() -> ThoughtSignatureService:
     """
     global _default_service
     if _default_service is None:
-        _default_service = ThoughtSignatureService(use_global_cache=True)
+        with _default_service_lock:
+            if _default_service is None:
+                _default_service = ThoughtSignatureService(use_global_cache=True)
     return _default_service
 
 

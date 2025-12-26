@@ -6,6 +6,7 @@ imports to avoid module-level singleton dependencies and enable testing.
 """
 
 import logging
+import threading
 from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
@@ -99,13 +100,16 @@ class GoogleAuthProvider:
 
 # Default instance for convenience
 _default_provider: GoogleAuthProvider | None = None
+_default_provider_lock = threading.Lock()
 
 
 def get_default_google_auth_provider() -> GoogleAuthProvider:
     """Get the default Google Auth provider instance."""
     global _default_provider
     if _default_provider is None:
-        _default_provider = GoogleAuthProvider()
+        with _default_provider_lock:
+            if _default_provider is None:
+                _default_provider = GoogleAuthProvider()
     return _default_provider
 
 

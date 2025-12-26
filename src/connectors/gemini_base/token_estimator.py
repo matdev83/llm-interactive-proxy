@@ -6,6 +6,7 @@ wrapped in an injectable service to avoid global state and enable testing.
 """
 
 import logging
+import threading
 from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
@@ -131,6 +132,7 @@ class TiktokenEstimator:
 
 # Default instance for convenience (can be replaced in tests)
 _default_estimator: TiktokenEstimator | None = None
+_default_estimator_lock = threading.Lock()
 
 
 def get_default_token_estimator() -> TiktokenEstimator:
@@ -142,7 +144,9 @@ def get_default_token_estimator() -> TiktokenEstimator:
     """
     global _default_estimator
     if _default_estimator is None:
-        _default_estimator = TiktokenEstimator()
+        with _default_estimator_lock:
+            if _default_estimator is None:
+                _default_estimator = TiktokenEstimator()
     return _default_estimator
 
 
