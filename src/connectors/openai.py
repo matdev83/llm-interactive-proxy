@@ -702,10 +702,22 @@ class OpenAIConnector(LLMBackend):
         # extraction.
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract response.headers, trying fallback: %s",
+                    e,
+                    exc_info=True,
+                )
             try:
                 response_headers = dict(getattr(response, "headers", {}) or {})
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to extract response headers from fallback: %s",
+                        e,
+                        exc_info=True,
+                    )
                 response_headers = {}
 
         return ResponseEnvelope(
@@ -749,18 +761,37 @@ class OpenAIConnector(LLMBackend):
             body: str = ""
             try:
                 body_bytes = await response.aread()
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to read error response body: %s",
+                        e,
+                        exc_info=True,
+                    )
                 fallback: str = str(getattr(response, "text", ""))
                 body = fallback() if callable(fallback) else fallback
             else:
                 try:
                     body = body_bytes.decode("utf-8")
-                except Exception:
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to decode error response body: %s",
+                            e,
+                            exc_info=True,
+                        )
                     fallback_text: str = str(getattr(response, "text", ""))
                     body = fallback_text() if callable(fallback_text) else fallback_text
             finally:
-                with contextlib.suppress(Exception):
+                try:
                     await response.aclose()
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to close error response: %s",
+                            e,
+                            exc_info=True,
+                        )
 
             if not isinstance(body, str):
                 body = str(body)
@@ -803,7 +834,7 @@ class OpenAIConnector(LLMBackend):
                     except asyncio.TimeoutError:
                         target_id = None
 
-                if target_id:
+            if target_id:
                     await self._send_openai_responses_cancel(
                         base_url=cancel_base_url,
                         headers=cancel_headers,
@@ -811,8 +842,15 @@ class OpenAIConnector(LLMBackend):
                         session_id=session_id,
                     )
 
-            with contextlib.suppress(Exception):
+            try:
                 await response.aclose()
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to close response during stream cancellation: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             def _extract_chunk_id(chunk: Any) -> str | None:
