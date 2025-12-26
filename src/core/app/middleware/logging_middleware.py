@@ -24,13 +24,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         if self.log_requests and logger.isEnabledFor(logging.INFO):
-
-            logger.info(f"Request: {request.method} {request.url}")
+            logger.info("Request: %s %s", request.method, request.url)
 
         response = await call_next(request)
 
         if self.log_responses and logger.isEnabledFor(logging.INFO):
-
-            logger.info(f"Response status: {response.status_code}")
+            logger.info("Response status: %s", response.status_code)
 
         return response
