@@ -1,128 +1,161 @@
 # OpenAI Codex Backend Configuration Example
-# Copy this file to openai_codex.yaml and customize as needed
+# Copy this file to config/backends/openai_codex/backend.yaml and customize as needed
 
-openai_codex:
-  # API configuration
-  api_key: null  # Uses OAuth tokens from auth.json by default
-  api_base_url: "https://api.openai.com/v1"  # Optional override
-  
-  # Extra configuration for Codex-specific features
-  extra:
-    codex:
-      # Compatibility Layer for KiloCode clients
-      compatibility_layer:
-        # Global enable/disable flag
-        # Set to true to enable KiloCode XML tool translation
-        enabled: false  # Default: false (disabled)
-        
-        # Client detection settings
-        detection:
-          # How long to cache detection results (in seconds)
-          cache_ttl_seconds: 3600  # Default: 1 hour
-          
-          # Minimum number of XML tags to trigger heuristic detection
-          # If metadata/headers don't identify client, look for XML tags
-          heuristic_threshold: 2  # Default: 2 tags
-        
-        # Tool translation settings
-        translation:
-          # Maximum timeout for proxy-side tool execution (in seconds)
-          max_tool_execution_timeout: 30  # Default: 30 seconds
-          
-          # Result format for KiloCode clients
-          result_format: "kilo_standard"  # Default: kilo_standard
-        
-        # Telemetry and monitoring
-        telemetry:
-          # Log translation events (debug level)
-          log_translations: true  # Default: true
-          
-          # Log detection events (info level)
-          log_detection: true  # Default: true
-          
-          # Emit Prometheus metrics
-          emit_metrics: true  # Default: true
-      
-      # Default capabilities for all clients
-      default_capabilities:
-        protocol: "responses"  # responses | chat_completions
-        tool_text_format: "none"  # none | codex_xml | summary
-        prompt_mode: "codex_default"  # codex_default | passthrough
-        include_environment_context: false
-        codex_passthrough: false
-      
-      # Per-agent capability overrides
-      agent_capabilities:
-        # Example: KiloCode client overrides
-        kilocode:
-          tool_text_format: "codex_xml"
-          prompt_mode: "codex_default"
-          include_environment_context: true
-        
-        # Example: Cline client overrides
-        cline:
-          tool_text_format: "codex_xml"
-          prompt_mode: "codex_default"
-      
-      # Tool text renderer configuration
-      renderer:
-        default: "none"  # Default renderer for tool results
-        fallback: "summary"  # Fallback if default fails
-        
-        # Renderer aliases
-        aliases:
-          verbose: "detailed"
-          brief: "summary"
-        
-        # Custom renderer modules
-        modules:
-          custom: "my_package.custom_renderer"
-      
-      # System prompt configuration
-      prompt:
-        # Custom prompt template (overrides default Codex prompt)
-        template: null  # Default: use bundled gpt_5_codex_prompt.md
-        
-        # Sections to prepend to prompt
-        prepend: []
-        
-        # Sections to append to prompt
-        append: []
-        
-        # Remove duplicate sections
-        deduplicate: true
-        
-        # Fall back to default prompt if custom fails
-        fallback_to_default: true
-      
-      # Tool schema configuration
-      tool_schema:
-        # Base tools (overrides default Codex tools)
-        base_tools: null  # Default: use Codex defaults
-        
-        # Additional custom tools
-        custom_tools: []
-      
-      # Streaming configuration
-      streaming:
-        # Maximum retry attempts for streaming failures
-        max_retries: 2  # Default: 2
-        
-        # Backoff delays between retries (in seconds)
-        retry_backoff_seconds: [0.5, 1.5, 3.0]  # Default: exponential backoff
+# Backend settings
+backend_type: "openai-codex"
+timeout: 120
 
-# Environment variable overrides (highest priority):
-# - OPENAI_CODEX_COMPATIBILITY_LAYER_ENABLED=true|false
-# - OPENAI_CODEX_DEFAULT_CAPABILITIES={"protocol": "responses"}
-# - OPENAI_CODEX_AGENT_CAPABILITIES={"kilocode": {"tool_text_format": "codex_xml"}}
-# - OPENAI_CODEX_RENDERER_DEFAULT=summary
-# - OPENAI_CODEX_RENDERER_FALLBACK=none
-# - OPENAI_CODEX_PROMPT_TEMPLATE=/path/to/custom_prompt.md
-# - OPENAI_CODEX_PROMPT_PREPEND=["section1", "section2"]
-# - OPENAI_CODEX_PROMPT_APPEND=["section3"]
-# - OPENAI_CODEX_PROMPT_DEDUPLICATE=true|false
-# - OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT=true|false
-# - OPENAI_CODEX_TOOL_SCHEMA_BASE=[{...}]
-# - OPENAI_CODEX_TOOL_SCHEMA_CUSTOM=[{...}]
-# - OPENAI_CODEX_STREAMING_MAX_RETRIES=3
-# - OPENAI_CODEX_STREAMING_RETRY_BACKOFF=[1.0, 2.0, 4.0]
+# Codex-KiloCode Compatibility Layer Configuration
+# IMPORTANT: Set enabled: true to activate the compatibility layer
+compatibility_layer:
+  # Global enable/disable flag
+  enabled: false  # Set to true to enable
+
+  # Client detection configuration
+  detection:
+    cache_ttl_seconds: 3600  # 1 hour cache
+    heuristic_threshold: 2   # Min XML tags for heuristic detection
+    methods:
+      metadata: true   # Check request.agent metadata
+      header: true     # Check User-Agent header
+      heuristic: true  # Check for XML tags in payload
+
+  # Tool translation configuration
+  translation:
+    max_tool_execution_timeout: 30  # 30 seconds
+    result_format: "kilo_standard"  # or "verbose"
+
+    # Enable/disable specific tools
+    tools:
+      read_file: true
+      list_files: true
+      execute_command: true
+      codebase_search: true
+      search_files: true
+      use_mcp_tool: true
+      access_mcp_resource: true
+      attempt_completion: true
+      ask_followup_question: true
+      search_and_replace: true
+      write_to_file: true
+      insert_content: true
+      edit_file: true
+
+    # Command execution security
+    command_execution:
+      allowed_shells: ["bash", "sh", "cmd", "powershell"]
+      restrict_to_workspace: true
+      max_output_size: 1048576  # 1 MB
+
+    # File operation security
+    file_operations:
+      restrict_to_workspace: true
+      max_file_size: 10485760  # 10 MB
+      allowed_extensions: []  # Empty = all allowed
+      blocked_patterns:
+        - "**/.env"
+        - "**/.env.*"
+        - "**/id_rsa"
+        - "**/id_dsa"
+        - "**/*.key"
+        - "**/*.pem"
+        - "**/credentials.json"
+        - "**/secrets.yaml"
+
+  # Telemetry and monitoring
+  telemetry:
+    log_translations: true
+    log_detection: true
+    emit_metrics: true
+    log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    include_xml_in_errors: false  # Set to true for debugging
+
+  # Error handling
+  error_handling:
+    detailed_errors: true
+    include_suggestions: true
+    fail_fast: true
+
+# Model capabilities and limits
+models:
+  "gpt-4-codex":
+    capabilities:
+      - "chat"
+      - "completion"
+      - "function_calling"
+      - "tool_use"
+      - "json_mode"
+      - "streaming"
+      - "coding"
+
+    limits:
+      context_window: 8192
+      max_input_tokens: 6144
+      max_output_tokens: 2048
+      requests_per_minute: 60
+      tokens_per_minute: 90000
+      max_temperature: 2.0
+      min_temperature: 0.0
+      max_top_p: 1.0
+      min_top_p: 0.0
+
+    metadata:
+      display_name: "GPT-4 Codex"
+      description: "OpenAI's Codex model optimized for code generation"
+      provider: "OpenAI"
+      model_type: "chat"
+      architecture: "transformer"
+      tags: ["coding", "function-calling"]
+
+# Default model
+default_model: "gpt-4-codex"
+
+# Model-specific defaults
+model_defaults:
+  temperature: 0.7
+  top_p: 1.0
+  max_tokens: null
+
+# Common Configuration Scenarios:
+
+# 1. Maximum Security (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     tools:
+#       execute_command: false
+#       write_to_file: false
+#     file_operations:
+#       restrict_to_workspace: true
+#       blocked_patterns:
+#         - "**/.env*"
+#         - "**/*.key"
+#         - "**/*.pem"
+
+# 2. Development Mode (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     max_tool_execution_timeout: 60
+#   telemetry:
+#     log_level: "DEBUG"
+#     log_translations: true
+#     log_detection: true
+#     include_xml_in_errors: true
+
+# 3. Production Mode (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     max_tool_execution_timeout: 30
+#   telemetry:
+#     log_level: "INFO"
+#     emit_metrics: true
+#     include_xml_in_errors: false
+#   error_handling:
+#     detailed_errors: false
+
+# 4. Minimal Configuration (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   # All other settings use defaults

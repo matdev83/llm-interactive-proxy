@@ -205,4 +205,21 @@ reasoning_aliases:
         missing_in_schema = code_fields - schema_fields
 
         assert not extra_in_schema, f"Schema has fields not in code: {extra_in_schema}"
-        assert not missing_in_schema, f"Code has fields not in schema: {missing_in_schema}"
+        assert (
+            not missing_in_schema
+        ), f"Code has fields not in schema: {missing_in_schema}"
+
+    def test_openai_codex_backend_example_validates(self):
+        """Verify openai_codex.yaml.example validates against its schema."""
+        example_path = Path("config/backends/openai_codex.yaml.example")
+        schema_path = Path("config/schemas/openai_codex_backend.schema.yaml")
+
+        if not example_path.exists():
+            raise AssertionError(f"Example file not found: {example_path}")
+
+        try:
+            validate_yaml_against_schema(example_path, schema_path)
+        except Exception as e:
+            raise AssertionError(
+                f"openai_codex.yaml.example failed schema validation: {e}"
+            )
