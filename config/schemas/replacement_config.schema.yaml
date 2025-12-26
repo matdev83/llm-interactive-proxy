@@ -1,6 +1,10 @@
 $schema: "http://json-schema.org/draft-07/schema#"
 title: Replacement Configuration
-description: Configuration schema for random model/backend replacement feature
+description: Configuration schema for random model replacement feature
+#
+# This schema matches ReplacementConfig dataclass in:
+# src/core/domain/configuration/replacement_config.py
+
 type: object
 additionalProperties: false
 properties:
@@ -17,11 +21,12 @@ properties:
   backend_model:
     type: string
     default: ""
-    pattern: "^[^:]+:[^:]+$"
     description: Replacement backend and model in the format "backend:model" (e.g., "qwen-oauth:qwen3-coder-plus")
+    # Note: The pattern validation is handled by the code's validate_config() method
   turn_count:
     type: integer
     minimum: 1
     default: 1
     description: Number of consecutive turns to use the replacement model once activated
+
 required: []
