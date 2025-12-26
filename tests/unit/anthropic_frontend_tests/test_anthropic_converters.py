@@ -517,23 +517,21 @@ class TestAnthropicConverters:
         """Test Anthropic models endpoint response."""
         models_response = get_anthropic_models()
 
-        assert models_response["object"] == "list"
-        assert "data" in models_response
-        assert len(models_response["data"]) > 0
+        assert models_response.object == "list"
+        assert len(models_response.data) > 0
 
         # Check for expected models
-        model_ids = [model["id"] for model in models_response["data"]]
+        model_ids = [model.id for model in models_response.data]
         assert "claude-3-5-sonnet-20241022" in model_ids
         assert "claude-3-5-haiku-20241022" in model_ids
         assert "claude-3-opus-20240229" in model_ids
 
         # Check model structure
-        first_model = models_response["data"][0]
-        assert "id" in first_model
-        assert "object" in first_model
-        assert "created" in first_model
-        assert "owned_by" in first_model
-        assert first_model["owned_by"] == "anthropic"
+        first_model = models_response.data[0]
+        assert isinstance(first_model.id, str)
+        assert first_model.object == "model"
+        assert isinstance(first_model.created, int)
+        assert first_model.owned_by == "anthropic"
 
     def test_extract_anthropic_usage_dict(self) -> None:
         """Test usage extraction from dictionary response."""

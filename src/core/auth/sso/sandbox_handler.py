@@ -9,7 +9,43 @@ authentication process.
 import time
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.auth.sso.database import TokenRepository
+
+
+class ChatCompletionMessage(BaseModel):
+    """OpenAI chat completion message."""
+
+    role: str
+    content: str
+
+
+class ChatCompletionChoice(BaseModel):
+    """OpenAI chat completion choice."""
+
+    index: int
+    message: ChatCompletionMessage
+    finish_reason: str
+
+
+class ChatCompletionUsage(BaseModel):
+    """OpenAI chat completion usage."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ChatCompletionResponse(BaseModel):
+    """OpenAI-compatible chat completion response."""
+
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: list[ChatCompletionChoice]
+    usage: ChatCompletionUsage
 
 
 class SandboxHandler:
@@ -28,7 +64,7 @@ class SandboxHandler:
 
     async def generate_login_banner(
         self, auth_url: str | None = None, agent_token_id: str | None = None
-    ) -> dict[str, Any]:
+    ) -> ChatCompletionResponse:
         """
         Generate a chat completion response containing login instructions.
 
@@ -100,7 +136,7 @@ class SandboxHandler:
 
         return self.format_as_completion_response(message)
 
-    def format_as_completion_response(self, message: str) -> dict[str, Any]:
+    def format_as_completion_response(self, message: str) -> ChatCompletionResponse:
         """
         Format message as OpenAI-compatible chat completion response.
 
@@ -108,29 +144,24 @@ class SandboxHandler:
             message: The message content to include in the response
 
         Returns:
-            OpenAI-compatible chat completion response dictionary
+            OpenAI-compatible chat completion response
         """
-        return {
-            "id": "chatcmpl-sandbox",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "sandbox",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": message,
-                    },
-                    "finish_reason": "stop",
-                }
+        return ChatCompletionResponse(
+            id="chatcmpl-sandbox",
+            object="chat.completion",
+            created=int(time.time()),
+            model="sandbox",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content=message),
+                    finish_reason="stop",
+                )
             ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
+            usage=ChatCompletionUsage(
+                prompt_tokens=0, completion_tokens=0, total_tokens=0
+            ),
+        )
 
     def detect_sandbox_history(self, messages: list[dict[str, Any]]) -> bool:
         """

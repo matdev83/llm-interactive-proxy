@@ -13,6 +13,22 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 logger = logging.getLogger(__name__)
 
 
+class AnthropicModel(BaseModel):
+    """Anthropic model information."""
+
+    id: str
+    object: Literal["model"]
+    created: int
+    owned_by: str
+
+
+class AnthropicModelsList(BaseModel):
+    """Anthropic models list response."""
+
+    object: Literal["list"]
+    data: list[AnthropicModel]
+
+
 @dataclass(frozen=True)
 class SseBufferResult:
     """Result of consuming SSE buffer.
@@ -1157,42 +1173,42 @@ def _map_finish_reason(openai_reason: str | None) -> str | None:
     return _FINISH_REASON_MAP.get(openai_reason, openai_reason)
 
 
-def get_anthropic_models() -> dict[str, Any]:
-    """Return a hard-coded model list that satisfies the unit test expectations."""
+def get_anthropic_models() -> AnthropicModelsList:
+    """Return a hard-coded model list that satisfies unit test expectations."""
     models = [
-        {
-            "id": "claude-3-5-sonnet-20241022",
-            "object": "model",
-            "created": 1_725_000_000,
-            "owned_by": "anthropic",
-        },
-        {
-            "id": "claude-3-5-haiku-20241022",
-            "object": "model",
-            "created": 1_725_000_000,
-            "owned_by": "anthropic",
-        },
-        {
-            "id": "claude-3-opus-20240229",
-            "object": "model",
-            "created": 1_709_000_000,
-            "owned_by": "anthropic",
-        },
-        {
-            "id": "claude-3-sonnet-20240229",
-            "object": "model",
-            "created": 1_709_000_000,
-            "owned_by": "anthropic",
-        },
-        {
-            "id": "claude-3-haiku-20240307",
-            "object": "model",
-            "created": 1_709_000_000,
-            "owned_by": "anthropic",
-        },
+        AnthropicModel(
+            id="claude-3-5-sonnet-20241022",
+            object="model",
+            created=1_725_000_000,
+            owned_by="anthropic",
+        ),
+        AnthropicModel(
+            id="claude-3-5-haiku-20241022",
+            object="model",
+            created=1_725_000_000,
+            owned_by="anthropic",
+        ),
+        AnthropicModel(
+            id="claude-3-opus-20240229",
+            object="model",
+            created=1_709_000_000,
+            owned_by="anthropic",
+        ),
+        AnthropicModel(
+            id="claude-3-sonnet-20240229",
+            object="model",
+            created=1_709_000_000,
+            owned_by="anthropic",
+        ),
+        AnthropicModel(
+            id="claude-3-haiku-20240307",
+            object="model",
+            created=1_709_000_000,
+            owned_by="anthropic",
+        ),
     ]
 
-    return {"object": "list", "data": models}
+    return AnthropicModelsList(object="list", data=models)
 
 
 # Backwards-compat alias so existing imports still resolve
@@ -1206,12 +1222,16 @@ __all__ = [
     # Re-exported pydantic models
     "AnthropicMessage",
     "AnthropicMessagesRequest",
+    # Models API types
+    "AnthropicModel",
+    "AnthropicModelsList",
     # Conversion helpers
     "anthropic_to_openai_request",
     "extract_anthropic_usage",
     "openai_stream_to_anthropic_stream",
     "openai_to_anthropic_response",
     "openai_to_anthropic_stream_chunk",
+    "get_anthropic_models",
     # Usage types
     "AnthropicUsageSummary",
 ]
