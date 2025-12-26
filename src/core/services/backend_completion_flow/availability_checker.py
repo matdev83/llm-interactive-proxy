@@ -66,7 +66,7 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
             raise BackendError(
                 message=(
                     f"Backend {backend_type} is permanently disabled: "
-                    f"{disabled_info.get('reason', 'authentication failed')}"
+                    f"{disabled_info.reason}"
                 ),
                 backend_name=backend_type,
             )

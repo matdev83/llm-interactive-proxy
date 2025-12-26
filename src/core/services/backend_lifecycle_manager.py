@@ -18,6 +18,7 @@ from src.core.common.exceptions import BackendError
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
+from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
@@ -62,7 +63,7 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         self._backend_configs: dict[str, Any] = {}
 
         # Disabled backends registry
-        self._disabled_backends: dict[str, dict[str, Any]] = {}
+        self._disabled_backends: dict[str, DisabledBackendInfo] = {}
 
         # Track shutdown tasks created by discard() to prevent resource leaks
         self._shutdown_tasks: set[asyncio.Task[None]] = set()
@@ -95,9 +96,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         Permanently disabled backends raise BackendError.
         """
         if backend_type in self._disabled_backends:
-            reason = self._disabled_backends[backend_type].get(
-                "reason", "permanently disabled"
-            )
+            disabled_info = self._disabled_backends[backend_type]
+            reason = disabled_info.reason
             raise BackendError(
                 message=f"Backend {backend_type} is permanently disabled: {reason}",
                 backend_name=backend_type,
@@ -202,10 +202,10 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         Records the disablement reason.
         """
         # Record permanent disablement
-        self._disabled_backends[backend_type] = {
-            "reason": reason,
-            "timestamp": time.time(),
-        }
+        self._disabled_backends[backend_type] = DisabledBackendInfo(
+            reason=reason,
+            timestamp=time.time(),
+        )
 
         global_cache_keys_to_remove = [backend_type]
         per_session_keys_to_remove = [
@@ -252,7 +252,7 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         """Check if backend is permanently disabled."""
         return backend_type in self._disabled_backends
 
-    def get_disabled_backends(self) -> dict[str, dict[str, Any]]:
+    def get_disabled_backends(self) -> dict[str, DisabledBackendInfo]:
         """Get the permanently disabled backend registry."""
         return dict(self._disabled_backends)
 

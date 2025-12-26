@@ -6,7 +6,9 @@ Responsible for managing backend instance creation, caching, and shutdown.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
@@ -73,7 +75,7 @@ class IBackendLifecycleManager(ABC):
         """
 
     @abstractmethod
-    def get_disabled_backends(self) -> dict[str, dict[str, Any]]:
+    def get_disabled_backends(self) -> dict[str, DisabledBackendInfo]:
         """Get the permanently disabled backend registry.
 
         The returned mapping is keyed by backend type and contains details like:

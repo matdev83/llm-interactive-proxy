@@ -149,7 +149,7 @@ class FailoverPlanner(IFailoverPlanner):
                     logger.info(
                         "Skipping backend %s (permanently disabled: %s) in failover plan",
                         backend_name,
-                        disabled_backends[backend_name].get("reason", "unknown"),
+                        disabled_backends[backend_name].reason,
                     )
                 continue
 

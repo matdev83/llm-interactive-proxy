@@ -23,6 +23,7 @@ from src.core.interfaces.failover_interface import (
     IFailoverCoordinator,
     IFailoverStrategy,
 )
+from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 from src.core.services.failover_planner import FailoverPlanner
 from src.core.services.failover_service import FailoverAttempt
 
@@ -233,7 +234,10 @@ class TestHealthFiltering:
         # Set up disabled backends registry
         mock_backend_lifecycle_manager.get_disabled_backends = Mock(
             return_value={
-                "anthropic": {"reason": "Permanently disabled for cost control"}
+                "anthropic": DisabledBackendInfo(
+                    reason="Permanently disabled for cost control",
+                    timestamp=0.0,
+                )
             }
         )
 
@@ -332,8 +336,8 @@ class TestHealthFiltering:
         # Set up all backends as disabled
         mock_backend_lifecycle_manager.get_disabled_backends = Mock(
             return_value={
-                "openai": {"reason": "Disabled"},
-                "anthropic": {"reason": "Disabled"},
+                "openai": DisabledBackendInfo(reason="Disabled", timestamp=0.0),
+                "anthropic": DisabledBackendInfo(reason="Disabled", timestamp=0.0),
             }
         )
 
