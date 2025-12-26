@@ -1,7 +1,9 @@
 """Streaming content conversion for response adapters.
 
-This module contains the StreamingContentConverter class for converting raw stream
-chunks to StreamingContent, refactoring the 670+ line _streaming_adapter closure.
+This module contains StreamingContentConverter class for converting raw stream
+chunks to StreamingContent, refactoring 670+ line _streaming_adapter closure.
+Normalizes ProcessedResponse and raw chunks, decodes SSE payloads, merges
+metadata, tracks usage, and detects completion signals.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.streaming.streaming_content import StreamingContent
@@ -26,6 +28,16 @@ if TYPE_CHECKING:
     from src.core.domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
+
+
+class PayloadAndMetadata(NamedTuple):
+    """Result of extracting payload and metadata from a chunk.
+
+    Provides named fields for clarity when unpacking the result.
+    """
+
+    payload: Any
+    metadata: dict[str, Any]
 
 
 class StreamingContentConverter:
@@ -120,18 +132,18 @@ class StreamingContentConverter:
                     await source.aclose()  # type: ignore[union-attr]
             raise
 
-    def _extract_payload_and_metadata(self, chunk: Any) -> tuple[Any, dict[str, Any]]:
+    def _extract_payload_and_metadata(self, chunk: Any) -> PayloadAndMetadata:
         """Extract payload and metadata from chunk.
 
         Args:
             chunk: Chunk (ProcessedResponse or raw)
 
         Returns:
-            Tuple of (payload, metadata)
+            PayloadAndMetadata namedtuple with payload and metadata fields
         """
         if isinstance(chunk, ProcessedResponse):
-            return chunk.content, chunk.metadata or {}
-        return chunk, {}
+            return PayloadAndMetadata(chunk.content, chunk.metadata or {})
+        return PayloadAndMetadata(chunk, {})
 
     def _extract_usage_from_metadata(
         self, metadata: dict[str, Any] | None
@@ -379,7 +391,9 @@ class StreamingContentConverter:
                         TRACE_LEVEL, "[STREAMING] Processing chunk #%s", chunk_count
                     )
 
-                payload, metadata = self._extract_payload_and_metadata(chunk)
+                payload_and_metadata = self._extract_payload_and_metadata(chunk)
+                payload = payload_and_metadata.payload
+                metadata = payload_and_metadata.metadata
 
                 # Decode SSE payload
                 decoder = self._get_sse_decoder()

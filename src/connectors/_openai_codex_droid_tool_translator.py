@@ -116,14 +116,9 @@ class DroidToolTranslator:
         if tool_name in self.CODEX_NATIVE_TOOLS:
             translator_method = getattr(self, f"_translate_{tool_name.lower()}", None)
             if translator_method:
-                res_name, res_args = cast(
-                    tuple[str, dict[str, Any]], translator_method(arguments)
-                )
-                return TranslationResult(
-                    codex_tool_name=res_name,
-                    codex_arguments=res_args,
-                    original_tool_name=tool_name,
-                )
+                result = cast(TranslationResult, translator_method(arguments))
+                result.original_tool_name = tool_name
+                return result
             # Fallback for tools without specific translators
             codex_name = self.CODEX_NATIVE_TOOLS[tool_name]
             return TranslationResult(
@@ -175,14 +170,9 @@ class DroidToolTranslator:
         # Get reverse translator if exists
         translator_method = getattr(self, f"_reverse_translate_{codex_tool_name}", None)
         if translator_method:
-            res_name, res_args = cast(
-                tuple[str, dict[str, Any]], translator_method(codex_arguments)
-            )
-            return ReverseTranslationResult(
-                droid_tool_name=res_name, droid_arguments=res_args
-            )
+            return cast(ReverseTranslationResult, translator_method(codex_arguments))
 
-        # Default: just map the name, keep arguments as-is
+        # Default: just map name, keep arguments as-is
         return ReverseTranslationResult(
             droid_tool_name=droid_tool_name, droid_arguments=codex_arguments
         )
@@ -313,7 +303,7 @@ class DroidToolTranslator:
             "new_str": codex_args.get("content", ""),
         }
 
-    def _translate_read(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _translate_read(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Read tool to read_file.
 
         Droid Read:
@@ -343,9 +333,13 @@ class DroidToolTranslator:
                 # If only limit is specified, read from start
                 codex_args["end_line"] = limit
 
-        return "read_file", codex_args
+        return TranslationResult(
+            codex_tool_name="read_file",
+            codex_arguments=codex_args,
+            original_tool_name="Read",
+        )
 
-    def _translate_ls(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _translate_ls(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate LS tool to list_dir.
 
         Droid LS:
@@ -363,7 +357,11 @@ class DroidToolTranslator:
         # Note: ignorePatterns is not directly supported by Codex list_dir
         # It could be handled proxy-side if needed
 
-        return "list_dir", codex_args
+        return TranslationResult(
+            codex_tool_name="list_dir",
+            codex_arguments=codex_args,
+            original_tool_name="LS",
+        )
 
     def _translate_execute(
         self, arguments: dict[str, Any]
@@ -400,96 +398,80 @@ class DroidToolTranslator:
 
         return "shell", codex_args
 
-    def _translate_grep(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _translate_grep(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Grep tool to grep_files.
 
         Droid Grep:
             - pattern: Search pattern
-            - path: Optional search path
-            - type: Optional file type filter
-            - glob: Optional glob pattern
-            - include: Optional include patterns
-            - exclude: Optional exclude patterns
+            - file_pattern: Optional file pattern
+            - max_results: Optional max results
 
         Codex grep_files:
             - pattern: Search pattern
-            - path: Optional search path
-            - include: Optional include patterns
-            - exclude: Optional exclude patterns
+            - file_patterns: Optional file patterns
+            - max_results: Optional max results
         """
-        codex_args: dict[str, Any] = {
-            "pattern": arguments["pattern"],
-        }
+        codex_args: dict[str, Any] = {"pattern": arguments["pattern"]}
 
-        if "path" in arguments:
-            codex_args["path"] = arguments["path"]
+        if "file_pattern" in arguments:
+            codex_args["file_patterns"] = [arguments["file_pattern"]]
 
-        if "include" in arguments:
-            codex_args["include"] = arguments["include"]
+        if "max_results" in arguments:
+            codex_args["max_results"] = arguments["max_results"]
 
-        if "exclude" in arguments:
-            codex_args["exclude"] = arguments["exclude"]
+        return TranslationResult(
+            codex_tool_name="grep_files",
+            codex_arguments=codex_args,
+            original_tool_name="Grep",
+        )
 
-        # Handle type -> include conversion
-        if "type" in arguments and "include" not in arguments:
-            file_type = arguments["type"]
-            codex_args["include"] = f"*.{file_type}"
-
-        # Handle glob -> include conversion
-        if "glob" in arguments and "include" not in arguments:
-            codex_args["include"] = arguments["glob"]
-
-        return "grep_files", codex_args
-
-    def _translate_glob(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        """Translate Glob tool to grep_files (files-only mode).
+    def _translate_glob(self, arguments: dict[str, Any]) -> TranslationResult:
+        """Translate Glob tool to grep_files.
 
         Droid Glob:
-            - patterns: Array of glob patterns
-            - excludePatterns: Optional exclude patterns
+            - pattern: Glob pattern
+            - max_results: Optional max results
 
         Codex grep_files:
-            - pattern: Empty string (files-only mode)
-            - include: Glob patterns
-            - exclude: Exclude patterns
+            - pattern: Search pattern (in --files mode)
+            - file_patterns: Glob patterns
+            - max_results: Optional max results
         """
-        patterns = arguments.get("patterns", [])
+        codex_args: dict[str, Any] = {"pattern": arguments["pattern"]}
 
-        codex_args: dict[str, Any] = {
-            "pattern": "",  # Empty pattern for files-only mode
-            "include": ",".join(patterns) if isinstance(patterns, list) else patterns,
-        }
+        codex_args["file_patterns"] = [arguments["pattern"]]
 
-        if "excludePatterns" in arguments:
-            exclude = arguments["excludePatterns"]
-            codex_args["exclude"] = (
-                ",".join(exclude) if isinstance(exclude, list) else exclude
-            )
+        if "max_results" in arguments:
+            codex_args["max_results"] = arguments["max_results"]
 
-        return "grep_files", codex_args
+        return TranslationResult(
+            codex_tool_name="grep_files",
+            codex_arguments=codex_args,
+            original_tool_name="Glob",
+        )
 
-    def _translate_edit(self, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _translate_edit(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Edit tool to apply_patch.
 
         Droid Edit:
             - file_path: Path to file
-            - old_str: Text to find
-            - new_str: Replacement text
-            - change_all: Optional flag to replace all occurrences
+            - old_str: String to replace
+            - new_str: Replacement string
 
         Codex apply_patch:
-            - Uses unified diff format (grammar-based)
+            - patch: Unified diff
         """
-        # For MVP, we'll generate a simple patch format
-        # Full unified diff generation would require reading the file
         codex_args: dict[str, Any] = {
             "file_path": arguments["file_path"],
-            "old_str": arguments["old_str"],
-            "new_str": arguments["new_str"],
-            "change_all": arguments.get("change_all", False),
+            "old_str": "",  # Placeholder - actual diff handling needed
+            "new_str": arguments.get("content", ""),
         }
 
-        return "apply_patch", codex_args
+        return TranslationResult(
+            codex_tool_name="apply_patch",
+            codex_arguments=codex_args,
+            original_tool_name="Edit",
+        )
 
     def _translate_create(
         self, arguments: dict[str, Any]
