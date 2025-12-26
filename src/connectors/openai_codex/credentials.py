@@ -171,7 +171,9 @@ class CredentialWatcher:
         async def reload_task() -> None:
             try:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Reloading OpenAI Codex credentials due to file change")
+                    logger.debug(
+                        "Reloading OpenAI Codex credentials due to file change"
+                    )
                 # Use force_reload=True to bypass cache
                 loaded = await self._credential_manager._load_auth(force_reload=True)
                 if loaded:
@@ -179,12 +181,11 @@ class CredentialWatcher:
                         res = self._credential_manager._validate_credentials_structure(
                             self._credential_manager._auth_credentials
                         )
-                        if not res:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Credential structure validation failed after reload: %s",
-                                    "; ".join(res.errors),
-                                )
+                        if not res and logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Credential structure validation failed after reload: %s",
+                                "; ".join(res.errors),
+                            )
 
                 else:
                     if logger.isEnabledFor(logging.WARNING):
@@ -207,7 +208,9 @@ class CredentialWatcher:
 
         if loop.is_closed():
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Cannot schedule credentials reload: event loop is closed.")
+                logger.warning(
+                    "Cannot schedule credentials reload: event loop is closed."
+                )
             self._reload_scheduling_event.clear()
             return
 
@@ -320,10 +323,18 @@ class CredentialManager(ICredentialManager):
 
         self._auth_path = auth_path
         try:
+
+            def _get_mtime() -> float:
+                return auth_path.stat().st_mtime
+
+            def _load_file() -> dict[str, Any]:
+                with open(auth_path, encoding="utf-8") as f:
+                    return cast(dict[str, Any], json.load(f))
+
             # Check if file has been modified since last load (unless force_reload is True)
             if not force_reload:
                 try:
-                    mtime = auth_path.stat().st_mtime
+                    mtime = await asyncio.to_thread(_get_mtime)
                     if mtime == self._last_modified and self.get_access_token():
                         logger.debug(
                             "OpenAI Codex credentials file not modified, using cached."
@@ -334,13 +345,12 @@ class CredentialManager(ICredentialManager):
 
             # Update last modified time
             try:
-                mtime = auth_path.stat().st_mtime
+                mtime = await asyncio.to_thread(_get_mtime)
                 self._last_modified = mtime
             except OSError:
                 pass
 
-            with open(auth_path, encoding="utf-8") as f:
-                data: dict[str, Any] = json.load(f)
+            data: dict[str, Any] = await asyncio.to_thread(_load_file)
 
             # Store credentials for validation
             self._auth_credentials = data

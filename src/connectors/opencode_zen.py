@@ -15,7 +15,7 @@ import sys
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from fastapi import HTTPException
@@ -123,8 +123,17 @@ class OpencodeZenConnector(OpenAIConnector):
                 )
                 return False
 
+            credentials_path = self._credentials_path
+
+            def _get_mtime() -> float:
+                return credentials_path.stat().st_mtime
+
+            def _load_file() -> dict[str, Any]:
+                with open(credentials_path, encoding="utf-8") as f:
+                    return cast(dict[str, Any], json.load(f))
+
             try:
-                current_mtime = self._credentials_path.stat().st_mtime
+                current_mtime = await asyncio.to_thread(_get_mtime)
                 if current_mtime == self._last_modified and self._oauth_credentials:
                     logger.debug(
                         "OpenCode credentials file not modified, using cached."
@@ -134,8 +143,7 @@ class OpencodeZenConnector(OpenAIConnector):
             except OSError:
                 pass
 
-            with open(self._credentials_path, encoding="utf-8") as f:
-                all_credentials = json.load(f)
+            all_credentials: dict[str, Any] = await asyncio.to_thread(_load_file)
 
             provider_creds = all_credentials.get(self._provider_key)
             if not provider_creds:
