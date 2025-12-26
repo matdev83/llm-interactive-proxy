@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cachetools import TTLCache
+from pydantic import BaseModel
 
 
 @dataclass
@@ -18,8 +19,54 @@ class ToolCallStreamState:
     processed_signatures: set[str] = field(default_factory=set)
 
 
-def build_tool_call_signature(tool_call: dict[str, Any]) -> str:
+class ToolCallFunctionBlock(BaseModel):
+    """Function block within a tool call (OpenAI format)."""
+
+    name: str = "unknown"
+    arguments: str | dict[Any, Any] | list[Any] = ""
+
+
+class ToolCallDict(BaseModel):
+    """Tool call dictionary structure (OpenAI format)."""
+
+    id: str | None = None
+    function: ToolCallFunctionBlock
+
+
+def build_tool_call_signature(tool_call: ToolCallDict | dict[str, Any]) -> str:
     """Build a stable signature for a tool call dictionary."""
+
+    if isinstance(tool_call, ToolCallDict):
+        model_obj = tool_call
+        if model_obj.id:
+            return model_obj.id
+
+        name = model_obj.function.name
+        arguments = model_obj.function.arguments
+    else:
+        identifier = tool_call.get("id")
+        if isinstance(identifier, str) and identifier:
+            return identifier
+
+        function_block = tool_call.get("function")
+        if not isinstance(function_block, dict):
+            function_block = {}
+
+        name = function_block.get("name", "unknown")
+        arguments = function_block.get("arguments", "")
+
+    if isinstance(arguments, dict | list):
+        try:
+            arguments_repr = json.dumps(arguments, sort_keys=True)
+        except (TypeError, ValueError):
+            arguments_repr = str(arguments)
+    else:
+        arguments_repr = str(arguments)
+
+    digest = hashlib.sha256(
+        f"{name}:{arguments_repr}".encode("utf-8", "ignore")
+    ).hexdigest()
+    return f"{name}:{digest}"
 
     identifier = tool_call.get("id")
     if isinstance(identifier, str) and identifier:

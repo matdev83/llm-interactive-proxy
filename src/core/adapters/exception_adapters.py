@@ -5,6 +5,7 @@ import math
 import time
 import traceback
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Request, Response
@@ -24,9 +25,26 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
-    """Compute a standards-compliant Retry-After header from a reset timestamp."""
+@dataclass(frozen=True)
+class RetryAfterHeader:
+    """Typed representation of a Retry-After HTTP header."""
 
+    value: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Convert to dict for use with JSONResponse."""
+        return {"Retry-After": self.value}
+
+
+def build_retry_after_header(reset_at: float | None) -> RetryAfterHeader | None:
+    """Compute a standards-compliant Retry-After header from a reset timestamp.
+
+    Args:
+        reset_at: Unix timestamp when rate limit resets, or None
+
+    Returns:
+        RetryAfterHeader object with the header value, or None
+    """
     if reset_at is None:
         return None
 
@@ -37,9 +55,9 @@ def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
         delay_seconds = 0
 
     if delay_seconds <= 0:
-        return {"Retry-After": "0"}
+        return RetryAfterHeader(value="0")
 
-    return {"Retry-After": str(math.ceil(delay_seconds))}
+    return RetryAfterHeader(value=str(math.ceil(delay_seconds)))
 
 
 def create_exception_handler() -> (
@@ -58,7 +76,8 @@ def create_exception_handler() -> (
             # Add additional headers for rate limit errors
             headers = None
             if isinstance(exc, RateLimitExceededError):
-                headers = _build_retry_after_header(exc.reset_at)
+                header = build_retry_after_header(exc.reset_at)
+                headers = header.to_dict() if header else None
 
             return JSONResponse(
                 status_code=status_code, content=content, headers=headers
