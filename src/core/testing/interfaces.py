@@ -95,7 +95,8 @@ class TestServiceValidator:
                     )
 
             except (TypeError, AttributeError) as e:
-                logger.warning(f"Error validating signature: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error validating signature: {e}", exc_info=True)
 
     @staticmethod
     def validate_sync_method(obj: Any, method_name: str) -> None:
@@ -131,7 +132,8 @@ class TestServiceValidator:
                 )
         except (TypeError, AttributeError) as e:
             # Can't validate dynamically, that's okay
-            logger.debug(f"Error validating instance: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Error validating instance: {e}", exc_info=True)
 
 
 class SafeTestSession(Session):
