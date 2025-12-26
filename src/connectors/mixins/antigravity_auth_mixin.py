@@ -136,9 +136,11 @@ class AntigravityAuthMixin:
         if override:
             override_path = Path(override)
             if str(override_path).strip():
-                logger.debug(
-                    f"Using explicit ANTIGRAVITY_STATE_DB override: {override_path}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Using explicit ANTIGRAVITY_STATE_DB override: %s",
+                        override_path,
+                    )
                 return [override_path]
 
         candidates: list[Path] = []
@@ -226,14 +228,16 @@ class AntigravityAuthMixin:
                 raw_value = row[0]
                 return self._parse_auth_status_value(raw_value)
         except sqlite3.Error as exc:
-            logger.warning(
-                "Unable to read Antigravity state database at %s: %s", db_path, exc
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unable to read Antigravity state database at %s: %s", db_path, exc
+                )
             return None
         except Exception as exc:  # pragma: no cover - defensive guardrail
-            logger.warning(
-                "Unexpected error reading Antigravity state db %s: %s", db_path, exc
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc
+                )
             return None
 
     def _extract_credentials_from_db(self, db_path: Path) -> dict[str, Any] | None:
@@ -254,7 +258,8 @@ class AntigravityAuthMixin:
             # Ensure raw_value is a string before calling strip()
             raw_value_str = str(raw_value)
             if not raw_value_str.strip():
-                logger.debug("Auth status value is empty.")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is empty.")
                 return None
 
             auth_data = json.loads(raw_value_str)
@@ -268,12 +273,12 @@ class AntigravityAuthMixin:
             return None
         except json.JSONDecodeError as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to parse Antigravity auth status JSON: {exc}")
+                logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Unexpected error parsing auth status: {exc}", exc_info=True
+                    "Unexpected error parsing auth status: %s", exc, exc_info=True
                 )
             return None
 
@@ -353,9 +358,10 @@ class AntigravityAuthMixin:
                     and hasattr(self, "_last_modified")
                     and current_modified == self._last_modified  # type: ignore
                 ):
-                    logger.debug(
-                        "Antigravity credentials unchanged; using cached copy."
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Antigravity credentials unchanged; using cached copy."
+                        )
                     return True
 
                 credentials = self._extract_credentials_from_db(path)
@@ -380,9 +386,10 @@ class AntigravityAuthMixin:
 
                 errors.extend(validation_errors)
                 if not is_valid:
-                    logger.warning(
-                        f"Invalid credentials in {path}: {validation_errors}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Invalid credentials in %s: %s", path, validation_errors
+                        )
                     continue
 
                 self._oauth_credentials = credentials  # type: ignore
@@ -402,7 +409,7 @@ class AntigravityAuthMixin:
                     credentials_file_hash = None
                 self._credentials_file_hash = credentials_file_hash  # type: ignore
                 self._last_credentials_event_hash = credentials_file_hash  # type: ignore
-                if not silent:
+                if not silent and logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Loaded Antigravity OAuth credentials from %s%s",
                         path,
@@ -411,15 +418,16 @@ class AntigravityAuthMixin:
                 return True
             except Exception as exc:
                 errors.append(f"Unexpected error reading {path}: {exc}")
-                logger.warning(
-                    "Error loading Antigravity credentials from %s: %s", path, exc
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error loading Antigravity credentials from %s: %s", path, exc
+                    )
 
         if errors:
             if hasattr(self, "_credential_validation_errors"):
                 self._credential_validation_errors = errors  # type: ignore
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to load Antigravity credentials. Errors: {errors}"
+                    "Failed to load Antigravity credentials. Errors: %s", errors
                 )
         return False
