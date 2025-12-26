@@ -8,6 +8,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
+import sqlalchemy
 from sqlmodel import select
 
 from src.core.auth.sso.exceptions import SSOException
@@ -316,7 +317,18 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 agent_token_id = row.agent_token_id
                 await session.delete(row)
                 return (True, agent_token_id)
-        except Exception:
+        except (
+            sqlalchemy.exc.SQLAlchemyError,
+            ValueError,
+            AttributeError,
+            TypeError,
+        ) as e:
+            logger.error(
+                "Failed to verify/consume login token: %s",
+                e,
+                exc_info=True,
+                extra={"token_length": len(token) if token else 0},
+            )
             return (False, None)
 
     def _table_to_record(self, row: AgentTokenTable) -> TokenRecord:

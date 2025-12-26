@@ -101,9 +101,7 @@ class ToolCallCommandProcessor(ICommandProcessor):
                 for tool_call in tool_calls_to_execute
             ]
             results = await asyncio.gather(*tasks)
-            command_results = [
-                res for res in results if isinstance(res, ChatMessage)
-            ]
+            command_results = [res for res in results if isinstance(res, ChatMessage)]
 
         command_executed = bool(command_results or textual_tool_messages)
         if not command_executed:
@@ -212,7 +210,11 @@ class ToolCallCommandProcessor(ICommandProcessor):
             for part in content:
                 try:
                     parts.append(cls._message_content_to_str(part))
-                except Exception:
+                except (TypeError, ValueError, AttributeError):
+                    logger.debug(
+                        "Failed to convert message content part to string, using fallback",
+                        exc_info=True,
+                    )
                     parts.append(str(part))
             return "\n".join(part for part in parts if part)
         return str(content)

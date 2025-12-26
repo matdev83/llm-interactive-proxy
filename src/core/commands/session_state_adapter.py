@@ -187,7 +187,16 @@ class SessionStateAdapter(
             return None
         try:
             return cast(_T_co | None, getter(service_type))
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
+            self._logger.debug(
+                "Failed to get service %s from provider",
+                (
+                    service_type.__name__
+                    if hasattr(service_type, "__name__")
+                    else str(service_type)
+                ),
+                exc_info=True,
+            )
             return None
 
     def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
