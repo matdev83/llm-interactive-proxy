@@ -41,7 +41,8 @@ class ValidatedTestStage(InitializationStage):
 
         Subclasses should override _register_services instead of this method.
         """
-        logger.info(f"Executing validated test stage: {self.name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Executing validated test stage: %s", self.name)
 
         # Let subclass register services
         await self._register_services(services, config)
@@ -49,7 +50,8 @@ class ValidatedTestStage(InitializationStage):
         # Validate all registered services
         try:
             TestStageValidator.validate_stage_services(self._registered_services)
-            logger.debug(f"All services in stage '{self.name}' passed validation")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("All services in stage '%s' passed validation", self.name)
         except (TypeError, AttributeError) as e:
             logger.error(
                 f"Service validation failed in stage '{self.name}': {e}", exc_info=True
@@ -92,7 +94,8 @@ class ValidatedTestStage(InitializationStage):
 
         # Register with the service collection
         services.add_instance(service_type, instance)
-        logger.debug(f"Safely registered {service_type.__name__}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Safely registered %s", service_type.__name__)
 
     def safe_register_singleton(
         self,
@@ -121,7 +124,8 @@ class ValidatedTestStage(InitializationStage):
         else:
             services.add_singleton(service_type)
 
-        logger.debug(f"Safely registered singleton {service_type.__name__}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Safely registered singleton %s", service_type.__name__)
 
     def create_safe_session_service_mock(self) -> Any:
         """
@@ -267,11 +271,17 @@ class GuardedMockCreationMixin:
         mock = MagicMock(spec=spec, **kwargs)
 
         # If this is for a session service, warn about potential issues
-        if spec and hasattr(spec, "__name__") and "Session" in spec.__name__:
+        if (
+            spec
+            and hasattr(spec, "__name__")
+            and "Session" in spec.__name__
+            and logger.isEnabledFor(logging.WARNING)
+        ):
             logger.warning(
-                f"Creating MagicMock for {spec.__name__}. "
-                f"Consider using EnforcedMockFactory.create_session_service_mock() "
-                f"to avoid coroutine warnings."
+                "Creating MagicMock for %s. "
+                "Consider using EnforcedMockFactory.create_session_service_mock() "
+                "to avoid coroutine warnings.",
+                spec.__name__,
             )
 
         return mock
@@ -290,11 +300,12 @@ class GuardedMockCreationMixin:
         mock = AsyncMock(spec=spec, **kwargs)
 
         # Warn about potential sync method issues
-        if spec:
+        if spec and logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Created AsyncMock for {spec.__name__}. "
-                f"Remember to use MagicMock for any synchronous methods "
-                f"or use SafeAsyncMockWrapper for mixed async/sync interfaces."
+                "Created AsyncMock for %s. "
+                "Remember to use MagicMock for any synchronous methods "
+                "or use SafeAsyncMockWrapper for mixed async/sync interfaces.",
+                spec.__name__,
             )
 
         return mock
