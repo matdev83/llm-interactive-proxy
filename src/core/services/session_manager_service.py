@@ -90,8 +90,20 @@ class SessionManager(ISessionManager):
                 try:
                     data = msg_any.model_dump()
                     return data.get("role"), data.get("content")
-                except Exception:
-                    pass
+                except (AttributeError, TypeError, KeyError) as exc:
+                    logger.debug(
+                        "Failed to extract role/content via model_dump from %s: %s",
+                        type(msg_any).__name__,
+                        exc,
+                        exc_info=True,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Unexpected error extracting role/content via model_dump from %s: %s",
+                        type(msg_any).__name__,
+                        exc,
+                        exc_info=True,
+                    )
             # Mapping-like messages
             if isinstance(msg_any, dict):
                 return msg_any.get("role"), msg_any.get("content")

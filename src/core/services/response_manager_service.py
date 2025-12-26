@@ -416,8 +416,18 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         try:
             if not getattr(session.state, "pytest_compression_enabled", True):
                 return message
-        except Exception:
-            pass
+        except AttributeError as exc:
+            logger.debug(
+                "Session state does not have pytest_compression_enabled attribute, using default: %s",
+                exc,
+                exc_info=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unexpected error checking pytest_compression_enabled on session state: %s",
+                exc,
+                exc_info=True,
+            )
 
         looks_like_pytest = (
             self._is_pytest_command(command_name, message)
@@ -457,8 +467,12 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 logger.info(
                     f"Detected pytest command execution: {actual_command} (tool: {command_name})"
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Error extracting pytest command from message: %s",
+                exc,
+                exc_info=True,
+            )
 
         # Check minimum lines threshold before applying compression
         try:
@@ -481,9 +495,19 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             session_min_lines: int | None
             try:
                 session_min_lines = session.state.pytest_compression_min_lines
-            except AttributeError:
+            except AttributeError as exc:
+                logger.debug(
+                    "Session state does not have pytest_compression_min_lines attribute: %s",
+                    exc,
+                    exc_info=True,
+                )
                 session_min_lines = None
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Unexpected error accessing pytest_compression_min_lines: %s",
+                    exc,
+                    exc_info=True,
+                )
                 session_min_lines = None
 
             if env_min_lines is not None:
@@ -509,9 +533,12 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 logger.info(
                     f"Applying pytest compression to command result: {actual_command} (tool: {command_name}) - {message_lines} lines >= {min_lines} threshold"
                 )
-        except Exception:
-            # If we can't determine the threshold, apply compression as fallback
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Error determining pytest compression threshold, applying compression as fallback: %s",
+                exc,
+                exc_info=True,
+            )
 
         filtered_message, _token_count = self._filter_pytest_output_with_metrics(
             message

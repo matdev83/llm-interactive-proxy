@@ -62,10 +62,8 @@ class AngelService:
         return user_turns % freq == 0
 
     def parse_model(self, default_backend: str = "") -> tuple[str, str, dict[str, Any]]:
-        backend, model, params = parse_model_with_params(
-            self._model_spec, default_backend
-        )
-        return backend, model, params
+        parsed = parse_model_with_params(self._model_spec, default_backend)
+        return parsed.backend_type, parsed.model_name, parsed.uri_params
 
     @staticmethod
     def _compose_model_identifier(backend: str, model: str) -> str:
@@ -85,8 +83,27 @@ class AngelService:
         default_backend = ""
         if original_request is not None:
             try:
-                default_backend, _ = parse_model_backend(original_request.model)
-            except Exception:
+                parsed = parse_model_backend(original_request.model)
+                default_backend = parsed.backend_type
+            except (ValueError, TypeError) as exc:
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.debug(
+                    "Failed to parse model backend for Angel verification: %s",
+                    exc,
+                    exc_info=True,
+                )
+                default_backend = ""
+            except Exception as exc:
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Unexpected error parsing model backend for Angel verification: %s",
+                    exc,
+                    exc_info=True,
+                )
                 default_backend = ""
         return self.parse_model(default_backend)
 
