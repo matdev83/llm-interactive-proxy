@@ -6,6 +6,7 @@ confirmation codes and enterprise authorization API integration.
 """
 
 import hashlib
+import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -372,7 +373,7 @@ class AuthorizationService:
 
                     return AuthorizationResult(authorized=authorized)
 
-                except Exception as e:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
                     # Fallback: check if body is literally "true" or "1"
                     text = response.text.strip().lower()
                     if text in ("true", "1"):
@@ -380,7 +381,7 @@ class AuthorizationService:
                     if text in ("false", "0"):
                         return AuthorizationResult(authorized=False)
 
-                    logger.error(f"Failed to parse API response: {e}")
+                    logger.error(f"Failed to parse API response: {e}", exc_info=True)
                     return AuthorizationResult(
                         authorized=False, error="Failed to parse response"
                     )

@@ -53,7 +53,8 @@ def fastapi_to_domain_request_context(
             ua = headers.get("user-agent")
             if ua:
                 agent = ua[:80]
-    except Exception:
+    except (TypeError, AttributeError):
+        logger.warning("Failed to extract agent from headers", exc_info=True)
         agent = None
 
     # Create the context

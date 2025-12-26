@@ -230,7 +230,9 @@ class WeakDIContainer:
             if len(self._instances) > 100:
                 issues.append(f"Large number of instances: {len(self._instances)}")
 
-            return DIContainerHealth(stats=stats, issues=issues, healthy=len(issues) == 0)
+            return DIContainerHealth(
+                stats=stats, issues=issues, healthy=len(issues) == 0
+            )
 
 
 class ServiceLifecycleManager:
@@ -280,7 +282,7 @@ class ServiceLifecycleManager:
                     callback()
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error in startup callback: {e}")
+                    logger.error(f"Error in startup callback: {e}", exc_info=True)
                 raise
 
         self._started = True
@@ -304,7 +306,7 @@ class ServiceLifecycleManager:
                     callback()
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error in shutdown callback: {e}")
+                    logger.warning(f"Error in shutdown callback: {e}", exc_info=True)
 
         # Clear container instances
         await self._container.clear_instances()

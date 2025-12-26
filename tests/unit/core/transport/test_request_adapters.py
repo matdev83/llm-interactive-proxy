@@ -88,3 +88,25 @@ class TestRequestAdapterTypedFields:
         # New fields should have defaults
         assert ctx.domain_request is None
         assert ctx.raw_body is None
+
+
+class _NonStringHeadersRequest:
+    """Request with headers containing non-string values (causes TypeError)."""
+
+    def __init__(self) -> None:
+        self.cookies = {}
+        self.client = SimpleNamespace(host="127.0.0.1")
+        self.state = SimpleNamespace(request_state={})
+        self.app = SimpleNamespace(state=SimpleNamespace())
+        # Headers with non-string value (user-agent is None)
+        self.headers = {"User-Agent": None}  # type: ignore[dict-item]
+
+
+def test_request_context_handles_non_string_headers() -> None:
+    """Test that adapter gracefully handles non-string header values."""
+    req = _NonStringHeadersRequest()
+    ctx = fastapi_to_domain_request_context(req)  # type: ignore[arg-type]
+    # Should return None for agent on TypeError
+    assert ctx.agent is None
+    # Other fields should still be populated
+    assert ctx.client_host == "127.0.0.1"
