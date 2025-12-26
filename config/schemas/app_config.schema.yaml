@@ -6,13 +6,17 @@ properties:
   host: { type: string }
   port: { type: integer, minimum: 1 }
   public_url: { type: ["string", "null"] }
-  anthropic_port: { type: integer, minimum: 1 }
+  anthropic_port: { type: ["integer", "null"], minimum: 1 }
   proxy_timeout: { type: integer, minimum: 0 }
   command_prefix: { type: string }
   strict_command_detection: { type: boolean }
   context_window_override: { type: ["integer", "null"], minimum: 1 }
+  gcp_project_id: { type: ["string", "null"] }
+  gemini_credentials_path: { type: ["string", "null"] }
   disable_health_checks: { type: boolean }
   enable_activity_tracking: { type: boolean }
+  request_dedup_window: { type: number, minimum: 0 }
+  request_dedup_max_cache: { type: integer, minimum: 1 }
   default_rate_limit: { type: integer, minimum: 0 }
   default_rate_window: { type: integer, minimum: 0 }
   model_defaults: { type: object, additionalProperties: true }
@@ -141,11 +145,6 @@ properties:
       pytest_full_suite_steering_message: { type: ["string", "null"] }
       test_execution_reminder_enabled: { type: boolean }
       test_execution_reminder_message: { type: ["string", "null"] }
-      angel_model: { type: ["string", "null"] }
-      angel_frequency:
-        type: integer
-        minimum: 1
-        default: 1
       fix_think_tags_enabled: { type: boolean }
       fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
       droid_path_fix_enabled: { type: boolean }
@@ -184,26 +183,53 @@ properties:
         additionalProperties: true
         properties:
           enabled: { type: boolean }
+          unified_steering_enabled: { type: boolean }
+          emit_legacy_steering_log: { type: boolean }
+          steering_policy_priorities: { type: ["object", "null"] }
+          steering_session_ttl_seconds: { type: integer, minimum: 0 }
+          steering_max_sessions: { type: integer, minimum: 1 }
           apply_diff_steering_enabled: { type: boolean }
           apply_diff_steering_rate_limit_seconds: { type: integer, minimum: 0 }
           apply_diff_steering_message: { type: ["string", "null"] }
           pytest_full_suite_steering_enabled: { type: boolean }
           pytest_full_suite_steering_message: { type: ["string", "null"] }
+          inline_python_steering_enabled: { type: boolean }
+          inline_python_steering_message: { type: ["string", "null"] }
+          binary_file_edit_steering_enabled: { type: boolean }
+          binary_file_edit_steering_message: { type: ["string", "null"] }
+          pytest_context_saving_enabled: { type: boolean }
+          fix_think_tags_enabled: { type: boolean }
           test_execution_reminder_enabled: { type: boolean }
           test_execution_reminder_message: { type: ["string", "null"] }
+          access_policies:
+            type: array
+            items: { type: object }
           steering_rules:
             type: array
             items: { type: object }
+      tool_access_global_overrides: { type: ["object", "null"] }
       force_reprocess_tool_calls: { type: boolean }
       log_skipped_tool_calls: { type: boolean }
+      angel_model: { type: ["string", "null"] }
+      angel_frequency:
+        type: integer
+        minimum: 1
+        default: 1
   backends:
     type: object
     additionalProperties: true
     properties:
       default_backend: { type: string }
+      static_route: { type: ["string", "null"] }
       disable_gemini_oauth_fallback: { type: boolean }
       disable_hybrid_backend: { type: boolean }
-  default_backend: { type: string }
+      hybrid_backend_repeat_messages: { type: boolean }
+      reasoning_injection_probability: { type: number, minimum: 0.0, maximum: 1.0 }
+      hybrid_reasoning_model_timeout: { type: integer, minimum: 1 }
+      hybrid_reasoning_force_initial_turns: { type: integer, minimum: 0 }
+      hybrid_execution_model_timeout: { type: integer, minimum: 1 }
+      hybrid_reasoning_latency_threshold: { type: number, minimum: 0.0 }
+      hybrid_reasoning_backoff_turns: { type: integer, minimum: 0 }
   reasoning_aliases:
     type: object
     additionalProperties: true
@@ -379,6 +405,22 @@ properties:
       pool_size: { type: integer, minimum: 1 }
       max_overflow: { type: integer, minimum: 0 }
       pool_timeout: { type: integer, minimum: 1 }
+  compaction:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      token_threshold: { type: integer, minimum: 0 }
+      max_tokens: { type: integer, minimum: 0 }
+      allowed_tool_categories:
+        type: array
+        items: { type: string }
+      denied_tool_categories:
+        type: array
+        items: { type: string }
+      max_stubs_per_resource: { type: integer, minimum: 0 }
+      preserve_last_n_results: { type: integer, minimum: 0 }
+      stub_template: { type: string }
   assessment:
     type: object
     additionalProperties: false
