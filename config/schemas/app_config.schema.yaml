@@ -51,9 +51,57 @@ properties:
           override_value: { type: ["string", "null"] }
           default_value: { type: string }
           passthrough_name: { type: string }
-  empty_response: { type: object, additionalProperties: true }
-  edit_precision: { type: object, additionalProperties: true }
-  rewriting: { type: object, additionalProperties: true }
+  empty_response:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: "Whether empty response recovery is enabled"
+      max_retries:
+        type: integer
+        minimum: 0
+        description: "Maximum number of retries for empty responses"
+  edit_precision:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: "Master switch for edit-precision tuning"
+      temperature:
+        type: number
+        minimum: 0.0
+        maximum: 2.0
+        description: "Temperature override for edit-precision mode"
+      min_top_p:
+        type: ["number", "null"]
+        minimum: 0.0
+        maximum: 1.0
+        description: "Minimum top_p value when override_top_p is true"
+      override_top_p:
+        type: boolean
+        description: "Whether to override top_p in edit-precision mode"
+      override_top_k:
+        type: boolean
+        description: "Whether to override top_k in edit-precision mode"
+      target_top_k:
+        type: ["integer", "null"]
+        minimum: 1
+        description: "Target top_k value when override_top_k is true"
+      exclude_agents_regex:
+        type: ["string", "null"]
+        description: "Regex pattern to exclude agents from edit-precision mode"
+  rewriting:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: "Whether content rewriting is enabled"
+      config_path:
+        type: string
+        description: "Path to directory containing rewriting configuration files"
   app: { type: ["object", "null"] }
   logging:
     type: object
