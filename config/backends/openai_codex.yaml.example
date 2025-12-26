@@ -1,5 +1,9 @@
 # OpenAI Codex Backend Configuration Example
 # Copy this file to config/backends/openai_codex/backend.yaml and customize as needed
+#
+# NOTE: This is a duplicate example file maintained for convenience.
+# The canonical example is at config/backends/openai_codex/backend.example.yaml
+# Both files validate against config/schemas/openai_codex_backend.schema.yaml
 
 # Backend settings
 backend_type: "openai-codex"
