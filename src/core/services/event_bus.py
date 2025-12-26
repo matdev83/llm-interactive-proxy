@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
@@ -28,7 +29,7 @@ _BROADCAST_TOPIC = None
 
 # Maximum number of handlers to prevent unbounded memory growth
 # This limit prevents memory leaks when handlers are dynamically subscribed
-# but never unsubscribed (e.g., per-request handlers)
+# but never unsubscribed.
 _MAX_TOTAL_HANDLERS = 10000
 
 
@@ -64,7 +65,7 @@ class EventBus(IEventBus):
             defaultdict(lambda: defaultdict(list))
         )
         self._pending_tasks: WeakSet[asyncio.Task[Any]] = WeakSet()
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
         self._shutting_down = False
         self._max_total_handlers = max_total_handlers
 
@@ -79,8 +80,9 @@ class EventBus(IEventBus):
         Args:
             event_type: The class of events to subscribe to.
             handler: An async callable that will be invoked when
-                     events of the specified type are published.
-            topic: Optional topic filter. If None, handler receives all events.
+                     events of specified type are published.
+            topic: Optional topic for targeted delivery. If None, handler
+                  receives ALL events of the specified type (broadcast).
         """
         if self._shutting_down:
             if logger.isEnabledFor(logging.WARNING):
@@ -89,6 +91,40 @@ class EventBus(IEventBus):
                     handler,
                     event_type.__name__,
                 )
+            return
+
+        with self._lock:
+            # Check total handler count before adding
+            total_handlers = sum(
+                len(handlers)
+                for topic_map in self._handlers.values()
+                for handlers in topic_map.values()
+            )
+
+            if total_handlers >= self._max_total_handlers:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Cannot subscribe handler: max_total_handlers (%d) reached. "
+                        "Handler accumulation detected - consider unsubscribing unused handlers.",
+                        self._max_total_handlers,
+                    )
+                return
+
+            topic_handlers = self._handlers[event_type][topic]
+            if handler not in topic_handlers:
+                topic_handlers.append(handler)
+                if logger.isEnabledFor(logging.DEBUG):
+                    handler_name = (
+                        handler.__name__ if hasattr(handler, "__name__") else handler
+                    )
+                    topic_str = f"topic={topic}" if topic else "broadcast"
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Subscribed handler %s to event type %s (%s)",
+                            handler_name,
+                            event_type.__name__,
+                            topic_str,
+                        )
             return
 
         # Check total handler count before adding
@@ -131,33 +167,34 @@ class EventBus(IEventBus):
             handler: The handler to remove.
             topic: The topic the handler was subscribed to.
         """
-        try:
-            self._handlers[event_type][topic].remove(handler)
-            if logger.isEnabledFor(logging.DEBUG):
-                handler_name = (
-                    handler.__name__ if hasattr(handler, "__name__") else handler
-                )
-                topic_str = f"topic={topic}" if topic else "broadcast"
+        with self._lock:
+            try:
+                self._handlers[event_type][topic].remove(handler)
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unsubscribed handler %s from event type %s (%s)",
-                        handler_name,
-                        event_type.__name__,
-                        topic_str,
+                    handler_name = (
+                        handler.__name__ if hasattr(handler, "__name__") else handler
                     )
-        except ValueError:
-            if logger.isEnabledFor(logging.DEBUG):
-                handler_name = (
-                    handler.__name__ if hasattr(handler, "__name__") else handler
-                )
-                topic_str = f"topic={topic}" if topic else "broadcast"
+                    topic_str = f"topic={topic}" if topic else "broadcast"
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Unsubscribed handler %s from event type %s (%s)",
+                            handler_name,
+                            event_type.__name__,
+                            topic_str,
+                        )
+            except ValueError:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Handler %s was not subscribed to %s (%s)",
-                        handler_name,
-                        event_type.__name__,
-                        topic_str,
+                    handler_name = (
+                        handler.__name__ if hasattr(handler, "__name__") else handler
                     )
+                    topic_str = f"topic={topic}" if topic else "broadcast"
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Handler %s was not subscribed to %s (%s)",
+                            handler_name,
+                            event_type.__name__,
+                            topic_str,
+                        )
 
     async def publish(self, event: T, topic: str | None = None) -> None:
         """Publish an event to all subscribed handlers.
