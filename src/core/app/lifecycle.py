@@ -192,7 +192,7 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start ProxyMemEosSubscriber: {e}", exc_info=True
+                    "Failed to start ProxyMemEosSubscriber: %s", e, exc_info=True
                 )
 
         # Start UsageTrackingEosSubscriber
@@ -212,7 +212,7 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start UsageTrackingEosSubscriber: {e}", exc_info=True
+                    "Failed to start UsageTrackingEosSubscriber: %s", e, exc_info=True
                 )
 
         # Start WireCaptureEosSubscriber
@@ -232,7 +232,7 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start WireCaptureEosSubscriber: {e}", exc_info=True
+                    "Failed to start WireCaptureEosSubscriber: %s", e, exc_info=True
                 )
 
         # Start TestExecutionReminderEosSubscriber
@@ -266,7 +266,8 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start TestExecutionReminderEosSubscriber: {e}",
+                    "Failed to start TestExecutionReminderEosSubscriber: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -287,7 +288,8 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start SessionCancellationCleanupEosSubscriber: {e}",
+                    "Failed to start SessionCancellationCleanupEosSubscriber: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -308,7 +310,8 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start ModelReplacementEosSubscriber: {e}",
+                    "Failed to start ModelReplacementEosSubscriber: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -417,13 +420,13 @@ class AppLifecycle:
             try:
                 await subscriber.stop()
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"{subscriber_name} stopped")
+                    logger.info("%s stopped", subscriber_name)
             except Exception as e:
                 # Log error but continue to stop remaining subscribers
                 # This prevents resource leaks if one subscriber fails
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failed to stop {subscriber_name}: {e}", exc_info=True
+                        "Failed to stop %s: %s", subscriber_name, e, exc_info=True
                     )
                 # Attempt direct unsubscribe as fallback if stop() failed
                 try:
@@ -440,12 +443,14 @@ class AppLifecycle:
                         )
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                f"Fallback unsubscribe succeeded for {subscriber_name}"
+                                "Fallback unsubscribe succeeded for %s", subscriber_name
                             )
                 except Exception as fallback_error:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            f"Fallback unsubscribe failed for {subscriber_name}: {fallback_error}"
+                            "Fallback unsubscribe failed for %s: %s",
+                            subscriber_name,
+                            fallback_error,
                         )
 
     async def _stop_memory_services(self) -> None:
@@ -646,7 +651,9 @@ class AppLifecycle:
             task.add_done_callback(self._remove_completed_task)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Started session cleanup task (interval: {interval}s, max age: {max_age}s)"
+                    "Started session cleanup task (interval: %ds, max age: %ds)",
+                    interval,
+                    max_age,
                 )
 
     async def _stop_background_tasks(self) -> None:
@@ -658,7 +665,7 @@ class AppLifecycle:
                     await task
                 except asyncio.CancelledError:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Cancelled background task: {task.get_name()}")
+                        logger.info("Cancelled background task: %s", task.get_name())
 
     async def _close_connections(self) -> None:
         """Close any remaining connections."""
@@ -709,7 +716,7 @@ class AppLifecycle:
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Shutting down {len(active_backends)} cached backend(s)..."
+                    "Shutting down %d cached backend(s)...", len(active_backends)
                 )
 
             # Shutdown each backend
@@ -729,11 +736,13 @@ class AppLifecycle:
                             # Synchronous shutdown
                             shutdown_method()
                             if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(f"Shut down backend: {cache_key}")
+                                logger.debug("Shut down backend: %s", cache_key)
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Error shutting down backend {cache_key}: {e}",
+                            "Error shutting down backend %s: %s",
+                            cache_key,
+                            e,
                             exc_info=True,
                         )
 
@@ -749,11 +758,13 @@ class AppLifecycle:
                     if isinstance(result, Exception):
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Error shutting down backend {cache_key}: {result}",
+                                "Error shutting down backend %s: %s",
+                                cache_key,
+                                result,
                                 exc_info=True,
                             )
                     elif logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Shut down backend: {cache_key}")
+                        logger.debug("Shut down backend: %s", cache_key)
 
             # Await any pending shutdown tasks created by discard() operations
             # This prevents resource leaks from untracked shutdown tasks
@@ -773,7 +784,7 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Error shutting down backends: {e}", exc_info=True)
+                logger.warning("Error shutting down backends: %s", e, exc_info=True)
 
     async def _shutdown_health_checks(self, provider: Any) -> None:
         """Shutdown health check services.
@@ -879,11 +890,11 @@ class AppLifecycle:
                         deleted_count = await session_service.cleanup_expired(max_age)
 
                     if deleted_count > 0 and logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Cleaned up {deleted_count} expired sessions")
+                        logger.info("Cleaned up %d expired sessions", deleted_count)
 
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
-                        logger.error(f"Error during session cleanup: {e!s}")
+                        logger.error("Error during session cleanup: %s", e)
 
         except asyncio.CancelledError:
             if logger.isEnabledFor(logging.DEBUG):
