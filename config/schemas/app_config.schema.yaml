@@ -43,6 +43,8 @@ properties:
       capture_buffer_size: { type: ["integer", "null"], minimum: 1024 }
       capture_flush_interval: { type: ["number", "null"], minimum: 0.1 }
       capture_max_entries_per_flush: { type: ["integer", "null"], minimum: 1 }
+      cbor_capture_dir: { type: ["string", "null"] }
+      cbor_capture_session_id: { type: ["string", "null"] }
       use_colors: { type: boolean }
   auth:
     type: object

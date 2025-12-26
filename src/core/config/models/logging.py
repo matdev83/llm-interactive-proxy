@@ -10,6 +10,7 @@ from src.core.interfaces.model_bases import DomainModel
 class LogLevel(str, Enum):
     """Log levels for configuration."""
 
+    TRACE = "TRACE"
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
