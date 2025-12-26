@@ -81,7 +81,13 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                             # Add index field required for streaming tool calls
                             tool_call_dict["index"] = len(tool_calls)
                             tool_calls.append(tool_call_dict)
-                        except Exception:
+                        except (KeyError, TypeError, AttributeError, ValueError) as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Failed to process function call in Gemini stream chunk, skipping: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             continue
             if "finishReason" in candidate:
                 finish_reason = map_gemini_finish_reason(candidate["finishReason"])

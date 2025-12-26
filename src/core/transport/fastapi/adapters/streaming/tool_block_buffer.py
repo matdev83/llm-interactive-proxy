@@ -6,6 +6,7 @@ across streaming chunks until complete blocks are detected.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from src.core.services.streaming.stream_context_registry import (
         StreamingContextRegistry,
     )
+
+logger = logging.getLogger(__name__)
 
 
 class ToolBlockBuffer:
@@ -217,7 +220,14 @@ class ToolBlockBuffer:
             disallowed_tags = (
                 {"think", "thought"} if not buffer_state.allowed_tools else set()
             )
-        except Exception:
+        except (KeyError, ValueError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get tool call buffer state for stream %s, using default disallowed tags: %s",
+                    stream_key,
+                    e,
+                    exc_info=True,
+                )
             buffer_state = None
             disallowed_tags = {"think", "thought"}
 
@@ -268,7 +278,14 @@ class ToolBlockBuffer:
             buffer_state = registry.get_tool_call_buffer(stream_key)
             allowed = list(buffer_state.allowed_tools or [])
             tracked = list(buffer_state.tracked_tags)
-        except Exception:
+        except (KeyError, ValueError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get tool call buffer state for stream %s, using defaults: %s",
+                    stream_key,
+                    e,
+                    exc_info=True,
+                )
             allowed = []
             tracked = []
 
@@ -283,7 +300,14 @@ class ToolBlockBuffer:
                 disallowed_tags = (
                     {"think", "thought"} if not buffer_state.allowed_tools else set()
                 )
-            except Exception:
+            except (KeyError, ValueError) as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to get tool call buffer state for stream %s, using default disallowed tags: %s",
+                        stream_key,
+                        e,
+                        exc_info=True,
+                    )
                 disallowed_tags = {"think", "thought"}
 
             for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\s>/])", text_value):
@@ -334,7 +358,14 @@ class ToolBlockBuffer:
             disallowed_tags = (
                 {"think", "thought"} if not buffer_state.allowed_tools else set()
             )
-        except Exception:
+        except (KeyError, ValueError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get tool call buffer state for stream %s, using default disallowed tags: %s",
+                    stream_key,
+                    e,
+                    exc_info=True,
+                )
             disallowed_tags = {"think", "thought"}
 
         # Look for opening tags that might be partial

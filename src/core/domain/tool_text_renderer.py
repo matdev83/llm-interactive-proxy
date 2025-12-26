@@ -220,7 +220,11 @@ class RendererRegistry:
                     self.register_module(name, path)
                 except Exception as exc:  # pragma: no cover - defensive logging
                     logger.warning(
-                        "Failed to register renderer %s from %s: %s", name, path, exc
+                        "Failed to register renderer %s from %s: %s",
+                        name,
+                        path,
+                        exc,
+                        exc_info=True,
                     )
         if factories:
             for name, factory in factories.items():
@@ -228,7 +232,10 @@ class RendererRegistry:
                     self.register_factory(name, factory)
                 except Exception as exc:  # pragma: no cover - defensive logging
                     logger.warning(
-                        "Failed to register renderer %s from factory: %s", name, exc
+                        "Failed to register renderer %s from factory: %s",
+                        name,
+                        exc,
+                        exc_info=True,
                     )
         if aliases:
             for alias, target in aliases.items():
