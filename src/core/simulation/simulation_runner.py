@@ -133,7 +133,10 @@ class SimulationRunner:
             session = self._reader.load(capture_path)
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to load capture file: {e}")
+                logger.error(
+                    f"Failed to load capture file: {e}",
+                    exc_info=True,
+                )
             return SimulationResult(
                 success=False,
                 capture_file=str(capture_path),
@@ -180,7 +183,10 @@ class SimulationRunner:
                     all_deviations.extend(result.timing_deviations)
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Simulation failed: {e}")
+                logger.error(
+                    f"Simulation failed: {e}",
+                    exc_info=True,
+                )
             failed += 1
             all_mismatches.append(
                 ContentMismatch(

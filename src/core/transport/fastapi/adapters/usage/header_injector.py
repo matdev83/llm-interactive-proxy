@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 else:
     from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+
+logger = logging.getLogger(__name__)
 
 
 class UsageHeaderInjector:
@@ -49,7 +52,14 @@ class UsageHeaderInjector:
         def _coerce_int(value: int | float | None) -> str:
             try:
                 return str(int(value or 0))
-            except Exception:
+            except (ValueError, TypeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to coerce value to int: %s, error: %s, returning '0'",
+                        value,
+                        e,
+                        exc_info=True,
+                    )
                 return "0"
 
         def _coerce_float(value: float | None) -> str | None:
@@ -57,7 +67,14 @@ class UsageHeaderInjector:
                 return None
             try:
                 return str(float(value))
-            except Exception:
+            except (ValueError, TypeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to coerce value to float: %s, error: %s, returning None",
+                        value,
+                        e,
+                        exc_info=True,
+                    )
                 return None
 
         # Basic token counts (always included)
@@ -116,7 +133,14 @@ class UsageHeaderInjector:
         def _coerce_int(value: int | float | None) -> str:
             try:
                 return str(int(value or 0))
-            except Exception:
+            except (ValueError, TypeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to coerce value to int: %s, error: %s, returning '0'",
+                        value,
+                        e,
+                        exc_info=True,
+                    )
                 return "0"
 
         def _coerce_float(value: float | None) -> str | None:
@@ -124,7 +148,14 @@ class UsageHeaderInjector:
                 return None
             try:
                 return str(float(value))
-            except Exception:
+            except (ValueError, TypeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to coerce value to float: %s, error: %s, returning None",
+                        value,
+                        e,
+                        exc_info=True,
+                    )
                 return None
 
         # Basic token counts from canonical usage

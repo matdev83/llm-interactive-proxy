@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+import threading
 from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar
 
@@ -46,6 +48,8 @@ from src.core.transport.fastapi.adapters.usage.header_injector import (
 
 T = TypeVar("T")
 
+logger = logging.getLogger(__name__)
+
 # Lazy singleton instances
 _json_builder: JSONResponseBuilder | None = None
 _streaming_builder: StreamingResponseBuilder | None = None
@@ -54,6 +58,15 @@ _content_converter: StreamingContentConverter | None = None
 _sse_assembler: SSEAssembler | None = None
 _wire_capture_coordinator: WireCaptureCoordinator | None = None
 _usage_header_injector: UsageHeaderInjector | None = None
+
+# Locks for thread-safe singleton initialization (synchronized double-checked locking)
+_json_builder_lock = threading.Lock()
+_streaming_builder_lock = threading.Lock()
+_other_builder_lock = threading.Lock()
+_content_converter_lock = threading.Lock()
+_sse_assembler_lock = threading.Lock()
+_wire_capture_coordinator_lock = threading.Lock()
+_usage_header_injector_lock = threading.Lock()
 
 
 def _resolve_service(service_type: type[T]) -> T | None:
@@ -66,7 +79,32 @@ def _resolve_service(service_type: type[T]) -> T | None:
 
         provider = get_service_provider()
         return provider.get_service(service_type)
-    except Exception:
+    except ImportError as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to import DI services module: %s, returning None for service %s",
+                e,
+                service_type.__name__,
+                exc_info=True,
+            )
+        return None
+    except (AttributeError, KeyError) as e:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Service %s not registered in DI provider: %s, returning None",
+                service_type.__name__,
+                e,
+                exc_info=True,
+            )
+        return None
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unexpected error resolving service %s: %s, returning None",
+                service_type.__name__,
+                e,
+                exc_info=True,
+            )
         return None
 
 
@@ -74,9 +112,11 @@ def _get_usage_header_injector() -> UsageHeaderInjector:
     """Get or create usage header injector singleton."""
     global _usage_header_injector
     if _usage_header_injector is None:
-        _usage_header_injector = (
-            _resolve_service(UsageHeaderInjector) or UsageHeaderInjector()
-        )
+        with _usage_header_injector_lock:
+            if _usage_header_injector is None:
+                _usage_header_injector = (
+                    _resolve_service(UsageHeaderInjector) or UsageHeaderInjector()
+                )
     return _usage_header_injector
 
 
