@@ -780,7 +780,13 @@ class AnthropicBackend(LLMBackend):
 
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to convert response.headers to dict: %s",
+                    e,
+                    exc_info=True,
+                )
             response_headers = {}
 
         return StreamingResponseHandle(

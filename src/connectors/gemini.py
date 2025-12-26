@@ -206,7 +206,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     # Try to parse JSON payload; otherwise wrap string
                     try:
                         input_obj = json.loads(content)
-                    except Exception:
+                    except json.JSONDecodeError as json_err:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to parse tool content as JSON, wrapping as string: %s",
+                                json_err,
+                                exc_info=True,
+                            )
+                        input_obj = {"output": content}
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Unexpected error parsing tool content: %s",
+                                e,
+                                exc_info=True,
+                            )
                         input_obj = {"output": content}
                     parts: list[dict[str, Any]] = [
                         {
@@ -356,7 +370,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     body_bytes = b""
 
                 body_text = body_bytes.decode("utf-8", errors="ignore")
-            except Exception:
+            except (UnicodeDecodeError, AttributeError) as decode_err:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to decode error response body as UTF-8: %s",
+                        decode_err,
+                        exc_info=True,
+                    )
+                body_text = ""
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error decoding error response body: %s",
+                        e,
+                        exc_info=True,
+                    )
                 body_text = ""
             finally:
                 if hasattr(response, "aclose"):
@@ -455,7 +483,13 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to convert response.headers to dict: %s",
+                    e,
+                    exc_info=True,
+                )
             response_headers = {}
 
         return StreamingResponseHandle(
@@ -892,7 +926,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
-                except Exception:
+                except json.JSONDecodeError as json_err:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to parse error response as JSON, using text: %s",
+                            json_err,
+                            exc_info=True,
+                        )
+                    error_detail = response.text
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Unexpected error parsing error response: %s",
+                            e,
+                            exc_info=True,
+                        )
                     error_detail = response.text
                 raise BackendError(
                     message=str(error_detail),
@@ -929,7 +977,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
-                except Exception:
+                except json.JSONDecodeError as json_err:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to parse error response as JSON, using text: %s",
+                            json_err,
+                            exc_info=True,
+                        )
+                    error_detail = response.text
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Unexpected error parsing error response: %s",
+                            e,
+                            exc_info=True,
+                        )
                     error_detail = response.text
                 raise BackendError(
                     message=str(error_detail),
@@ -1083,7 +1145,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     body_bytes = b""
 
                 body_text = body_bytes.decode("utf-8", errors="ignore")
-            except Exception:
+            except (UnicodeDecodeError, AttributeError) as decode_err:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to decode error response body as UTF-8: %s",
+                        decode_err,
+                        exc_info=True,
+                    )
+                body_text = ""
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error decoding error response body: %s",
+                        e,
+                        exc_info=True,
+                    )
                 body_text = ""
             finally:
                 if hasattr(response, "aclose"):

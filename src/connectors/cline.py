@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -200,7 +201,21 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         if int(response.status_code) >= 400:
             try:
                 err = response.json()
-            except Exception:
+            except json.JSONDecodeError as json_err:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to parse error response as JSON, using text: %s",
+                        json_err,
+                        exc_info=True,
+                    )
+                err = response.text
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error parsing error response, using text: %s",
+                        e,
+                        exc_info=True,
+                    )
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
@@ -227,7 +242,13 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
 
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to convert response.headers to dict: %s",
+                    e,
+                    exc_info=True,
+                )
             response_headers = {}
 
         return ResponseEnvelope(
