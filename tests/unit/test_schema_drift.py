@@ -223,3 +223,41 @@ reasoning_aliases:
             raise AssertionError(
                 f"openai_codex.yaml.example failed schema validation: {e}"
             )
+
+    def test_health_check_schema_matches_code_fields(self):
+        """Verify health_check schema includes all fields from HealthCheckConfig."""
+        schema_path = Path("config/schemas/health_check.yaml")
+        with schema_path.open() as f:
+            schema = yaml.safe_load(f)
+
+        schema_fields = set(schema["properties"].keys())
+
+        from src.core.domain.configuration.health_check_config import (
+            HealthCheckConfig,
+        )
+        code_fields = set(HealthCheckConfig.model_fields.keys())
+
+        missing_in_schema = code_fields - schema_fields
+        extra_in_schema = schema_fields - code_fields
+
+        assert not missing_in_schema, f"Code model has fields not in schema: {missing_in_schema}"
+        assert not extra_in_schema, f"Schema has fields not in code: {extra_in_schema}"
+
+    def test_health_check_schema_matches_code_fields(self):
+        """Verify health_check schema includes all fields from HealthCheckConfig."""
+        schema_path = Path("config/schemas/health_check.yaml")
+        with schema_path.open() as f:
+            schema = yaml.safe_load(f)
+
+        schema_fields = set(schema["properties"].keys())
+
+        from src.core.domain.configuration.health_check_config import (
+            HealthCheckConfig,
+        )
+        code_fields = set(HealthCheckConfig.model_fields.keys())
+
+        missing_in_schema = code_fields - schema_fields
+        extra_in_schema = schema_fields - code_fields
+
+        assert not missing_in_schema, f"Code model has fields not in schema: {missing_in_schema}"
+        assert not extra_in_schema, f"Schema has fields not in code: {extra_in_schema}"

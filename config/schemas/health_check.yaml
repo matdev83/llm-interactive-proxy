@@ -13,6 +13,16 @@ properties:
     default: true
     description: "Master switch to enable/disable all health checks"
 
+  circuit_breaker_enabled:
+    type: boolean
+    default: true
+    description: "Auto-disable backends when their API endpoint is unhealthy"
+
+  notify_backends:
+    type: boolean
+    default: true
+    description: "Notify backend connectors about health state changes"
+
   log_healthy_checks:
     type: boolean
     default: false
