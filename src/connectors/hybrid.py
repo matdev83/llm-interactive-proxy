@@ -187,7 +187,8 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
 
             self._backend_registry = backend_registry
 
-        logger.info("Hybrid backend initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Hybrid backend initialized successfully")
 
     def get_available_models(self) -> list[str]:
         """Return available models for the hybrid backend.
