@@ -64,6 +64,8 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         )
         self._max_cached_sessions = max_cached_sessions
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
+        # Keep track of background tasks to prevent GC
+        self._background_tasks: set[Any] = set()
 
     async def _process_response(
         self,
@@ -220,9 +222,12 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             import asyncio
 
             try:
-                loop = asyncio.get_running_loop()
-                # Fire and forget - don't await
-                asyncio.create_task(self._lifecycle.clear_stream(session_id))
+                # We don't use the loop variable, just check it exists
+                asyncio.get_running_loop()
+                # Fire and forget - don't await, but store reference to avoid GC
+                task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             except RuntimeError:
                 # No event loop available, skip async cleanup
                 pass
@@ -437,6 +442,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         )
         self._max_cached_sessions = max_cached_sessions
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
+        # Keep track of background tasks to prevent GC
+        self._background_tasks: set[Any] = set()
 
     async def process(
         self,
@@ -590,9 +597,12 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             import asyncio
 
             try:
-                loop = asyncio.get_running_loop()
-                # Fire and forget - don't await
-                asyncio.create_task(self._lifecycle.clear_stream(session_id))
+                # We don't use the loop variable, just check it exists
+                asyncio.get_running_loop()
+                # Fire and forget - don't await, but store reference to avoid GC
+                task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             except RuntimeError:
                 # No event loop available, skip async cleanup
                 pass

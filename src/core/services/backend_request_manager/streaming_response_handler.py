@@ -15,6 +15,7 @@ Requirements: 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3, 7.1, 7.2, 8
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
@@ -220,22 +221,15 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 cfg = None
                 # Try get_setting method (for test mocks that support it)
                 # Use try/except to handle secure state services that raise on attribute access
-                try:
+                with contextlib.suppress(Exception):
                     get_setting = getattr(app_state, "get_setting", None)
                     if get_setting is not None and callable(get_setting):
-                        try:
+                        with contextlib.suppress(Exception):
                             cfg = get_setting("app_config")
-                        except Exception:
-                            pass
-                except Exception:
-                    # Secure state service or other access restriction - skip get_setting
-                    pass
                 if cfg is None:
-                    try:
-                        cfg = getattr(app_state, "app_config", None)
-                    except Exception:
+                    with contextlib.suppress(Exception):
                         # Secure state service - cannot access app_config directly
-                        pass
+                        cfg = getattr(app_state, "app_config", None)
                 if cfg is not None:
                     session_cfg = getattr(cfg, "session", None)
                     if session_cfg:

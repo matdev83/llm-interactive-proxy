@@ -417,7 +417,7 @@ async def test_lifecycle_registry_allows_new_detections_after_processing(
 
     tool_call = response_payload["choices"][0]["message"]["tool_calls"][0]
     signature = build_tool_call_signature(tool_call)
-    registry.mark_processed(session_id, signature)
+    await registry.mark_processed(session_id, signature)
 
     # Second identical call should trigger loop detection (count=2, at threshold)
     with pytest.raises(ToolCallLoopError):
