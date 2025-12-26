@@ -828,6 +828,7 @@ class ClineAuthMixin:
                 [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
                 capture_output=True,
                 text=True,
+                shell=False,
             ),
         )
         if result.returncode != 0:

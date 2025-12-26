@@ -207,6 +207,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                     capture_output=True,
                     timeout=5,
                     check=False,
+                    shell=False,
                 ),
             )
             return result.returncode == 0
@@ -284,6 +285,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(self._project_dir),
+                shell=False,
             )
             # Assign to instance variable only after successful creation
             self._process = process

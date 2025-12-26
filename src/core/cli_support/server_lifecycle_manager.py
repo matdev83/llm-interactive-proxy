@@ -219,7 +219,10 @@ class ServerLifecycleManager:
                 command: list[str] = [sys.executable, "-m", "src.core.cli", *args_list]
                 creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
                 daemon_process = subprocess.Popen(
-                    command, creationflags=creation_flags, close_fds=True
+                    command,
+                    creationflags=creation_flags,
+                    close_fds=True,
+                    shell=False,
                 )
 
                 if daemon_process.poll() is not None:
