@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from fastapi import HTTPException
+from pydantic import ValidationError
 from watchdog.observers import Observer
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ from src.connectors.openai_codex.tool_schema import ToolSchemaResolver
 from src.connectors.openai_codex.tool_schemas import get_codex_tool_schema
 from src.connectors.openai_codex.tools import ToolExecutionService
 from src.connectors.openai_codex.utils import build_codex_user_agent, message_to_text
-from src.core.common.exceptions import AuthenticationError
+from src.core.common.exceptions import AuthenticationError, ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.domain.model_utils import parse_model_with_params
 from src.core.domain.responses import (
@@ -267,7 +268,11 @@ class OpenAICodexConnector(OpenAIConnector):
 
             provider = get_or_build_service_provider()
             return provider.get_service(CodexConnectorDependencies)
-        except Exception:
+        except (ImportError, AttributeError, ServiceResolutionError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to resolve CodexConnectorDependencies: %s", err, exc_info=True
+                )
             return None
 
     def _refresh_settings_from_overrides(self) -> None:
@@ -275,7 +280,13 @@ class OpenAICodexConnector(OpenAIConnector):
             self._connector_settings_model = CodexConnectorSettings(
                 **self._connector_settings
             )
-        except Exception:
+        except (TypeError, ValidationError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to create CodexConnectorSettings from overrides, using loader: %s",
+                    err,
+                    exc_info=True,
+                )
             self._connector_settings_model = self._settings_loader.load(self.config)
             self._connector_settings = self._connector_settings_model.model_dump()
 
@@ -687,7 +698,13 @@ class OpenAICodexConnector(OpenAIConnector):
                 session_id=session_id,
                 metadata=getattr(request_data, "metadata", None),
             )
-        except Exception:
+        except (TypeError, ValidationError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to validate CodexRequestContext, using model_construct fallback: %s",
+                    err,
+                    exc_info=True,
+                )
             context = CodexRequestContext.model_construct(
                 request=request_data,
                 processed_messages=processed,
@@ -709,11 +726,23 @@ class OpenAICodexConnector(OpenAIConnector):
         if isinstance(self._payload_builder, PayloadBuilder):
             try:
                 return self._payload_builder._dict_to_payload(payload, context)
-            except Exception:
+            except (TypeError, ValidationError) as err:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to convert payload via _dict_to_payload, using model_construct: %s",
+                        err,
+                        exc_info=True,
+                    )
                 return CodexPayload.model_construct(**payload)
         try:
             return CodexPayload.model_validate(payload)
-        except Exception:
+        except (TypeError, ValidationError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to validate payload, using model_construct: %s",
+                    err,
+                    exc_info=True,
+                )
             return CodexPayload.model_construct(**payload)
 
     def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
