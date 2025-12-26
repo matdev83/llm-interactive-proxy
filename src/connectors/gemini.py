@@ -356,14 +356,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if response.status_code >= 400:
             try:
                 # Read only first 1MB of error body to prevent DoS
-                body_bytes = b""
+                # Use list + join to avoid O(n^2) bytes concatenation
+                body_chunks: list[bytes] = []
+                total_len = 0
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
-                        body_bytes += chunk
+                        body_chunks.append(chunk)
+                        total_len += len(chunk)
                         if (
-                            len(body_bytes) > 10 * 1024 * 1024
+                            total_len > 10 * 1024 * 1024
                         ):  # 10MB limit (consistent with other middleware)
                             break
+                    body_bytes = b"".join(body_chunks)
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
@@ -1135,14 +1139,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if response.status_code >= 400:
             try:
                 # Read only first 1MB of error body to prevent DoS
-                body_bytes = b""
+                # Use list + join to avoid O(n^2) bytes concatenation
+                body_chunks: list[bytes] = []
+                total_len = 0
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
-                        body_bytes += chunk
+                        body_chunks.append(chunk)
+                        total_len += len(chunk)
                         if (
-                            len(body_bytes) > 10 * 1024 * 1024
+                            total_len > 10 * 1024 * 1024
                         ):  # 10MB limit (consistent with other middleware)
                             break
+                    body_bytes = b"".join(body_chunks)
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:

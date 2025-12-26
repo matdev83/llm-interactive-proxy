@@ -72,8 +72,10 @@ class RollingHashTracker:
         self.min_repetitions = min_repetitions
         self.max_history = max_history
 
-        # Content tracking
-        self.content = ""
+        # Content tracking - use list for O(1) append, join when needed for analysis
+        self._content_chunks: list[str] = []
+        self._content_total_len = 0
+        self.content = ""  # Materialized string for analysis (lazy join)
         self.pattern_candidates: dict[int, dict[int, list[int]]] = (
             {}
         )  # {hash: {length: [positions]}}
@@ -94,23 +96,29 @@ class RollingHashTracker:
         if not new_content:
             return None
 
-        self.content += new_content
+        # O(1) append instead of O(n) string concatenation
+        self._content_chunks.append(new_content)
+        self._content_total_len += len(new_content)
+
+        # Only analyze if we have enough content
+        if self._content_total_len < self.min_pattern_length * self.min_repetitions:
+            return None
+
+        if not self._should_run_long_detection(self._content_total_len):
+            return None
+
+        # Materialize content string only when we need to analyze
+        self._materialize_content()
 
         # Truncate if too long (performance optimization)
         if len(self.content) > self.max_history:
             truncate_amount = len(self.content) - self.max_history
             self.content = self.content[truncate_amount:]
+            self._content_total_len = len(self.content)
             self._adjust_positions_after_truncation(truncate_amount)
             self._last_check_length = max(0, self._last_check_length - truncate_amount)
 
-        # Only analyze if we have enough content
         content_length = len(self.content)
-        if content_length < self.min_pattern_length * self.min_repetitions:
-            return None
-
-        if not self._should_run_long_detection(content_length):
-            return None
-
         self._last_check_length = content_length
 
         # Check for patterns of various lengths
@@ -125,6 +133,17 @@ class RollingHashTracker:
                 return result
 
         return None
+
+    def _materialize_content(self) -> None:
+        """Join accumulated chunks into a single string for analysis.
+
+        This avoids O(n^2) string concatenation by accumulating in a list
+        and joining only when needed for pattern analysis.
+        """
+        if self._content_chunks:
+            self.content = self.content + "".join(self._content_chunks)
+            self._content_chunks.clear()
+            self._content_total_len = len(self.content)
 
     def _check_pattern_length(self, pattern_length: int) -> LongPatternMatch | None:
         """Check for repeated patterns of a specific length."""
@@ -164,7 +183,9 @@ class RollingHashTracker:
                 pattern = self.content[
                     filtered_positions[0] : filtered_positions[0] + pattern_length
                 ]
-                return LongPatternMatch(pattern=pattern, repetitions=len(filtered_positions))
+                return LongPatternMatch(
+                    pattern=pattern, repetitions=len(filtered_positions)
+                )
 
         return None
 
@@ -240,6 +261,8 @@ class RollingHashTracker:
     def reset(self) -> None:
         """Reset all tracking state."""
         self.content = ""
+        self._content_chunks.clear()
+        self._content_total_len = 0
         self.pattern_candidates.clear()
         self._last_check_length = 0
 
