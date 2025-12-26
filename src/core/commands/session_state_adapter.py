@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
@@ -28,12 +29,19 @@ class SessionStateAdapter(
     def __init__(self, session: Session):
         self._session = session
         self._local_state: dict[str, Any] = {}
+        self._logger = logging.getLogger(__name__)
 
     def get_command_prefix(self) -> str | None:
         prefix = None
         try:
             prefix = getattr(self._session.state, "command_prefix_override", None)
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to get command_prefix_override from session state: %s",
+                    e,
+                    exc_info=True,
+                )
             prefix = None
         if isinstance(prefix, str) and prefix:
             return prefix
@@ -49,7 +57,10 @@ class SessionStateAdapter(
         routes_dict = self._session.state.backend_config.failover_routes
         if routes_dict:
             return [
-                FailoverRoute(name=name, **(data if isinstance(data, dict) else data.model_dump())) for name, data in routes_dict.items()
+                FailoverRoute(
+                    name=name, **(data if isinstance(data, dict) else data.model_dump())
+                )
+                for name, data in routes_dict.items()
             ]
         return None
 
@@ -113,7 +124,9 @@ class SessionStateAdapter(
                         new_backend_config.with_appended_route_element(name, element),
                     )
 
-        self._session.state = self._session.state.with_backend_config(new_backend_config)
+        self._session.state = self._session.state.with_backend_config(
+            new_backend_config
+        )
 
     def get_disable_commands(self) -> bool:
         return bool(self._local_state.get("disable_commands", False))

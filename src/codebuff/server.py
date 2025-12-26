@@ -202,11 +202,15 @@ class CodebuffWebSocketServer:
             # Clean up connection
             # Always attempt to close websocket if it was accepted, even if session_id is None
             # This prevents resource leaks when exceptions occur before identify completes
-            with contextlib.suppress(Exception):
-                # Try to close websocket - it may already be closed, which is fine
-                # Websocket may already be closed or in an invalid state - this is expected
-                # and safe to ignore
+            try:
                 await websocket.close(code=1000, reason="Connection cleanup")
+            except (WebSocketDisconnect, RuntimeError, ConnectionError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Websocket already closed during cleanup: %s",
+                        str(e),
+                        exc_info=False,
+                    )
 
             # Disconnect from connection manager if session was registered
             if session_id is not None:
@@ -219,8 +223,15 @@ class CodebuffWebSocketServer:
                         )
                 # Defensive: ensure termination is reported even if exception occurred
                 # (only if identify completed and we haven't already reported)
-                with contextlib.suppress(Exception):
+                try:
                     await self._report_client_termination(session_id)
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to report client termination during cleanup: %s",
+                            str(e),
+                            exc_info=True,
+                        )
 
     async def _wait_for_identify(self, websocket: WebSocket) -> str | None:
         """Wait for and process the identify message.

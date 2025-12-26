@@ -17,7 +17,16 @@ from typing import Any, cast
 def _load_pytest_module() -> ModuleType | None:
     try:
         return cast(ModuleType, importlib.import_module("pytest"))
-    except Exception:  # pragma: no cover - pytest not installed in runtime
+    except ImportError:  # pragma: no cover - pytest not installed in runtime
+        return None
+    except Exception as e:  # pragma: no cover - defensive
+        logger = logging.getLogger(__name__)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unexpected error importing pytest module: %s",
+                e,
+                exc_info=True,
+            )
         return None
 
 
