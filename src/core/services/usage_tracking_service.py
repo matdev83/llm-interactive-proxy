@@ -202,7 +202,8 @@ class UsageTrackingService(IUsageTrackingService):
             # Get existing record domain object
             record = await self._usage_repo.get_by_id_domain(record_id)
             if not record:
-                logger.warning(f"Usage record not found for update: {record_id}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Usage record not found for update: {record_id}")
                 return
 
             # Determine fields to update
