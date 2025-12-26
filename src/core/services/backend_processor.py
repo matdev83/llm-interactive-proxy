@@ -47,7 +47,11 @@ class BackendProcessor(IBackendProcessor):
         try:
             session = await self._session_service.get_session(session_id)
         except Exception:
-            logger.debug("Failed to resolve session %s in BackendProcessor", session_id)
+            logger.debug(
+                "Failed to resolve session %s in BackendProcessor",
+                session_id,
+                exc_info=True,
+            )
 
         processed_messages = request.messages
 
@@ -107,6 +111,9 @@ class BackendProcessor(IBackendProcessor):
                 elif isinstance(session_routes, list) and session_routes:
                     failover_routes = list(session_routes)
         except Exception:
+            logger.debug(
+                "Failed to extract failover routes from session", exc_info=True
+            )
             failover_routes = None
 
         if not failover_routes and self._app_state is not None:
@@ -115,6 +122,9 @@ class BackendProcessor(IBackendProcessor):
                     list[Any] | None, self._app_state.get_failover_routes()
                 )
             except Exception:
+                logger.debug(
+                    "Failed to get failover routes from app_state", exc_info=True
+                )
                 failover_routes = None
 
         if failover_routes:

@@ -79,11 +79,11 @@ if sys.platform.startswith("win"):
             policy, windows_events.WindowsProactorEventLoopPolicy
         ):
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except Exception:
+    except Exception as e:
         logger = logging.getLogger(__name__)
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Failed to set WindowsSelectorEventLoopPolicy: %s",
-                "Event loop already created or other error",
+                e,
                 exc_info=True,
             )

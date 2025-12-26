@@ -86,7 +86,9 @@ class UniversalMCPClient:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to connect to MCP server {server_name}: {e}")
+                logger.error(
+                    f"Failed to connect to MCP server {server_name}: {e}", exc_info=True
+                )
             return False
 
     async def _discover_server_tools(self, server_name: str) -> None:
@@ -125,7 +127,10 @@ class UniversalMCPClient:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to discover tools from server {server_name}: {e}")
+                logger.error(
+                    f"Failed to discover tools from server {server_name}: {e}",
+                    exc_info=True,
+                )
 
     async def execute_tool(
         self, tool_name: str, arguments: dict[str, Any]
@@ -317,7 +322,10 @@ class UniversalMCPClient:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error disconnecting from MCP server {server_name}: {e}")
+                logger.error(
+                    f"Error disconnecting from MCP server {server_name}: {e}",
+                    exc_info=True,
+                )
 
     def get_server_status(self) -> dict[str, MCPServerStatus]:
         """Get status of all connected MCP servers.
