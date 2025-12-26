@@ -220,10 +220,13 @@ class CredentialLoader:
             else:
                 home_dir = Path.home()
                 creds_path = home_dir / ".gemini" / "oauth_creds.json"
-            storage._credentials_path = creds_path
+            storage._credentials_path = creds_path  # type: ignore[misc]
 
             if not creds_path.exists():
-                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Gemini OAuth credentials not found at %s", creds_path
+                    )
                 return False
 
             # Check if file has been modified since last load (unless force_reload is True)
@@ -231,13 +234,14 @@ class CredentialLoader:
                 try:
                     current_modified = creds_path.stat().st_mtime
                     if (
-                        current_modified == storage._last_modified
-                        and storage._oauth_credentials
+                        current_modified == storage._last_modified  # type: ignore[misc]
+                        and storage._oauth_credentials  # type: ignore[misc]
                     ):
                         # File hasn't changed and credentials are in memory, no need to reload
-                        logger.debug(
-                            "Gemini OAuth credentials file not modified, using cached."
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Gemini OAuth credentials file not modified, using cached."
+                            )
                         return True
                 except OSError:
                     # If cannot get file stats, proceed with reading
@@ -246,7 +250,7 @@ class CredentialLoader:
             # Update last modified time
             try:
                 current_modified = creds_path.stat().st_mtime
-                storage._last_modified = current_modified
+                storage._last_modified = current_modified  # type: ignore[misc]
             except OSError:
                 pass
 
@@ -255,19 +259,22 @@ class CredentialLoader:
 
             # Validate essential fields
             if "access_token" not in credentials:
-                logger.warning(
-                    "Malformed Gemini OAuth credentials: missing access_token"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Malformed Gemini OAuth credentials: missing access_token"
+                    )
                 return False
 
-            storage._oauth_credentials = credentials
-            storage._credentials_fingerprint = (
+            storage._oauth_credentials = credentials  # type: ignore[misc]
+            storage._credentials_fingerprint = (  # type: ignore[misc]
                 CredentialLoader.compute_credentials_fingerprint(credentials)
             )
-            storage._credentials_file_hash = hashlib.sha256(
+            storage._credentials_file_hash = hashlib.sha256(  # type: ignore[misc]
                 raw_text.encode("utf-8", "ignore")
             ).hexdigest()
-            storage._last_credentials_event_hash = storage._credentials_file_hash
+            storage._last_credentials_event_hash = (  # type: ignore[misc]
+                storage._credentials_file_hash  # type: ignore[misc]
+            )
             if not silent and logger.isEnabledFor(logging.INFO):
                 log_msg = "Successfully loaded Gemini OAuth credentials"
                 if force_reload:
@@ -299,7 +306,8 @@ class CredentialLoader:
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Gemini OAuth credentials saved to %s", creds_path)
         except OSError as e:
             logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
 
