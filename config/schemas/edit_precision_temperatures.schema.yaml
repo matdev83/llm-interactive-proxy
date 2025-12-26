@@ -1,0 +1,31 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Edit Precision Model Temperatures
+description: Configuration schema for model-specific temperature overrides during edit precision mode
+type: object
+additionalProperties: false
+properties:
+  default_temperature:
+    type: number
+    minimum: 0.0
+    maximum: 2.0
+    default: 0.0
+    description: "Default temperature when no pattern matches"
+  model_patterns:
+    type: array
+    items:
+      type: object
+      required: ["pattern", "temperature"]
+      additionalProperties: false
+      properties:
+        pattern:
+          type: string
+          description: "Substring to match in model name (case-insensitive)"
+        temperature:
+          type: number
+          minimum: 0.0
+          maximum: 2.0
+          description: "Temperature to apply for matching models"
+        comment:
+          type: ["string", "null"]
+          description: "Optional comment explaining this pattern"
+required: []

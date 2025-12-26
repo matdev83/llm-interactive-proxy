@@ -80,41 +80,13 @@ def validate_static_yaml_configs(project_root: Path) -> None:
     if patterns.exists():
         pairs.append((patterns, patterns_schema))
 
-    # Tool call reactor rules (optional file). This file in repo uses
-    # a nested structure under `session.tool_call_reactor`. Validate the nested
-    # object if present; otherwise, if the file is a flat object, validate as-is.
-    reactor = project_root / "config" / "tool_call_reactor_config.yaml"
-    reactor_schema = (
-        project_root / "config" / "schemas" / "tool_call_reactor_config.schema.yaml"
+    # Edit-precision model temperatures
+    temperatures = project_root / "config" / "edit_precision_model_temperatures.yaml"
+    temperatures_schema = (
+        project_root / "config" / "schemas" / "edit_precision_temperatures.schema.yaml"
     )
-    if reactor.exists():
-        data = _load_yaml_file(reactor)
-        if (
-            isinstance(data, dict)
-            and isinstance(data.get("session"), dict)
-            and isinstance(data["session"].get("tool_call_reactor"), dict)
-        ):
-            tmp = data["session"]["tool_call_reactor"]
-            validator = Draft7Validator(_load_yaml_schema(reactor_schema))
-            errs = sorted(validator.iter_errors(tmp), key=lambda e: str(e.path))
-            if errs:
-
-                def _fmt(e: ValidationError) -> str:
-                    p = "/".join([str(x) for x in e.path]) if e.path else "<root>"
-                    return (
-                        f"{reactor} (session.tool_call_reactor): {e.message} (at {p})"
-                    )
-
-                messages = [_fmt(e) for e in errs]
-                raise ConfigurationError(
-                    message="YAML schema validation failed",
-                    details={"path": str(reactor), "errors": messages},
-                )
-            logger.info(
-                "Validated YAML config: %s (session.tool_call_reactor)", reactor
-            )
-        else:
-            pairs.append((reactor, reactor_schema))
+    if temperatures.exists():
+        pairs.append((temperatures, temperatures_schema))
 
     # ZAI default models
     zai_models = project_root / "config" / "backends" / "zai" / "default_models.yaml"
