@@ -106,12 +106,20 @@ class OpenAICodexConnector(OpenAIConnector):
         "gpt-5.1-codex-mini",
         "gpt-5.1",
     )
+    # Pre-computed lowercased set for O(1) lookup
+    _SUPPORTED_CODEX_MODELS_LOWER: frozenset[str] = frozenset(
+        m.lower() for m in SUPPORTED_CODEX_MODELS
+    )
 
     # Reasoning effort levels supported by Codex backend
     REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
     DEFAULT_REASONING_EFFORT: str = "medium"
     # Only gpt-5.1-codex-max supports xhigh reasoning effort
     XHIGH_SUPPORTED_MODELS: tuple[str, ...] = ("gpt-5.1-codex-max",)
+    # Pre-computed lowercased set for O(1) lookup
+    _XHIGH_SUPPORTED_MODELS_LOWER: frozenset[str] = frozenset(
+        m.lower() for m in XHIGH_SUPPORTED_MODELS
+    )
 
     CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
@@ -271,7 +279,9 @@ class OpenAICodexConnector(OpenAIConnector):
         except (ImportError, AttributeError, ServiceResolutionError) as err:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to resolve CodexConnectorDependencies: %s", err, exc_info=True
+                    "Failed to resolve CodexConnectorDependencies: %s",
+                    err,
+                    exc_info=True,
                 )
             return None
 
@@ -398,7 +408,7 @@ class OpenAICodexConnector(OpenAIConnector):
     def _is_codex_model(cls, model_name: str) -> bool:
         """Return True when the model is a supported Codex model."""
         clean_model = strip_vendor_prefix(model_name.lower(), OPENAI_VENDOR_PREFIX)
-        return clean_model in (m.lower() for m in cls.SUPPORTED_CODEX_MODELS)
+        return clean_model in cls._SUPPORTED_CODEX_MODELS_LOWER
 
     @classmethod
     def _codex_system_prompt(cls) -> str:
@@ -978,8 +988,9 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
             effort = self.DEFAULT_REASONING_EFFORT
 
-        if effort == "xhigh" and model.lower() not in (
-            m.lower() for m in self.XHIGH_SUPPORTED_MODELS
+        if (
+            effort == "xhigh"
+            and model.lower() not in self._XHIGH_SUPPORTED_MODELS_LOWER
         ):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(

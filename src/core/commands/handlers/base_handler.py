@@ -127,6 +127,20 @@ class BaseCommandHandler(IParameterHandler, ABC):
         """
         self._name = name
         self._aliases = aliases or []
+        # Pre-compute normalized names for O(1) lookup in can_handle.
+        # Lazily initialized on first can_handle() call if subclass overrides aliases.
+        self._normalized_names: frozenset[str] | None = None
+        if aliases:
+            # Aliases passed via constructor - pre-compute now
+            self._normalized_names = self._build_normalized_names()
+
+    def _build_normalized_names(self) -> frozenset[str]:
+        """Build the set of normalized parameter names for O(1) lookup.
+
+        Note: aliases are only lowercased (not normalized) to preserve
+        the original matching behavior.
+        """
+        return frozenset([self._name.lower()] + [a.lower() for a in self.aliases])
 
     @property
     def name(self) -> str:
@@ -147,7 +161,8 @@ class BaseCommandHandler(IParameterHandler, ABC):
         Returns:
             True if this handler can handle the parameter
         """
+        # Lazy build for subclasses that override aliases as a property
+        if self._normalized_names is None:
+            self._normalized_names = self._build_normalized_names()
         normalized = param_name.lower().replace("_", "-")
-        return normalized == self.name.lower() or normalized in [
-            a.lower() for a in self.aliases
-        ]
+        return normalized in self._normalized_names
