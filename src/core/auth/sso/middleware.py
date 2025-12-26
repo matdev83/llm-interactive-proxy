@@ -5,13 +5,18 @@ This module provides the AuthMiddleware class that intercepts incoming
 requests, validates Bearer tokens, and enforces authentication requirements.
 """
 
+import logging
 from datetime import datetime
 from typing import Any
+
+from aiosqlite import Error as DatabaseError
 
 from src.core.auth.sso.database import TokenRepository
 from src.core.auth.sso.models import TokenValidationResult
 from src.core.auth.sso.sandbox_handler import SandboxHandler
-from src.core.auth.sso.token_service import TokenService
+from src.core.auth.sso.token_service import TokenError, TokenService
+
+logger = logging.getLogger(__name__)
 
 
 class AuthMiddleware:
@@ -90,8 +95,11 @@ class AuthMiddleware:
         # Get all active token hashes from database
         try:
             token_hashes = await self.token_repository.get_all_token_hashes()
-        except Exception:
-            # If database query fails, token is invalid
+        except DatabaseError:
+            logger.error(
+                "Database error while fetching token hashes during validation",
+                exc_info=True,
+            )
             return TokenValidationResult(is_valid=False)
 
         # Verify token against each hash using constant-time comparison
@@ -102,8 +110,11 @@ class AuthMiddleware:
                     # Token matches this hash - fetch the full record
                     token_record = await self.token_repository.find_by_hash(stored_hash)
                     break
-            except Exception:
-                # If verification fails, continue to next hash
+            except TokenError:
+                logger.debug(
+                    "Token verification failed with TokenError, trying next hash",
+                    exc_info=True,
+                )
                 continue
 
         if token_record is None:

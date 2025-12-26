@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiosqlite import Error as DatabaseError
+from src.core.auth.sso.exceptions import TokenError
 from src.core.auth.sso.middleware import AuthMiddleware
 
 
@@ -188,7 +190,9 @@ class TestAuthMiddleware:
         mock_token_repository: MagicMock,
     ) -> None:
         """Test validation when database query fails."""
-        mock_token_repository.get_all_token_hashes.side_effect = Exception("DB Error")
+        mock_token_repository.get_all_token_hashes.side_effect = DatabaseError(
+            "DB Error"
+        )
 
         result = await middleware.validate_token("test-token")
 
@@ -203,7 +207,10 @@ class TestAuthMiddleware:
     ) -> None:
         """Test validation when token verification raises exception."""
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
-        mock_token_service.verify_token.side_effect = Exception("Verify error")
+        mock_token_service.verify_token.side_effect = TokenError(
+            "Token verification failed",
+            details={"error": "Verify error"},
+        )
 
         result = await middleware.validate_token("test-token")
 

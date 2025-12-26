@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from src.core.commands.models import Command, ParsedCommand
+
+logger = logging.getLogger(__name__)
 
 
 class CommandParser:
@@ -52,9 +55,16 @@ class CommandParser:
             package = importlib.import_module(package_name)
             for m in pkgutil.iter_modules(package.__path__):  # type: ignore[attr-defined]
                 importlib.import_module(f"{package_name}.{m.name}")
+        except (ImportError, ModuleNotFoundError, AttributeError) as e:
+            logger.warning(
+                "Failed to import command handler module: %s - handlers will not be available",
+                e,
+            )
         except Exception:
-            # Parsing still works even if handlers fail to import; execution will no-op
-            pass
+            logger.error(
+                "Unexpected error importing command handler modules",
+                exc_info=True,
+            )
 
     def _compile_pattern(self, prefix: str | None = None) -> re.Pattern:
         """Compile regex pattern for command parsing using given prefix."""
