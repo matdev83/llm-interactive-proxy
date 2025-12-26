@@ -1,14 +1,15 @@
 """
 Services and DI container configuration.
 
-This module provides functions for configuring the DI container with services
-and resolving services from the container.
+This module provides functions for configuring DI container with services
+and resolving services from container.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, TypeVar
 
 from src.core.common.exceptions import ServiceResolutionError
@@ -18,12 +19,13 @@ from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 
 # Note: IMiddlewareApplicationManager interface is no longer used after unified pipeline refactoring
-# MiddlewareApplicationManager is still used to configure the middleware list for streaming processors
+# MiddlewareApplicationManager is still used to configure middleware list for streaming processors
 
 T = TypeVar("T")
 
 # Global service collection
 _service_collection: ServiceCollection | None = None
+_service_collection_lock = threading.Lock()
 
 # Global service provider (legacy compatibility shim).
 #
@@ -49,28 +51,33 @@ def get_service_collection() -> ServiceCollection:
         The global service collection
     """
     global _service_collection
-    if _service_collection is None:
-        _service_collection = ServiceCollection()
-        # Ensure core services are registered into the global collection early.
-        # This makes DI shape consistent across processes/tests and avoids many
-        # order-dependent failures. register_core_services is idempotent.
-        try:
-            register_core_services(_service_collection, None)
-        except Exception as exc:
-            logger_for_this_file = logging.getLogger(__name__)
-            if logger_for_this_file.isEnabledFor(logging.ERROR):
-                logger_for_this_file.error(
-                    "Failed to register core services into global service collection",
-                    exc_info=True,
-                )
-            _service_collection = None
-            raise ServiceResolutionError(
-                "Failed to register core services",
-                details={
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc),
-                },
-            ) from exc
+    if _service_collection is not None:
+        return _service_collection
+
+    with _service_collection_lock:
+        if _service_collection is None:
+            _service_collection = ServiceCollection()
+            # Ensure core services are registered into the global collection early.
+            # This makes DI shape consistent across processes/tests and avoids many
+            # order-dependent failures. register_core_services is idempotent.
+            try:
+                register_core_services(_service_collection, None)
+            except Exception as exc:
+                logger_for_this_file = logging.getLogger(__name__)
+                if logger_for_this_file.isEnabledFor(logging.ERROR):
+                    logger_for_this_file.error(
+                        "Failed to register core services into global service collection",
+                        exc_info=True,
+                    )
+                _service_collection = None
+                raise ServiceResolutionError(
+                    "Failed to register core services",
+                    details={
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
+                ) from exc
+
     return _service_collection
 
 
@@ -136,9 +143,9 @@ def _resolve_failure_strategy(
 def register_core_services(
     services: ServiceCollection, app_config: AppConfig | None = None
 ) -> None:
-    """Register core services with the service collection.
+    """Register core services with service collection.
 
-    This function is the public compatibility facade for DI wiring.
+    This function is a public compatibility facade for DI wiring.
 
     It delegates to the registrar orchestrator so legacy call sites get a
     complete, deterministic registration set aligned with the approved design.
@@ -159,7 +166,7 @@ def get_service(service_type: type[T]) -> T | None:
         service_type: The type of service to get
 
     Returns:
-        The service instance, or None if the service is not registered
+        The service instance, or None if service is not registered
     """
     provider = get_or_build_service_provider()
     return provider.get_service(service_type)  # type: ignore

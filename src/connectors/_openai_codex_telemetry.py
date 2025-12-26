@@ -12,6 +12,7 @@ Counters (totals, per-tool counts, etc.) remain unbounded integers by design.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -29,7 +30,7 @@ _OTHER_TOOL_KEY = "__other_tools_overflow__"
 
 
 class MetricType(Enum):
-    """Types of metrics tracked by the compatibility layer."""
+    """Types of metrics tracked by compatibility layer."""
 
     DETECTION_TOTAL = "compatibility_layer_detection_total"
     DETECTION_DURATION = "compatibility_layer_detection_duration_seconds"
@@ -152,7 +153,7 @@ class TranslationMetrics:
         """Record a translation event.
 
         Args:
-            tool_name: Name of the tool being translated
+            tool_name: Name of tool being translated
             duration_ms: Time taken for translation in milliseconds
             success: Whether translation was successful
         """
@@ -463,6 +464,7 @@ class CompatibilityTelemetry:
 
 # Global telemetry instance
 _telemetry_instance: CompatibilityTelemetry | None = None
+_telemetry_lock = threading.Lock()
 
 
 def get_telemetry() -> CompatibilityTelemetry:
@@ -473,11 +475,14 @@ def get_telemetry() -> CompatibilityTelemetry:
     """
     global _telemetry_instance
     if _telemetry_instance is None:
-        _telemetry_instance = CompatibilityTelemetry()
+        with _telemetry_lock:
+            if _telemetry_instance is None:
+                _telemetry_instance = CompatibilityTelemetry()
     return _telemetry_instance
 
 
 def reset_telemetry() -> None:
     """Reset the global telemetry instance (mainly for testing)."""
     global _telemetry_instance
-    _telemetry_instance = None
+    with _telemetry_lock:
+        _telemetry_instance = None

@@ -8,6 +8,7 @@ from session message history when switching between incompatible backends.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 from src.connectors.gemini_base.backend_compatibility import (
@@ -30,7 +31,7 @@ class SessionSanitizer:
 
     When switching between incompatible Gemini backends (e.g., from
     gemini-oauth-plan to antigravity-oauth), thought signatures
-    in the session history become invalid and must be removed.
+    in session history become invalid and must be removed.
 
     This service:
     1. Detects when sanitization is needed based on backend compatibility
@@ -275,13 +276,19 @@ class SessionSanitizer:
 
 # Default instance for convenience
 _default_sanitizer: SessionSanitizer | None = None
+_default_sanitizer_lock = threading.Lock()
 
 
 def get_default_session_sanitizer() -> SessionSanitizer:
     """Get the default session sanitizer instance."""
     global _default_sanitizer
-    if _default_sanitizer is None:
-        _default_sanitizer = SessionSanitizer()
+    if _default_sanitizer is not None:
+        return _default_sanitizer
+
+    with _default_sanitizer_lock:
+        if _default_sanitizer is None:
+            _default_sanitizer = SessionSanitizer()
+
     return _default_sanitizer
 
 
