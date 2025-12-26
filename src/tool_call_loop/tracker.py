@@ -180,9 +180,10 @@ class ToolCallTracker:
         self.consecutive_repeats: dict[str, int] = {}
         # Track if we're in "chance" mode for specific signatures
         self.chance_given: dict[str, bool] = {}
+        # Track total occurrences of each signature (for O(1) counting)
+        self.signature_counts: dict[str, int] = {}
         # Maximum number of signatures to store
         self.max_signatures = max_signatures
-        # Lock for thread-safe concurrent access (used in async contexts)
         self._lock = threading.Lock()
 
     def prune_expired(self) -> int:
@@ -204,16 +205,27 @@ class ToolCallTracker:
 
             pruned_count = original_count - len(self.signatures)
             if pruned_count > 0 and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Pruned %d expired tool call signatures", pruned_count)
+                logger.debug("Pruned %d expired tool call signatures", pruned_count)
 
-            pruned_signature_strs = [sig.get_full_signature() for sig in self.signatures]
+            pruned_signature_strs = [
+                sig.get_full_signature() for sig in self.signatures
+            ]
             if pruned_count > 0:
+                # Rebuild signature_counts from remaining signatures
+                new_signature_counts: dict[str, int] = {}
+                for sig_str in pruned_signature_strs:
+                    new_signature_counts[sig_str] = (
+                        new_signature_counts.get(sig_str, 0) + 1
+                    )
+                self.signature_counts = new_signature_counts
+
                 active_signatures = set(pruned_signature_strs)
                 for sig in list(self.consecutive_repeats.keys()):
                     if sig not in active_signatures:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "Resetting consecutive count for expired signature: %s", sig
+                                "Resetting consecutive count for expired signature: %s",
+                                sig,
                             )
                         del self.consecutive_repeats[sig]
                         self.chance_given.pop(sig, None)
@@ -237,7 +249,10 @@ class ToolCallTracker:
 
                 # Clear chance markers for signatures whose streak reset below the threshold
                 for sig in list(self.chance_given.keys()):
-                    if sig not in new_counts or new_counts[sig] < self.config.max_repeats:
+                    if (
+                        sig not in new_counts
+                        or new_counts[sig] < self.config.max_repeats
+                    ):
                         self.chance_given.pop(sig, None)
 
             return pruned_count
@@ -287,6 +302,14 @@ class ToolCallTracker:
                     sig.get_full_signature() for sig in self.signatures
                 ]
                 if pruned_count > 0:
+                    # Rebuild signature_counts from remaining signatures
+                    new_signature_counts: dict[str, int] = {}
+                    for sig_str in current_signatures:
+                        new_signature_counts[sig_str] = (
+                            new_signature_counts.get(sig_str, 0) + 1
+                        )
+                    self.signature_counts = new_signature_counts
+
                     active_signatures = set(current_signatures)
                     for sig in list(self.consecutive_repeats.keys()):
                         if sig not in active_signatures:
@@ -328,12 +351,10 @@ class ToolCallTracker:
             full_sig = signature.get_full_signature()
 
             # Count repeats within the TTL window (even if interleaved with other tools)
+            # O(1) lookup using signature_counts dict instead of O(n) iteration
             total_count = (
-                sum(
-                    1 for sig in self.signatures if sig.get_full_signature() == full_sig
-                )
-                + 1
-            )  # include the pending call
+                self.signature_counts.get(full_sig, 0) + 1
+            )  # include pending call
 
             # Check if this is a repeat of the most recent signature
             if self.signatures and self.signatures[-1].get_full_signature() == full_sig:
@@ -404,6 +425,8 @@ class ToolCallTracker:
 
             # Add to history (with size limit to prevent unbounded growth)
             self.signatures.append(signature)
+            # Update signature count for O(1) lookups
+            self.signature_counts[full_sig] = self.signature_counts.get(full_sig, 0) + 1
 
             # Enforce maximum size limit by removing oldest entries if needed
             if len(self.signatures) > self.max_signatures:
@@ -416,12 +439,19 @@ class ToolCallTracker:
                             excess,
                         )
                     # Remove oldest entries (at the beginning of the list)
+                    removed_signatures = self.signatures[:excess]
                     self.signatures = self.signatures[excess:]
 
+                    # Decrement signature_counts for removed signatures
+                    for removed_sig in removed_signatures:
+                        removed_full_sig = removed_sig.get_full_signature()
+                        if removed_full_sig in self.signature_counts:
+                            self.signature_counts[removed_full_sig] -= 1
+                            if self.signature_counts[removed_full_sig] <= 0:
+                                del self.signature_counts[removed_full_sig]
+
                     # Clean up related dictionaries for removed signatures
-                    remaining_signature_strs = {
-                        sig.get_full_signature() for sig in self.signatures
-                    }
+                    remaining_signature_strs = set(self.signature_counts.keys())
                     for sig in list(self.consecutive_repeats.keys()):
                         if sig not in remaining_signature_strs:
                             self.consecutive_repeats.pop(sig, None)

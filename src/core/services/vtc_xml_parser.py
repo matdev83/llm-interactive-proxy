@@ -16,11 +16,19 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from src.core.domain.chat import FunctionCall, ToolCall
 
 logger = logging.getLogger(__name__)
+
+# Pre-compiled patterns for parse_vtc_xml cleanup operations
+_EMPTY_FUNCTION_CALLS_PATTERN = re.compile(
+    r"<function_calls>\s*</function_calls>", re.DOTALL
+)
+_FUNCTION_CALLS_TAG_PATTERN = re.compile(r"</?function_calls>", re.DOTALL)
+_EXCESSIVE_NEWLINES_PATTERN = re.compile(r"\n{3,}")
 
 
 def parse_vtc_xml(
@@ -49,7 +57,6 @@ def parse_vtc_xml(
     tool_calls: list[ToolCall] = []
     cleaned = content
 
-
     # First, try to extract <function_calls><invoke>...</invoke></function_calls> format
     invoke_tool_calls, cleaned = _extract_invoke_format(cleaned, allowed_tools)
     tool_calls.extend(invoke_tool_calls)
@@ -59,13 +66,11 @@ def parse_vtc_xml(
     tool_calls.extend(simple_tool_calls)
 
     # Clean up any remaining empty function_calls wrappers
-    cleaned = re.sub(
-        r"<function_calls>\s*</function_calls>", "", cleaned, flags=re.DOTALL
-    )
-    cleaned = re.sub(r"</?function_calls>", "", cleaned, flags=re.DOTALL)
+    cleaned = _EMPTY_FUNCTION_CALLS_PATTERN.sub("", cleaned)
+    cleaned = _FUNCTION_CALLS_TAG_PATTERN.sub("", cleaned)
 
     # Clean up excessive whitespace
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = _EXCESSIVE_NEWLINES_PATTERN.sub("\n\n", cleaned)
     cleaned = cleaned.strip()
 
     return tool_calls, cleaned
@@ -86,7 +91,6 @@ def _extract_invoke_format(
     """
     tool_calls: list[ToolCall] = []
     cleaned = content
-
 
     # Pattern for <invoke name="...">...</invoke>
     # Handle optional namespace prefixes like "antml:tool:"
@@ -140,7 +144,6 @@ def _extract_simple_format(
     """
     tool_calls: list[ToolCall] = []
     cleaned = content
-
 
     if allowed_tools is not None:
         # Whitelist mode: only extract specified tools
@@ -214,9 +217,7 @@ def _extract_simple_format(
     return tool_calls, cleaned
 
 
-def _extract_simple_tool(
-    content: str, tool_name: str
-) -> tuple[list[ToolCall], str]:
+def _extract_simple_tool(content: str, tool_name: str) -> tuple[list[ToolCall], str]:
     """
     Extract a specific tool from content in simple format.
 
@@ -229,7 +230,6 @@ def _extract_simple_tool(
     """
     tool_calls: list[ToolCall] = []
     cleaned = content
-
 
     # Pattern for <tool_name>...</tool_name>
     pattern = rf"<{re.escape(tool_name)}(?:\s[^>]*)?>(.+?)</{re.escape(tool_name)}>"
@@ -355,7 +355,9 @@ def _create_tool_call(tool_name: str, params: dict[str, Any]) -> ToolCall:
     )
 
 
-def serialize_tool_calls_to_xml(tool_calls: list[ToolCall | dict[str, Any]]) -> str:
+def serialize_tool_calls_to_xml(
+    tool_calls: Sequence[ToolCall | dict[str, Any]],
+) -> str:
     """
     Serialize internal tool calls to XML format for VTC clients.
 
@@ -392,7 +394,6 @@ def serialize_tool_calls_to_xml(tool_calls: list[ToolCall | dict[str, Any]]) -> 
             args = json.loads(args_str) if isinstance(args_str, str) else args_str
         except json.JSONDecodeError:
             args = {}
-
 
         # Build parameter elements
         param_elements: list[str] = []

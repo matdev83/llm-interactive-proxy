@@ -45,6 +45,12 @@ class AngelService:
     _OVERRIDE_RE = re.compile(
         r"<override_angel>\s*True\s*</override_angel>", re.IGNORECASE
     )
+    _PASS_DECISION_RE = re.compile(
+        r"<angels_decision>\s*Pass\s*</angels_decision>", re.IGNORECASE
+    )
+    _STEERING_MESSAGE_RE = re.compile(
+        r"<angels_steering_message>([\s\S]*?)</angels_steering_message>", re.IGNORECASE
+    )
 
     def __init__(self, model_spec: str | None) -> None:
         self._model_spec = (model_spec or "").strip()
@@ -177,16 +183,10 @@ class AngelService:
 
     def parse_angel_output(self, text: str) -> AngelDecision:
         # Pass decision
-        if re.search(
-            r"<angels_decision>\s*Pass\s*</angels_decision>", text, re.IGNORECASE
-        ):
+        if self._PASS_DECISION_RE.search(text):
             return AngelDecision(decision="pass")
         # Steering message
-        m = re.search(
-            r"<angels_steering_message>([\s\S]*?)</angels_steering_message>",
-            text,
-            re.IGNORECASE,
-        )
+        m = self._STEERING_MESSAGE_RE.search(text)
         if m:
             msg = m.group(1).strip()
             return AngelDecision(decision="steer", steering_message=msg)
