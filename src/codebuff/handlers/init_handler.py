@@ -115,7 +115,7 @@ class InitHandler:
                     "session_id": session.session_id,
                     "fingerprint_id": action.fingerprintId,
                 },
-            )
+            ) from e
 
     def _create_init_response(
         self,

@@ -642,5 +642,5 @@ class ProcessorStage(InitializationStage):
             return True
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Processor services validation failed: {e}")
+                logger.error(f"Processor services validation failed: {e}", exc_info=True)
             return False

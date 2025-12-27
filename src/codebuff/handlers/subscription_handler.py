@@ -110,7 +110,7 @@ class SubscriptionHandler:
                     "session_id": session.session_id,
                     "topics": topics,
                 },
-            )
+            ) from e
 
     async def handle_unsubscribe(
         self,
@@ -179,4 +179,4 @@ class SubscriptionHandler:
                     "session_id": session.session_id,
                     "topics": topics,
                 },
-            )
+            ) from e
