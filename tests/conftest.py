@@ -177,6 +177,16 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
         config.hook.pytest_deselected(items=deselected)
         items[:] = selected
 
+    # Run the "stall linter" test as early as possible to fail fast on patterns
+    # that can wedge xdist workers (e.g., recursive monkeypatching of asyncio.sleep).
+    stall_linter_nodeid = "tests/unit/test_stall_linter.py"
+    stall_linter_items = [item for item in items if stall_linter_nodeid in item.nodeid]
+    if stall_linter_items:
+        stall_linter_ids = {id(item) for item in stall_linter_items}
+        items[:] = stall_linter_items + [
+            item for item in items if id(item) not in stall_linter_ids
+        ]
+
 
 def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
     group = parser.getgroup("llm-interactive-proxy")
