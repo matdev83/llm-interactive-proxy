@@ -58,7 +58,7 @@ async def test_qwen_oauth_static_routing_model_override_regression():
         ) as mock_parent_chat:
 
             # Create mock response envelope
-            mock_response = MagicMock()
+            mock_response = MagicMock()  # Init mock
             mock_response.choices = [MagicMock()]
             mock_response.choices[0].message.content = "Test response"
             mock_response.usage.total_tokens = 10

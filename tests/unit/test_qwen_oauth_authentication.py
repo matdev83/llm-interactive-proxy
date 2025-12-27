@@ -91,10 +91,9 @@ class TestQwenOAuthAuthentication:
             "expiry_date": expiry_time_ms,
         }
 
-        with patch("time.time", return_value=current_time_ms / 1000):
-            # Just before the buffer boundary, should not refresh yet
-            is_expired = connector._is_token_expired()
-            assert is_expired is False
+        # Just before the buffer boundary, should not refresh yet
+        is_expired = connector._is_token_expired()
+        assert is_expired is False
 
     @pytest.mark.asyncio
     async def test_token_refresh_flow_success(self, connector, mock_client):

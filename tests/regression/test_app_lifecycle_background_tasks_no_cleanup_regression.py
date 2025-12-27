@@ -41,9 +41,10 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
 
         # Wait for all tasks to complete (reduced from 0.5s to 0.05s)
         async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
-            clock.advance(0.05)
-            await sleep_task
+            for _ in range(10):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
 
         # Without cleanup, tasks should still be removed by callbacks
         # But if callbacks aren't working, tasks accumulate
@@ -83,9 +84,10 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
 
         # Wait for tasks to complete (reduced from 0.5s to 0.05s)
         async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
-            clock.advance(0.05)
-            await sleep_task
+            for _ in range(10):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
 
         # Manually call cleanup
         lifecycle._cleanup_completed_tasks()

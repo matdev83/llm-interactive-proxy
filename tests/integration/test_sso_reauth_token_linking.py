@@ -332,7 +332,7 @@ class TestReauthenticationTokenLinking:
 
         # Verify the new token exists
         retrieved_token = await token_repo.get_by_id(new_token.id)
-        assert retrieved_token is not None
+        assert retrieved_token is not None  # Check existence
         assert retrieved_token.user_id == "new-user-456"
 
     @pytest.mark.asyncio

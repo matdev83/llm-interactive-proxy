@@ -111,6 +111,7 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
 
     Validates: Requirements 6.1, 6.3
     """
+    original_sleep = asyncio.sleep
     with (
         patch(
             "src.core.services.steering_leak_protection.get_steering_leak_protector"
@@ -121,7 +122,7 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
-        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
+        patch("asyncio.sleep", side_effect=lambda *args, **kwargs: original_sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -203,6 +204,7 @@ async def test_sentinel_format_consistency_property(
 
     Validates: Requirements 6.2, 6.4
     """
+    original_sleep = asyncio.sleep
     with (
         patch(
             "src.core.services.steering_leak_protection.get_steering_leak_protector"
@@ -213,7 +215,7 @@ async def test_sentinel_format_consistency_property(
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
-        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
+        patch("asyncio.sleep", side_effect=lambda *args, **kwargs: original_sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -260,46 +262,6 @@ async def test_sentinel_format_consistency_property(
                 f"Last chunk {i} does not end with SentinelManager.format_sse_done(). "
                 f"Expected to end with {expected_sentinel!r}, got {last_chunk!r}"
             )
-    """
-    Property 15: Sentinel format consistency
-    Feature: streaming-pipeline-refactor, Property 15: Sentinel format consistency
-
-    For any backend, the [DONE] sentinel should have identical format and
-    metadata structure when emitted.
-
-    This test verifies that:
-    1. All streams emit the same [DONE] format
-    2. The sentinel format is consistent across multiple streams
-    3. The sentinel metadata structure is identical
-
-    Validates: Requirements 6.2, 6.4
-    """
-    # Arrange
-    assembler = SSEAssembler()
-    sentinel_chunks = []
-
-    # Act - Process multiple streams and collect their sentinels
-    for chunks in chunks_list:
-        stream = async_iter(chunks)
-        result_chunks = []
-        async for chunk_bytes in assembler.assemble_stream(stream, format="sse"):
-            result_chunks.append(chunk_bytes)
-
-        # The last chunk should be the sentinel
-        if result_chunks:
-            sentinel_chunks.append(result_chunks[-1])
-
-    # Assert
-    assert len(sentinel_chunks) > 0, "Should have collected at least one sentinel"
-
-    # All last chunks should end with the same [DONE] marker
-    # Note: With the unified pipeline, [DONE] may be appended to content chunks
-    expected_sentinel = SentinelManager.format_sse_done()
-    for i, last_chunk in enumerate(sentinel_chunks):
-        assert last_chunk.endswith(expected_sentinel), (
-            f"Last chunk {i} does not end with SentinelManager.format_sse_done(). "
-            f"Expected to end with {expected_sentinel!r}, got {last_chunk!r}"
-        )
 
 
 @pytest.mark.asyncio
@@ -314,6 +276,7 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
     This test verifies that all non-sentinel chunks are properly formatted
     as SSE with "data: " prefix and "\\n\\n" suffix.
     """
+    original_sleep = asyncio.sleep
     with (
         patch(
             "src.core.services.steering_leak_protection.get_steering_leak_protector"
@@ -324,7 +287,7 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
-        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
+        patch("asyncio.sleep", side_effect=lambda *args, **kwargs: original_sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()
@@ -394,6 +357,7 @@ async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
     This test verifies that even if the input stream doesn't contain a done
     marker, the assembler still emits a [DONE] sentinel at the end.
     """
+    original_sleep = asyncio.sleep
     with (
         patch(
             "src.core.services.steering_leak_protection.get_steering_leak_protector"
@@ -404,7 +368,7 @@ async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
         patch(
             "src.core.ports.streaming_metrics.get_sampler_instance"
         ) as mock_get_sampler,
-        patch("asyncio.sleep", return_value=asyncio.sleep(0)),
+        patch("asyncio.sleep", side_effect=lambda *args, **kwargs: original_sleep(0)),
     ):
         # Mock steering leak protector to skip regex checks
         mock_protector = MagicMock()

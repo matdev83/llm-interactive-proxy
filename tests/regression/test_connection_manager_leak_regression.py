@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.codebuff.connection_manager import ConnectionManager
 
 
@@ -62,10 +63,11 @@ class TestConnectionManagerLeakRegression:
 
         # Make some connections stale by setting old last_seen
         stale_count = 5
-        for mock_ws, _session_id in mock_websockets[:stale_count]:
-            session = await manager.get_session(mock_ws)
-            if session:
-                session.last_seen = datetime.utcnow() - timedelta(seconds=120)
+        with freeze_time():
+            for mock_ws, _session_id in mock_websockets[:stale_count]:
+                session = await manager.get_session(mock_ws)
+                if session:
+                    session.last_seen = datetime.utcnow() - timedelta(seconds=120)
 
         # Clean up stale connections
         await manager.cleanup_stale_connections()
@@ -164,9 +166,10 @@ class TestConnectionManagerLeakRegression:
         await manager.connect(mock_ws, session_id)
 
         # Make it stale
-        session = await manager.get_session(mock_ws)
-        if session:
-            session.last_seen = datetime.utcnow() - timedelta(seconds=120)
+        with freeze_time():
+            session = await manager.get_session(mock_ws)
+            if session:
+                session.last_seen = datetime.utcnow() - timedelta(seconds=120)
 
         # Cleanup should handle the error and still remove the connection
         await manager.cleanup_stale_connections()

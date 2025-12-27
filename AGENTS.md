@@ -105,6 +105,10 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 
 - **Create repro scripts**: If you cannot reproduce based on user-provided context create repro script first.
 
+## Git usage
+
+- **NEVER, EVER** use commands like `git restore` or `git checkout` for anything more than reversion of **ONE SINGLE** file. You are **NOT ALLOWED** to revert back changes to the working copy by issuing mass git commands.
+
 ## Reporting Back To The User
 
 - **NEVER** claim you successfully fixed a bug or implemented a feature if you're not 100% sure. The only way to be sure is to run tests and/or demo script(s).

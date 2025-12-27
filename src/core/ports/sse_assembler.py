@@ -259,6 +259,8 @@ class SSEAssembler(IStreamAssembler):
                             len(chunk_bytes),
                         )
                     yield chunk_bytes
+                    if not chunk.is_done:
+                        await asyncio.sleep(0)
 
                     # If chunk already contains [DONE], mark as emitted
                     if chunk_contains_done:
@@ -278,9 +280,6 @@ class SSEAssembler(IStreamAssembler):
                             )
                         done_emitted = True
                     break
-
-                # Yield control to event loop for responsiveness
-                await asyncio.sleep(0)
 
         except GeneratorExit:
             # Client disconnected - this is expected

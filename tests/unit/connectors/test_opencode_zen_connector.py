@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from freezegun import freeze_time
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -406,37 +407,43 @@ class TestTokenExpiry:
 
     def test_token_not_expired(self, connector):
         """Token should not be expired when expiry is in future."""
-        connector._oauth_credentials = {"expires": time.time() + 3600}
-        assert connector._is_token_expired() is False
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {"expires": time.time() + 3600}
+            assert connector._is_token_expired() is False
 
     def test_token_expired(self, connector):
         """Token should be expired when expiry is in past."""
-        connector._oauth_credentials = {"expires": time.time() - 100}
-        assert connector._is_token_expired() is True
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {"expires": time.time() - 100}
+            assert connector._is_token_expired() is True
 
     def test_token_within_buffer_is_expired(self, connector):
         """Token expiring within buffer (60s) should be considered expired."""
-        connector._oauth_credentials = {
-            "expires": time.time() + 30
-        }  # Within 60s buffer
-        assert connector._is_token_expired() is True
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {
+                "expires": time.time() + 30
+            }  # Within 60s buffer
+            assert connector._is_token_expired() is True
 
     def test_token_outside_buffer_not_expired(self, connector):
         """Token expiring outside buffer should not be expired."""
-        connector._oauth_credentials = {
-            "expires": time.time() + 120
-        }  # Outside 60s buffer
-        assert connector._is_token_expired() is False
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {
+                "expires": time.time() + 120
+            }  # Outside 60s buffer
+            assert connector._is_token_expired() is False
 
     def test_milliseconds_timestamp(self, connector):
         """Should handle milliseconds timestamps (> 1e12)."""
-        connector._oauth_credentials = {"expires": (time.time() + 3600) * 1000}
-        assert connector._is_token_expired() is False
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {"expires": (time.time() + 3600) * 1000}
+            assert connector._is_token_expired() is False
 
     def test_milliseconds_timestamp_expired(self, connector):
         """Should detect expired milliseconds timestamps."""
-        connector._oauth_credentials = {"expires": (time.time() - 100) * 1000}
-        assert connector._is_token_expired() is True
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {"expires": (time.time() - 100) * 1000}
+            assert connector._is_token_expired() is True
 
     def test_no_credentials_returns_true(self, connector):
         """Should return True (expired) when no credentials loaded."""
@@ -445,11 +452,12 @@ class TestTokenExpiry:
 
     def test_custom_buffer_value(self, connector):
         """Should respect custom buffer value."""
-        connector._oauth_credentials = {"expires": time.time() + 90}
-        # Default buffer 60s - should be expired
-        assert connector._is_token_expired(buffer_seconds=100) is True
-        # Custom buffer 30s - should not be expired
-        assert connector._is_token_expired(buffer_seconds=30) is False
+        with freeze_time("2024-01-01 12:00:00"):
+            connector._oauth_credentials = {"expires": time.time() + 90}
+            # Default buffer 60s - should be expired
+            assert connector._is_token_expired(buffer_seconds=100) is True
+            # Custom buffer 30s - should not be expired
+            assert connector._is_token_expired(buffer_seconds=30) is False
 
 
 # ============================================================================
@@ -630,22 +638,23 @@ class TestChatCompletions:
         )
 
         # Update credentials file to have an expired token (file mtime will be newer)
-        expired_creds = {
-            "opencode": {
-                "type": "oauth",
-                "access": "test-access-token",
-                "refresh": "test-refresh-token",
-                "expires": int(time.time()) - 100,  # Expired
+        with freeze_time("2024-01-01 12:00:00"):
+            expired_creds = {
+                "opencode": {
+                    "type": "oauth",
+                    "access": "test-access-token",
+                    "refresh": "test-refresh-token",
+                    "expires": int(time.time()) - 100,  # Expired
+                }
             }
-        }
-        temp_credentials_file.write_text(json.dumps(expired_creds), encoding="utf-8")
-        # Ensure file is flushed and mtime is updated (important on Windows)
-        temp_credentials_file.stat()  # Force stat to ensure mtime is updated
+            temp_credentials_file.write_text(json.dumps(expired_creds), encoding="utf-8")
+            # Ensure file is flushed and mtime is updated (important on Windows)
+            temp_credentials_file.stat()  # Force stat to ensure mtime is updated
 
-        # Also force in-memory credentials to appear expired to trigger reload
-        connector._oauth_credentials["expires"] = time.time() - 100
-        # Reset last_modified to force reload on next check
-        connector._last_modified = 0
+            # Also force in-memory credentials to appear expired to trigger reload
+            connector._oauth_credentials["expires"] = time.time() - 100
+            # Reset last_modified to force reload on next check
+            connector._last_modified = 0
 
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",

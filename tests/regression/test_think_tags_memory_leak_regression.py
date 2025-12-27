@@ -8,7 +8,10 @@ Fixed: _cleanup_session_state() now properly removes entries from _reasoning_ext
 when sessions are cleaned up.
 """
 
+import time
+
 import pytest
+from freezegun import freeze_time
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.ports.streaming_processors import ThinkTagsProcessor
 
@@ -116,7 +119,6 @@ class TestThinkTagsMemoryLeakRegression:
         self, processor: ThinkTagsProcessor
     ) -> None:
         """Test that stale sessions are cleaned up based on TTL."""
-        import time
 
         session_id = "stale_session"
 
@@ -131,10 +133,11 @@ class TestThinkTagsMemoryLeakRegression:
         assert session_id in processor._reasoning_extracted
 
         # Simulate time passing beyond TTL
-        processor._last_access[session_id]
-        processor._last_access[session_id] = time.time() - (
-            processor._session_ttl_seconds + 1
-        )
+        with freeze_time():
+            processor._last_access[session_id]
+            processor._last_access[session_id] = time.time() - (
+                processor._session_ttl_seconds + 1
+            )
 
         # Trigger cleanup of stale sessions (only if buffer is full)
         # Fill buffer to trigger cleanup
