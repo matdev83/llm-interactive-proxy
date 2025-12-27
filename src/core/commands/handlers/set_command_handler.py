@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from src.core.commands.handler import ICommandHandler
@@ -12,6 +13,8 @@ from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.secure_base_command import create_secure_command
 from src.core.domain.commands.set_command import SetCommand
 from src.core.domain.session import Session
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.core.interfaces.command_policy_service_interface import (
@@ -94,8 +97,15 @@ class SetCommandHandler(ICommandHandler):
             try:
                 result = self._policy_service.is_static_route_enforced()
                 return bool(result)
-            except Exception:
-                pass
+            except Exception as e:
+                # Log the error for debugging but fall back to env var check
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Policy service error checking static route enforcement: %s. "
+                        "Falling back to STATIC_ROUTE environment variable.",
+                        e,
+                        exc_info=True,
+                    )
 
         import os
 

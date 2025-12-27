@@ -80,7 +80,8 @@ class WeakDIContainer:
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Error in cleanup callback for {service_type}: {e}"
+                            f"Error in cleanup callback for {service_type}: {e}",
+                            exc_info=True,
                         )
 
             weakref.ref(instance, on_delete)
@@ -135,7 +136,8 @@ class WeakDIContainer:
                             except Exception as e:
                                 if logger.isEnabledFor(logging.WARNING):
                                     logger.warning(
-                                        f"Error in cleanup callback for {service_type}: {e}"
+                                        f"Error in cleanup callback for {service_type}: {e}",
+                                        exc_info=True,
                                     )
 
                         weakref.ref(instance, on_delete)
@@ -157,7 +159,8 @@ class WeakDIContainer:
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Error in cleanup callback for {service_type}: {e}"
+                                f"Error in cleanup callback for {service_type}: {e}",
+                                exc_info=True,
                             )
 
             self._instances.clear()
@@ -184,7 +187,8 @@ class WeakDIContainer:
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                f"Error in cleanup callback for {service_type}: {e}"
+                                f"Error in cleanup callback for {service_type}: {e}",
+                                exc_info=True,
                             )
 
                 del self._instances[service_type]  # type: ignore[arg-type]

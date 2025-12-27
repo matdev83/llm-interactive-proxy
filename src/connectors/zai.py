@@ -64,8 +64,16 @@ class ZAIConnector(OpenAIConnector):
                     return models
                 # If the config file exists but has no models, fall back to hardcoded defaults
                 return ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
-        except Exception:
+        except (FileNotFoundError, yaml.YAMLError, OSError, ValueError) as e:
             # Fallback to hardcoded models if config file is not found or invalid
+            # Log the error for debugging but continue with defaults
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to load ZAI default models from %s: %s. Using hardcoded defaults.",
+                    config_path,
+                    e,
+                    exc_info=True,
+                )
             return ["glm-4.5", "glm-4.5-flash", "glm-4.5-air"]
 
     async def initialize(self, **kwargs: Any) -> None:
