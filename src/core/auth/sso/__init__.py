@@ -57,8 +57,7 @@ from src.core.auth.sso.startup_validation import (
     StartupValidator,
     validate_startup_configuration,
 )
-from src.core.auth.sso.token_service import TokenService
-from src.core.auth.sso.web_interface import create_sso_router
+from src.core.auth.sso.state_store import StateStore
 
 __all__ = [
     # Config
@@ -76,6 +75,8 @@ __all__ = [
     "PROVIDER_FACTORIES",
     # Web Interface
     "create_sso_router",
+    # Internal state management
+    "StateStore",
     # Services
     "SSOService",
     # Database

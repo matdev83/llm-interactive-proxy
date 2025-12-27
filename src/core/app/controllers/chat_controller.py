@@ -366,7 +366,6 @@ class ChatController:
                     from src.core.app.controllers import (
                         get_service_provider_dependency as _gspd,
                     )
-                    from src.core.interfaces.di_interface import IServiceProvider
 
                     sp = await _gspd(request)
                     service_provider = sp  # type: ignore[assignment]
@@ -750,7 +749,6 @@ class ChatController:
                                     exc_info=True,
                                 )
                             # If parsing fails, continue to other handlers
-                            pass
 
                     # Handle Anthropic-style message dict -> OpenAI chat.completion
                     if (
