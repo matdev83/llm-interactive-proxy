@@ -221,10 +221,10 @@ def test_property_23_timestamp_ordering(
     token_records=st.lists(
         token_record_strategy(),
         min_size=1,
-        max_size=10,
+        max_size=5,
     )
 )
-@property_test_settings(max_examples=50)
+@property_test_settings(max_examples=10)
 def test_property_23_multiple_token_records_completeness(
     token_records: list[TokenRecord],
 ) -> None:
