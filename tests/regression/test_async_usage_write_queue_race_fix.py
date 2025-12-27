@@ -24,10 +24,11 @@ async def test_concurrent_statistics_updates_no_race():
     queue = AsyncUsageWriteQueue(writer, batch_size=10, flush_interval_seconds=0.05)
     await queue.start()
 
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     records = [
         UsageRecord(
             id=f"rec-{i}",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=fixed_time,
             session_id=f"session-{i % 10}",
             turn_number=1,
             backend_type="test",

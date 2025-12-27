@@ -137,6 +137,7 @@ class TestReauthenticationTokenLinking:
         Requirements: 9.1, 9.3
         """
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             # Create an expired token
@@ -246,6 +247,7 @@ class TestReauthenticationTokenLinking:
         RateLimitService(db_manager)
 
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             # Create existing token (user already authenticated before)
@@ -321,6 +323,7 @@ class TestReauthenticationTokenLinking:
         # The web interface should create a NEW token
 
         plaintext_token, token_hash = token_service.generate_token()
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         new_token = TokenRecord(
             id=secrets.token_hex(16),
             token_hash=token_hash,
@@ -329,9 +332,9 @@ class TestReauthenticationTokenLinking:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+            created_at=fixed_time,
+            last_authenticated_at=fixed_time,
+            auth_expires_at=fixed_time + timedelta(hours=24),
         )
 
         await token_repo.store_token(new_token)
@@ -357,6 +360,7 @@ class TestReauthenticationTokenLinking:
 
         # Create token for User A
         _, token_hash_a = token_service.generate_token()
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         token_a = TokenRecord(
             id="token-user-a",
             token_hash=token_hash_a,
@@ -365,9 +369,9 @@ class TestReauthenticationTokenLinking:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),
+            created_at=fixed_time,
+            last_authenticated_at=fixed_time,
+            auth_expires_at=fixed_time + timedelta(hours=1),
         )
         await token_repo.store_token(token_a)
 
@@ -410,9 +414,9 @@ class TestReauthenticationTokenLinking:
                 provider="google",
                 is_authenticated=True,
                 is_active=True,
-                created_at=datetime.utcnow(),
-                last_authenticated_at=datetime.utcnow(),
-                auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
             )
             await token_repo.store_token(token_b)
 
@@ -487,6 +491,7 @@ class TestReauthenticationTokenLinking:
         """
         # Create initial token
         plaintext_token, token_hash = token_service.generate_token()
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         token_record = TokenRecord(
             id="persistent-token",
             token_hash=token_hash,
@@ -495,9 +500,9 @@ class TestReauthenticationTokenLinking:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+            created_at=fixed_time,
+            last_authenticated_at=fixed_time,
+            auth_expires_at=fixed_time + timedelta(hours=24),
         )
         await token_repository.store_token(token_record)
 
@@ -526,7 +531,7 @@ class TestReauthenticationTokenLinking:
             await token_repository.update_auth_status(
                 token_id=token_record.id,
                 authenticated=True,
-                expiry=datetime.utcnow() + timedelta(hours=24),
+                expiry=fixed_time + timedelta(hours=24),
             )
 
             # Verify token is authenticated again

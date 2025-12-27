@@ -4,8 +4,6 @@ This test verifies that abandoned connections are properly cleaned up
 and don't accumulate over multiple connection cycles.
 """
 
-import time
-
 from freezegun import freeze_time
 from src.core.domain.connection_activity import ConnectionActivity, ConnectionType
 from src.core.services.connection_activity_tracker import (
@@ -27,9 +25,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
 
     def test_abandoned_connections_are_cleaned_up(self) -> None:
         """Test that abandoned connections are cleaned up by cleanup_stale_connections."""
-        import time
-
-        with freeze_time() as frozen_time:
+        with freeze_time("2024-01-01 12:00:00") as frozen_time:
             tracker = ConnectionActivityTracker(stale_timeout_seconds=0.1)
 
             # Manually add abandoned connections (simulating orphaned connections)
@@ -39,7 +35,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
                     session_id=f"abandoned-session-{i}",
                     backend_name="test-backend",
                     connection_type=ConnectionType.NON_STREAMING,
-                    started_at=time.time() - 1.0,  # Started 1 second ago
+                    started_at=frozen_time().timestamp() - 1.0,  # Started 1 second ago
                 )
                 with tracker._lock:
                     tracker._connections[("test-backend", f"abandoned-session-{i}")] = (
@@ -101,7 +97,6 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
 
     def test_mixed_normal_and_abandoned_connections(self) -> None:
         """Test cleanup with mix of normal and abandoned connections."""
-        import time
 
         with freeze_time() as frozen_time:
             tracker = ConnectionActivityTracker(stale_timeout_seconds=0.1)
@@ -123,7 +118,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
                     session_id=f"abandoned-session-{i}",
                     backend_name="test-backend",
                     connection_type=ConnectionType.NON_STREAMING,
-                    started_at=time.time() - 1.0,  # Started 1 second ago
+                    started_at=frozen_time().timestamp() - 1.0,  # Started 1 second ago
                 )
                 with tracker._lock:
                     tracker._connections[("test-backend", f"abandoned-session-{i}")] = (
@@ -156,47 +151,50 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
 
     def test_cleanup_preserves_recent_connections(self) -> None:
         """Test that cleanup doesn't remove recently created connections."""
-        tracker = ConnectionActivityTracker(stale_timeout_seconds=0.5)
+        with freeze_time("2024-01-01 12:00:00") as frozen_time:
+            tracker = ConnectionActivityTracker(stale_timeout_seconds=0.5)
 
-        # Create old abandoned connections first (started 1 second ago)
-        old_start_time = time.time() - 1.0
-        for i in range(3):
-            stale_conn = ConnectionActivity(
-                session_id=f"old-session-{i}",
-                backend_name="test-backend",
-                connection_type=ConnectionType.NON_STREAMING,
-                started_at=old_start_time,
+            # Create old abandoned connections first (started 1 second ago)
+            old_start_time = frozen_time().timestamp() - 1.0
+            for i in range(3):
+                stale_conn = ConnectionActivity(
+                    session_id=f"old-session-{i}",
+                    backend_name="test-backend",
+                    connection_type=ConnectionType.NON_STREAMING,
+                    started_at=old_start_time,
+                )
+                with tracker._lock:
+                    tracker._connections[("test-backend", f"old-session-{i}")] = (
+                        stale_conn
+                    )
+
+            # Create recent connections AFTER old ones (enter context to track them)
+            recent_contexts = []
+            for i in range(3):
+                ctx = tracker.track_connection(
+                    session_id=f"recent-session-{i}",
+                    backend_name="test-backend",
+                    connection_type=ConnectionType.STREAMING,
+                )
+                ctx.__enter__()  # Enter context to actually track the connection
+                recent_contexts.append(ctx)
+
+            assert tracker.get_connection_count() == 6
+
+            # Don't wait - cleanup immediately
+            # Old connections (1s old) should be removed, recent ones (< 0.1s old) should remain
+            removed = tracker.cleanup_stale_connections()
+            assert removed == 3, (
+                f"Expected 3 old connections to be cleaned up, "
+                f"but {removed} were removed."
             )
-            with tracker._lock:
-                tracker._connections[("test-backend", f"old-session-{i}")] = stale_conn
-
-        # Create recent connections AFTER old ones (enter context to track them)
-        recent_contexts = []
-        for i in range(3):
-            ctx = tracker.track_connection(
-                session_id=f"recent-session-{i}",
-                backend_name="test-backend",
-                connection_type=ConnectionType.STREAMING,
+            assert tracker.get_connection_count() == 3, (
+                f"Expected 3 recent connections to remain, "
+                f"but {tracker.get_connection_count()} connections found."
             )
-            ctx.__enter__()  # Enter context to actually track the connection
-            recent_contexts.append(ctx)
 
-        assert tracker.get_connection_count() == 6
+            # Clean up recent connections properly
+            for ctx in recent_contexts:
+                ctx.__exit__(None, None, None)
 
-        # Don't wait - cleanup immediately
-        # Old connections (1s old) should be removed, recent ones (< 0.1s old) should remain
-        removed = tracker.cleanup_stale_connections()
-        assert removed == 3, (
-            f"Expected 3 old connections to be cleaned up, "
-            f"but {removed} were removed."
-        )
-        assert tracker.get_connection_count() == 3, (
-            f"Expected 3 recent connections to remain, "
-            f"but {tracker.get_connection_count()} connections found."
-        )
-
-        # Clean up recent connections properly
-        for ctx in recent_contexts:
-            ctx.__exit__(None, None, None)
-
-        assert tracker.get_connection_count() == 0
+            assert tracker.get_connection_count() == 0

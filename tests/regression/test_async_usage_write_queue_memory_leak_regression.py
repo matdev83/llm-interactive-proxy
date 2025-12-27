@@ -59,7 +59,7 @@ def create_test_record(record_id: str) -> UsageRecord:
     """Create a test usage record."""
     return UsageRecord(
         id=record_id,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         session_id=f"session_{int(record_id.split('_')[1]) % 10}",
         turn_number=int(record_id.split("_")[1]) if "_" in record_id else 0,
         backend_type="test",
@@ -124,7 +124,9 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         await queue.start()
 
         # Enqueue records (reduced number for faster test execution)
-        num_records = 60  # Reduced from 100 for performance (still tests limit enforcement)
+        num_records = (
+            60  # Reduced from 100 for performance (still tests limit enforcement)
+        )
         for i in range(num_records):
             record = create_test_record(f"record_{i}")
             queue.enqueue_insert(record)

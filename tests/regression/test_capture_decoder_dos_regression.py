@@ -51,7 +51,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
@@ -77,7 +77,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
@@ -106,7 +106,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
@@ -126,7 +126,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
@@ -150,7 +150,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
@@ -182,7 +182,7 @@ class TestCaptureDecoderDoSRegression:
             direction=CaptureDirection.CLIENT_TO_PROXY,
             data=json_bytes,
             metadata=CaptureMetadata(),
-            timestamp=time.time(),
+            timestamp=1704067200.0,
             sequence=1,
         )
 
