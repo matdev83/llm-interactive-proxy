@@ -184,38 +184,37 @@ class TestBuildApp:
 class TestIntegration:
     """Integration tests for the application factory."""
 
-    def test_app_handles_models_endpoint(self, monkeypatch):
-        """Test that the /models endpoint is available."""
+    @pytest.fixture
+    def auth_disabled_config(self, monkeypatch):
+        """Fixture for creating config with auth disabled.
+
+        Optimization: Share config creation between tests to reduce redundant setup.
+        """
         monkeypatch.setenv("DISABLE_AUTH", "true")
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-
-        # Create a config with auth disabled
         from src.core.config.app_config import AuthConfig
 
-        config = AppConfig(auth=AuthConfig(disable_auth=True))
+        return AppConfig(auth=AuthConfig(disable_auth=True))
 
-        app = build_app(config=config)
+    def test_app_handles_models_endpoint(self, auth_disabled_config):
+        """Test that /models endpoint is available."""
+        app = build_app(config=auth_disabled_config)
 
         with TestClient(app) as client:
             response = client.get("/models")
             assert response.status_code == 200
             assert "data" in response.json()
 
-    def test_app_dependency_injection_works(self, monkeypatch):
+    def test_app_dependency_injection_works(self, auth_disabled_config):
         """Test that dependency injection is properly configured."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        from src.core.config.app_config import AuthConfig
-
-        config = AppConfig(auth=AuthConfig(disable_auth=True))
-
-        app = build_app(config=config)
+        app = build_app(config=auth_disabled_config)
 
         with TestClient(app):
             # Verify service provider is available after startup
             assert hasattr(app.state, "service_provider")
             assert app.state.service_provider is not None
 
-            # Verify we can get services from the provider
+            # Verify we can get services from provider
             from src.core.interfaces.session_service_interface import ISessionService
 
             session_service = app.state.service_provider.get_required_service(

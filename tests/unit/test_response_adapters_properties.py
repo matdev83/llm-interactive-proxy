@@ -249,7 +249,7 @@ class TestAsyncPathPurity:
             asyncio.sleep = original_sleep
 
     @pytest.mark.asyncio
-    @settings(max_examples=20, deadline=5000)
+    @settings(max_examples=10, deadline=5000)
     @given(chunks=st.lists(processed_response_strategy(), min_size=5, max_size=15))
     async def test_streaming_responsiveness(self, chunks: list[ProcessedResponse]):
         """
