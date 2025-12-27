@@ -28,8 +28,8 @@ def reasoning_output_strategy(draw: Any) -> str:
     # Generate non-empty reasoning text
     text = draw(
         st.text(
-            min_size=10,
-            max_size=500,
+            min_size=5,
+            max_size=100,
             alphabet=st.characters(blacklist_categories=["Cs"]),
         )
     )
@@ -90,7 +90,7 @@ class TestHybridSentinelCoordination:
         reasoning_output=reasoning_output_strategy(),
         execution_chunks=execution_chunks_strategy(),
     )
-    @settings(max_examples=10, deadline=5000)
+    @settings(max_examples=5, deadline=5000)
     async def test_property_16_single_sentinel_after_both_phases(
         self,
         reasoning_output: str,

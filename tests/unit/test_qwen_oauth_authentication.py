@@ -22,28 +22,6 @@ pytestmark = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def cleanup_connector_state():
-    """Clean up connector state between tests to ensure isolation."""
-    yield
-    # Cleanup after each test - patch mock should auto-cleanup when context exits
-
-
-@pytest.fixture(autouse=True)
-def isolate_test_completely():
-    """Ensure complete test isolation by clearing any global state."""
-    import os
-
-    # Store original environment
-    original_env = dict(os.environ)
-
-    yield
-
-    # Restore original environment completely
-    os.environ.clear()
-    os.environ.update(original_env)
-
-
 class TestQwenOAuthAuthentication:
     """Enhanced tests for Qwen OAuth authentication mechanisms."""
 

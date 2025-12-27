@@ -20,11 +20,6 @@ from src.core.services.application_state_service import ApplicationStateService
 
 @pytest.fixture
 def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
-    # Store original environment
-    import os
-
-    original_env = dict(os.environ)
-
     # Clear potentially polluting variables first
     env_vars_to_clear = [
         "DEFAULT_BACKEND",
@@ -52,10 +47,6 @@ def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
     for i in range(1, 21):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
-
-    # Restore original environment completely
-    os.environ.clear()
-    os.environ.update(original_env)
 
 
 def test_save_and_load_persistent_config(
