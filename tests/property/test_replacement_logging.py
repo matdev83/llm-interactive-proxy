@@ -7,6 +7,7 @@ Validates: Requirements 6.3, 6.4, 6.5
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from unittest.mock import MagicMock
 
@@ -18,6 +19,16 @@ from src.core.services.backend_registry import BackendRegistry
 from src.core.services.model_replacement_service import ModelReplacementService
 from tests.utils.hypothesis_config import property_test_settings
 
+_shared_registry = None
+
+
+def get_shared_registry():
+    """Get or create shared BackendRegistry instance."""
+    global _shared_registry
+    if _shared_registry is None:
+        _shared_registry = BackendRegistry()
+    return _shared_registry
+
 
 def create_test_service(
     probability: float,
@@ -27,14 +38,15 @@ def create_test_service(
     enabled: bool = True,
 ) -> ModelReplacementService:
     """Helper to create a test replacement service."""
-    registry = BackendRegistry()
+    registry = get_shared_registry()
 
     def mock_factory() -> None:
         pass
 
-    # Register the test backend
+    # Register the test backend (idempotent)
     backend_name = backend_model.split(":", 1)[0]
-    registry.register_backend(backend_name, mock_factory)
+    with contextlib.suppress(ValueError):
+        registry.register_backend(backend_name, mock_factory)
 
     config = ReplacementConfig(
         enabled=enabled,
