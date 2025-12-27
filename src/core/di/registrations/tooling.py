@@ -83,6 +83,8 @@ def _register_tool_call_reactor_core(
             provider: IServiceProvider,
         ) -> InMemoryToolCallHistoryTracker:
             """Factory for creating history tracker with config."""
+            from src.core.interfaces.time_source_interface import ITimeSource
+
             config = provider.get_service(AppConfig)
             session_ttl = 3600
             max_sessions = 10000
@@ -98,10 +100,14 @@ def _register_tool_call_reactor_core(
                     reactor_config, "max_entries_per_session", max_entries_per_session
                 )
 
+            # Get time source from DI if available
+            time_source = provider.get_service(cast(type, ITimeSource))
+
             return InMemoryToolCallHistoryTracker(
                 session_ttl_seconds=session_ttl,
                 max_sessions=max_sessions,
                 max_entries_per_session=max_entries_per_session,
+                time_source=time_source,
             )
 
         register_singleton_if_absent(

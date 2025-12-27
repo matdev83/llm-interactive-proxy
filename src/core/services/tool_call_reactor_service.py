@@ -502,6 +502,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         session_ttl_seconds: int = 3600,
         max_sessions: int = 10000,
         max_entries_per_session: int = 100,  # Reduced from 1000 to prevent memory bloat
+        time_source: Any = None,
     ) -> None:
         """Initialize the history tracker.
 
@@ -509,15 +510,29 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             session_ttl_seconds: TTL for session history (default: 1 hour)
             max_sessions: Maximum number of sessions to track (default: 10000)
             max_entries_per_session: Maximum tool call entries per session (default: 100)
+            time_source: Optional time source for deterministic timestamps (for tests)
         """
         self._history: dict[str, list[dict[str, Any]]] = {}
         self._session_last_access: dict[str, datetime] = {}
         self._session_ttl_seconds = session_ttl_seconds
         self._max_sessions = max_sessions
         self._max_entries_per_session = max_entries_per_session
+        self._time_source = time_source
         self._lock = asyncio.Lock()
         # Track total entries across all sessions for global limit enforcement
         self._total_entries = 0
+
+    def _get_now_utc(self) -> datetime:
+        """Get current UTC time, respecting time source override if active."""
+        if self._time_source is not None:
+            return self._time_source.now_utc()
+        # Check for time source override (used by tests)
+        from src.core.services.time_source_service import _OVERRIDE_TIME_SOURCE
+
+        override = _OVERRIDE_TIME_SOURCE.get()
+        if override is not None:
+            return override.now_utc()
+        return datetime.now(timezone.utc)
 
     async def record_tool_call(
         self, session_id: str, tool_name: str, context: dict[str, Any]
@@ -540,7 +555,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
                 else timestamp_value.replace(tzinfo=timezone.utc)
             )
         else:
-            normalized_timestamp = datetime.now(timezone.utc)
+            normalized_timestamp = self._get_now_utc()
 
         normalized_context["timestamp"] = normalized_timestamp
 
@@ -549,7 +564,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             await self._cleanup_expired_sessions_locked()
 
             session_history = self._history.setdefault(session_id, [])
-            self._session_last_access[session_id] = datetime.now(timezone.utc)
+            self._session_last_access[session_id] = self._get_now_utc()
 
             entry = {
                 "tool_name": tool_name,
@@ -586,7 +601,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             if session_id not in self._history:
                 return 0
 
-            current_time = datetime.now(timezone.utc)
+            current_time = self._get_now_utc()
             cutoff_time = current_time - timedelta(seconds=time_window_seconds)
 
             count = 0
@@ -615,7 +630,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
 
         Must be called while holding self._lock.
         """
-        now = datetime.now(timezone.utc)
+        now = self._get_now_utc()
         cutoff = now - timedelta(seconds=self._session_ttl_seconds)
 
         # Find and remove expired sessions

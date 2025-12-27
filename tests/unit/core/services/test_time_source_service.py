@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -55,6 +56,33 @@ class TestTimeSourceDefaultBehavior:
 
         # Allow small difference due to timing
         assert abs(unix_time - expected_unix) < 0.1
+
+    @pytest.mark.asyncio
+    async def test_utc_local_epoch_consistency_with_override(self) -> None:
+        """Test that UTC, local, and epoch times are consistent when using TimeOverride."""
+        fixed_utc = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        fixed_local = datetime(2024, 1, 1, 12, 0, 0)
+        fixed_unix = 1704110400.0
+
+        mock_source = MockTimeSource(
+            utc_time=fixed_utc,
+            local_time=fixed_local,
+            unix_time=fixed_unix,
+            monotonic_time=1000.0,
+        )
+
+        source = TimeSource()
+
+        async with TimeOverride(mock_source):
+            utc_time = source.now_utc()
+            unix_time = source.unix_time_s()
+
+            # Convert UTC datetime to Unix timestamp
+            expected_unix = utc_time.timestamp()
+
+            # Should be exactly consistent when using override
+            assert unix_time == expected_unix
+            assert unix_time == fixed_unix
 
     def test_monotonic_s_returns_monotonic_time(self) -> None:
         """Test that monotonic_s returns monotonic time."""

@@ -31,7 +31,7 @@ class ITimeSource(abc.ABC):
         """Get the current local wall-clock time.
 
         Returns:
-            Current local datetime with timezone info
+            Current local datetime (may be naive, without timezone info)
         """
         ...
 

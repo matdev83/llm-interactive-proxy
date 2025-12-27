@@ -17,6 +17,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.wire_capture import create_wire_capture_entry
+from src.core.interfaces.time_source_interface import ITimeSource
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
 
@@ -34,8 +35,11 @@ class StructuredWireCapture(IWireCapture):
     No-ops when the capture file is not configured.
     """
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self, config: AppConfig, time_source: ITimeSource | None = None
+    ) -> None:
         self._config = config
+        self._time_source = time_source
         self._lock = asyncio.Lock()
         self._file_path: str | None = getattr(config.logging, "capture_file", None)
         # Rotation/truncation options
@@ -424,18 +428,6 @@ class StructuredWireCapture(IWireCapture):
         byte_count: int | None = None,
     ) -> dict[str, Any]:
         """Create a structured JSON entry with all required fields."""
-        # Get timestamp in both ISO and human-readable formats
-        utc_now = datetime.now(timezone.utc)
-        utc_now.isoformat(timespec="milliseconds") + "Z"
-
-        # Use local time for human-readable timestamp (based on system timezone)
-        local_time = datetime.now()
-        local_time.strftime("%Y-%m-%d %H:%M:%S")
-
-        # Extract source and destination info
-        getattr(context, "client_host", None) if context else None
-        getattr(context, "agent", None) if context else None
-
         # Calculate byte count if not provided
         if byte_count is None:
             try:
@@ -460,6 +452,7 @@ class StructuredWireCapture(IWireCapture):
             key_name=key_name,
             payload=self._redact_payload(payload),
             byte_count=byte_count,
+            time_source=self._time_source,
         )
 
         # Extract and include system prompts if present

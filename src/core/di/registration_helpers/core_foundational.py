@@ -184,6 +184,28 @@ def register_application_state_services(services: ServiceCollection) -> None:
     _register_tool_call_repair_service(services)
 
 
+def register_time_source(services: ServiceCollection) -> None:
+    """Register time source service."""
+    from src.core.interfaces.time_source_interface import ITimeSource
+    from src.core.services.time_source_service import TimeSource
+
+    # Register TimeSource as singleton
+    register_singleton_if_absent(services, TimeSource)
+    try:
+        # Register ITimeSource interface to resolve to same instance
+        def _time_source_factory(provider: IServiceProvider) -> TimeSource:
+            return provider.get_required_service(TimeSource)
+
+        register_singleton_if_absent(
+            services,
+            cast(type, ITimeSource),
+            implementation_factory=_time_source_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ITimeSource interface: {e}")
+
+
 def _register_tool_call_repair_service(services: ServiceCollection) -> None:
     """Register ToolCallRepairService with IToolCallRepairService interface binding."""
     try:

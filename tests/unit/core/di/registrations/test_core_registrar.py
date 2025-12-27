@@ -37,11 +37,13 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.time_source_interface import ITimeSource
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.session_service_impl import SessionService
+from src.core.services.time_source_service import TimeSource
 
 
 class TestCoreRegistrarFoundationalServices:
@@ -80,6 +82,38 @@ class TestCoreRegistrarFoundationalServices:
 
         resolved_iconfig = provider.get_service(cast(type, IConfig))
         assert resolved_iconfig is not None
+
+    def test_time_source_registration(self) -> None:
+        """Verify TimeSource and ITimeSource are registered."""
+        services = ServiceCollection()
+        config = AppConfig()
+
+        core.register(services, config)
+        provider = services.build_service_provider()
+
+        time_source = provider.get_service(TimeSource)
+        assert time_source is not None
+        assert isinstance(time_source, TimeSource)
+
+        itime_source = provider.get_service(cast(type, ITimeSource))
+        assert itime_source is not None
+        assert isinstance(itime_source, ITimeSource)
+        assert itime_source is time_source  # Should be same instance (singleton)
+
+    def test_time_source_is_singleton(self) -> None:
+        """Verify TimeSource is registered as singleton."""
+        services = ServiceCollection()
+        config = AppConfig()
+
+        core.register(services, config)
+        provider = services.build_service_provider()
+
+        time_source1 = provider.get_service(TimeSource)
+        time_source2 = provider.get_service(TimeSource)
+
+        assert time_source1 is not None
+        assert time_source2 is not None
+        assert time_source1 is time_source2  # Same instance
 
     def test_session_service_registration(self) -> None:
         """Verify SessionService and ISessionService are registered."""

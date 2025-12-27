@@ -20,23 +20,23 @@
   - Ensure the policy guides tests to prefer a single overrideable time boundary for repository-owned deterministic behavior, while allowing targeted tooling for legacy surfaces.
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 10.1_
 
-- [ ] 2. Introduce a single overrideable wall-clock time boundary for deterministic code paths
-- [ ] 2.1 (P) Define a central time source contract and system-backed default behavior
+- [x] 2. Introduce a single overrideable wall-clock time boundary for deterministic code paths
+- [x] 2.1 (P) Define a central time source contract and system-backed default behavior
   - Introduce a time source abstraction that supplies wall-clock time (UTC/local) and epoch seconds consistently.
   - Ensure duration-only primitives (monotonic time) remain available without being treated as wall-clock timestamps.
   - _Requirements: 3.1, 6.1, 6.3, 9.1_
 
-- [ ] 2.2 Implement an async-safe override mechanism for tests
+- [x] 2.2 Implement an async-safe override mechanism for tests
   - Provide a scoped override that allows tests to supply a deterministic time source without global patching.
   - Ensure override state does not leak between concurrent tests under parallel execution.
   - _Requirements: 1.2, 3.1, 3.2, 6.2, 9.1, 11.1_
 
-- [ ] 2.3 Wire the time source into dependency injection so deterministic code can depend on it
+- [x] 2.3 Wire the time source into dependency injection so deterministic code can depend on it
   - Register the time source boundary in DI with a lifetime that matches cross-cutting, safe reuse.
   - Ensure deterministic services can obtain time solely through the boundary (no direct reads required for asserted behavior).
   - _Requirements: 6.1, 6.4_
 
-- [ ] 2.4 Migrate high-impact deterministic call sites to use the time boundary
+- [x] 2.4 Migrate high-impact deterministic call sites to use the time boundary
   - Identify production/shared-library call sites that produce timestamps used in assertions or deterministic outputs.
   - Refactor those call sites to use the time boundary and verify that tests can override time without broad patching.
   - _Requirements: 1.2, 3.2, 6.3, 6.4, 9.1_

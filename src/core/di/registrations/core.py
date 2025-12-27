@@ -18,6 +18,7 @@ from src.core.di.registration_helpers.core_foundational import (
     register_app_config,
     register_application_state_services,
     register_session_services,
+    register_time_source,
 )
 from src.core.di.registration_helpers.core_processing import (
     register_phase_components,
@@ -32,6 +33,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
 
     This registrar handles:
     - AppConfig and IConfig
+    - Time source (TimeSource, ITimeSource)
     - Session services (SessionService, SessionResolver)
     - Application state (ApplicationStateService, AppSettings, SecureStateService)
     - Command pipeline (CommandService, CommandParser, CommandProcessor, CommandStateService, CommandPolicyService)
@@ -46,6 +48,9 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     """
     # Register AppConfig and IConfig
     register_app_config(services, app_config)
+
+    # Register time source (early, as other services may depend on it)
+    register_time_source(services)
 
     # Register foundational services
     register_session_services(services)

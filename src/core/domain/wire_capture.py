@@ -137,6 +137,7 @@ def create_wire_capture_entry(
     payload: Any,
     byte_count: int | None = None,
     system_prompt: str | None = None,
+    time_source: Any = None,
 ) -> WireCaptureEntry:
     """
     Create a wire capture entry using Pydantic models.
@@ -159,11 +160,15 @@ def create_wire_capture_entry(
     from datetime import timezone
 
     # Get timestamp in both ISO and human-readable formats
-    utc_now = datetime.now(timezone.utc)
-    iso_timestamp = utc_now.isoformat(timespec="milliseconds") + "Z"
+    # Use time_source if provided, otherwise fall back to system time
+    if time_source is not None:
+        utc_now = time_source.now_utc()
+        local_time = time_source.now_local()
+    else:
+        utc_now = datetime.now(timezone.utc)
+        local_time = datetime.now()
 
-    # Use local time for human-readable timestamp (based on system timezone)
-    local_time = datetime.now()
+    iso_timestamp = utc_now.isoformat(timespec="milliseconds") + "Z"
     human_timestamp = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
     # Extract source and destination info

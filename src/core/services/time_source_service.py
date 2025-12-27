@@ -43,7 +43,7 @@ class TimeSource(ITimeSource):
         """Get the current local wall-clock time.
 
         Returns:
-            Current local datetime with timezone info
+            Current local datetime (may be naive, without timezone info)
         """
         override = _OVERRIDE_TIME_SOURCE.get()
         if override is not None:
