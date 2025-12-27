@@ -9,6 +9,8 @@ from src.core.services.connection_tracker_cleanup_scheduler import (
     ConnectionTrackerCleanupScheduler,
 )
 
+from tests.utils.fake_clock import FakeClockContext
+
 
 class TestConnectionTrackerCleanupScheduler:
     """Tests for the connection tracker cleanup scheduler."""
@@ -40,14 +42,16 @@ class TestConnectionTrackerCleanupScheduler:
         # Initially not running
         assert not scheduler.is_running
 
-        # Start scheduler
-        await scheduler.start()
-        assert scheduler.is_running
-        assert scheduler._cleanup_task is not None
-        assert not scheduler._cleanup_task.done()
+        # Use fake clock to control time progression
+        async with FakeClockContext() as clock:
+            # Start scheduler
+            await scheduler.start()
+            assert scheduler.is_running
+            assert scheduler._cleanup_task is not None
+            assert not scheduler._cleanup_task.done()
 
-        # Wait for at least one cleanup cycle
-        await asyncio.sleep(0.15)
+            # Advance clock to trigger at least one cleanup cycle
+            clock.advance(0.15)
 
         # Verify cleanup was called
         mock_tracker.cleanup_stale_connections.assert_called()
@@ -101,9 +105,10 @@ class TestConnectionTrackerCleanupScheduler:
             cleanup_interval_seconds=0.1,
         )
 
-        await scheduler.start()
-        await asyncio.sleep(0.15)
-        await scheduler.stop()
+        async with FakeClockContext() as clock:
+            await scheduler.start()
+            clock.advance(0.15)
+            await scheduler.stop()
 
         # Verify cleanup was called
         mock_tracker.cleanup_stale_connections.assert_called()
@@ -119,9 +124,10 @@ class TestConnectionTrackerCleanupScheduler:
             cleanup_interval_seconds=0.1,
         )
 
-        await scheduler.start()
-        await asyncio.sleep(0.15)
-        await scheduler.stop()
+        async with FakeClockContext() as clock:
+            await scheduler.start()
+            clock.advance(0.15)
+            await scheduler.stop()
 
         # Verify cleanup was called
         mock_tracker.cleanup_stale_connections.assert_called()
@@ -140,9 +146,10 @@ class TestConnectionTrackerCleanupScheduler:
             cleanup_interval_seconds=0.1,
         )
 
-        await scheduler.start()
-        await asyncio.sleep(0.15)  # Reduced from 0.25 for performance (still allows 2 cleanup cycles)
-        await scheduler.stop()
+        async with FakeClockContext() as clock:
+            await scheduler.start()
+            clock.advance(0.15)  # Advance time to allow 2 cleanup cycles
+            await scheduler.stop()
 
         assert mock_tracker.cleanup_stale_connections.call_count >= 2
 
@@ -162,10 +169,11 @@ class TestConnectionTrackerCleanupScheduler:
             cleanup_interval_seconds=0.1,
         )
 
-        await scheduler.start()
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            await scheduler.start()
+            clock.advance(0.1)
 
-        await scheduler.stop()
+            await scheduler.stop()
         assert not scheduler.is_running
 
     @pytest.mark.asyncio

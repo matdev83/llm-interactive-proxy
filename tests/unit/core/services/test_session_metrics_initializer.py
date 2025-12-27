@@ -142,6 +142,8 @@ class TestTimeoutCase:
         """Test that timeout returns without raising."""
 
         # Setup: mock slow upsert that exceeds timeout
+        from tests.utils.fake_clock import FakeClockContext
+
         async def slow_upsert(metrics: SessionMetricsTable) -> SessionMetricsTable:
             await asyncio.sleep(DEFAULT_TIMEOUT_SECONDS + 0.5)
             return metrics
@@ -155,11 +157,14 @@ class TestTimeoutCase:
         )
 
         # Execute: should not raise, should return after timeout
-        start_time = datetime.now(timezone.utc)
-        await initializer.ensure_session_metrics(
-            sample_session_key, observed_at=sample_observed_at
-        )
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        # Use fake clock to control time progression
+        async with FakeClockContext() as clock:
+            start_time = datetime.now(timezone.utc)
+            await initializer.ensure_session_metrics(
+                sample_session_key, observed_at=sample_observed_at
+            )
+            clock.advance(DEFAULT_TIMEOUT_SECONDS + 0.5)
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
 
         # Verify: returned quickly (within timeout + small buffer)
         assert elapsed < DEFAULT_TIMEOUT_SECONDS
@@ -199,8 +204,10 @@ class TestDatabaseUnavailable:
         sample_observed_at: datetime,
     ):
         """Test that database timeout is logged but doesn't raise."""
+        from tests.utils.fake_clock import FakeClockContext
 
         # Setup: mock slow upsert that exceeds timeout
+
         async def slow_upsert(metrics: SessionMetricsTable) -> SessionMetricsTable:
             await asyncio.sleep(0.2)
             return metrics
@@ -214,9 +221,12 @@ class TestDatabaseUnavailable:
         )
 
         # Execute: should not raise
-        await initializer.ensure_session_metrics(
-            sample_session_key, observed_at=sample_observed_at
-        )
+        # Use fake clock to control time progression for timeout test
+        async with FakeClockContext() as clock:
+            await initializer.ensure_session_metrics(
+                sample_session_key, observed_at=sample_observed_at
+            )
+            clock.advance(0.2)
 
         # Verify: upsert was called
         mock_session_repository.upsert.assert_awaited_once()

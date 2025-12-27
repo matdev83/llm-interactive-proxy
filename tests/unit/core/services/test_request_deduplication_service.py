@@ -74,13 +74,16 @@ class TestRequestDeduplicationService:
         sample_request: ChatRequest,
     ) -> None:
         """Identical request after the dedup window expires should not be duplicate."""
-        await short_window_service.check_and_register(sample_request, "session-1")
+        from tests.utils.fake_clock import FakeClockContext
 
-        await asyncio.sleep(0.15)
+        async with FakeClockContext() as clock:
+            await short_window_service.check_and_register(sample_request, "session-1")
 
-        is_duplicate, _ = await short_window_service.check_and_register(
-            sample_request, "session-1"
-        )
+            clock.advance(0.15)
+
+            is_duplicate, _ = await short_window_service.check_and_register(
+                sample_request, "session-1"
+            )
         assert is_duplicate is False
 
     @pytest.mark.asyncio
@@ -164,14 +167,17 @@ class TestRequestDeduplicationService:
         sample_request: ChatRequest,
     ) -> None:
         """Cleanup should remove expired entries."""
-        await short_window_service.check_and_register(sample_request, "session-1")
-        assert short_window_service.get_stats().cache_size == 1
+        from tests.utils.fake_clock import FakeClockContext
 
-        await asyncio.sleep(0.15)
+        async with FakeClockContext() as clock:
+            await short_window_service.check_and_register(sample_request, "session-1")
+            assert short_window_service.get_stats().cache_size == 1
 
-        removed = await short_window_service.cleanup()
-        assert removed == 1
-        assert short_window_service.get_stats().cache_size == 0
+            clock.advance(0.15)
+
+            removed = await short_window_service.cleanup()
+            assert removed == 1
+            assert short_window_service.get_stats().cache_size == 0
 
     @pytest.mark.asyncio
     async def test_cache_size_limit_enforced(self) -> None:

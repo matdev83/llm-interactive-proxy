@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import contextlib
 
 from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockClient:
@@ -60,7 +61,8 @@ async def test_concurrent_credentials_reload():
     # Simulate concurrent file modifications
     async def trigger_modifications():
         """Trigger multiple concurrent file modifications."""
-        await asyncio.sleep(0.01)  # Small delay
+        async with FakeClockContext() as clock:
+            clock.advance(0.01)  # Small delay using fake clock
 
         # Simulate file modification events
         tasks = []
@@ -76,7 +78,8 @@ async def test_concurrent_credentials_reload():
     for _i in range(10):
         connector._schedule_credentials_reload()
     
-    await asyncio.sleep(0.01)
+    async with FakeClockContext() as clock:
+        clock.advance(0.01)
 
     # Verify no race conditions
     print("PASSED: Concurrent modifications handled correctly")
@@ -127,7 +130,8 @@ async def test_flag_cleanup_on_error():
     with contextlib.suppress(RuntimeError):
         connector._schedule_credentials_reload()
     
-    await asyncio.sleep(0.1)
+    async with FakeClockContext() as clock:
+        clock.advance(0.1)
 
     # Verify flag was reset despite error
     print("PASSED: Flags properly cleaned up on error")

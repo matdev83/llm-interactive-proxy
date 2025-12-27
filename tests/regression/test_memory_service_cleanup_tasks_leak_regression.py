@@ -9,6 +9,7 @@ import asyncio
 import pytest
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockRepository:
@@ -77,21 +78,26 @@ async def test_cleanup_handles_timeout():
     repository = MockRepository()
     memory_service = MemoryService(config, repository)
 
-    # Create a task that takes longer than timeout
-    async def slow_task():
-        await asyncio.sleep(5.1)  # Just longer than 5s timeout for faster test
+    # Use fake clock to control time progression
+    async with FakeClockContext() as clock:
+        # Create a task that takes longer than timeout
+        async def slow_task():
+            await asyncio.sleep(5.1)  # Just longer than 5s timeout
 
-    task = asyncio.create_task(slow_task())
-    # Add done callback to remove task when it completes (matching implementation)
-    task.add_done_callback(lambda t: memory_service._cleanup_tasks.discard(t))
-    memory_service._cleanup_tasks.add(task)
+        task = asyncio.create_task(slow_task())
+        # Add done callback to remove task when it completes (matching implementation)
+        task.add_done_callback(lambda t: memory_service._cleanup_tasks.discard(t))
+        memory_service._cleanup_tasks.add(task)
 
-    # Call cleanup() - should timeout and cancel task
-    await memory_service.cleanup()
+        # Advance clock to trigger timeout logic
+        clock.advance(5.1)
 
-    # Verify task was cancelled
-    assert task.cancelled()
-    assert len(memory_service._cleanup_tasks) == 0
+        # Call cleanup() - should timeout and cancel task
+        await memory_service.cleanup()
+
+        # Verify task was cancelled
+        assert task.cancelled()
+        assert len(memory_service._cleanup_tasks) == 0
 
 
 @pytest.mark.asyncio

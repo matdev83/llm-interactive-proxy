@@ -4,10 +4,10 @@ This test verifies that _fingerprint_bundles are properly cleaned up when sessio
 are deleted or expired, preventing unbounded memory growth.
 """
 
-import asyncio
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.session import Session
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.conversation_fingerprint_service import (
@@ -83,12 +83,13 @@ class TestSessionRepositoryFingerprintLeakRegression:
             "test_session" in repo._fingerprint_bundles
         ), "Fingerprint bundle should be tracked"
 
-        # Wait a bit, then manually set last_access to be old (expired)
+        # Use freezegun to control time, then manually set last_access to be old (expired)
         # Note: update_fingerprint_bundle updates _last_accessed, so we set it after
         import time
 
-        await asyncio.sleep(0.1)  # Small delay
-        repo._last_accessed["test_session"] = time.time() - 2  # 2 seconds ago
+        with freeze_time() as frozen_time:
+            frozen_time.tick(0.1)  # Small delay using fake time
+            repo._last_accessed["test_session"] = time.time() - 2  # 2 seconds ago
 
         # Also set session's last_active_at if it exists (cleanup_expired checks this first)
         session = repo._sessions.get("test_session")

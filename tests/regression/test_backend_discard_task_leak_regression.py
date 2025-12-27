@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockBackend:
@@ -176,8 +177,12 @@ class TestBackendDiscardTaskLeakRegression:
         # Verify task is tracked
         assert len(manager._shutdown_tasks) == 1
 
-        # Call await with short timeout
-        await manager.await_pending_shutdown_tasks(timeout=0.05)
+        # Use fake clock to control time progression for timeout test
+        async with FakeClockContext() as clock:
+            # Call await with short timeout
+            await manager.await_pending_shutdown_tasks(timeout=0.05)
+            # Advance clock to trigger timeout logic
+            clock.advance(0.05)
 
         # Task should be cancelled due to timeout
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]

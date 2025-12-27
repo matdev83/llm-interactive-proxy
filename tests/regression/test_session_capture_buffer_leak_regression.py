@@ -153,8 +153,11 @@ class TestSessionCaptureBufferLeakRegression:
         async with buffer._lock:
             initial_access = buffer._buffers[session_id].last_accessed
 
-        # Wait a bit
-        await asyncio.sleep(0.1)
+        # Wait a bit using fake clock
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            clock.advance(0.1)
 
         # Add another interaction to same session
         interaction2 = CapturedInteraction(
@@ -198,8 +201,11 @@ class TestSessionCaptureBufferLeakRegression:
         initial_count = await short_ttl_buffer.get_active_session_count()
         assert initial_count == 1, "Session should exist initially."
 
-        # Wait for TTL to expire
-        await asyncio.sleep(1.1)
+        # Wait for TTL to expire using fake clock
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            clock.advance(1.1)
 
         # Trigger cleanup by adding a new session
         new_session_id = "new_session"

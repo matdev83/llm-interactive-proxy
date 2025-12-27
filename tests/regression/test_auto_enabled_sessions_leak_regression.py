@@ -4,10 +4,10 @@ This test verifies that _auto_enabled_sessions uses TTLCache to prevent
 unbounded memory growth when many sessions are auto-enabled.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.config import MemoryConfiguration
 
@@ -100,13 +100,14 @@ class TestAutoEnabledSessionsLeakRegression:
         # Verify session is in cache
         assert session_id in middleware._auto_enabled_sessions
 
-        # Wait for TTL to expire (plus small buffer)
-        await asyncio.sleep(0.15)  # Wait slightly longer than TTL
+        # Use freezegun to advance time past TTL expiration
+        with freeze_time() as frozen_time:
+            frozen_time.tick(0.15)  # Advance time slightly longer than TTL
 
-        # TTLCache expiration happens lazily on access, so we need to trigger it
-        # by accessing the cache. The expired entry should be removed.
-        # Access the cache to trigger expiration check
-        _ = len(middleware._auto_enabled_sessions)
+            # TTLCache expiration happens lazily on access, so we need to trigger it
+            # by accessing the cache. The expired entry should be removed.
+            # Access the cache to trigger expiration check
+            _ = len(middleware._auto_enabled_sessions)
 
         # Verify the cache has expiration mechanism
         assert hasattr(middleware._auto_enabled_sessions, "ttl")
