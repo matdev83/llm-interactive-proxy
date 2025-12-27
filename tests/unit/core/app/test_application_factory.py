@@ -184,17 +184,37 @@ class TestBuildApp:
 class TestIntegration:
     """Integration tests for the application factory."""
 
-    @pytest.fixture
-    def auth_disabled_config(self, monkeypatch):
+    @pytest.fixture(scope="class")
+    def auth_disabled_config(self, request):
         """Fixture for creating config with auth disabled.
 
-        Optimization: Share config creation between tests to reduce redundant setup.
+        Optimization: Share config at class scope to reduce redundant setup.
+        Use request.addfinalizer for cleanup instead of monkeypatch.
         """
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        import os
+
+        old_disable_auth = os.environ.get("DISABLE_AUTH")
+        old_api_key = os.environ.get("OPENROUTER_API_KEY")
+
+        os.environ["DISABLE_AUTH"] = "true"
+        os.environ["OPENROUTER_API_KEY"] = "test-key"
+
         from src.core.config.app_config import AuthConfig
 
-        return AppConfig(auth=AuthConfig(disable_auth=True))
+        config = AppConfig(auth=AuthConfig(disable_auth=True))
+
+        def cleanup():
+            if old_disable_auth is None:
+                os.environ.pop("DISABLE_AUTH", None)
+            else:
+                os.environ["DISABLE_AUTH"] = old_disable_auth
+            if old_api_key is None:
+                os.environ.pop("OPENROUTER_API_KEY", None)
+            else:
+                os.environ["OPENROUTER_API_KEY"] = old_api_key
+
+        request.addfinalizer(cleanup)
+        return config
 
     def test_app_handles_models_endpoint(self, auth_disabled_config):
         """Test that /models endpoint is available."""
