@@ -4,8 +4,6 @@ This test verifies that MemoryService properly bounds session state growth
 and cleans up stale sessions to prevent unbounded memory growth.
 """
 
-import time
-
 import pytest
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
@@ -117,8 +115,13 @@ class TestMemoryServiceUnboundedGrowthRegression:
 
         # Manually set old access times to trigger TTL cleanup
         # We need to access the internal state to manipulate last_access
-        async with memory_service._state_lock:
-            old_time = time.time() - (_SESSION_STATE_TTL_SECONDS + 3600)  # 2 hours ago
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+
+        async with (
+            FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock,
+            memory_service._state_lock,
+        ):
+            old_time = clock.now() - (_SESSION_STATE_TTL_SECONDS + 3600)  # 2 hours ago
             for session_id in list(memory_service._session_states.keys())[:5]:
                 state = memory_service._session_states[session_id]
                 state.last_access = old_time

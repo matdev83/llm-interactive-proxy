@@ -6,6 +6,7 @@ This test verifies that git commits are limited per session to prevent unbounded
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.models import GitCommitEvent
 from src.core.memory.tool_event_collector import (
     _MAX_GIT_COMMITS_PER_SESSION,
@@ -24,14 +25,16 @@ class TestToolEventCollectorGitCommitsLeakRegression:
         num_commits = _MAX_GIT_COMMITS_PER_SESSION + 100
 
         # Record many unique commits
-        for i in range(num_commits):
-            commit_hash = f"abc{i:08d}"
-            event = GitCommitEvent(
-                commit_hash=commit_hash,
-                message=f"Commit {i}",
-                timestamp=datetime.now(timezone.utc),
-            )
-            await collector.record_git_commit(session_id, event)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for i in range(num_commits):
+                commit_hash = f"abc{i:08d}"
+                event = GitCommitEvent(
+                    commit_hash=commit_hash,
+                    message=f"Commit {i}",
+                    timestamp=fixed_time,
+                )
+                await collector.record_git_commit(session_id, event)
 
         # Check the size of the commit list
         commit_count = await collector.get_git_commit_count(session_id)
@@ -48,16 +51,18 @@ class TestToolEventCollectorGitCommitsLeakRegression:
         commits_per_session = _MAX_GIT_COMMITS_PER_SESSION + 50
 
         # Create many sessions with many commits each
-        for session_idx in range(num_sessions):
-            session_id = f"session-{session_idx}"
-            for i in range(commits_per_session):
-                commit_hash = f"abc{session_idx:04d}{i:04d}"
-                event = GitCommitEvent(
-                    commit_hash=commit_hash,
-                    message=f"Commit {i}",
-                    timestamp=datetime.now(timezone.utc),
-                )
-                await collector.record_git_commit(session_id, event)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for session_idx in range(num_sessions):
+                session_id = f"session-{session_idx}"
+                for i in range(commits_per_session):
+                    commit_hash = f"abc{session_idx:04d}{i:04d}"
+                    event = GitCommitEvent(
+                        commit_hash=commit_hash,
+                        message=f"Commit {i}",
+                        timestamp=fixed_time,
+                    )
+                    await collector.record_git_commit(session_id, event)
 
         # Check total commits across all sessions
         total_commits = 0
@@ -84,24 +89,26 @@ class TestToolEventCollectorGitCommitsLeakRegression:
         session_id = "test-session"
 
         # Record commits up to limit
-        for i in range(_MAX_GIT_COMMITS_PER_SESSION):
-            commit_hash = f"abc{i:08d}"
-            event = GitCommitEvent(
-                commit_hash=commit_hash,
-                message=f"Commit {i}",
-                timestamp=datetime.now(timezone.utc),
-            )
-            await collector.record_git_commit(session_id, event)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for i in range(_MAX_GIT_COMMITS_PER_SESSION):
+                commit_hash = f"abc{i:08d}"
+                event = GitCommitEvent(
+                    commit_hash=commit_hash,
+                    message=f"Commit {i}",
+                    timestamp=fixed_time,
+                )
+                await collector.record_git_commit(session_id, event)
 
-        # Record one more commit - should evict the oldest
-        oldest_hash = "abc00000000"
-        new_hash = f"abc{_MAX_GIT_COMMITS_PER_SESSION:08d}"
-        new_event = GitCommitEvent(
-            commit_hash=new_hash,
-            message="New commit",
-            timestamp=datetime.now(timezone.utc),
-        )
-        await collector.record_git_commit(session_id, new_event)
+            # Record one more commit - should evict the oldest
+            oldest_hash = "abc00000000"
+            new_hash = f"abc{_MAX_GIT_COMMITS_PER_SESSION:08d}"
+            new_event = GitCommitEvent(
+                commit_hash=new_hash,
+                message="New commit",
+                timestamp=fixed_time,
+            )
+            await collector.record_git_commit(session_id, new_event)
 
         # Check that oldest was evicted and new one is present
         commit_count = await collector.get_git_commit_count(session_id)

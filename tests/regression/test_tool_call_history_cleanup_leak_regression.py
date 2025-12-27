@@ -38,7 +38,7 @@ class TestToolCallHistoryCleanupLeakRegression:
                 session_id,
                 "test_tool",
                 {
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
                     "backend_name": "test",
                     "model_name": "test",
                 },
@@ -69,7 +69,7 @@ class TestToolCallHistoryCleanupLeakRegression:
                 session_id,
                 "test_tool",
                 {
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
                     "backend_name": "test",
                     "model_name": "test",
                 },
@@ -115,7 +115,7 @@ class TestToolCallHistoryCleanupLeakRegression:
                 session_id,
                 "test_tool",
                 {
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
                     "backend_name": "test",
                     "model_name": "test",
                 },
@@ -133,7 +133,7 @@ class TestToolCallHistoryCleanupLeakRegression:
                 session_id,
                 "test_tool",
                 {
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
                     "backend_name": "test",
                     "model_name": "test",
                 },
@@ -168,7 +168,7 @@ class TestToolCallHistoryCleanupLeakRegression:
                 session_id,
                 "test_tool",
                 {
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
                     "backend_name": "test",
                     "model_name": "test",
                 },

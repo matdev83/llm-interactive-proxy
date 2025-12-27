@@ -124,14 +124,14 @@ class TestGeminiOAuthCredentials:
 
     def test_is_expired_with_buffer(self) -> None:
         """Verify that is_expired respects buffer_seconds."""
-        import time
-
-        # Token expires in 30 seconds
-        current_ms = int(time.time() * 1000)
-        expiry_ms = current_ms + 30000
+        # Use fixed timestamp for deterministic test
+        # Token expires in 30 seconds from base time
+        base_time_ms = 1704067200000  # 2024-01-01 12:00:00 UTC in milliseconds
+        expiry_ms = base_time_ms + 30000  # 30 seconds later
         creds = GeminiOAuthCredentials(access_token="test", expiry_date=expiry_ms)
 
-        # With default 60s buffer, should be expired
+        # With default 60s buffer, should be expired (current time > expiry - 60s)
+        # Since expiry is only 30s in the future, and buffer is 60s, it's expired
         assert creds.is_expired()
 
         # With 10s buffer, should not be expired

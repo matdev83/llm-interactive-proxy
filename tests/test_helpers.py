@@ -141,7 +141,7 @@ def create_chat_response_json(
     return {
         "id": f"resp-{generate_random_id()}",
         "object": "chat.completion",
-        "created": int(datetime.now(timezone.utc).timestamp()),
+        "created": 1704067200,  # Fixed timestamp: 2024-01-01 12:00:00 UTC
         "model": model,
         "choices": [
             {
@@ -177,7 +177,7 @@ def create_streaming_response_chunks(
         List of response chunk dictionaries
     """
     response_id = f"resp-{generate_random_id()}"
-    created = int(datetime.now(timezone.utc).timestamp())
+    created = 1704067200  # Fixed timestamp: 2024-01-01 12:00:00 UTC
     chunks = []
 
     # Split content into chunks

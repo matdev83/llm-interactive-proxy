@@ -55,43 +55,47 @@ async def test_schedule_credentials_reload_uses_main_loop(monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_completions_refreshes_before_validation(monkeypatch):
     """Refresh must be attempted before runtime validation to avoid spurious 502s."""
+    from tests.utils.fake_clock import FakeClock, FakeClockContext
+
     connector = _make_connector()
     connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
     connector.is_functional = True
-    connector._oauth_credentials = {
-        "access_token": "initial-token",
-        "expiry_date": int((time.time() + 3600) * 1000),
-    }
 
-    call_order: list[str] = []
+    async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+        connector._oauth_credentials = {
+            "access_token": "initial-token",
+            "expiry_date": int((clock.now() + 3600) * 1000),
+        }
 
-    async def fake_refresh() -> bool:
-        call_order.append("refresh")
-        return True
+        call_order: list[str] = []
 
-    async def fake_validate() -> bool:
-        call_order.append("validate")
-        return True
+        async def fake_refresh() -> bool:
+            call_order.append("refresh")
+            return True
 
-    connector._refresh_token_if_needed = AsyncMock(side_effect=fake_refresh)
-    connector._validate_runtime_credentials = AsyncMock(side_effect=fake_validate)
-    connector._ensure_healthy = AsyncMock()
-    connector._chat_completions_standard = AsyncMock(return_value="ok-response")
+        async def fake_validate() -> bool:
+            call_order.append("validate")
+            return True
 
-    request = ChatRequest(
-        model="gemini-cli-cloud-project:gemini-pro",
-        messages=[ChatMessage(role="user", content="hi")],
-        stream=False,
-    )
+        connector._refresh_token_if_needed = AsyncMock(side_effect=fake_refresh)
+        connector._validate_runtime_credentials = AsyncMock(side_effect=fake_validate)
+        connector._ensure_healthy = AsyncMock()
+        connector._chat_completions_standard = AsyncMock(return_value="ok-response")
 
-    result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gemini-pro",
-    )
+        request = ChatRequest(
+            model="gemini-cli-cloud-project:gemini-pro",
+            messages=[ChatMessage(role="user", content="hi")],
+            stream=False,
+        )
 
-    assert result == "ok-response"
-    assert call_order == ["refresh", "validate"]
+        result = await connector.chat_completions(
+            request_data=request,
+            processed_messages=request.messages,
+            effective_model="gemini-pro",
+        )
+
+        assert result == "ok-response"
+        assert call_order == ["refresh", "validate"]
 
 
 @pytest.mark.asyncio

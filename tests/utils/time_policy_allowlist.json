@@ -95,6 +95,11 @@
             "target_type": "glob",
             "target": "tests/mocks/connection_manager.py",
             "reason": "Mock infrastructure that uses datetime.utcnow() for mock connection timestamps. Mock timestamps should use real time to simulate realistic behavior."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/streaming_regression/emulators/capture_replay_emulator.py",
+            "reason": "Emulator infrastructure that records timestamps for replay. Recording actual timestamps is necessary for accurate replay timing simulation."
           }
   ]
 }

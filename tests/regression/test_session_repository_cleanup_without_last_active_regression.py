@@ -63,13 +63,14 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
         self, repo: InMemorySessionRepository
     ) -> None:
         """Test cleanup with mix of sessions with and without last_active_at."""
+        from freezegun import freeze_time
+
         # Add sessions with last_active_at
-        old_time = datetime.now(timezone.utc).replace(
-            year=2020, month=1, day=1
-        )  # Very old
-        for i in range(50):
-            session = MockSession(f"old_session_{i}", last_active_at=old_time)
-            await repo.add(session)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            old_time = datetime(2020, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for i in range(50):
+                session = MockSession(f"old_session_{i}", last_active_at=old_time)
+                await repo.add(session)
 
         # Add sessions without last_active_at
         for i in range(50):
@@ -130,9 +131,12 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
         self, repo: InMemorySessionRepository
     ) -> None:
         """Test that cleanup properly handles sessions with last_active_at set."""
+        from freezegun import freeze_time
+
         # Add session with last_active_at
-        old_time = datetime.now(timezone.utc).replace(year=2020, month=1, day=1)
-        session = MockSession("old_session", last_active_at=old_time)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            old_time = datetime(2020, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            session = MockSession("old_session", last_active_at=old_time)
         await repo.add(session)
 
         # Run cleanup

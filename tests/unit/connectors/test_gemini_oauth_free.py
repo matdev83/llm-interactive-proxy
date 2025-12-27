@@ -79,56 +79,58 @@ class TestGeminiOAuthFreeConnector:
     ):
         """Ensure refresh waits for credentials file update instead of failing fast."""
         from src.connectors.gemini_base.models import GeminiOAuthCredentials
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
 
-        # Set initial credentials in coordinator (which is the source of truth after refactoring)
-        initial_creds = GeminiOAuthCredentials(
-            access_token="initial-token",
-            refresh_token="refresh-token",
-            expiry_date=int((time.time() - 120) * 1000),
-        )
-        connector._credential_coordinator._credentials = initial_creds
-        # Also set in connector for backward compatibility
-        connector._oauth_credentials = initial_creds.to_dict()
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            # Set initial credentials in coordinator (which is the source of truth after refactoring)
+            initial_creds = GeminiOAuthCredentials(
+                access_token="initial-token",
+                refresh_token="refresh-token",
+                expiry_date=int((clock.now() - 120) * 1000),
+            )
+            connector._credential_coordinator._credentials = initial_creds
+            # Also set in connector for backward compatibility
+            connector._oauth_credentials = initial_creds.to_dict()
 
-        monkeypatch.setattr(
-            connector,
-            "_should_trigger_cli_refresh",
-            MagicMock(return_value=False),
-        )
-        monkeypatch.setattr(connector, "_launch_cli_refresh_process", MagicMock())
+            monkeypatch.setattr(
+                connector,
+                "_should_trigger_cli_refresh",
+                MagicMock(return_value=False),
+            )
+            monkeypatch.setattr(connector, "_launch_cli_refresh_process", MagicMock())
 
-        load_calls = 0
+            load_calls = 0
 
-        async def fake_load_internal(
-            force_reload: bool = False, silent: bool = False
-        ) -> bool:
-            nonlocal load_calls
-            load_calls += 1
-            if load_calls >= 7:
-                # Update coordinator's credentials (which syncs to connector via property)
-                updated_creds = GeminiOAuthCredentials(
-                    access_token=f"new-token-{load_calls}",
-                    refresh_token="refresh-token",
-                    expiry_date=int((time.time() + 3600) * 1000),
-                )
-                connector._credential_coordinator._credentials = updated_creds
-            return True
+            async def fake_load_internal(
+                force_reload: bool = False, silent: bool = False
+            ) -> bool:
+                nonlocal load_calls
+                load_calls += 1
+                if load_calls >= 7:
+                    # Update coordinator's credentials (which syncs to connector via property)
+                    updated_creds = GeminiOAuthCredentials(
+                        access_token=f"new-token-{load_calls}",
+                        refresh_token="refresh-token",
+                        expiry_date=int((clock.now() + 3600) * 1000),
+                    )
+                    connector._credential_coordinator._credentials = updated_creds
+                return True
 
-        # Mock the coordinator's internal method (actual code path after refactoring)
-        connector._credential_coordinator._load_credentials_internal = AsyncMock(  # type: ignore[assignment]
-            side_effect=fake_load_internal
-        )
+            # Mock the coordinator's internal method (actual code path after refactoring)
+            connector._credential_coordinator._load_credentials_internal = AsyncMock(  # type: ignore[assignment]
+                side_effect=fake_load_internal
+            )
 
-        sleep_calls = 0
+            sleep_calls = 0
 
-        async def fake_sleep(_: float) -> None:
-            nonlocal sleep_calls
-            sleep_calls += 1
+            async def fake_sleep(_: float) -> None:
+                nonlocal sleep_calls
+                sleep_calls += 1
 
-        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+            monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-        result = await connector._refresh_token_if_needed()
+            result = await connector._refresh_token_if_needed()
 
-        assert result is True
-        assert sleep_calls >= 6
-        assert connector._oauth_credentials["access_token"].startswith("new-token")
+            assert result is True
+            assert sleep_calls >= 6
+            assert connector._oauth_credentials["access_token"].startswith("new-token")

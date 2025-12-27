@@ -14,6 +14,7 @@ from src.core.services.tool_call_repair_service import (
     MAX_JSON_PARSE_SIZE,
     ToolCallRepairService,
 )
+from tests.unit.fixtures.markers import real_time
 
 
 class TestToolCallRepairServiceDoSRegression:
@@ -61,6 +62,7 @@ class TestToolCallRepairServiceDoSRegression:
 
         return json.dumps(nested_payload)
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_large_json_payload_rejected_quickly(
         self, repair_service: ToolCallRepairService
     ) -> None:
@@ -137,6 +139,7 @@ class TestToolCallRepairServiceDoSRegression:
             result.tool_call["function"]["name"] == "test_tool"
         ), "Tool name should be extracted correctly"
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_deeply_nested_json_handled(
         self, repair_service: ToolCallRepairService
     ) -> None:
@@ -179,6 +182,7 @@ class TestToolCallRepairServiceDoSRegression:
         )
         assert MAX_JSON_PARSE_SIZE > 0, "MAX_JSON_PARSE_SIZE should be positive"
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_progressively_larger_payloads(
         self, repair_service: ToolCallRepairService
     ) -> None:

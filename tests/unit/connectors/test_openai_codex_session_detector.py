@@ -9,6 +9,7 @@ from src.connectors._openai_codex_session_detector import (
     SessionDetector,
 )
 from src.connectors._openai_codex_telemetry import get_telemetry, reset_telemetry
+from tests.unit.fixtures.markers import real_time
 
 
 @pytest.fixture(autouse=True)
@@ -539,6 +540,7 @@ class TestSessionDetectorPerformance:
     """Test detection performance."""
 
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual detection performance to ensure it completes within acceptable time limits.")
     async def test_detection_completes_quickly(self):
         """Test that detection completes within 5ms target."""
         detector = SessionDetector()

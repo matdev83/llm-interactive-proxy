@@ -5,7 +5,6 @@ Tests that _analysis_in_progress dictionary access is properly synchronized.
 """
 
 import asyncio
-import time
 
 import pytest
 from src.core.memory.config import MemoryConfiguration
@@ -160,18 +159,21 @@ async def test_stale_cleanup_concurrent():
     repo = MockRepository()
     service = MemoryService(config, repo)
 
+    from tests.utils.fake_clock import FakeClock, FakeClockContext
+
     # Add old entries (simulate stuck sessions) - use TTL that will trigger cleanup
     # Note: _ANALYSIS_IN_PROGRESS_TTL_SECONDS = 1800, so we need to use negative offset
-    old_time = time.time() - 2000
-    for i in range(10):
-        async with service._analysis_lock:
-            service._analysis_in_progress[f"old_session_{i}"] = old_time
+    async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+        old_time = clock.now() - 2000
+        for i in range(10):
+            async with service._analysis_lock:
+                service._analysis_in_progress[f"old_session_{i}"] = old_time
 
-    # Add fresh entries
-    fresh_time = time.time()
-    for i in range(5):
-        async with service._analysis_lock:
-            service._analysis_in_progress[f"fresh_session_{i}"] = fresh_time
+        # Add fresh entries
+        fresh_time = clock.now()
+        for i in range(5):
+            async with service._analysis_lock:
+                service._analysis_in_progress[f"fresh_session_{i}"] = fresh_time
 
     # Verify initial state
     async with service._analysis_lock:

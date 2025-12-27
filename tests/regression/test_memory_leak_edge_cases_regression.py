@@ -38,9 +38,7 @@ class TestMemoryLeakEdgeCasesRegression:
         # This simulates high-throughput scenario
         for i in range(50):
             # Create unique payloads with different object IDs
-            import time
-
-            payload = {"test": f"payload_{i}_{time.time()}", "data": "x" * 100}
+            payload = {"test": f"payload_{i}_{1704067200 + i}", "data": "x" * 100}
             capture._get_content_length_cached(payload)
 
             cache_size = len(capture._content_length_cache)

@@ -109,10 +109,12 @@ class TestDailyRequestCounterLockOrder:
         from datetime import datetime
 
         import pytz
+        from freezegun import freeze_time
 
         # Get current Pacific date to avoid reset
-        pacific_tz = pytz.timezone("America/Los_Angeles")
-        current_date = datetime.now(pacific_tz).strftime("%Y-%m-%d")
+        with freeze_time("2024-01-01 12:00:00"):
+            pacific_tz = pytz.timezone("America/Los_Angeles")
+            current_date = datetime.now(pacific_tz).strftime("%Y-%m-%d")
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             initial_data = {

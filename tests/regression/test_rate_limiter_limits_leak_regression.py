@@ -4,11 +4,10 @@ This test verifies that _limits dictionary is properly bounded and cleaned up
 when limits are set but never used, preventing unbounded memory growth.
 """
 
-import time
-
 import pytest
 from freezegun import freeze_time
 from src.core.services.rate_limiter import InMemoryRateLimiter
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class TestRateLimiterLimitsLeakRegression:
@@ -52,13 +51,16 @@ class TestRateLimiterLimitsLeakRegression:
         assert initial_count == num_keys
 
         # Set old access times to trigger TTL cleanup
-        old_time = time.time() - (limiter._limits_ttl_seconds + 3600)  # 25 hours ago
-        keys_to_expire = list(limiter._limits.keys())[:10]
-        for key in keys_to_expire:
-            limiter._limits_last_access[key] = old_time
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            old_time = clock.now() - (
+                limiter._limits_ttl_seconds + 3600
+            )  # 25 hours ago
+            keys_to_expire = list(limiter._limits.keys())[:10]
+            for key in keys_to_expire:
+                limiter._limits_last_access[key] = old_time
 
-        # Manually trigger cleanup
-        await limiter._cleanup_unused_limits_locked(time.time())
+            # Manually trigger cleanup
+            await limiter._cleanup_unused_limits_locked(clock.now())
 
         # Some limits should have been cleaned up
         final_count = len(limiter._limits)
@@ -76,13 +78,15 @@ class TestRateLimiterLimitsLeakRegression:
         # Test with a smaller subset to avoid slow execution
         # Fill up to a reasonable number that tests eviction
         test_size = min(100, max_limits)
-        base_time = time.time()
 
-        for i in range(test_size):
-            key = f"key_{i}"
-            await limiter.set_limit(key, limit=20, time_window=60)
-            # Set access times to be older for earlier keys (for LRU eviction)
-            limiter._limits_last_access[key] = base_time - (test_size - i)
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            base_time = clock.now()
+
+            for i in range(test_size):
+                key = f"key_{i}"
+                await limiter.set_limit(key, limit=20, time_window=60)
+                # Set access times to be older for earlier keys (for LRU eviction)
+                limiter._limits_last_access[key] = base_time - (test_size - i)
 
         # Verify we have some limits
         assert len(limiter._limits) == test_size
@@ -137,9 +141,10 @@ class TestRateLimiterLimitsLeakRegression:
         assert key in limiter._usage
 
         # Simulate expired usage by manipulating timestamps
-        now = time.time()
-        expired_time = now - 120  # 2 minutes ago (beyond 60s time_window)
-        limiter._usage[key] = [expired_time]
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            now = clock.now()
+            expired_time = now - 120  # 2 minutes ago (beyond 60s time_window)
+            limiter._usage[key] = [expired_time]
 
         # Check limit - should clean up expired usage
         await limiter.check_limit(key)

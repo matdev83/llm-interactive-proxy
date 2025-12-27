@@ -16,8 +16,11 @@ from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
 def _get_current_pacific_date() -> str:
     """Get current date in Pacific timezone."""
-    pacific_tz = pytz.timezone("America/Los_Angeles")
-    return datetime.now(pacific_tz).strftime("%Y-%m-%d")
+    from freezegun import freeze_time
+
+    with freeze_time("2024-01-01 12:00:00"):
+        pacific_tz = pytz.timezone("America/Los_Angeles")
+        return datetime.now(pacific_tz).strftime("%Y-%m-%d")
 
 
 class TestDailyRequestCounterRaceConditionFix:

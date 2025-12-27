@@ -97,13 +97,17 @@ class TestUserSessionsLeakRegression:
         num_interactions = 1000  # Reasonable number for test
 
         # Add many interactions to the session
-        for i in range(num_interactions):
-            interaction = SessionInteraction(
-                prompt=f"Message {i}",
-                handler="proxy",
-                timestamp=datetime.now(timezone.utc),
-            )
-            session.add_interaction(interaction)
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for i in range(num_interactions):
+                interaction = SessionInteraction(
+                    prompt=f"Message {i}",
+                    handler="proxy",
+                    timestamp=fixed_time,
+                )
+                session.add_interaction(interaction)
 
         # Update session in repo
         await repository.update(session)

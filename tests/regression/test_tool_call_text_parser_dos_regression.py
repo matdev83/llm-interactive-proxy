@@ -7,13 +7,13 @@ Fixed: Added MAX_PARAMETER_JSON_SIZE (1MB) and MAX_PARAMETER_JSON_DEPTH (50) lim
 """
 
 import json
-import time
 
 from src.core.commands.tool_call_text_parser import (
     MAX_PARAMETER_JSON_DEPTH,
     MAX_PARAMETER_JSON_SIZE,
     _parse_tool_call_parameter_value,
 )
+from tests.unit.fixtures.markers import real_time
 
 
 class TestToolCallTextParserDoSRegression:
@@ -37,8 +37,11 @@ class TestToolCallTextParserDoSRegression:
         large_array = [{"id": i, "data": "x" * 100} for i in range(obj_count)]
         return json.dumps(large_array)
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_large_json_rejected_as_string(self) -> None:
         """Test that large JSON payloads (>10MB) are rejected and returned as string."""
+        import time
+
         # Create payload larger than MAX_PARAMETER_JSON_SIZE
         large_json = self.create_large_json(size_mb=12)  # 12MB > 10MB limit
         payload_size = len(large_json.encode("utf-8"))
@@ -65,8 +68,11 @@ class TestToolCallTextParserDoSRegression:
             result == large_json.strip()
         ), "Returned string should match original (trimmed) payload"
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_deep_json_rejected_as_string(self) -> None:
         """Test that deeply nested JSON (>50 levels) is rejected and returned as string."""
+        import time
+
         # Create JSON deeper than MAX_PARAMETER_JSON_DEPTH
         deep_json = self.create_deep_json(depth=100)  # 100 > 50 limit
         payload_size = len(deep_json.encode("utf-8"))

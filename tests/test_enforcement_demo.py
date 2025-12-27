@@ -15,12 +15,14 @@ def test_session_exposes_initialized_identifier() -> None:
 
 def test_session_initializes_state_and_timestamps() -> None:
     """A newly created Session should provide defaults for state and timestamps."""
+    from freezegun import freeze_time
 
-    timestamp = datetime.now(timezone.utc)
+    with freeze_time("2024-01-01 12:00:00Z"):
+        timestamp = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
-    session = Session(
-        session_id="session-1", created_at=timestamp, last_active_at=timestamp
-    )
+        session = Session(
+            session_id="session-1", created_at=timestamp, last_active_at=timestamp
+        )
 
     assert isinstance(session.state, SessionStateAdapter)
     assert session.created_at is timestamp

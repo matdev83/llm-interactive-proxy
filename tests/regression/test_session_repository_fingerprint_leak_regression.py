@@ -85,18 +85,17 @@ class TestSessionRepositoryFingerprintLeakRegression:
 
         # Use freezegun to control time, then manually set last_access to be old (expired)
         # Note: update_fingerprint_bundle updates _last_accessed, so we set it after
-        import time
+        from datetime import timedelta
 
-        with freeze_time() as frozen_time:
+        with freeze_time("2024-01-01 12:00:00Z") as frozen_time:
             frozen_time.tick(0.1)  # Small delay using fake time
-            repo._last_accessed["test_session"] = time.time() - 2  # 2 seconds ago
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            repo._last_accessed["test_session"] = fixed_time.timestamp() - 2  # 2 seconds ago
 
         # Also set session's last_active_at if it exists (cleanup_expired checks this first)
         session = repo._sessions.get("test_session")
         if session and hasattr(session, "last_active_at"):
-            from datetime import timedelta
-
-            session.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=2)
+            session.last_active_at = fixed_time - timedelta(seconds=2)
 
         # Clean up expired sessions (everything older than 1 second)
         await repo.cleanup_expired(max_age_seconds=1)
@@ -117,15 +116,17 @@ class TestSessionRepositoryFingerprintLeakRegression:
         # Create many sessions with fingerprint bundles (reduced for performance while maintaining leak detection)
         num_sessions = 2000
 
-        for i in range(num_sessions):
-            session_id = f"session_{i}"
-            session = Session(
-                session_id=session_id,
-                user_id=f"user_{i % 100}",  # Some users have multiple sessions
-                created_at=datetime.now(timezone.utc),
-                history=[],
-            )
-            await repo.add(session)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for i in range(num_sessions):
+                session_id = f"session_{i}"
+                session = Session(
+                    session_id=session_id,
+                    user_id=f"user_{i % 100}",  # Some users have multiple sessions
+                    created_at=fixed_time,
+                    history=[],
+                )
+                await repo.add(session)
 
             # Add fingerprint bundle
             bundle = ConversationFingerprintBundle(

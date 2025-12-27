@@ -89,13 +89,11 @@ class TestConnectionManager:
         initial_last_seen = session.last_seen
 
         # Advance time to ensure timestamp difference
-        with patch("src.codebuff.connection_manager.datetime") as mock_datetime:
-            # Set up mock to return advancing times
-            base_time = datetime.utcnow()
-            mock_datetime.utcnow.side_effect = [
-                base_time + timedelta(microseconds=10000),  # 0.01 seconds later
-            ]
+        from freezegun import freeze_time
 
+        with freeze_time("2024-01-01 12:00:00") as frozen_time:
+            base_time = datetime.utcnow()
+            frozen_time.tick(timedelta(microseconds=10000))  # Advance 0.01 seconds
             await manager.update_last_seen(websocket)
 
         session = await manager.get_session(websocket)
@@ -237,8 +235,11 @@ class TestConnectionManager:
         await manager.connect(websocket2, "session2")
 
         # Manually set last_seen to be old for websocket1
-        session1 = await manager.get_session(websocket1)
-        session1.last_seen = datetime.utcnow() - timedelta(seconds=2)
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            session1 = await manager.get_session(websocket1)
+            session1.last_seen = datetime.utcnow() - timedelta(seconds=2)
 
         # Update websocket2 to be recent
         await manager.update_last_seen(websocket2)
@@ -262,8 +263,12 @@ class TestConnectionManager:
         await manager.connect(websocket, "session1")
 
         # Make connection stale
-        session = await manager.get_session(websocket)
-        session.last_seen = datetime.utcnow() - timedelta(seconds=2)
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = await manager.get_session(websocket)
+            session.last_seen = fixed_time - timedelta(seconds=2)
 
         # Run cleanup - should not raise
         await manager.cleanup_stale_connections()

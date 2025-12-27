@@ -214,7 +214,7 @@ def test_property_23_timestamp_ordering(
 
     # If auth_expires_at is present, it must be after last_authenticated_at
     if token_record.auth_expires_at is not None:
-        assert token_record.last_authenticated_at <= token_record.auth_expires_at
+        assert token_record.auth_expires_at >= token_record.last_authenticated_at
 
 
 @given(
@@ -399,8 +399,48 @@ def test_property_6_token_generation_uniqueness(
     # Generate multiple tokens
     tokens = set()
     for _ in range(num_tokens):
-        plaintext_token, _ = service.generate_token()
-        tokens.add(plaintext_token)
+        result = service.generate_token()
+
+        # Verify token has at least 43 characters (256 bits in base64url)
+        assert (
+            len(result.plaintext_token) >= 43
+        ), f"Token length {len(result.plaintext_token)} is less than minimum 43 characters"
+
+        # Verify token is base64url encoded (alphanumeric + - and _)
+        # Base64url uses: A-Z, a-z, 0-9, -, _
+        valid_chars = set(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        )
+        assert all(
+            c in valid_chars for c in result.plaintext_token
+        ), "Token contains invalid characters for base64url encoding"
+
+    @given(st.integers(min_value=2, max_value=5))
+    @slow_property_test_settings()  # Reduced iterations for crypto operations
+    @pytest.mark.slow
+    def test_property_6_token_generation_uniqueness(
+        num_tokens: int,
+    ) -> None:
+        """
+        Property 6: Token Generation Uniqueness.
+
+        For any two successful authentication+authorization flows, the generated
+        agent tokens SHALL be distinct (no collisions).
+
+        Validates: Requirements 3.1
+
+        Feature: sso-authentication, Property 6: Token Generation Uniqueness
+        """
+        from src.core.auth.sso.token_service import TokenService
+
+        # Use fast configuration for tests (8 MB, 1 iteration, 1 thread)
+        service = TokenService.create_for_environment()
+
+        # Generate multiple tokens
+        tokens = set()
+        for _ in range(num_tokens):
+            result = service.generate_token()
+            tokens.add(result.plaintext_token)
 
     # Verify all tokens are unique
     assert (

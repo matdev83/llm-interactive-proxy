@@ -239,11 +239,15 @@ class TestErrorHandling:
         # Register a session
         from datetime import datetime
 
-        session = SessionState(
-            session_id="test-session",
-            created_at=datetime.utcnow(),
-            last_seen=datetime.utcnow(),
-        )
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = SessionState(
+                session_id="test-session",
+                created_at=fixed_time,
+                last_seen=fixed_time,
+            )
         prompt_handler._connection_manager._sessions[mock_websocket] = session
 
         # Handle the prompt
@@ -267,11 +271,15 @@ class TestPromptProcessing:
         # Register a session
         from datetime import datetime
 
-        session = SessionState(
-            session_id="test-session",
-            created_at=datetime.utcnow(),
-            last_seen=datetime.utcnow(),
-        )
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = SessionState(
+                session_id="test-session",
+                created_at=fixed_time,
+                last_seen=fixed_time,
+            )
         prompt_handler._connection_manager._sessions[mock_websocket] = session
 
         # Mock the backend to avoid actual API calls
@@ -299,11 +307,15 @@ class TestPromptProcessing:
         # Register a session
         from datetime import datetime
 
-        session = SessionState(
-            session_id="test-session",
-            created_at=datetime.utcnow(),
-            last_seen=datetime.utcnow(),
-        )
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = SessionState(
+                session_id="test-session",
+                created_at=fixed_time,
+                last_seen=fixed_time,
+            )
         prompt_handler._connection_manager._sessions[mock_websocket] = session
 
         # Mock the backend to avoid actual API calls

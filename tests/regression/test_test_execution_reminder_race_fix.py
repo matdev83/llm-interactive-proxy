@@ -1,11 +1,11 @@
 """Regression tests for race condition fixes in TestExecutionReminderHandler."""
 
 import asyncio
-from time import time
 
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
     TestExecutionReminderHandler,
 )
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 async def test_concurrent_mark_operations_no_race():
@@ -40,8 +40,9 @@ async def test_concurrent_prune_and_access_no_race():
             handler._get_session_state(sid)
 
     async def trigger_prune():
-        for _ in range(20):
-            handler._prune_session_state(time())
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            for _ in range(20):
+                handler._prune_session_state(clock.now())
 
     await asyncio.gather(access_sessions(), access_sessions(), trigger_prune())
 

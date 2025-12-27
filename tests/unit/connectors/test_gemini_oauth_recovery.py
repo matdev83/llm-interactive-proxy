@@ -13,6 +13,7 @@ import pytest
 from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_oauth_base import GracefulDegradationConfig, ModelRetryState
 from src.core.common.exceptions import BackendError
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 @pytest.fixture
@@ -168,13 +169,14 @@ class TestRecoveryProbeGuards:
         connector._set_cooldown(model)
 
         # First probe updates last_probe_attempt
-        state = connector._graceful_degradation.model_retry_states[model]
-        state.last_probe_attempt = time.time()
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            state = connector._graceful_degradation.model_retry_states[model]
+            state.last_probe_attempt = clock.now()
 
-        # Second probe within interval should return False
-        result = await connector._probe_model_recovery(model)
+            # Second probe within interval should return False
+            result = await connector._probe_model_recovery(model)
 
-        assert result is False
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_recovery_probe_bypass_interval_check(
@@ -186,27 +188,28 @@ class TestRecoveryProbeGuards:
         connector._set_cooldown(model)
 
         # Set recent probe time
-        state = connector._graceful_degradation.model_retry_states[model]
-        state.last_probe_attempt = time.time()
+        async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:
+            state = connector._graceful_degradation.model_retry_states[model]
+            state.last_probe_attempt = clock.now()
 
-        # With bypass flag, probing should be allowed but will fail on API call
-        # We need to mock the API call to avoid actual network request
-        with patch.object(
-            connector, "_chat_completions_code_assist", new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.side_effect = BackendError(
-                message="Still rate limited",
-                code="rate_limit_exceeded",
-                status_code=429,
-            )
+            # With bypass flag, probing should be allowed but will fail on API call
+            # We need to mock the API call to avoid actual network request
+            with patch.object(
+                connector, "_chat_completions_code_assist", new_callable=AsyncMock
+            ) as mock_chat:
+                mock_chat.side_effect = BackendError(
+                    message="Still rate limited",
+                    code="rate_limit_exceeded",
+                    status_code=429,
+                )
 
-            result = await connector._probe_model_recovery(
-                model, bypass_interval_check=True
-            )
+                result = await connector._probe_model_recovery(
+                    model, bypass_interval_check=True
+                )
 
-            # Should attempt probe (not short-circuit due to interval)
-            # Result depends on API response
-            assert result is False
+                # Should attempt probe (not short-circuit due to interval)
+                # Result depends on API response
+                assert result is False
 
 
 class TestGracefulDegradationConfig:
@@ -262,7 +265,8 @@ class TestModelRetryState:
     def test_state_tracks_cooldown(self) -> None:
         """State should track cooldown expiration time."""
         state = ModelRetryState()
-        future_time = time.time() + 300
+        # Use fixed timestamp for deterministic test
+        future_time = 1704067200.0 + 300
 
         state.cooldown_until = future_time
         assert state.cooldown_until == future_time

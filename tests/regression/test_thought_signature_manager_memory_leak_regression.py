@@ -5,7 +5,6 @@ stale entries when the same tool_call_id is used across different sessions
 and cache eviction occurs.
 """
 
-import time
 
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
 
@@ -25,8 +24,6 @@ class TestThoughtSignatureManagerMemoryLeakRegression:
 
             # Store with multiple sessions (same tc_id, different sessions)
             for session_id in ["session1", "session2"]:
-                time.time()
-
                 # Use the public API method to store signatures
                 tool_call = {
                     "id": tc_id,

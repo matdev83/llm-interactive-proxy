@@ -4,17 +4,19 @@ This test verifies that RollingHashTracker._check_pattern_length doesn't
 cause excessive CPU usage through nested loops when processing malicious input.
 """
 
-import time
-
 import pytest
 from src.loop_detection.hybrid_detector import LongPatternMatch, RollingHashTracker
+from tests.unit.fixtures.markers import real_time
 
 
 class TestDosHybridDetectorRegression:
     """Regression tests for DoS vulnerability in RollingHashTracker."""
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_dos_vulnerability_processing_time(self) -> None:
         """Test that processing doesn't take excessive time (DoS vulnerability check)."""
+        import time
+
         tracker = RollingHashTracker(
             min_pattern_length=60,  # Default: MIN_LONG_PATTERN_LENGTH
             max_pattern_length=500,  # Default: MAX_LONG_PATTERN_LENGTH
@@ -47,8 +49,11 @@ class TestDosHybridDetectorRegression:
             result, tuple | LongPatternMatch
         ), "Processing should complete successfully without errors"
 
+    @real_time(reason="Measures actual processing time for edge cases to detect DoS vulnerabilities.")
     def test_edge_cases_processing_time(self) -> None:
         """Test edge cases that could trigger the vulnerability."""
+        import time
+
         tracker = RollingHashTracker(max_pattern_length=500)
 
         test_cases = [
@@ -102,8 +107,11 @@ class TestDosHybridDetectorRegression:
                     "Errors that could be induced by malformed input are also vulnerabilities."
                 )
 
+    @real_time(reason="Measures actual processing time to detect DoS vulnerabilities.")
     def test_pattern_length_range_does_not_cause_excessive_iterations(self) -> None:
         """Test that pattern length range doesn't cause excessive iterations."""
+        import time
+
         tracker = RollingHashTracker(
             min_pattern_length=60,
             max_pattern_length=500,

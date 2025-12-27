@@ -66,16 +66,20 @@ class TestInMemorySessionRepositoryUnboundedGrowthRegression:
         """Test that cleanup_expired properly removes expired sessions."""
         from datetime import timedelta
 
+        from freezegun import freeze_time
+
         # Create sessions with old last_active_at timestamps
-        old_time = datetime.now(timezone.utc) - timedelta(seconds=1000)
-        for i in range(50):
-            session = Session(
-                session_id=f"session_{i}",
-                state=SessionState(),
-            )
-            session.user_id = f"user_{i % 5}"
-            session.last_active_at = old_time  # Set to old time
-            await repository.add(session)
+        with freeze_time("2024-01-01 12:00:00Z"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            old_time = fixed_time - timedelta(seconds=1000)
+            for i in range(50):
+                session = Session(
+                    session_id=f"session_{i}",
+                    state=SessionState(),
+                )
+                session.user_id = f"user_{i % 5}"
+                session.last_active_at = old_time  # Set to old time
+                await repository.add(session)
 
         initial_count = len(await repository.get_all())
         assert initial_count == 50, "Should have 50 sessions initially"

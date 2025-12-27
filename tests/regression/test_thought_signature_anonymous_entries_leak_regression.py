@@ -7,7 +7,6 @@ Fixed: ThoughtSignatureManager.clear_all_anonymous() method was added to
 clean up anonymous entries that were never cleaned up before.
 """
 
-import time
 
 import pytest
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
@@ -34,7 +33,7 @@ class TestThoughtSignatureAnonymousEntriesLeakRegression:
                         "id": f"anon_tool_{batch}_{i}",
                         "extra_content": {
                             "google": {
-                                "thought_signature": f"anon_sig_{batch}_{i}_{time.time()}"
+                                "thought_signature": f"anon_sig_{batch}_{i}_{1704067200 + batch * 100 + i}"
                             }
                         },
                     }
