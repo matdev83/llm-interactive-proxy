@@ -115,7 +115,7 @@ def session_summary_strategy(draw: st.DrawFn) -> SessionSummary:
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=30, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=20, suppress_health_check=[HealthCheck.filter_too_much]  # Reduced from 30 for performance
 )
 def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> None:
     """
@@ -187,7 +187,9 @@ def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> 
 
 
 @given(summary=session_summary_strategy())
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=5, suppress_health_check=[HealthCheck.filter_too_much]  # Reduced from 10 to 5
+)
 def test_property_7_summary_nested_models_valid(summary: SessionSummary) -> None:
     """
     Property 7: Summary nested model validation.

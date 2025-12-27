@@ -205,7 +205,7 @@ def test_property_9_streaming_content_roundtrip(chunk: StreamingContent) -> None
 
 
 @given(chunk=roundtrip_streaming_content_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=30)  # Reduced from default 50 for performance
 def test_to_dict_returns_plain_dict(chunk: StreamingContent) -> None:
     """
     **Feature: gemini-oauth-streaming-fix, Property 9: StreamingContent round-trip**

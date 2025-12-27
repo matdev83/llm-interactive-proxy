@@ -49,7 +49,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Create cleanup tasks that take some time to complete
         async def slow_cleanup():
-            await asyncio.sleep(0.1)  # Simulate cleanup work
+            await asyncio.sleep(0.05)  # Simulate cleanup work
             return "done"
 
         async with memory_service._state_lock:
@@ -87,7 +87,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
             )
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.15)
 
         # Now cleanup should await and remove tasks
         await memory_service.cleanup()
@@ -104,8 +104,8 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Simulate remote actor creating many sessions that get evicted
         # Each eviction creates cleanup tasks that must not be GC'd before completion
-        # Reduced from 50 to 20 for performance while maintaining test coverage
-        for i in range(20):
+        # Reduced from 50 to 15 for performance while maintaining test coverage
+        for i in range(15):
             session_id = f"attack_session_{i}"
             await memory_service.enable_for_session(
                 session_id,
@@ -138,7 +138,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Check how many tasks remain (should be all of them, not GC'd)
         remaining = len(memory_service._cleanup_tasks)
-        expected_min = 20 * 2 - 8  # At least 32 tasks (allowing for some completion)
+        expected_min = 15 * 2 - 6  # At least 24 tasks (allowing for some completion)
         assert remaining >= expected_min, (
             f"Many tasks were GC'd before completion! "
             f"Expected at least {expected_min}, got {remaining}. "

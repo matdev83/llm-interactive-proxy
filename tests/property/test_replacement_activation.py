@@ -51,7 +51,9 @@ def create_test_service(
         lambda x: x.replace("-", "").isalnum()
     ),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    suppress_health_check=[HealthCheck.filter_too_much], max_examples=20
+)
 def test_property_11_turn_counter_initialization(
     turn_count: int,
     original_backend: str,
@@ -110,7 +112,9 @@ def test_property_11_turn_counter_initialization(
         lambda x: ":" in x
     ),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=50, suppress_health_check=[HealthCheck.filter_too_much]
+)
 async def test_property_21_activation_logging(
     turn_count: int,
     original_backend: str,

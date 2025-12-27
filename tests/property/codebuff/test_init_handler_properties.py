@@ -13,27 +13,28 @@ from hypothesis import strategies as st
 from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.handlers.init_handler import InitHandler
 from src.codebuff.schemas import InitAction
+from tests.utils.hypothesis_config import property_test_settings
 
 
 # Strategy for generating file contexts
 @st.composite
 def file_context_strategy(draw):
     """Generate a file context dictionary."""
-    num_files = draw(st.integers(min_value=0, max_value=5))  # Reduced from 10 for performance
+    num_files = draw(st.integers(min_value=0, max_value=3))  # Reduced from 5 for performance
     file_context = {}
     for _ in range(num_files):
         # Use printable ASCII to avoid Unicode encoding issues in parallel test execution
         filename = draw(
             st.text(
                 min_size=1,
-                max_size=30,  # Reduced from 50 for performance
+                max_size=20,  # Reduced from 30 for performance
                 alphabet=st.characters(min_codepoint=32, max_codepoint=126),
             )
         )
         content = draw(
             st.text(
                 min_size=0,
-                max_size=100,  # Reduced from 200 for performance
+                max_size=50,  # Reduced from 100 for performance
                 alphabet=st.characters(min_codepoint=32, max_codepoint=126),
             )
         )
@@ -55,6 +56,7 @@ def file_context_strategy(draw):
     ),
     file_context=file_context_strategy(),
 )
+@property_test_settings(max_examples=30)  # Reduced from default 50 for performance
 async def test_property_17_file_context_storage(
     session_id, fingerprint_id, file_context
 ):
@@ -95,16 +97,17 @@ async def test_property_17_file_context_storage(
 @given(
     session_id=st.text(
         min_size=1,
-        max_size=50,  # Reduced from 100 for performance
+        max_size=30,  # Reduced from 50 for performance
         alphabet=st.characters(min_codepoint=32, max_codepoint=126),
     ),
     fingerprint_id=st.text(
         min_size=1,
-        max_size=50,  # Reduced from 100 for performance
+        max_size=30,  # Reduced from 50 for performance
         alphabet=st.characters(min_codepoint=32, max_codepoint=126),
     ),
     file_context=file_context_strategy(),
 )
+@property_test_settings(max_examples=15)  # Reduced from default for performance
 async def test_property_18_file_context_persistence(
     session_id, fingerprint_id, file_context
 ):

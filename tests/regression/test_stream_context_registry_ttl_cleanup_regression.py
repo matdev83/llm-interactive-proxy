@@ -15,8 +15,8 @@ class TestStreamContextRegistryTTLCleanupRegression:
     def test_ttl_cleanup_triggered_on_access(self) -> None:
         """Test that TTL cleanup is triggered when accessing streams."""
         registry = StreamingContextRegistry(
-            state_ttl_seconds=1
-        )  # Very short TTL for testing
+            state_ttl_seconds=0.2
+        )  # Reduced TTL for performance
 
         # Create many streams
         num_streams = 50
@@ -28,7 +28,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
         assert initial_size == num_streams
 
         # Wait for TTL to expire
-        time.sleep(1.1)
+        time.sleep(0.3)
 
         # Access one stream - this should trigger cleanup
         registry.get_content_state("stream_0")
@@ -44,8 +44,8 @@ class TestStreamContextRegistryTTLCleanupRegression:
     def test_orphaned_streams_cleaned_up_by_ttl(self) -> None:
         """Test that orphaned streams (never accessed again) are cleaned up by TTL."""
         registry = StreamingContextRegistry(
-            state_ttl_seconds=1
-        )  # Short TTL for testing
+            state_ttl_seconds=0.2
+        )  # Reduced TTL for performance
 
         # Create many streams but only access first few
         num_streams = 100
@@ -59,7 +59,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
                 registry.get_content_state(f"orphan_stream_{i}")
 
         # Wait for TTL to expire
-        time.sleep(1.1)
+        time.sleep(0.3)
 
         # Access one of the frequently accessed streams to trigger cleanup
         registry.get_content_state("orphan_stream_0")
@@ -79,7 +79,9 @@ class TestStreamContextRegistryTTLCleanupRegression:
 
     def test_cleanup_preserves_recently_accessed_streams(self) -> None:
         """Test that recently accessed streams are not cleaned up."""
-        registry = StreamingContextRegistry(state_ttl_seconds=0.2)  # Reduced TTL for performance (was 2)
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=0.2
+        )  # Reduced TTL for performance (was 2)
 
         # Create streams
         for i in range(20):

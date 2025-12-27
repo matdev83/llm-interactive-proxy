@@ -509,16 +509,16 @@ async def test_property_38_streaming_turn_completion(
 @given(
     original_model=st.text(
         min_size=1,
-        max_size=50,
+        max_size=30,
         alphabet=st.characters(
             blacklist_characters=[":"], blacklist_categories=("Cs",)
         ),
     ),
     message_content=st.text(
-        min_size=1, max_size=100, alphabet=st.characters(blacklist_categories=("Cs",))
+        min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=("Cs",))
     ),
 )
-@property_test_settings()
+@property_test_settings(max_examples=5)
 async def test_turn_completion_on_error(
     original_model: str, message_content: str
 ) -> None:

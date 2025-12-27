@@ -87,8 +87,8 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             record = create_test_record(f"record_{i}")
             queue.enqueue_insert(record)
 
-        # Wait a bit for processing attempts
-        await asyncio.sleep(0.5)
+        # Wait a bit for processing attempts (reduced from 0.5s to 0.05s)
+        await asyncio.sleep(0.05)
 
         # Check pending_records size - should be limited
         pending_count = queue.pending_count
@@ -143,8 +143,8 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
 
         await queue.start()
 
-        # Enqueue records very fast (reduced from 2000 to 500 for test performance)
-        num_records = 500
+        # Enqueue records very fast (reduced from 500 to 300 for test performance)
+        num_records = 300
         for i in range(num_records):
             record = create_test_record(f"record_{i}")
             queue.enqueue_insert(record)
@@ -157,7 +157,7 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         )
 
         # Wait a bit for processing (reduced for faster test execution)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.15)  # Reduced from 0.2
 
         # Check again - should still be limited
         pending_count_after = queue.pending_count

@@ -98,8 +98,8 @@ async def test_property_9_metadata_enrichment_is_idempotent(
 
 
 @pytest.mark.asyncio
-@given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-@property_test_settings(max_examples=30)
+@given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=5))
+@property_test_settings(max_examples=15)
 async def test_property_17_stream_normalizer_preserves_structure(
     chunks: list[StreamingContent],
 ) -> None:

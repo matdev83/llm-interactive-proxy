@@ -39,7 +39,7 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         store.start_persistence_thread()
 
         # Wait a bit to ensure thread started
-        time.sleep(0.2)
+        time.sleep(0.15)
 
         # Verify thread is running
         assert store._flush_thread is not None, "Persistence thread should exist"
@@ -54,7 +54,7 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         store.stop_persistence_thread()
 
         # Wait for thread to stop
-        time.sleep(0.3)
+        time.sleep(0.2)
 
         # Verify thread is stopped
         assert (
@@ -76,11 +76,10 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         for i in range(3):
             store = InMemoryUsageStore(
                 persistence_path=temp_dir / f"test_usage_store_{i}.json",
-                flush_interval_seconds=1.0,
+                flush_interval_seconds=0.1,
             )
             store.start_persistence_thread()
             stores.append(store)
-            time.sleep(0.1)
 
         threads_after_creation = threading.active_count()
         assert (
@@ -92,7 +91,7 @@ class TestInMemoryUsageStoreThreadLeakRegression:
             store.stop_persistence_thread()
 
         # Wait for threads to stop
-        time.sleep(0.5)
+        time.sleep(0.15)
 
         # Verify all threads are stopped
         running_threads = sum(

@@ -143,7 +143,7 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     # Each creates a subprocess that may leak if __del__ is not called
     processes = []
 
-    for _i in range(5):
+    for _i in range(3):
         provider = MockCredentialProvider()
         token_manager = TokenManager()
 
@@ -153,9 +153,9 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
 
         # Launch subprocess
         if sys.platform == "win32":
-            cmd = ["python", "-c", "import time; time.sleep(2)"]
+            cmd = ["python", "-c", "import time; time.sleep(1)"]
         else:
-            cmd = ["python3", "-c", "import time; time.sleep(2)"]
+            cmd = ["python3", "-c", "import time; time.sleep(1)"]
 
         try:
             process = subprocess.Popen(
@@ -178,7 +178,7 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     gc.collect()
 
     # Wait a bit
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.2)
 
     # Check how many processes are still running
     [p for _, p in processes if p.poll() is None]

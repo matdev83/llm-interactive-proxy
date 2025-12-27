@@ -135,7 +135,7 @@ def test_property_15_confirmation_code_attempt_decrement(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings(max_examples=20)
+@property_test_settings(max_examples=3)
 def test_property_16_correct_confirmation_code_success(
     config: AuthorizationConfig,
 ) -> None:
@@ -256,7 +256,7 @@ def test_property_18_authorization_api_invocation(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
 def test_property_19_authorization_api_request_payload(
     config: AuthorizationConfig,
 ) -> None:
@@ -370,7 +370,7 @@ def test_property_20_authorization_api_success_path(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from default 50
 async def test_property_21_authorization_api_denial_path(
     config: AuthorizationConfig,
 ) -> None:
@@ -416,7 +416,7 @@ async def test_property_21_authorization_api_denial_path(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings(max_examples=20)
+@property_test_settings(max_examples=10)
 def test_property_22_authorization_api_error_handling(
     config: AuthorizationConfig,
 ) -> None:

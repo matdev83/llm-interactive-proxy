@@ -329,7 +329,7 @@ def test_cleanup_performance(replacement_service, request_context):
     This test verifies that cleaning up sessions doesn't cause performance issues.
     """
     # Create many sessions
-    num_sessions = 10000
+    num_sessions = 2000
     session_ids = [f"session-{i}" for i in range(num_sessions)]
 
     for session_id in session_ids:

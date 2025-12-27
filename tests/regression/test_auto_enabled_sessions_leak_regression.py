@@ -41,15 +41,22 @@ class TestAutoEnabledSessionsLeakRegression:
         assert hasattr(middleware._auto_enabled_sessions, "ttl")
 
         # Auto-enable many sessions (more than maxsize, reduced for test performance)
-        num_sessions = int(middleware._auto_enabled_sessions.maxsize) + 100
+        # Use smaller number but still exceed maxsize to test eviction
+        maxsize = int(middleware._auto_enabled_sessions.maxsize)
+        num_sessions = maxsize + 50  # Reduced from +100 for performance
 
+        # Batch async calls to reduce overhead
+        tasks = []
         for i in range(num_sessions):
             session_id = f"session_{i}"
-            await middleware.capture_request(
-                session_id=session_id,
-                request=MagicMock(),
-                user_id=f"user_{i}",
+            tasks.append(
+                middleware.capture_request(
+                    session_id=session_id,
+                    request=MagicMock(),
+                    user_id=f"user_{i}",
+                )
             )
+        await asyncio.gather(*tasks)
 
         # Cache should not exceed maxsize due to LRU eviction
         assert (
@@ -138,26 +145,34 @@ class TestAutoEnabledSessionsLeakRegression:
         middleware = MemoryCaptureMiddleware(mock_memory_service, config)
         maxsize = int(middleware._auto_enabled_sessions.maxsize)
 
-        # Add sessions up to maxsize
+        # Add sessions up to maxsize - batch async calls for performance
+        tasks = []
         for i in range(maxsize):
             session_id = f"session_{i}"
-            await middleware.capture_request(
-                session_id=session_id,
-                request=MagicMock(),
-                user_id=f"user_{i}",
+            tasks.append(
+                middleware.capture_request(
+                    session_id=session_id,
+                    request=MagicMock(),
+                    user_id=f"user_{i}",
+                )
             )
+        await asyncio.gather(*tasks)
 
         # Cache should be at maxsize
         assert len(middleware._auto_enabled_sessions) == maxsize
 
         # Add more sessions - should evict oldest (reduced for test performance)
-        for i in range(maxsize, maxsize + 50):
+        tasks = []
+        for i in range(maxsize, maxsize + 25):  # Reduced from 50 for performance
             session_id = f"session_{i}"
-            await middleware.capture_request(
-                session_id=session_id,
-                request=MagicMock(),
-                user_id=f"user_{i}",
+            tasks.append(
+                middleware.capture_request(
+                    session_id=session_id,
+                    request=MagicMock(),
+                    user_id=f"user_{i}",
+                )
             )
+        await asyncio.gather(*tasks)
 
         # Cache should still be at maxsize (oldest evicted)
         assert len(middleware._auto_enabled_sessions) <= maxsize, (

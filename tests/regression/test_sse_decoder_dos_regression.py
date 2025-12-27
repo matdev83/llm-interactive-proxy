@@ -138,15 +138,19 @@ class TestSSEDecoderDoSRegression:
 
     def test_payload_at_limit_boundary(self, decoder: SSEDecoder) -> None:
         """Test payload exactly at the size limit."""
-        # Create payload exactly at 10MB limit
+        # Create payload just over the 10MB limit to test boundary rejection
+        # Optimized: Test with payload just over limit (faster than testing exact boundary)
         limit_bytes = decoder.MAX_PAYLOAD_SIZE
-        # Subtract "data: " prefix (6 bytes)
-        data_size = limit_bytes - 10  # Leave room for "data: " prefix
+        # Create payload that exceeds limit by a small amount
+        data_size = limit_bytes - 5  # Just under limit before adding "data: " prefix
         large_content = "x" * data_size
         payload = f"data: {large_content}"
 
+        # Encode once and check size
+        payload_bytes = payload.encode("utf-8")
+
         # Should be rejected if exceeds limit
-        if len(payload.encode("utf-8")) > decoder.MAX_PAYLOAD_SIZE:
+        if len(payload_bytes) > decoder.MAX_PAYLOAD_SIZE:
             res = decoder.decode_payload(payload)
             content, metadata, _is_done = res.content, res.metadata, res.is_done
 

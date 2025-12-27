@@ -6,7 +6,6 @@ to prevent DoS attacks through malicious streaming responses without SSE separat
 Fixed: Added MAX_SSE_BUFFER_SIZE limit (16KB) to prevent unbounded buffer growth.
 """
 
-import asyncio
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -25,11 +24,11 @@ class TestOpenAISSEBufferOverflowDoSRegression:
             b"just keep adding data",
             b"no \\n\\n separators here",
             b"buffer keeps growing...",
-        ] * 40  # Repeat to show the issue (reduced for test performance)
+        ] * 20  # Reduced from 40 for performance
 
         for chunk in malicious_chunks:
             yield chunk
-            await asyncio.sleep(0.0001)  # Small delay (reduced for test performance)
+            # Remove sleep entirely for faster test - async generator overhead is sufficient
 
     async def vulnerable_sse_processing_simulation(
         self, response_generator: AsyncGenerator[bytes, None]
@@ -62,7 +61,7 @@ class TestOpenAISSEBufferOverflowDoSRegression:
                 buffer_sizes.append(len(buffer))
 
                 # Safety: Stop after reasonable number of chunks for test (reduced for performance)
-                if len(buffer_sizes) >= 200:
+                if len(buffer_sizes) >= 100:  # Reduced from 200 for performance
                     break
 
                 # Try to process SSE events
@@ -107,9 +106,9 @@ class TestOpenAISSEBufferOverflowDoSRegression:
         async def large_chunk_stream() -> AsyncGenerator[bytes, None]:
             # Send chunks that are larger than MAX_SSE_BUFFER_SIZE
             large_chunk = b"x" * (MAX_SSE_BUFFER_SIZE + 1000)
-            for _ in range(10):
+            for _ in range(5):  # Reduced from 10 for performance
                 yield large_chunk
-                await asyncio.sleep(0.0001)  # Reduced for test performance
+                # Remove sleep for faster test
 
         buffer_sizes = await self.vulnerable_sse_processing_simulation(
             large_chunk_stream()
@@ -138,7 +137,7 @@ class TestOpenAISSEBufferOverflowDoSRegression:
             ]
             for event in events:
                 yield event
-                await asyncio.sleep(0.0001)  # Reduced for test performance
+                # Remove sleep for faster test
 
         buffer_sizes = await self.vulnerable_sse_processing_simulation(
             normal_sse_stream()

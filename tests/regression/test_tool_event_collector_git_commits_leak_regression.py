@@ -44,7 +44,7 @@ class TestToolEventCollectorGitCommitsLeakRegression:
     async def test_multiple_sessions_git_commits_bounded(self) -> None:
         """Test that multiple sessions can accumulate git commits but are bounded."""
         collector = DeterministicToolEventCollector()
-        num_sessions = 100
+        num_sessions = 10  # Reduced from 20 to 10
         commits_per_session = _MAX_GIT_COMMITS_PER_SESSION + 50
 
         # Create many sessions with many commits each

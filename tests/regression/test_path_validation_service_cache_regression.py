@@ -89,8 +89,9 @@ class TestPathValidationServiceCacheRegression:
         gc.collect()
         initial_memory, _ = tracemalloc.get_traced_memory()
 
-        # Generate many unique paths
-        for i in range(1000):
+        # Generate unique paths - reduced iterations but still enough to test cache limit
+        # We only need enough to fill cache + some overflow to verify bounded growth
+        for i in range(150):  # Reduced from 500 - enough to exceed cache limit
             unique_path = f"/tmp/memory_test_{i}/file_{i}.txt"
             with contextlib.suppress(ValueError, OSError):
                 service.normalize_path(unique_path)

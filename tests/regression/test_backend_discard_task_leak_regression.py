@@ -89,8 +89,8 @@ class TestBackendDiscardTaskLeakRegression:
         self, manager: BackendLifecycleManager
     ) -> None:
         """Test that many rapid discards don't cause unbounded task accumulation."""
-        # Create many backends
-        num_backends = 100
+        # Create many backends (reduced from 100 to 50 for performance)
+        num_backends = 50
         for i in range(num_backends):
             backend = MockBackend(f"attack-backend-{i}")
             manager._backends[f"attack-backend-{i}"] = backend
@@ -116,11 +116,13 @@ class TestBackendDiscardTaskLeakRegression:
             new_tasks == num_backends
         ), f"Expected {num_backends} new tasks, got {new_tasks}"
 
-        # Wait for tasks to complete
-        await asyncio.sleep(0.5)
+        # Wait for tasks to complete (reduced from 0.5s to 0.2s for performance)
+        await asyncio.sleep(0.2)
 
         # Verify tasks completed and are cleaned up from tracking set
-        await asyncio.sleep(0.1)  # Allow callbacks to fire
+        await asyncio.sleep(
+            0.05
+        )  # Reduced from 0.1s for performance - allow callbacks to fire
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
         assert (
             len(pending_tracked) == 0

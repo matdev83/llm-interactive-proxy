@@ -86,7 +86,7 @@ def signal_strategy() -> st.SearchStrategy[EndOfSessionSignal]:
 @pytest.mark.asyncio
 @given(signals=st.lists(signal_strategy(), min_size=2, max_size=10))
 @property_test_settings(
-    max_examples=50,
+    max_examples=30,
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,

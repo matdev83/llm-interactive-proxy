@@ -379,7 +379,7 @@ async def test_property_1_non_modification_preserves_state(
 
 
 @given(
-    modification_count=st.integers(min_value=1, max_value=20),
+    modification_count=st.integers(min_value=1, max_value=10),  # Reduced from 20 to 10
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings()

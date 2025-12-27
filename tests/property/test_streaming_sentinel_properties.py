@@ -15,7 +15,7 @@ from tests.utils.property_test_helpers import async_iter, async_list
 
 @pytest.mark.asyncio
 @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=5))
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50
 async def test_property_2_single_sentinel_emission_with_done(
     chunks: list[StreamingContent],
 ) -> None:
@@ -37,7 +37,7 @@ async def test_property_2_single_sentinel_emission_with_done(
 
 @pytest.mark.asyncio
 @given(chunks=chunk_stream_strategy(min_size=1, max_size=5))
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_2_single_sentinel_emission_without_done(
     chunks: list[StreamingContent],
 ) -> None:
@@ -81,7 +81,7 @@ def test_property_14_and_15_sentinel_consistency() -> None:
 
 @pytest.mark.asyncio
 @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=3))
-@property_test_settings()
+@property_test_settings(max_examples=15)  # Reduced from default for performance
 async def test_property_16_hybrid_sentinel_after_reasoning(
     chunks: list[StreamingContent],
 ) -> None:

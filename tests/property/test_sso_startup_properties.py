@@ -126,7 +126,7 @@ def test_property_sso_mode_activation(sso_config, host):
 
 
 # Property 2: Legacy Auth Disabled in SSO Mode
-@settings(max_examples=50)
+@settings(max_examples=15)
 @given(
     sso_config=sso_config_strategy(enabled=True),
     host=st.text(min_size=1, max_size=50),

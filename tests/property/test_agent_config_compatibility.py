@@ -161,10 +161,12 @@ async def test_property_30_agent_configuration_preservation(
 
 
 @given(
-    turn_count=st.integers(min_value=1, max_value=5),
+    turn_count=st.integers(min_value=1, max_value=4),  # Reduced from 5 for performance
     agent_config=agent_config_strategy,
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=15, suppress_health_check=[HealthCheck.filter_too_much]
+)  # Reduced from default 50 for performance
 @pytest.mark.asyncio
 async def test_agent_config_preserved_across_replacement_window(
     turn_count: int, agent_config: dict

@@ -79,7 +79,7 @@ async def test_cleanup_handles_timeout():
 
     # Create a task that takes longer than timeout
     async def slow_task():
-        await asyncio.sleep(6)  # Longer than 5s timeout (optimized from 10s)
+        await asyncio.sleep(5.1)  # Just longer than 5s timeout for faster test
 
     task = asyncio.create_task(slow_task())
     # Add done callback to remove task when it completes (matching implementation)

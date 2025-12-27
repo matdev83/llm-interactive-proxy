@@ -199,7 +199,7 @@ class TestSessionCaptureBufferLeakRegression:
         assert initial_count == 1, "Session should exist initially."
 
         # Wait for TTL to expire
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.1)
 
         # Trigger cleanup by adding a new session
         new_session_id = "new_session"

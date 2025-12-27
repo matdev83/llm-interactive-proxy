@@ -78,10 +78,10 @@ def execution_command_strategy(draw: Any) -> str:
 
 
 @given(
-    test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=10),
+    test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=5),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_13_multiple_test_runs_maintain_clean_state(
     test_commands: list[str], session_id: str
 ) -> None:
@@ -153,10 +153,10 @@ async def test_property_13_multiple_test_runs_maintain_clean_state(
 
 
 @given(
-    test_count=st.integers(min_value=2, max_value=10),
+    test_count=st.integers(min_value=2, max_value=5),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_13_many_identical_test_runs_maintain_clean_state(
     test_count: int, session_id: str
 ) -> None:
@@ -207,7 +207,7 @@ async def test_property_13_many_identical_test_runs_maintain_clean_state(
     test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=10),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)  # Reduced for performance
 async def test_property_13_test_runs_with_different_languages_maintain_clean_state(
     test_commands: list[str], session_id: str
 ) -> None:
@@ -252,7 +252,7 @@ async def test_property_13_test_runs_with_different_languages_maintain_clean_sta
     test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=5),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_13_no_errors_during_multiple_test_runs(
     test_commands: list[str], session_id: str
 ) -> None:
@@ -301,7 +301,7 @@ async def test_property_13_no_errors_during_multiple_test_runs(
     test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=10),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=20)
 async def test_property_13_test_timestamps_update_correctly(
     test_commands: list[str], session_id: str
 ) -> None:

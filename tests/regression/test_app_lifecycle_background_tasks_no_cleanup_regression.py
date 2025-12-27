@@ -35,8 +35,8 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
             lifecycle._background_tasks.append(task)
             task.add_done_callback(lifecycle._remove_completed_task)
 
-        # Wait for all tasks to complete
-        await asyncio.sleep(0.5)
+        # Wait for all tasks to complete (reduced from 0.5s to 0.05s)
+        await asyncio.sleep(0.05)
 
         # Without cleanup, tasks should still be removed by callbacks
         # But if callbacks aren't working, tasks accumulate
@@ -71,8 +71,8 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
             lifecycle._background_tasks.append(task)
             task.add_done_callback(lifecycle._remove_completed_task)
 
-        # Wait for tasks to complete
-        await asyncio.sleep(0.5)
+        # Wait for tasks to complete (reduced from 0.5s to 0.05s)
+        await asyncio.sleep(0.05)
 
         # Manually call cleanup
         lifecycle._cleanup_completed_tasks()

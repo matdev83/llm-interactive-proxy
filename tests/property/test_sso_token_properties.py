@@ -305,7 +305,7 @@ def test_property_23_email_field_validity(
 
 
 @given(token_record=token_record_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=20)
 def test_property_23_authentication_state_consistency(
     token_record: TokenRecord,
 ) -> None:

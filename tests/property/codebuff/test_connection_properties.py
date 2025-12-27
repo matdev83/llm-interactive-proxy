@@ -64,7 +64,7 @@ async def test_property_1_connection_tracking(session_id):
 
 # Property 2: Session ID association
 @given(session_id=session_id_strategy())
-@settings(max_examples=50)
+@settings(max_examples=30)  # Reduced from 50 for performance
 @pytest.mark.asyncio
 async def test_property_2_session_id_association(session_id):
     """
@@ -88,7 +88,7 @@ async def test_property_2_session_id_association(session_id):
 
 # Property 3: Heartbeat timestamp updates
 @given(session_id=session_id_strategy())
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 @pytest.mark.asyncio
 async def test_property_3_heartbeat_timestamp_updates(session_id):
     """
@@ -105,11 +105,6 @@ async def test_property_3_heartbeat_timestamp_updates(session_id):
     await manager.connect(websocket, session_id)
     session = await manager.get_session(websocket)
     initial_last_seen = session.last_seen
-
-    # Simulate a small delay
-    import time
-
-    time.sleep(0.01)
 
     # Update last seen (simulating a ping)
     await manager.update_last_seen(websocket)

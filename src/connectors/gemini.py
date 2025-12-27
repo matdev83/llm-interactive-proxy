@@ -355,19 +355,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         if response.status_code >= 400:
             try:
-                # Read only first 1MB of error body to prevent DoS
-                # Use list + join to avoid O(n^2) bytes concatenation
-                body_chunks: list[bytes] = []
-                total_len = 0
+                # Read only first 10MB of error body to prevent DoS.
+                max_error_body_bytes = 10 * 1024 * 1024
+                body_buffer = bytearray()
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
-                        body_chunks.append(chunk)
-                        total_len += len(chunk)
-                        if (
-                            total_len > 10 * 1024 * 1024
-                        ):  # 10MB limit (consistent with other middleware)
+                        remaining = max_error_body_bytes - len(body_buffer)
+                        if remaining <= 0:
                             break
-                    body_bytes = b"".join(body_chunks)
+                        if len(chunk) > remaining:
+                            body_buffer.extend(chunk[:remaining])
+                            break
+                        body_buffer.extend(chunk)
+                    body_bytes = bytes(body_buffer)
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
@@ -393,11 +393,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             finally:
                 if hasattr(response, "aclose"):
                     await response.aclose()
-            logger.error(
-                "HTTP error during Gemini stream: %s - %s",
-                response.status_code,
-                body_text,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                body_preview_limit = 4096
+                body_preview = (
+                    body_text
+                    if len(body_text) <= body_preview_limit
+                    else f"{body_text[:body_preview_limit]}...[truncated]"
+                )
+                logger.error(
+                    "HTTP error during Gemini stream: %s - body_len=%s body_preview=%s",
+                    response.status_code,
+                    len(body_text),
+                    body_preview,
+                )
             raise BackendError(
                 message=f"Gemini stream error: {response.status_code} - {body_text}",
                 code="gemini_error",
@@ -1138,19 +1146,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # Check for errors
         if response.status_code >= 400:
             try:
-                # Read only first 1MB of error body to prevent DoS
-                # Use list + join to avoid O(n^2) bytes concatenation
-                body_chunks: list[bytes] = []
-                total_len = 0
+                # Read only first 10MB of error body to prevent DoS.
+                max_error_body_bytes = 10 * 1024 * 1024
+                body_buffer = bytearray()
                 if hasattr(response, "aiter_bytes"):
                     async for chunk in response.aiter_bytes():
-                        body_chunks.append(chunk)
-                        total_len += len(chunk)
-                        if (
-                            total_len > 10 * 1024 * 1024
-                        ):  # 10MB limit (consistent with other middleware)
+                        remaining = max_error_body_bytes - len(body_buffer)
+                        if remaining <= 0:
                             break
-                    body_bytes = b"".join(body_chunks)
+                        if len(chunk) > remaining:
+                            body_buffer.extend(chunk[:remaining])
+                            break
+                        body_buffer.extend(chunk)
+                    body_bytes = bytes(body_buffer)
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
@@ -1176,11 +1184,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             finally:
                 if hasattr(response, "aclose"):
                     await response.aclose()
-            logger.error(
-                "HTTP error during Gemini stream: %s - %s",
-                response.status_code,
-                body_text,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                body_preview_limit = 4096
+                body_preview = (
+                    body_text
+                    if len(body_text) <= body_preview_limit
+                    else f"{body_text[:body_preview_limit]}...[truncated]"
+                )
+                logger.error(
+                    "HTTP error during Gemini stream: %s - body_len=%s body_preview=%s",
+                    response.status_code,
+                    len(body_text),
+                    body_preview,
+                )
             raise BackendError(
                 message=f"Gemini stream error: {response.status_code} - {body_text}",
                 code="gemini_error",

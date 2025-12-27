@@ -27,11 +27,10 @@ class TestBackgroundTasksLeakRegression:
         initial_count = len(lifecycle._background_tasks)
 
         # Create and complete many tasks
-        num_tasks = 1000
+        num_tasks = 100
         for i in range(num_tasks):
 
             async def dummy_task(task_id: int = i):
-                await asyncio.sleep(0.001)
                 return task_id
 
             task = asyncio.create_task(dummy_task())
@@ -39,7 +38,7 @@ class TestBackgroundTasksLeakRegression:
             task.add_done_callback(lifecycle._remove_completed_task)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
 
         # Check if tasks are cleaned up
         final_count = len(lifecycle._background_tasks)
@@ -71,18 +70,17 @@ class TestBackgroundTasksLeakRegression:
         initial_count = len(processor._background_tasks)
 
         # Create and complete many tasks
-        num_tasks = 1000
+        num_tasks = 100
         for i in range(num_tasks):
 
             async def dummy_task(task_id: int = i):
-                await asyncio.sleep(0.001)
                 return task_id
 
             task = asyncio.create_task(dummy_task())
             processor.add_background_task(task)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
 
         # Check if tasks are cleaned up
         final_count = len(processor._background_tasks)

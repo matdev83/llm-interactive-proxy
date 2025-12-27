@@ -157,7 +157,7 @@ async def test_anthropic_streaming_incremental_delivery() -> None:
         AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.001)  # Reduced from 0.02 to 0.001
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

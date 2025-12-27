@@ -174,9 +174,9 @@ async def test_ttl_cleanup_selective_removal(
     assert session2_id in handler._session_state
 
 
-@settings(max_examples=50)
+@settings(max_examples=15)
 @given(
-    num_sessions=st.integers(min_value=1, max_value=20),
+    num_sessions=st.integers(min_value=1, max_value=15),
     ttl_seconds=st.integers(min_value=10, max_value=100),
 )
 async def test_ttl_cleanup_multiple_sessions(
@@ -230,7 +230,7 @@ async def test_ttl_cleanup_multiple_sessions(
         assert session_ids[i] in handler._session_state
 
 
-@settings(max_examples=20)
+@settings(max_examples=15)  # Reduced from 20 for performance
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),

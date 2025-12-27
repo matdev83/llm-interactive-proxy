@@ -69,7 +69,7 @@ async def create_authorization_service(
 # Feature: sso-authentication, Property 15: Confirmation Code Attempt Decrement
 @pytest.mark.asyncio
 @settings(
-    max_examples=50,
+    max_examples=30,  # Reduced from 50 for performance (still provides good coverage)
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -132,20 +132,20 @@ async def test_property_15_confirmation_code_attempt_decrement(incorrect_attempt
                 ), "must_reauthenticate should be True when attempts exhausted"
                 break
 
-            # Small delay to avoid timing issues
-            await asyncio.sleep(0.01)
+            # Small delay to avoid timing issues (reduced from 0.01s to 0.001s)
+            await asyncio.sleep(0.001)
 
 
 # Feature: sso-authentication, Property 16: Correct Confirmation Code Success
 @pytest.mark.asyncio
 @settings(
-    max_examples=10,
+    max_examples=5,  # Reduced from 10 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(
     user_email=st.emails(),
-    user_id=st.text(min_size=1, max_size=100),
+    user_id=st.text(min_size=1, max_size=50),  # Reduced from 100 for performance
     provider=st.sampled_from(["google", "microsoft", "github", "linkedin"]),
 )
 async def test_property_16_correct_confirmation_code_success(
@@ -310,8 +310,8 @@ async def test_confirmation_code_attempts_exhausted():
                 assert result.must_reauthenticate
                 assert result.attempts_remaining == 0
 
-            # Small delay to avoid timing issues
-            await asyncio.sleep(0.01)
+            # Small delay to avoid timing issues (reduced from 0.01s to 0.001s)
+            await asyncio.sleep(0.001)
 
         # Try one more time - should still require re-authentication
         result = await service.verify_confirmation_code(

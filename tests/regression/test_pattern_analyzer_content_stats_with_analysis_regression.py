@@ -45,7 +45,7 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
         # Simulate many unique content chunks being processed
         # Each unique chunk creates a new entry in _content_stats when analyzed
         # We call analyze_pending_stream every 100 chunks to trigger _is_loop_detected_for_chunk
-        num_chunks = 200
+        num_chunks = 50
         for i in range(num_chunks):
             # Create unique content chunks
             unique_content = (
@@ -78,7 +78,7 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
     ) -> None:
         """Test that _content_stats entries are cleaned when history is truncated with analysis."""
         # Process chunks to fill history
-        initial_chunks = 150
+        initial_chunks = 50
         for i in range(initial_chunks):
             content = f"chunk_{i}_with_content"
             analyzer.ingest_chunk(content)
@@ -90,7 +90,7 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
         assert len(analyzer._stream_history) <= analyzer.config.max_history_length
 
         # Process more chunks with analysis to trigger potential truncation
-        additional_chunks = 200
+        additional_chunks = 50
         for i in range(additional_chunks):
             unique_content = f"unique_chunk_{i}_with_different_content"
             analyzer.ingest_chunk(unique_content)

@@ -27,9 +27,11 @@ def temp_db_path():
 
 
 @given(
-    num_failures=st.integers(min_value=1, max_value=10),
+    num_failures=st.integers(
+        min_value=1, max_value=8
+    ),  # Reduced from 10 for performance
 )
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
 def test_property_17_exponential_backoff_enforcement(
     num_failures: int,
 ) -> None:

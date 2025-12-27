@@ -67,7 +67,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         )
 
         # Wait a bit to ensure thread started
-        time.sleep(0.2)
+        time.sleep(0.1)  # Reduced from 0.2 for performance
 
         # Verify observer is running
         assert state.file_observer is not None, "File observer should exist"
@@ -82,7 +82,35 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         FileWatcher.stop_file_watching(state)
 
         # Wait for thread to stop
-        time.sleep(0.3)
+        time.sleep(0.15)  # Reduced from 0.3 for performance
+
+        # Verify observer is stopped
+        assert state.file_observer is None, "File observer should be cleared"
+
+        threads_after_stop = count_watchdog_threads()
+        # Allow some margin for other threads
+        assert threads_after_stop <= threads_before + 2, (
+            f"Thread count should return to near baseline. "
+            f"Before: {threads_before}, After: {threads_after_stop}"
+        )
+
+        # Wait a bit to ensure thread started
+        time.sleep(0.1)  # Reduced from 0.2 for performance
+
+        # Verify observer is running
+        assert state.file_observer is not None, "File observer should exist"
+        assert state.file_observer.is_alive(), "File observer should be alive"
+
+        threads_after_start = count_watchdog_threads()
+        assert (
+            threads_after_start >= threads_before
+        ), "File observer should create a thread"
+
+        # Stop file watching
+        FileWatcher.stop_file_watching(state)
+
+        # Wait for thread to stop
+        time.sleep(0.15)  # Reduced from 0.3 for performance
 
         # Verify observer is stopped
         assert state.file_observer is None, "File observer should be cleared"
@@ -99,7 +127,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         threads_before = count_watchdog_threads()
 
         states = []
-        for _i in range(5):
+        for _i in range(2):  # Reduced from 3 for performance
             state = FileWatcherState()
             FileWatcher.start_file_watching(
                 temp_creds_file,
@@ -108,7 +136,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
                 mock_reload_callback,
             )
             states.append(state)
-            time.sleep(0.1)
+            time.sleep(0.02)  # Reduced from 0.05 for performance
 
         threads_after_creation = count_watchdog_threads()
         assert (
@@ -120,7 +148,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             FileWatcher.stop_file_watching(state)
 
         # Wait for threads to stop
-        time.sleep(0.5)
+        time.sleep(0.1)  # Reduced from 0.2 for performance
 
         # Verify all observers are stopped
         running_observers = sum(
@@ -132,7 +160,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
 
         threads_after_stop = count_watchdog_threads()
         # Allow margin for other threads
-        assert threads_after_stop <= threads_before + 5, (
+        assert threads_after_stop <= threads_before + 2, (
             f"Thread count should return to near baseline. "
             f"Before: {threads_before}, After: {threads_after_stop}"
         )
@@ -142,7 +170,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         threads_before = count_watchdog_threads()
 
         # Rapidly create, start, and stop watchers
-        for _i in range(5):
+        for _i in range(3):  # Reduced from 5 for performance
             state = FileWatcherState()
             FileWatcher.start_file_watching(
                 temp_creds_file,
@@ -155,11 +183,11 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             time.sleep(0.01)  # Small delay to let thread stop
 
         # Wait for all threads to stop
-        time.sleep(0.2)
+        time.sleep(0.1)  # Reduced from 0.2 for performance
 
         threads_after = count_watchdog_threads()
         # Allow margin for other threads
-        assert threads_after <= threads_before + 5, (
+        assert threads_after <= threads_before + 3, (
             f"Rapid cycles should not leak threads. "
             f"Before: {threads_before}, After: {threads_after}"
         )

@@ -101,6 +101,7 @@ class TestBackendStageTaskTrackingRegression:
         initial_task_count = len(asyncio.all_tasks())
 
         # Create and track multiple cleanup tasks
+        cleanup_tasks = []
         for _i in range(5):
             client = httpx.AsyncClient()
 
@@ -109,15 +110,16 @@ class TestBackendStageTaskTrackingRegression:
                 if loop.is_running():
                     cleanup_task = asyncio.create_task(client.aclose())
                     stage._cleanup_tasks.add(cleanup_task)
-
-                await asyncio.sleep(0.05)
+                    cleanup_tasks.append(cleanup_task)
 
             finally:
                 if not client.is_closed:
                     await client.aclose()
 
-        # Wait for all tasks to complete
-        await asyncio.sleep(0.3)
+        # Wait for all tasks to complete (reduced sleep time for performance)
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        await asyncio.sleep(0.05)  # Reduced from 0.3 for performance
 
         # Check that tasks don't accumulate excessively
         final_task_count = len(asyncio.all_tasks())

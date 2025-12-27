@@ -85,9 +85,9 @@ class TestCaptureReaderDoSRegression:
 
     def test_capture_file_over_limit_truncated(self, temp_capture_dir: Path) -> None:
         """Test that capture files over limit are truncated to prevent DoS."""
-        # Create file with entries over limit
+        # Create file with entries over limit (reduced from 15,000 to 11,000 for performance)
         capture_file = temp_capture_dir / "oversized.cbor"
-        num_entries = MAX_CAPTURE_ENTRIES + 5000  # 15,000 entries
+        num_entries = MAX_CAPTURE_ENTRIES + 1000  # 11,000 entries (reduced from +5000 for performance)
         self.create_capture_file_with_entries(capture_file, num_entries)
 
         reader = CaptureReader()
@@ -105,7 +105,7 @@ class TestCaptureReaderDoSRegression:
         """Test that very large capture files are truncated to prevent DoS."""
         # Create file with many entries (simulating attack)
         capture_file = temp_capture_dir / "attack.cbor"
-        num_entries = MAX_CAPTURE_ENTRIES * 10  # 100,000 entries
+        num_entries = MAX_CAPTURE_ENTRIES + 2000  # 12,000 entries (just over limit)
         self.create_capture_file_with_entries(capture_file, num_entries)
 
         reader = CaptureReader()

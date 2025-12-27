@@ -27,10 +27,10 @@ class TestEventBusPendingTasksLeakRegression:
         initial_pending_count = len(event_bus._pending_tasks)
 
         # Create many events with handlers that complete quickly
-        num_events = 1000
+        num_events = 500  # Reduced from 1000 for faster test execution
 
         async def quick_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.001)  # Complete quickly
+            await asyncio.sleep(0.0005)  # Reduced from 0.001 for faster completion
 
         # Subscribe handler
         event_bus.subscribe(TestEvent, quick_handler)
@@ -40,14 +40,14 @@ class TestEventBusPendingTasksLeakRegression:
             event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.02)  # Reduced from 0.05
 
         # Check pending tasks count
         len([t for t in event_bus._pending_tasks if not t.done()])
         len(event_bus._pending_tasks)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)  # Reduced from 0.2
 
         # Force garbage collection to allow WeakSet to clean up
         gc.collect()
@@ -80,7 +80,7 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus.subscribe(TestEvent, slow_handler)
 
         # Publish events and keep references
-        num_events = 100
+        num_events = 50
         for _i in range(num_events):
             event_bus.publish_nowait(TestEvent())
 
@@ -89,7 +89,7 @@ class TestEventBusPendingTasksLeakRegression:
         task_refs = list(event_bus._pending_tasks)
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.15)
 
         # Force GC
         gc.collect()

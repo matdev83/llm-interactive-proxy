@@ -57,7 +57,7 @@ class ConcurrentMockBackend(LLMBackend):
         async def stream() -> AsyncIterator[ProcessedResponse]:
             try:
                 for idx in range(3):
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
                     self.stream_history[marker] += 1
                     # Use proper OpenAI streaming format so stream normalizer recognizes content
                     chunk_data = {
@@ -158,7 +158,7 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
                 if text:
                     chunks.append(text)
             # Ensure stream is fully consumed and generator is closed
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)  # Reduced from 0.05 for performance
             return chunks
 
     try:
@@ -175,10 +175,10 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
     # Give streams time to fully complete and cleanup
     # The finally blocks in async generators execute when the generator is closed
     # Wait for streams to complete and cleanup to happen
-    max_wait = 5  # Reduced from 10
+    max_wait = 3  # Reduced from 5 for performance
     waited = 0
     while backend.active_sessions and waited < max_wait:
-        await asyncio.sleep(0.05)  # Reduced from 0.1
+        await asyncio.sleep(0.02)  # Reduced from 0.05 for performance
         waited += 1
 
     # Sessions should be cleaned up after streams complete

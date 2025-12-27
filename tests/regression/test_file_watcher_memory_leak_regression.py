@@ -29,15 +29,13 @@ class TestFileWatcherMemoryLeakRegression:
         initial_tasks = len(asyncio.all_tasks())
 
         # Schedule multiple reload tasks rapidly
-        for _i in range(20):
+        for _i in range(10):
             FileWatcher.schedule_credentials_reload(
                 state, mock_reload_callback, mock_stop_callback
             )
-            # Small delay between schedules
-            await asyncio.sleep(0.01)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.15)
 
         # Check final task count
         final_tasks = len(asyncio.all_tasks())

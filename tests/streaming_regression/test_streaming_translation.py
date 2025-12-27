@@ -129,7 +129,7 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
         AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.01)
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 

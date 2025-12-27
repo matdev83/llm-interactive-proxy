@@ -26,7 +26,7 @@ class TestMetadataEnrichmentSafety:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=30, deadline=None)
+    @settings(max_examples=15, deadline=None)
     async def test_metadata_enrichment_does_not_buffer_stream(self, chunks):
         """
         Property 20: Metadata enrichment safety
@@ -114,7 +114,7 @@ class TestMetadataEnrichmentSafety:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=3, max_size=8))
-    @settings(max_examples=30, deadline=None)  # Reduced from 50
+    @settings(max_examples=15, deadline=None)  # Reduced from 30 for faster execution
     async def test_metadata_enrichment_incremental_processing(self, chunks):
         """
         Property 20: Metadata enrichment safety (incremental processing)
@@ -256,7 +256,7 @@ class TestInfrastructureReuse:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=30, deadline=None)
+    @settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
     async def test_common_infrastructure_works_for_all_backends(self, chunks):
         """
         Property 25: Infrastructure reuse

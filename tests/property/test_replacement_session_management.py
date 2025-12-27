@@ -32,8 +32,8 @@ def create_test_service() -> ModelReplacementService:
 
 
 @given(
-    session_id_1=st.text(min_size=1, max_size=10).filter(lambda x: x.isalnum()),
-    session_id_2=st.text(min_size=1, max_size=10).filter(lambda x: x.isalnum()),
+    session_id_1=st.text(alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd')), min_size=1, max_size=10),
+    session_id_2=st.text(alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd')), min_size=1, max_size=10),
 )
 @property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
 def test_property_18_independent_session_states(

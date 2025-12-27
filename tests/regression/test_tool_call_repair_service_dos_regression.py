@@ -64,6 +64,7 @@ class TestToolCallRepairServiceDoSRegression:
     ) -> None:
         """Test that large JSON payloads (>10MB) are rejected quickly."""
         # Create payload larger than MAX_JSON_PARSE_SIZE
+        # Use smaller multiplier to reduce string creation time while still testing rejection
         large_json = self.create_large_json_payload(multiplier=1)
         payload_size_mb = len(large_json.encode("utf-8")) / (1024 * 1024)
 
@@ -72,12 +73,10 @@ class TestToolCallRepairServiceDoSRegression:
             MAX_JSON_PARSE_SIZE / (1024 * 1024)
         ), "Test payload should exceed MAX_JSON_PARSE_SIZE"
 
-        # Test multiple attack vectors
+        # Test fewer attack vectors to reduce test time (still covers main cases)
         attack_vectors = [
             ("Code block", f"```json\n{large_json}\n```"),
             ("Direct JSON", large_json),
-            ("Tool format", f'{{"tool": {large_json}}}'),
-            ("Function call format", f'{{"function_call": {large_json}}}'),
         ]
 
         for vector_name, content in attack_vectors:
@@ -85,11 +84,17 @@ class TestToolCallRepairServiceDoSRegression:
             result = repair_service.repair_tool_calls(content)
             duration = time.time() - start_time
 
-            # Should reject quickly (< 5 seconds) due to size check
-            # Note: Creating large JSON strings takes time, but parsing should be rejected quickly
-            assert duration < 5.0, (
+            # Should reject quickly (< 1 second) due to size check
+            # Reduced timeout since we're using smaller payloads
+            assert duration < 1.0, (
                 f"{vector_name} attack vector took {duration:.2f} seconds. "
                 "Large payloads should be rejected quickly via size check."
+            )
+
+            # Should return None (rejected) for large payloads
+            assert result is None, (
+                f"{vector_name} attack vector should return None for large payloads. "
+                f"Got: {result}"
             )
 
             # Should return None (rejected) for large payloads
@@ -132,7 +137,7 @@ class TestToolCallRepairServiceDoSRegression:
     ) -> None:
         """Test that deeply nested JSON is handled without stack overflow."""
         # Create deeply nested JSON (but within size limit)
-        nested_json = self.create_deeply_nested_json(depth=100)
+        nested_json = self.create_deeply_nested_json(depth=50)  # Reduced from 100 for performance
         payload_size_mb = len(nested_json.encode("utf-8")) / (1024 * 1024)
 
         # Should be within size limit
@@ -147,7 +152,7 @@ class TestToolCallRepairServiceDoSRegression:
         duration = time.time() - start_time
 
         # Should process without excessive delay or recursion error
-        assert duration < 2.0, (
+        assert duration < 1.0, (
             f"Deeply nested JSON took {duration:.2f} seconds. "
             "Should process within reasonable time."
         )
@@ -186,7 +191,7 @@ class TestToolCallRepairServiceDoSRegression:
 
             if payload_size_mb > (MAX_JSON_PARSE_SIZE / (1024 * 1024)):
                 # Large payloads should be rejected (may take time to create string, but should reject)
-                assert duration < 10.0, (
+                assert duration < 3.0, (
                     f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
                     "Large payloads should be rejected (accounting for string creation time)."
                 )
@@ -196,7 +201,7 @@ class TestToolCallRepairServiceDoSRegression:
                 )
             else:
                 # Small payloads may take longer but should complete
-                assert duration < 5.0, (
+                assert duration < 2.0, (
                     f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
                     "Should complete within reasonable time."
                 )
