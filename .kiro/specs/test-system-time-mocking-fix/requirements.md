@@ -10,6 +10,10 @@ This specification ensures the project test suite is deterministic with respect 
 - Maintainers reviewing and approving test changes
 - Operators relying on stable CI signals for releases
 
+## Validation Notes (Non-Requirements)
+- The test suite currently uses multiple time-control techniques: a fake clock utility that controls epoch time and async sleeping, and a datetime freezing utility used by several test areas.
+- These mechanisms cover different time APIs (async sleep/epoch seconds vs. datetime wall-clock), so a single technique may not fully replace the other without additional work. The requirements below therefore focus on a single, consistent policy (and minimizing distinct techniques where feasible).
+
 ## Project Description (Input)
 chore: fix tests using calls to get true system date/time while mocked/freezed time should be used instead
 
@@ -71,6 +75,21 @@ chore: fix tests using calls to get true system date/time while mocked/freezed t
 
 #### Technical Constraints
 - Must remain compatible with Windows-first development workflows and the in-repo virtual environment interpreter conventions.
+
+### Requirement 5: Standardize Test Time Control Approach
+**Objective:** As a contributor, I want a consistent and minimal set of time-control techniques for tests, so that time-dependent tests are easy to write, review, and maintain.
+
+**Priority:** P1 (High)
+
+#### Acceptance Criteria
+1. The Test Suite shall define a single documented policy for how tests obtain test-controlled time for both wall-clock datetimes and epoch-based timestamps.
+2. When a test requires test-controlled time, the Test Suite shall use the canonical technique defined by the policy for the relevant time API surface.
+3. If more than one time-control technique is required to cover different time API surfaces, then the Test Suite shall document why and define clear selection criteria so tests do not choose arbitrarily.
+4. The Test Suite shall minimize the number of distinct time-control techniques used for equivalent purposes.
+5. When a time-control technique is not applicable to a specific test category, the Test Suite shall treat that category as a candidate for an explicit exception under Requirement 2 unless a safe alternative exists.
+
+#### Technical Constraints
+- Must be compatible with async test execution and parallel test runs.
 
 ## Non-Functional Requirements
 
