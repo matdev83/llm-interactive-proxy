@@ -19,17 +19,17 @@ Non-goals (avoid churn / forbidden shortcuts)
 Scope and limits
 - Primary target: `./tests/` slow tests and their fixtures.
 - You may optimize production code in `./src/` ONLY when it is the clear cause of slowness for the selected tests, and only with behavior-preserving changes.
-- Fix up to FIVE (5) slow tests total in this session.
+- Fix up to TEN (10) slow tests total in this session.
 
 Baseline measurement (required)
 1) Record total suite time and top-20 slowest tests by running the FULL suite with timings enabled:
    - Use this exact command to capture total time + per-test durations:
-     - `$sw=[System.Diagnostics.Stopwatch]::StartNew(); ./.venv/Scripts/python.exe -m pytest --durations=20 --durations-min=0.01; $sw.Stop(); "PYTEST_TOTAL_SECONDS=$([math]::Round($sw.Elapsed.TotalSeconds,2))"`
+     - `$sw=[System.Diagnostics.Stopwatch]::StartNew(); ./.venv/Scripts/python.exe -m pytest --durations=20 --durations-min=1; $sw.Stop(); "PYTEST_TOTAL_SECONDS=$([math]::Round($sw.Elapsed.TotalSeconds,2))"`
 2) In your report, include:
    - The printed `PYTEST_TOTAL_SECONDS=...`
    - The `--durations=20` section (top-20 slow tests with times)
 
-How to pick up to 3 tests from the slowest 20 (suggested criteria)
+How to pick up to 10 tests from the slowest 20 (suggested criteria)
 Pick tests that are BOTH slow and realistically optimizable without changing semantics:
 - Prefer tests whose time is dominated by avoidable setup/teardown (fixtures, temp files, expensive initialization) or explicit sleeps/timeouts.
 - Prefer tests that exercise the same expensive setup repeatedly (good candidates for fixture scoping/caching) and tests with obvious I/O that can be replaced by in-memory equivalents.
