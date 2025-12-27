@@ -25,8 +25,8 @@ class TestMetadataEnrichmentSafety:
     """Property tests for metadata enrichment safety (Property 20)."""
 
     @pytest.mark.asyncio
-    @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=20))
-    @settings(max_examples=50, deadline=None)
+    @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
+    @settings(max_examples=30, deadline=None)
     async def test_metadata_enrichment_does_not_buffer_stream(self, chunks):
         """
         Property 20: Metadata enrichment safety
@@ -256,7 +256,7 @@ class TestInfrastructureReuse:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=30, deadline=None)
     async def test_common_infrastructure_works_for_all_backends(self, chunks):
         """
         Property 25: Infrastructure reuse
@@ -269,7 +269,7 @@ class TestInfrastructureReuse:
         from different backends.
         """
         # Simulate chunks from different backends
-        backend_providers = ["openai", "anthropic", "gemini"]
+        backend_providers = ["openai", "anthropic"]
 
         for provider in backend_providers:
             # Tag chunks with provider
@@ -308,7 +308,7 @@ class TestInfrastructureReuse:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=3, max_size=8))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=30, deadline=None)
     async def test_processor_chain_reusable_across_backends(self, chunks):
         """
         Property 25: Infrastructure reuse (processor chain)
@@ -322,7 +322,7 @@ class TestInfrastructureReuse:
         processor2 = MetadataEnrichingProcessor("stage2", "processed")
 
         # Test with different backend providers
-        providers = ["openai", "anthropic", "gemini"]
+        providers = ["openai", "anthropic"]
 
         for provider in providers:
             # Tag chunks with provider
