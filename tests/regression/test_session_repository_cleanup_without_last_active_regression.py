@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 import pytest
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
-from tests.utils.fake_clock import FakeClockContext
 
 
 class MockSession:
@@ -44,13 +43,11 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
 
         assert len(await repo.get_all()) == 100, "All sessions should be added"
 
-        # Wait a bit to ensure _last_accessed timestamps are set
-        async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
-            clock.advance(0.1)
-            await sleep_task
+        # Wait a small amount of real time to ensure time.time() returns a different value
+        await asyncio.sleep(0.1)
 
         # Run cleanup with very short TTL (should clean all sessions)
+        # We waited 0.1s, so max_age_seconds=0 should expire everything
         cleaned = await repo.cleanup_expired(max_age_seconds=0)
 
         remaining = len(await repo.get_all())
@@ -79,15 +76,12 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
             session = MockSession(f"new_session_{i}", last_active_at=None)
             await repo.add(session)
 
-        # Wait a bit
-        async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
-            clock.advance(0.1)
-            await sleep_task
+        # Wait a small amount of real time
+        await asyncio.sleep(0.1)
 
         # Run cleanup with TTL that should clean old sessions
-        # Sessions with old last_active_at should be cleaned
-        # Sessions without last_active_at should use _last_accessed (which is recent)
+        # Sessions with old last_active_at (2020) should be cleaned (age > 1s)
+        # Sessions without last_active_at should use _last_accessed (0.1s age) and NOT be cleaned (age < 1s)
         cleaned = await repo.cleanup_expired(max_age_seconds=1)
 
         remaining = len(await repo.get_all())
@@ -117,17 +111,14 @@ class TestSessionRepositoryCleanupWithoutLastActiveRegression:
 
         repo._last_accessed["test_session"]
 
-        # Wait a bit
-        async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
-            clock.advance(0.1)
-            await sleep_task
+        # Wait a small amount of real time to ensure time.time() returns a different value
+        await asyncio.sleep(0.1)
 
         # Run cleanup with TTL that should clean based on _last_accessed
-        # Since we just added it, it should not be cleaned
+        # Since we waited 0.1s and TTL is 0.05s, the session should be cleaned
         await repo.cleanup_expired(max_age_seconds=0.05)
 
-        # Session should be cleaned because TTL is very short
+        # Session should be cleaned because TTL is shorter than the elapsed time
         remaining = len(await repo.get_all())
         assert remaining == 0, (
             "Session should be cleaned when TTL is shorter than age "

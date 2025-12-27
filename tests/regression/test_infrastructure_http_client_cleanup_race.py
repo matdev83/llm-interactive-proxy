@@ -139,45 +139,50 @@ class TestInfrastructureStageHttpClientCleanup:
             await stage._cleanup_http_client()
 
             # All tasks should be complete (set should be empty)
-            assert len(stage._cleanup_tasks) == 0, "All cleanup tasks should be cleaned up"
+            assert (
+                len(stage._cleanup_tasks) == 0
+            ), "All cleanup tasks should be cleaned up"
 
             # Verify that some clients closed successfully
             closed_count = sum(1 for client in failing_clients if client.is_closed)
-            assert closed_count > 0, "At least some clients should have closed successfully"
+            assert (
+                closed_count > 0
+            ), "At least some clients should have closed successfully"
 
     @pytest.mark.asyncio
     async def test_cleanup_timeout_cancels_pending_tasks(self):
         """Test that slow cleanup tasks are cancelled on timeout."""
         stage = InfrastructureStage()
 
-        # Create slow clients that won't finish
-        class VerySlowClient:
-            def __init__(self, index):
-                self.index = index
-                self.is_closed = False
+        async with FakeClockContext():
+            # Create slow clients that won't finish
+            class VerySlowClient:
+                def __init__(self, index):
+                    self.index = index
+                    self.is_closed = False
 
-            async def aclose(self):
-                await asyncio.sleep(10.0)  # Very slow cleanup
-                self.is_closed = True
+                async def aclose(self):
+                    await asyncio.sleep(10.0)  # Very slow cleanup
+                    self.is_closed = True
 
-        slow_clients = [VerySlowClient(i) for i in range(2)]
+            slow_clients = [VerySlowClient(i) for i in range(2)]
 
-        # Create cleanup tasks
-        for client in slow_clients:
-            cleanup_task = asyncio.create_task(client.aclose())
-            stage._cleanup_tasks.add(cleanup_task)
-            cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
+            # Create cleanup tasks
+            for client in slow_clients:
+                cleanup_task = asyncio.create_task(client.aclose())
+                stage._cleanup_tasks.add(cleanup_task)
+                cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
 
-        # Patch timeout to be shorter for testing
-        original_wait_for = asyncio.wait_for
+            # Patch timeout to be shorter for testing
+            original_wait_for = asyncio.wait_for
 
-        async def short_wait_for(coro, timeout):
-            # Use very short timeout for testing
-            return await original_wait_for(coro, 0.1)
+            async def short_wait_for(coro, timeout):
+                # Use very short timeout for testing
+                return await original_wait_for(coro, 0.1)
 
-        with patch.object(asyncio, "wait_for", short_wait_for):
-            # Call cleanup method - should timeout and cancel
-            await stage._cleanup_http_client()
+            with patch.object(asyncio, "wait_for", short_wait_for):
+                # Call cleanup method - should timeout and cancel
+                await stage._cleanup_http_client()
 
         # Cleanup tasks set should be empty
         assert len(stage._cleanup_tasks) == 0, "All cleanup tasks should be cleaned up"

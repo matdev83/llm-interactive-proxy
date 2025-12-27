@@ -12,6 +12,8 @@ from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.services.async_usage_write_queue import AsyncUsageWriteQueue
 
+from tests.utils.fake_clock import FakeClockContext
+
 
 def create_test_record(record_id: str | None = None) -> UsageRecord:
     """Create a test usage record."""

@@ -8,8 +8,10 @@ await_pending_shutdown_tasks() to prevent unbounded task accumulation.
 """
 
 import asyncio
+from typing import cast
 
 import pytest
+from src.connectors.base import LLMBackend
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 from tests.utils.fake_clock import FakeClockContext
 
@@ -44,9 +46,11 @@ class TestBackendDiscardTaskLeakRegression:
         backend2 = MockBackend("test-backend-2")
         backend3 = MockBackend("test-backend-3")
 
-        manager._backends["test-backend-1"] = backend1
-        manager._backends["test-backend-2"] = backend2
-        manager._per_session_backends["test-backend-3:session-1"] = backend3
+        manager._backends["test-backend-1"] = cast(LLMBackend, backend1)
+        manager._backends["test-backend-2"] = cast(LLMBackend, backend2)
+        manager._per_session_backends["test-backend-3:session-1"] = cast(
+            LLMBackend, backend3
+        )
 
         # Count tasks before discard
         loop = asyncio.get_running_loop()
@@ -73,6 +77,8 @@ class TestBackendDiscardTaskLeakRegression:
 
         async with FakeClockContext() as clock:
             clock.advance(0.01)
+            # Yield control to allow tasks to run
+            await asyncio.sleep(0)
 
         # Verify backends were shut down
         assert backend1.shutdown_called, "Backend 1 should be shut down"
@@ -95,7 +101,7 @@ class TestBackendDiscardTaskLeakRegression:
         num_backends = 30
         for i in range(num_backends):
             backend = MockBackend(f"attack-backend-{i}")
-            manager._backends[f"attack-backend-{i}"] = backend
+            manager._backends[f"attack-backend-{i}"] = cast(LLMBackend, backend)
 
         # Count tasks before discard
         loop = asyncio.get_running_loop()
@@ -123,6 +129,8 @@ class TestBackendDiscardTaskLeakRegression:
 
         async with FakeClockContext() as clock:
             clock.advance(0.01)
+            # Yield control to allow tasks to run
+            await asyncio.sleep(0)
 
         # Verify tasks completed and are cleaned up from tracking set
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
@@ -140,7 +148,7 @@ class TestBackendDiscardTaskLeakRegression:
         backends = []
         for i in range(num_backends):
             backend = MockBackend(f"backend-{i}")
-            manager._backends[f"backend-{i}"] = backend
+            manager._backends[f"backend-{i}"] = cast(LLMBackend, backend)
             backends.append(backend)
 
         # Discard all backends
@@ -176,7 +184,7 @@ class TestBackendDiscardTaskLeakRegression:
                 await asyncio.sleep(0.5)  # Longer than timeout
 
         backend = SlowBackend("slow-backend")
-        manager._backends["slow-backend"] = backend
+        manager._backends["slow-backend"] = cast(LLMBackend, backend)
 
         # Discard backend
         manager.discard("slow-backend", None, "test")
@@ -206,9 +214,11 @@ class TestBackendDiscardTaskLeakRegression:
         backend2 = MockBackend("backend-2")
         backend3 = MockBackend("backend-3")
 
-        manager._backends["backend-1"] = backend1
-        manager._backends["backend-2"] = backend2
-        manager._per_session_backends["backend-3:session-1"] = backend3
+        manager._backends["backend-1"] = cast(LLMBackend, backend1)
+        manager._backends["backend-2"] = cast(LLMBackend, backend2)
+        manager._per_session_backends["backend-3:session-1"] = cast(
+            LLMBackend, backend3
+        )
 
         # Discard backends
         manager.discard("backend-1", None, "test")

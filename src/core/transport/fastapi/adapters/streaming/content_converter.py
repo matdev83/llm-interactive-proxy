@@ -136,13 +136,21 @@ class StreamingContentConverter:
         """Extract payload and metadata from chunk.
 
         Args:
-            chunk: Chunk (ProcessedResponse or raw)
+            chunk: Chunk (ProcessedResponse, StreamingContent, or raw)
 
         Returns:
             PayloadAndMetadata namedtuple with payload and metadata fields
         """
         if isinstance(chunk, ProcessedResponse):
             return PayloadAndMetadata(chunk.content, chunk.metadata or {})
+        if isinstance(chunk, StreamingContent):
+            # Preserve is_done and other attributes from StreamingContent
+            metadata = dict(chunk.metadata) if chunk.metadata else {}
+            if chunk.is_done:
+                metadata["is_done"] = True
+            if chunk.stream_id:
+                metadata["stream_id"] = chunk.stream_id
+            return PayloadAndMetadata(chunk.content, metadata)
         return PayloadAndMetadata(chunk, {})
 
     def _extract_usage_from_metadata(
@@ -402,7 +410,6 @@ class StreamingContentConverter:
                 sse_metadata = decoded_sse.metadata
                 forced_done = decoded_sse.is_done
 
-
                 # Merge SSE metadata
                 if sse_metadata:
                     updated_metadata = dict(metadata) if metadata else {}
@@ -518,7 +525,6 @@ class StreamingContentConverter:
                             force_recalculation=force_usage_recalc,
                         )
                         computed_usage = computed_usage_raw
-
 
                         normalizer = self._get_usage_normalizer()
                         normalized_usage = normalizer.normalize(computed_usage) or {}

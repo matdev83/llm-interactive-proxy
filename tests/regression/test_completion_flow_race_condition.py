@@ -6,6 +6,7 @@ import pytest
 from src.core.services.backend_completion_flow.service import (
     BackendCompletionFlow,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.fixture
@@ -92,33 +93,36 @@ async def test_cleanup_pending_cancellation_tasks_concurrent(orchestrator):
     """Test cleanup_pending_cancellation_tasks with concurrent additions."""
     # Add some tasks
     tasks_added = []
-    for _ in range(10):
+    async with FakeClockContext() as clock:
+        for _ in range(10):
 
-        async def long_running():
-            await asyncio.sleep(10)
-            return
+            async def long_running():
+                await asyncio.sleep(10)
+                return
 
-        task = asyncio.create_task(long_running())
-        orchestrator._cancellation_tasks.add(task)
-        tasks_added.append(task)
-
-    # Start a concurrent add task
-    async def add_during_cleanup():
-        await asyncio.sleep(0.001)
-
-        async def noop():
-            return
-
-        task = asyncio.create_task(noop())
-        with orchestrator._cancellation_tasks_lock:
+            task = asyncio.create_task(long_running())
             orchestrator._cancellation_tasks.add(task)
-        tasks_added.append(task)
+            tasks_added.append(task)
 
-    # Both operations should work without race
-    await asyncio.gather(
-        orchestrator.cleanup(),
-        add_during_cleanup(),
-    )
+        # Start a concurrent add task
+        async def add_during_cleanup():
+            sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+            clock.advance(0.001)
+            await sleep_task
+
+            async def noop():
+                return
+
+            task = asyncio.create_task(noop())
+            with orchestrator._cancellation_tasks_lock:
+                orchestrator._cancellation_tasks.add(task)
+            tasks_added.append(task)
+
+        # Both operations should work without race
+        await asyncio.gather(
+            orchestrator.cleanup(),
+            add_during_cleanup(),
+        )
 
     # Clean up
     for task in tasks_added:

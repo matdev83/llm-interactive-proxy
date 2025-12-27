@@ -18,9 +18,9 @@ from src.core.auth.sso.authorization_service import (
     AuthorizationService,
 )
 from src.core.auth.sso.config import AuthorizationConfig
-from tests.utils.fake_clock import FakeClockContext
 from src.core.auth.sso.database import DatabaseManager
 from src.core.auth.sso.rate_limit_service import RateLimitService
+from tests.utils.fake_clock import FakeClockContext
 
 
 @asynccontextmanager

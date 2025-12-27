@@ -13,6 +13,7 @@ from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
+
 from tests.utils.fake_clock import FakeClockContext
 
 # Suppress Windows ProactorEventLoop resource warnings in this module only

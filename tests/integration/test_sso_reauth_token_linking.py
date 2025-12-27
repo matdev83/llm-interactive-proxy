@@ -18,9 +18,10 @@ from src.core.auth.sso.database import DatabaseManager, TokenRepository
 from src.core.auth.sso.middleware import AuthMiddleware
 from src.core.auth.sso.models import TokenRecord
 from src.core.auth.sso.rate_limit_service import RateLimitService
-from tests.utils.fake_clock import FakeClockContext
 from src.core.auth.sso.sandbox_handler import SandboxHandler
 from src.core.auth.sso.token_service import TokenService
+
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.fixture

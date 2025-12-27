@@ -5,6 +5,7 @@ from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatRequest
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
+
 from tests.utils.fake_clock import FakeClockContext
 
 # Skip entire module - tests depend on _refresh_instance_registry which is not yet implemented

@@ -9,6 +9,7 @@ from typing import ClassVar
 import pytest
 from src.core.domain.events import Event
 from src.core.services.event_bus import EventBus
+
 from tests.utils.fake_clock import FakeClockContext
 
 

@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 from src.core.domain.chat import ChatRequest
+
 from tests.utils.fake_clock import FakeClockContext
 
 

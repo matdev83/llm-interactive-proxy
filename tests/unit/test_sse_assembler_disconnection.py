@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 import pytest
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming_contracts import StreamingContent
+
 from tests.utils.fake_clock import FakeClockContext
 
 

@@ -35,6 +35,7 @@ async def test_qwen_oauth_static_routing_model_override_regression():
     """
     config = AppConfig()
     async_client = httpx.AsyncClient()
+    connector = None
 
     try:
         connector = QwenOAuthConnector(async_client, config)
@@ -118,6 +119,8 @@ async def test_qwen_oauth_static_routing_model_override_regression():
             ), "processed_messages should be passed to parent method"
 
     finally:
+        if connector:
+            await connector.shutdown()
         await async_client.aclose()
 
 
@@ -130,6 +133,7 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
     """
     config = AppConfig()
     async_client = httpx.AsyncClient()
+    connector = None
 
     try:
         connector = QwenOAuthConnector(async_client, config)
@@ -225,6 +229,8 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
                     ), f"Case {i}: Expected effective_model to be '{case['expected_effective_model']}', got '{call_kwargs['effective_model']}'"
 
     finally:
+        if connector:
+            await connector.shutdown()
         await async_client.aclose()
 
 
@@ -238,6 +244,7 @@ async def test_qwen_oauth_prevents_original_model_leakage():
     """
     config = AppConfig()
     async_client = httpx.AsyncClient()
+    connector = None
 
     try:
         connector = QwenOAuthConnector(async_client, config)
@@ -300,6 +307,8 @@ async def test_qwen_oauth_prevents_original_model_leakage():
             # (This is validated by the OpenAIConnector's _prepare_payload method)
 
     finally:
+        if connector:
+            await connector.shutdown()
         await async_client.aclose()
 
 
@@ -325,6 +334,7 @@ async def test_qwen_oauth_static_routing_with_real_credentials():
 
         config = AppConfig()
         async_client = httpx.AsyncClient()
+        connector = None
 
         try:
             connector = QwenOAuthConnector(async_client, config)
@@ -390,6 +400,8 @@ async def test_qwen_oauth_static_routing_with_real_credentials():
                 ), "Original model should not appear in API request"
 
         finally:
+            if connector:
+                await connector.shutdown()
             await async_client.aclose()
 
     except Exception as e:

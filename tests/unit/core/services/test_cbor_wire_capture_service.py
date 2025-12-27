@@ -17,6 +17,7 @@ from src.core.domain.cbor_capture import (
     CaptureSession,
 )
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+
 from tests.utils.fake_clock import FakeClockContext
 
 
@@ -526,6 +527,7 @@ class TestCborWireCaptureService:
         assert len(stream_entries) >= 2
 
     @pytest.mark.asyncio
+    @pytest.mark.xdist_group(name="fake_clock")
     async def test_timestamp_precision(self, capture_service):
         """Test that timestamps have subsecond precision."""
         await capture_service.capture_inbound_request(

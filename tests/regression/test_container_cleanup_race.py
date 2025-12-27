@@ -39,7 +39,7 @@ async def test_service_collection_cleanup_tasks_race_condition():
     async def add_tasks_concurrently():
         """Simulate adding cleanup tasks"""
         async with FakeClockContext() as clock:
-            for i in range(5):
+            for _ in range(5):
                 sleep_task = asyncio.create_task(asyncio.sleep(0.001))
                 clock.advance(0.001)
                 await sleep_task
@@ -56,7 +56,7 @@ async def test_service_collection_cleanup_tasks_race_condition():
             collection.add_instance(str, old_client)
             new_client = MockClient()
             collection.add_instance(str, new_client)
-            tasks_lost.append(i)
+            tasks_lost.append(1)
 
     async def dispose_while_adding():
         """Dispose collection while tasks are being added"""

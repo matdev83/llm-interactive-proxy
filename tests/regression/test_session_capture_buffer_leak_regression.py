@@ -155,11 +155,8 @@ class TestSessionCaptureBufferLeakRegression:
         async with buffer._lock:
             initial_access = buffer._buffers[session_id].last_accessed
 
-        # Wait a bit to ensure time progresses
-        async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
-            clock.advance(0.01)
-            await sleep_task
+        # Wait a small amount of real time to ensure time.time() returns a different value
+        await asyncio.sleep(0.01)
 
         # Add another interaction to same session
         interaction2 = CapturedInteraction(
@@ -204,8 +201,6 @@ class TestSessionCaptureBufferLeakRegression:
         assert initial_count == 1, "Session should exist initially."
 
         # Wait for TTL to expire using fake clock
-        from tests.utils.fake_clock import FakeClockContext
-
         async with FakeClockContext() as clock:
             clock.advance(1.1)
 

@@ -7,7 +7,10 @@ deterministic way, without relying on actual wall-clock time.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time as time_module
+from collections.abc import Awaitable
+from contextvars import ContextVar, Token
 from typing import Any
 
 
@@ -81,18 +84,36 @@ class FakeClock:
         for event in triggered_events:
             event.set()
 
-    async def sleep(self, duration: float) -> None:
+    def sleep(self, duration: float, result: Any = None) -> Awaitable[Any]:
         """Sleep for a given duration (fake).
 
-        This method simulates sleeping by advancing the clock.
+        The sleep event is registered immediately when this method is called,
+        not when the returned awaitable is first awaited. This makes fake-time
+        deterministic for patterns like:
 
-        Args:
-            duration: The duration to sleep
+            sleep_task = asyncio.create_task(asyncio.sleep(x))
+            clock.advance(x)
+            await sleep_task
         """
         target_time = self._current_time + duration
         event = asyncio.Event()
         self._events.append((target_time, event))
-        await event.wait()
+
+        if target_time <= self._current_time:
+            event.set()
+
+        async def _wait() -> Any:
+            try:
+                await event.wait()
+                return result
+            finally:
+                self._events = [
+                    (event_time, pending)
+                    for event_time, pending in self._events
+                    if pending is not event
+                ]
+
+        return _wait()
 
     def reset(self) -> None:
         """Reset the clock to initial state."""
@@ -113,38 +134,59 @@ class FakeClockContext:
         Args:
             clock: Optional fake clock to use (creates new one if None)
         """
+        self._owns_clock = clock is None
         self.clock = clock or FakeClock()
-        self._original_sleep: Any = None
-        self._original_time: Any = None
+        self._token: Token[FakeClock | None] | None = None
+
+    _PATCHED: bool = False
+    _ACTIVE_CLOCK: ContextVar[FakeClock | None] = ContextVar(
+        "fake_clock_active", default=None
+    )
+    _ORIGINAL_ASYNCIO_SLEEP: Any = None
+    _ORIGINAL_TIME: Any = None
+
+    @classmethod
+    def _ensure_patched(cls) -> None:
+        if cls._PATCHED:
+            return
+
+        cls._ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
+        cls._ORIGINAL_TIME = time_module.time
+
+        def _sleep(delay: float, result: Any = None) -> Any:
+            if delay <= 0:
+                return cls._ORIGINAL_ASYNCIO_SLEEP(0, result=result)  # type: ignore[misc]
+            clock = cls._ACTIVE_CLOCK.get()
+            if clock is None:
+                return cls._ORIGINAL_ASYNCIO_SLEEP(delay, result=result)  # type: ignore[misc]
+            return clock.sleep(delay, result=result)
+
+        def _time() -> float:
+            clock = cls._ACTIVE_CLOCK.get()
+            if clock is None:
+                return float(cls._ORIGINAL_TIME())
+            return float(clock.now())
+
+        asyncio.sleep = _sleep  # type: ignore[assignment]
+        time_module.time = _time  # type: ignore[assignment]
+        cls._PATCHED = True
 
     async def __aenter__(self) -> FakeClock:
         """Enter the context."""
-        # Patch asyncio.sleep
-        self._original_sleep = asyncio.sleep
-        self._original_time = time_module.time
+        self._ensure_patched()
+        self._token = self._ACTIVE_CLOCK.set(self.clock)
 
-        async def fake_sleep(delay: float, result: Any = None) -> Any:
-            # Many code paths (and pytest/asyncio internals) use `await asyncio.sleep(0)`
-            # as a cooperative yield. Treat non-positive delays as an immediate yield.
-            if delay <= 0:
-                await self._original_sleep(0)  # type: ignore[misc]
-                return result
-            await self.clock.sleep(delay)
-            return result
-
-        def fake_time() -> float:
-            return self.clock.now()
-
-        asyncio.sleep = fake_sleep  # type: ignore[assignment]
-        time_module.time = fake_time  # type: ignore[assignment]
+        # When we create the clock internally (common case), start from "now" so
+        # that advancing time preserves epoch-based semantics for code that
+        # compares against real timestamps.
+        if self._owns_clock and self.clock.now() == 0.0:
+            with contextlib.suppress(Exception):
+                self.clock.set_time(float(self._ORIGINAL_TIME()))
 
         return self.clock
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit the context."""
-        # Restore original functions
-        if self._original_sleep is not None:
-            asyncio.sleep = self._original_sleep  # type: ignore[assignment]
-
-        if self._original_time is not None:
-            time_module.time = self._original_time  # type: ignore[assignment]
+        if self._token is not None:
+            self._ACTIVE_CLOCK.reset(self._token)
+            self._token = None
