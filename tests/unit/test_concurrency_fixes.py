@@ -1,8 +1,8 @@
 """Concurrency tests for thread-safe singleton initialization and cache access."""
 
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from unittest.mock import patch
 
 from src.core.auth.sso.sso_service import JWKSCache
 from src.core.ports.streaming_metrics import (
@@ -78,29 +78,33 @@ class TestJWKSCacheConcurrency:
         class MockJWKS:
             keys = []
 
-        # Add entries
-        for i in range(10):
-            cache.set(f"jwks_uri_{i}", MockJWKS())
+        # Mock time to avoid sleeping
+        with patch("src.core.auth.sso.sso_service.time.time") as mock_time:
+            mock_time.return_value = 1000.0
 
-        # Wait for entries to expire
-        time.sleep(1.1)
-
-        # Concurrently access expired entries
-        def worker(thread_id: int) -> list[object | None]:
-            results = []
+            # Add entries
             for i in range(10):
-                result = cache.get(f"jwks_uri_{i}")
-                results.append(result)
-            return results
+                cache.set(f"jwks_uri_{i}", MockJWKS())
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(worker, i) for i in range(5)]
-            all_results = []
-            for future in as_completed(futures):
-                all_results.extend(future.result())
+            # Advance time past expiration (1 second + margin)
+            mock_time.return_value = 1001.1
 
-        # All results should be None (expired)
-        assert all(r is None for r in all_results)
+            # Concurrently access expired entries
+            def worker(thread_id: int) -> list[object | None]:
+                results = []
+                for i in range(10):
+                    result = cache.get(f"jwks_uri_{i}")
+                    results.append(result)
+                return results
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(worker, i) for i in range(5)]
+                all_results = []
+                for future in as_completed(futures):
+                    all_results.extend(future.result())
+
+            # All results should be None (expired)
+            assert all(r is None for r in all_results)
 
 
 class TestStreamingMetricsSingletonConcurrency:
@@ -110,6 +114,7 @@ class TestStreamingMetricsSingletonConcurrency:
         """Test that concurrent calls return the same instance."""
         # Reset the singleton first
         import src.core.ports.streaming_metrics as metrics_module
+
         metrics_module._global_metrics_instance = None
 
         num_threads = 10
@@ -133,12 +138,15 @@ class TestStreamingMetricsSingletonConcurrency:
 
         # All instances should be the same
         unique_instances = {id(i) for i in instances}
-        assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"
+        assert (
+            len(unique_instances) == 1
+        ), f"Expected 1 unique instance, got {len(unique_instances)}"
 
     def test_concurrent_get_sampler_instance(self):
         """Test that concurrent calls return the same instance."""
         # Reset the singleton first
         import src.core.ports.streaming_metrics as metrics_module
+
         metrics_module._global_sampler_instance = None
 
         num_threads = 10
@@ -158,7 +166,9 @@ class TestStreamingMetricsSingletonConcurrency:
 
         # All instances should be the same
         unique_instances = {id(i) for i in instances}
-        assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"
+        assert (
+            len(unique_instances) == 1
+        ), f"Expected 1 unique instance, got {len(unique_instances)}"
 
 
 class TestUsageCalculationServiceSingletonConcurrency:
@@ -168,6 +178,7 @@ class TestUsageCalculationServiceSingletonConcurrency:
         """Test that concurrent calls return the same instance."""
         # Reset the singleton first
         import src.core.services.usage_calculation_service as service_module
+
         service_module._usage_calculation_service = None
 
         num_threads = 10
@@ -187,4 +198,6 @@ class TestUsageCalculationServiceSingletonConcurrency:
 
         # All instances should be the same
         unique_instances = {id(i) for i in instances}
-        assert len(unique_instances) == 1, f"Expected 1 unique instance, got {len(unique_instances)}"
+        assert (
+            len(unique_instances) == 1
+        ), f"Expected 1 unique instance, got {len(unique_instances)}"

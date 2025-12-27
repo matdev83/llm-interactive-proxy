@@ -1,7 +1,7 @@
 """Tests for backend retry-after handling."""
 
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from src.connectors.base import LLMBackend
@@ -60,12 +60,17 @@ def test_backend_retry_after_expiration(mock_backend):
     # Should be rate limited
     assert mock_backend.is_rate_limited()
 
-    # Wait for expiration
-    time.sleep(0.15)
+    # Get real current time before patching
+    current = time.time()
 
-    # Should no longer be rate limited
-    assert not mock_backend.is_rate_limited()
-    assert mock_backend.get_retry_after_remaining() is None
+    # Mock time to simulate passage of time instead of sleeping
+    with patch("time.time") as mock_time:
+        # Advance past expiration
+        mock_time.return_value = current + 0.15
+
+        # Should no longer be rate limited
+        assert not mock_backend.is_rate_limited()
+        assert mock_backend.get_retry_after_remaining() is None
 
 
 def test_backend_retry_after_zero_or_negative(mock_backend):

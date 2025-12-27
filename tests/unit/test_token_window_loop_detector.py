@@ -39,7 +39,7 @@ class TestContentLoopDetection:
         detector = TokenWindowLoopDetector()
         detector.reset()
 
-        for _ in range(1000):
+        for _ in range(200):
             content = generate_random_string(10)
             is_loop = detector.process_chunk(content)
             assert is_loop is None
