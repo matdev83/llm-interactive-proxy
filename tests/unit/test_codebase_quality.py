@@ -56,42 +56,42 @@ def find_files_with_emojis(directories: list[str]) -> list[tuple[str, int, str]]
         A list of tuples, where each tuple contains the file path,
         line number, and the line of code with the emoji.
     """
+    from pathlib import Path
+
     files_with_emojis = []
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    project_root = Path(__file__).resolve().parents[2]
+
+    skip_parts = {"__pycache__"}
 
     for directory in directories:
-        for root, _, files in os.walk(directory):
-            if "__pycache__" in root:
+        dir_path = Path(directory)
+        for file_path in dir_path.rglob("*.py"):
+            if any(skip_part in file_path.parts for skip_part in skip_parts):
                 continue
 
-            for file in files:
-                if not file.endswith(PY_EXT) or file.endswith(PYC_EXT):
-                    continue
+            relative_file_path = os.path.normpath(
+                os.path.relpath(str(file_path), start=str(project_root))
+            )
 
-                file_path = os.path.join(root, file)
-                relative_file_path = os.path.normpath(
-                    os.path.relpath(file_path, start=project_root)
-                )
+            if relative_file_path in SKIPPED_FILES:
+                continue
 
-                if relative_file_path in SKIPPED_FILES:
-                    continue
+            if not file_path.is_file():
+                continue
 
-                try:
-                    with open(file_path, encoding="utf-8") as f:
-                        content = f.read()
-                        match = EMOJI_REGEX.search(content)
-                        if match:
-                            line_start = content.rfind("\n", 0, match.start()) + 1
-                            line_end = content.find("\n", match.start())
-                            if line_end == -1:
-                                line_end = len(content)
-                            line_content = content[line_start:line_end].strip()
-                            line_num = content[: match.start()].count("\n") + 1
-                            files_with_emojis.append(
-                                (file_path, line_num, line_content)
-                            )
-                except (UnicodeDecodeError, OSError):
-                    continue
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                match = EMOJI_REGEX.search(content)
+                if match:
+                    line_start = content.rfind("\n", 0, match.start()) + 1
+                    line_end = content.find("\n", match.start())
+                    if line_end == -1:
+                        line_end = len(content)
+                    line_content = content[line_start:line_end].strip()
+                    line_num = content[: match.start()].count("\n") + 1
+                    files_with_emojis.append((str(file_path), line_num, line_content))
+            except (UnicodeDecodeError, OSError):
+                continue
     return files_with_emojis
 
 
@@ -145,7 +145,7 @@ def emoji_check_cache() -> dict[str, Any]:
 
     cache_dir = os.path.join(project_root, ".pytest_cache")
     os.makedirs(cache_dir, exist_ok=True)
-    cache_file = os.path.join(cache_dir, "emoji_check_cache.json")
+    cache_file = os.path.join(cache_dir, "emoji_check_cache_v2.json")
 
     cache: dict[str, Any] = {}
     if os.path.exists(cache_file):
