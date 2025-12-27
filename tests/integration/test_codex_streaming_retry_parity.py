@@ -333,7 +333,7 @@ async def test_streaming_retry_backoff_behavior(
     call_count = [0]
     retry_times = []
 
-        async def mock_streaming_response(*args, **kwargs):
+    async def mock_streaming_response(*args, **kwargs):
         call_count[0] += 1
         if call_count[0] <= 2:
             # Use fixed timestamp for deterministic retry tracking

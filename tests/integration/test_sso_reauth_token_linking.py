@@ -280,19 +280,19 @@ class TestReauthenticationTokenLinking:
         # Simulate successful OAuth callback and authorization
         # The web interface should update the existing token, not create a new one
 
-            # Verify token was updated (in real flow, this happens in web_interface callback)
-            await token_repo.update_auth_status(
-                token_id=existing_token.id,
-                authenticated=True,
-                expiry=fixed_time + timedelta(hours=24),
-            )
+        # Verify token was updated (in real flow, this happens in web_interface callback)
+        await token_repo.update_auth_status(
+            token_id=existing_token.id,
+            authenticated=True,
+            expiry=fixed_time + timedelta(hours=24),
+        )
 
-            # Verify the token is now authenticated
-            updated_token = await token_repo.get_by_id(existing_token.id)
-            assert updated_token is not None
-            assert updated_token.is_authenticated is True
-            assert updated_token.auth_expires_at is not None
-            assert updated_token.auth_expires_at > fixed_time
+        # Verify the token is now authenticated
+        updated_token = await token_repo.get_by_id(existing_token.id)
+        assert updated_token is not None
+        assert updated_token.is_authenticated is True
+        assert updated_token.auth_expires_at is not None
+        assert updated_token.auth_expires_at > fixed_time
 
     @pytest.mark.asyncio
     async def test_web_interface_new_user_flow(

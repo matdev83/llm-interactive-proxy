@@ -468,10 +468,10 @@ class TestQwenOAuthConnectorUnit:
                 ),
                 patch("pathlib.Path.stat", return_value=MagicMock(st_mtime=initial_mtime)),
             ):
-            with patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ):
-                await connector.initialize()
+                with patch.object(
+                    connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+                ):
+                    await connector.initialize()
             assert connector.is_functional  # Should be functional if loaded
             assert (
                 connector._oauth_credentials["refresh_token"]

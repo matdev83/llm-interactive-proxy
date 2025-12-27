@@ -197,8 +197,8 @@ async def test_initialize_uses_codex_auth_when_secrets_missing(
                 "_refresh_tokens",
                 new=AsyncMock(return_value=refreshed_payload),
             ),
-    ):
-        await connector.initialize(secrets_path=secrets_path, codex_auth_path=auth_path)
+        ):
+            await connector.initialize(secrets_path=secrets_path, codex_auth_path=auth_path)
 
     assert connector.api_key == "workos:converted-token"
     stored_data = json.loads(secrets_path.read_text())

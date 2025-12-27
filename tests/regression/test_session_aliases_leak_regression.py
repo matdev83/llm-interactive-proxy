@@ -8,6 +8,7 @@ session aliases limit enforcement.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
@@ -39,6 +40,7 @@ class TestSessionAliasesLeakRegression:
         ), "_session_aliases_last_access should be a dict"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_session_aliases_no_attribute_error(
         self, reactor: ToolCallReactorService
     ) -> None:
@@ -51,7 +53,7 @@ class TestSessionAliasesLeakRegression:
             tool_name="test_tool",
             tool_arguments={"arg": "value"},
             calling_agent="test_agent",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         # Should not raise AttributeError
@@ -69,12 +71,14 @@ class TestSessionAliasesLeakRegression:
         ), "Session alias last access should be tracked"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_max_session_aliases_limit_enforced(
         self, reactor: ToolCallReactorService
     ) -> None:
         """Test that max_session_aliases limit is enforced."""
         # Create more sessions than the limit
         num_sessions = 150  # More than max_session_aliases (100)
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         for i in range(num_sessions):
             context = ToolCallContext(
@@ -85,7 +89,7 @@ class TestSessionAliasesLeakRegression:
                 tool_name="test_tool",
                 tool_arguments={"arg": f"value_{i}"},
                 calling_agent="test_agent",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=fixed_time,
             )
             await reactor.process_tool_call(context)
 
@@ -97,10 +101,12 @@ class TestSessionAliasesLeakRegression:
         )
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_session_aliases_ttl_cleanup(
         self, reactor: ToolCallReactorService
     ) -> None:
         """Test that expired session aliases are cleaned up based on TTL."""
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         # Create an entry
         context = ToolCallContext(
             session_id="old_session",
@@ -110,7 +116,7 @@ class TestSessionAliasesLeakRegression:
             tool_name="test_tool",
             tool_arguments={"arg": "value"},
             calling_agent="test_agent",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=fixed_time,
         )
         await reactor.process_tool_call(context)
         assert (
@@ -118,9 +124,7 @@ class TestSessionAliasesLeakRegression:
         ), "Session alias should be created"
 
         # Manually set last_access to be old (expired)
-        reactor._session_aliases_last_access["old_session"] = datetime.now(
-            timezone.utc
-        ) - timedelta(
+        reactor._session_aliases_last_access["old_session"] = fixed_time - timedelta(
             seconds=2
         )  # Older than TTL (1 second)
 
@@ -133,7 +137,7 @@ class TestSessionAliasesLeakRegression:
             tool_name="test_tool",
             tool_arguments={"arg": "value"},
             calling_agent="test_agent",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=fixed_time,
         )
         await reactor.process_tool_call(new_context)
 
@@ -149,12 +153,14 @@ class TestSessionAliasesLeakRegression:
         ), "New session alias should still exist"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_session_aliases_bounded_growth(
         self, reactor: ToolCallReactorService
     ) -> None:
         """Test that session aliases don't grow unbounded."""
         # Create many unique sessions (reduced from 10000 for performance)
         num_sessions = 200  # Still tests bounded growth with cleanup
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         for i in range(num_sessions):
             context = ToolCallContext(
@@ -165,7 +171,7 @@ class TestSessionAliasesLeakRegression:
                 tool_name="test_tool",
                 tool_arguments={"arg": f"value_{i}"},
                 calling_agent="test_agent",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=fixed_time,
             )
             await reactor.process_tool_call(context)
 
@@ -177,10 +183,12 @@ class TestSessionAliasesLeakRegression:
         )
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_session_aliases_cleanup_on_every_call(
         self, reactor: ToolCallReactorService
     ) -> None:
         """Test that cleanup is called on every process_tool_call invocation."""
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         # Create many sessions to fill up to limit
         for i in range(reactor._max_session_aliases):
             context = ToolCallContext(
@@ -191,7 +199,7 @@ class TestSessionAliasesLeakRegression:
                 tool_name="test_tool",
                 tool_arguments={"arg": f"value_{i}"},
                 calling_agent="test_agent",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=fixed_time,
             )
             await reactor.process_tool_call(context)
 
@@ -209,7 +217,7 @@ class TestSessionAliasesLeakRegression:
             tool_name="test_tool",
             tool_arguments={"arg": "value"},
             calling_agent="test_agent",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=fixed_time,
         )
         await reactor.process_tool_call(new_context)
 
