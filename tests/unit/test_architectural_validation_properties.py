@@ -334,7 +334,7 @@ def test_property_transport_isolation() -> None:
     violations = []
 
     # Check transport layer files
-    transport_files = []
+    transport_files: list[Path] = []
 
     transport_dir = Path("src/core/transport")
     if transport_dir.exists():
@@ -518,8 +518,8 @@ def test_property_middleware_interface_narrowness() -> None:
         # Check method signatures for logging/transport parameters
         for method_name in methods:
             try:
-                method = getattr(processor_class, method_name)
-                sig = inspect.signature(method)
+                method_obj = getattr(processor_class, method_name)
+                sig = inspect.signature(method_obj)
 
                 # Check parameters
                 for param_name in sig.parameters:

@@ -55,13 +55,19 @@ def _find_middleware_classes() -> list[tuple[str, type]]:
     return middleware_classes
 
 
+@pytest.fixture(scope="session")
+def middleware_classes_cache() -> list[tuple[str, type]]:
+    """Session-scoped cache for discovered middleware classes."""
+    return _find_middleware_classes()
+
+
 class TestFeatureParityCI:
     """CI tests for feature parity enforcement."""
 
     @pytest.mark.quality
-    def test_all_middleware_are_discoverable(self):
-        """Test that we can discover middleware classes in the codebase."""
-        classes = _find_middleware_classes()
+    def test_all_middleware_are_discoverable(self, middleware_classes_cache):
+        """Test that we can discover middleware classes in codebase."""
+        classes = middleware_classes_cache
 
         # We should find at least some middleware
         assert len(classes) > 0, "Should discover at least one middleware class"
@@ -73,7 +79,7 @@ class TestFeatureParityCI:
         ), f"Expected to find multiple middleware, found: {class_names}"
 
     @pytest.mark.quality
-    def test_known_middleware_have_feature_versions(self):
+    def test_known_middleware_have_feature_versions(self, middleware_classes_cache):
         """Test that key middleware have IResponseFeature versions.
 
         This test verifies that middleware with known parity gaps have been
@@ -96,7 +102,7 @@ class TestFeatureParityCI:
 
         assert issubclass(JsonRepairFeature, IResponseFeature)
 
-        classes = _find_middleware_classes()
+        classes = middleware_classes_cache
         found_features = {
             name.split(".")[-1]
             for name, cls in classes
@@ -110,9 +116,9 @@ class TestFeatureParityCI:
         )
 
     @pytest.mark.quality
-    def test_features_have_required_methods(self):
+    def test_features_have_required_methods(self, middleware_classes_cache):
         """Test that all IResponseFeature classes implement required methods."""
-        classes = _find_middleware_classes()
+        classes = middleware_classes_cache
 
         for full_name, cls in classes:
             if not issubclass(cls, IResponseFeature) or cls is IResponseFeature:
@@ -140,9 +146,9 @@ class TestFeatureParityCI:
             ), f"{full_name}.process_non_streaming should be callable"
 
     @pytest.mark.quality
-    def test_middleware_have_capability_attribute(self):
+    def test_middleware_have_capability_attribute(self, middleware_classes_cache):
         """Test that IResponseFeature classes declare their capability."""
-        classes = _find_middleware_classes()
+        classes = middleware_classes_cache
 
         for full_name, cls in classes:
             if not issubclass(cls, IResponseFeature) or cls is IResponseFeature:
