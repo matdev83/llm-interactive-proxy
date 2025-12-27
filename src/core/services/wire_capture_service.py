@@ -341,29 +341,38 @@ class WireCapture(IWireCapture):
         # Best-effort append with a lock to serialize writes
         if not self._file_path:
             return
-        async with self._lock:
-            # PERFORMANCE OPTIMIZATION: Calculate incoming size once for both size checking and cap enforcement
-            incoming_size = len(text.encode("utf-8"))
 
-            # Rotation: if size exceeds max, perform multi-level rotation
-            # Also rotate based on elapsed time if configured
-            if await self._should_rotate_time_async():
-                await self._perform_rotation_async()
-            if self._max_bytes and self._max_bytes > 0:
-                try:
-                    current_size = (
-                        await asyncio.to_thread(os.path.getsize, self._file_path)
-                        if await asyncio.to_thread(os.path.exists, self._file_path)
-                        else 0
+        # PERFORMANCE OPTIMIZATION: Calculate incoming size once for both size checking and cap enforcement
+        incoming_size = len(text.encode("utf-8"))
+
+        # Perform I/O operations outside async lock to avoid blocking event loop
+        # and potential deadlocks. The lock protects the critical section:
+        # - actual file write
+        # - total cap enforcement (which mutates shared cached state)
+        # All other async I/O (to_thread) is done before acquiring the lock
+
+        # Rotation: if size exceeds max, perform multi-level rotation
+        # Also rotate based on elapsed time if configured
+        if await self._should_rotate_time_async():
+            await self._perform_rotation_async()
+        if self._max_bytes and self._max_bytes > 0:
+            try:
+                current_size = (
+                    await asyncio.to_thread(os.path.getsize, self._file_path)
+                    if await asyncio.to_thread(os.path.exists, self._file_path)
+                    else 0
+                )
+                if current_size + incoming_size > self._max_bytes:
+                    await self._perform_rotation_async()
+            except OSError as e:
+                # Log rotation errors but do not propagate
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error during wire capture rotation: %s", e, exc_info=True
                     )
-                    if current_size + incoming_size > self._max_bytes:
-                        await self._perform_rotation_async()
-                except OSError as e:
-                    # Log rotation errors but do not propagate
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Error during wire capture rotation: %s", e, exc_info=True
-                        )
+
+        # Now acquire lock only for the write and total cap enforcement
+        async with self._lock:
             try:
                 await asyncio.to_thread(self._write_to_file, self._file_path, text)
             except OSError as e:

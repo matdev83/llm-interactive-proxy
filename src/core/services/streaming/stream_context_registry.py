@@ -9,6 +9,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Lock for protecting global singleton initialization
+_global_init_lock = threading.Lock()
+
 # Maximum number of reasoning chunks to prevent unbounded memory growth
 # 1000 chunks at ~100 bytes each = ~100KB per stream
 _MAX_REASONING_CHUNKS = 1000
@@ -410,7 +413,13 @@ def set_global_streaming_context_registry(
 
 
 def get_global_streaming_context_registry() -> StreamingContextRegistry:
+    """Get the global StreamingContextRegistry singleton.
+
+    Thread-safe: uses lock to prevent race condition where multiple threads
+    could create multiple instances simultaneously.
+    """
     global _GLOBAL_REGISTRY
-    if _GLOBAL_REGISTRY is None:
-        _GLOBAL_REGISTRY = StreamingContextRegistry()
-    return _GLOBAL_REGISTRY
+    with _global_init_lock:
+        if _GLOBAL_REGISTRY is None:
+            _GLOBAL_REGISTRY = StreamingContextRegistry()
+        return _GLOBAL_REGISTRY

@@ -7,7 +7,6 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator, Callable
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -529,7 +528,7 @@ class StructuredWireCapture(IWireCapture):
             return
 
         try:
-            # Convert entry to JSON string
+            # Convert entry to JSON string (outside lock - no async I/O)
             json_str = json.dumps(entry, ensure_ascii=False) + "\n"
         except (TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.DEBUG):
@@ -546,29 +545,44 @@ class StructuredWireCapture(IWireCapture):
             except Exception:
                 return
 
+        incoming_size = len(json_str.encode("utf-8"))
+
+        # Perform I/O operations outside async lock to avoid blocking event loop
+        # and potential deadlocks. The lock protects the critical section:
+        # - rotation check/execution (which mutates files)
+        # - actual file write
+        # All async I/O (to_thread) is done before acquiring the lock
+
+        # Check and perform time-based rotation (outside lock)
+        if self._should_rotate_time():
+            await asyncio.to_thread(self._perform_rotation)
+
+        # Check size-based rotation (outside lock)
+        if self._max_bytes and self._max_bytes > 0:
+            try:
+                current_size = (
+                    os.path.getsize(self._file_path)
+                    if os.path.exists(self._file_path)
+                    else 0
+                )
+                if current_size + incoming_size > self._max_bytes:
+                    await asyncio.to_thread(self._perform_rotation)
+            except OSError as e:
+                logger.warning(
+                    "Error during structured wire capture rotation: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        # Now acquire lock only for the write and total cap enforcement
         async with self._lock:
-            # Check if rotation needed
-            if self._should_rotate_time():
-                await asyncio.to_thread(self._perform_rotation)
-
-            if self._max_bytes and self._max_bytes > 0:
-                try:
-                    current_size = (
-                        os.path.getsize(self._file_path)
-                        if os.path.exists(self._file_path)
-                        else 0
-                    )
-                    incoming_size = len(json_str.encode("utf-8"))
-                    if current_size + incoming_size > self._max_bytes:
-                        await asyncio.to_thread(self._perform_rotation)
-                except OSError as e:
-                    logger.warning(
-                        "Error during structured wire capture rotation: %s",
-                        e,
-                        exc_info=True,
-                    )
-
-            await asyncio.to_thread(self._write_entry_sync, json_str)
+            try:
+                await asyncio.to_thread(self._write_entry_sync, json_str)
+            except OSError as e:
+                logger.warning(
+                    "Structured wire capture write failed: %s", e, exc_info=True
+                )
+                return
             await asyncio.to_thread(self._enforce_total_cap)
 
     def _write_entry_sync(self, json_str: str) -> None:
