@@ -4,6 +4,8 @@ This test verifies that _limits dictionary is properly bounded and cleaned up
 when limits are set but never used, preventing unbounded memory growth.
 """
 
+import time
+
 import pytest
 from freezegun import freeze_time
 from src.core.services.rate_limiter import InMemoryRateLimiter

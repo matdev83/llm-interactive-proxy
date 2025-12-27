@@ -10,7 +10,7 @@ Fixed: stop_persistence_thread() properly signals shutdown and joins the thread.
 import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from threading import Event
 
 import pytest
 from src.core.services.in_memory_usage_store import InMemoryUsageStore
@@ -38,10 +38,13 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         # Start persistence thread
         store.start_persistence_thread()
 
-        # Wait a bit to ensure thread started - use non-blocking sleep via mock
-        import time
-        with patch("time.sleep"):
-            time.sleep(0.05)  # No-op in tests, allows threads to proceed naturally
+        # Wait a bit to ensure thread started - use threading.Event to wait for thread
+        event = Event()
+        # Wait up to 0.05s for thread to start, checking periodically
+        for _ in range(50):  # 50 iterations * 0.001s = 0.05s max
+            if store._flush_thread is not None and store._flush_thread.is_alive():
+                break
+            event.wait(timeout=0.001)
 
         # Verify thread is running
         assert store._flush_thread is not None, "Persistence thread should exist"
@@ -55,9 +58,13 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         # Stop persistence thread
         store.stop_persistence_thread()
 
-        # Wait for thread to stop - use non-blocking sleep via mock
-        with patch("time.sleep"):
-            time.sleep(0.1)  # No-op in tests, allows threads to proceed naturally
+        # Wait for thread to stop - use threading.Event to wait for thread shutdown
+        event = Event()
+        # Wait up to 0.1s for thread to stop, checking periodically
+        for _ in range(100):  # 100 iterations * 0.001s = 0.1s max
+            if store._flush_thread is None or not store._flush_thread.is_alive():
+                break
+            event.wait(timeout=0.001)
 
         # Verify thread is stopped
         assert (
@@ -93,10 +100,16 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         for store in stores:
             store.stop_persistence_thread()
 
-        # Wait for threads to stop - use non-blocking sleep via mock
-        import time
-        with patch("time.sleep"):
-            time.sleep(0.15)  # No-op in tests, allows threads to proceed naturally
+        # Wait for threads to stop - use threading.Event to wait for thread shutdown
+        event = Event()
+        # Wait up to 0.15s for threads to stop, checking periodically
+        for _ in range(150):  # 150 iterations * 0.001s = 0.15s max
+            if all(
+                s._flush_thread is None or not s._flush_thread.is_alive()
+                for s in stores
+            ):
+                break
+            event.wait(timeout=0.001)
 
         # Verify all threads are stopped
         running_threads = sum(
@@ -126,17 +139,17 @@ class TestInMemoryUsageStoreThreadLeakRegression:
                 flush_interval_seconds=0.5,
             )
             store.start_persistence_thread()
-            import time
-            with patch("time.sleep"):
-                time.sleep(0.005)  # No-op in tests
+            # Small delay to allow thread operations - use threading.Event
+            event = Event()
+            event.wait(timeout=0.001)  # Brief wait for thread operations
             store.stop_persistence_thread()
-            with patch("time.sleep"):
-                time.sleep(0.005)  # No-op in tests
+            event.wait(timeout=0.001)  # Brief wait for thread operations
 
-        # Wait for all threads to stop - use non-blocking sleep via mock
-        import time
-        with patch("time.sleep"):
-            time.sleep(0.1)  # No-op in tests, allows threads to proceed naturally
+        # Wait for all threads to stop - use threading.Event
+        event = Event()
+        # Wait up to 0.1s for threads to stop
+        for _ in range(100):  # 100 iterations * 0.001s = 0.1s max
+            event.wait(timeout=0.001)
 
         threads_after = threading.active_count()
         # Allow margin for other threads
@@ -153,14 +166,12 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         )
 
         store.start_persistence_thread()
-        import time
-        with patch("time.sleep"):
-            time.sleep(0.01)  # No-op in tests
+        event = Event()
+        event.wait(timeout=0.001)  # Brief wait for thread startup
 
         # Stop first time
         store.stop_persistence_thread()
-        with patch("time.sleep"):
-            time.sleep(0.01)  # No-op in tests
+        event.wait(timeout=0.001)  # Brief wait for thread shutdown
 
         # Stop second time (should be safe)
         store.stop_persistence_thread()

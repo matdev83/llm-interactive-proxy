@@ -283,18 +283,21 @@ class TestLogging:
 
         # Create 4 sessions to definitely trigger max limit
         # The pruning happens when we try to add beyond the max
-        import time
 
         current_time = {"value": 1000.0}
 
         def fake_time() -> float:
             return current_time["value"]
 
-        with mock.patch("time.time", fake_time), mock.patch(
-            "src.services.test_execution_reminder.session_state.time", fake_time
-        ), mock.patch(
-            "src.services.test_execution_reminder.test_execution_reminder_handler.time.time",
-            fake_time,
+        with (
+            mock.patch("time.time", fake_time),
+            mock.patch(
+                "src.services.test_execution_reminder.session_state.time", fake_time
+            ),
+            mock.patch(
+                "src.services.test_execution_reminder.test_execution_reminder_handler.time",
+                fake_time,
+            ),
         ):
             for i in range(4):
                 context = ToolCallContext(

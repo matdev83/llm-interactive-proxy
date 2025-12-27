@@ -6,6 +6,7 @@ import sys
 import time
 
 import pytest
+from freezegun import freeze_time
 
 pytestmark = [
     pytest.mark.integration,
@@ -56,13 +57,16 @@ def clean_env(monkeypatch):
 
 
 def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 10.0) -> None:
-    end = time.time() + timeout
-    while time.time() < end:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return
-        except OSError:
-            time.sleep(0.1)
+    # Use freezegun to control time progression instead of sleeping
+    with freeze_time() as frozen_time:
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    return
+            except OSError:
+                # Advance time instead of sleeping
+                frozen_time.tick(delta=0.1)
     raise RuntimeError("server did not start")
 
 

@@ -8,8 +8,6 @@ Tests verify that metrics are correctly tracked for:
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from src.core.services.replacement_metrics import ReplacementMetrics
 

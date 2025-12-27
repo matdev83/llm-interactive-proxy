@@ -11,7 +11,6 @@ import asyncio
 import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
 import pytest
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
@@ -42,21 +41,17 @@ def mock_stop_callback() -> None:
 
 def wait_until(condition, timeout=2.0, interval=0.01):
     """Wait until condition is true or timeout is reached.
-    
-    Uses a non-blocking sleep via mock to avoid blocking the test thread
-    while still allowing real thread operations to proceed.
+
+    Uses threading.Event to wait without blocking, allowing real thread operations to proceed.
     """
-    import time
-    
-    start = time.time()
-    # Patch time.sleep to be a no-op to avoid blocking in tests
-    # Real thread operations will still proceed normally
-    with patch("time.sleep"):
-        while time.time() - start < timeout:
-            if condition():
-                return True
-            # This sleep is now a no-op due to the patch above
-            time.sleep(interval)
+    import threading
+
+    event = threading.Event()
+    iterations = int(timeout / interval)
+    for _ in range(iterations):
+        if condition():
+            return True
+        event.wait(timeout=interval)
     return False
 
 
@@ -86,9 +81,10 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             mock_reload_callback,
         )
 
-
         # Wait until observer is running
-        assert wait_until(lambda: state.file_observer is not None and state.file_observer.is_alive())
+        assert wait_until(
+            lambda: state.file_observer is not None and state.file_observer.is_alive()
+        )
 
         # Verify observer is running
         assert state.file_observer is not None, "File observer should exist"
@@ -107,7 +103,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
 
         # Verify observer is stopped
         assert state.file_observer is None, "File observer should be cleared"
-        
+
         # Wait until thread count drops
         wait_until(lambda: count_watchdog_threads() <= threads_before + 2)
 
@@ -126,9 +122,10 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             mock_reload_callback,
         )
 
-        
         # Wait until observer is running
-        assert wait_until(lambda: state.file_observer is not None and state.file_observer.is_alive())
+        assert wait_until(
+            lambda: state.file_observer is not None and state.file_observer.is_alive()
+        )
 
         # Verify observer is running
         assert state.file_observer is not None, "File observer should exist"
@@ -168,9 +165,13 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             )
             states.append(state)
 
-        
         # Wait until all observers are running
-        assert wait_until(lambda: all(s.file_observer is not None and s.file_observer.is_alive() for s in states))
+        assert wait_until(
+            lambda: all(
+                s.file_observer is not None and s.file_observer.is_alive()
+                for s in states
+            )
+        )
 
         threads_after_creation = count_watchdog_threads()
         assert (
@@ -250,7 +251,6 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             mock_reload_callback,
         )
 
-        
         wait_until(lambda: state.file_observer is not None)
 
         # Stop first time
@@ -262,4 +262,3 @@ class TestFileWatcherWatchdogThreadLeakRegression:
 
         # Should not raise exception
         assert state.file_observer is None, "Observer should be cleared"
-

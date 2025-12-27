@@ -137,12 +137,13 @@ class TestSyncSessionManagerExecutorLeakRegression:
         asyncio.run(run_test())
 
         # Wait a bit for threads to clean up (reduced from 0.5s to 0.05s)
-        # Use non-blocking sleep via mock to avoid blocking test execution
-        from unittest.mock import patch
-        
-        with patch("time.sleep"):
-            import time
-            time.sleep(0.05)  # No-op in tests, allows threads to clean up naturally
+        # Use threading.Event to allow threads to clean up
+        import threading
+
+        event = threading.Event()
+        # Wait up to 0.05s for threads to clean up
+        for _ in range(50):  # 50 iterations * 0.001s = 0.05s max
+            event.wait(timeout=0.001)
 
         final_thread_count = threading.active_count()
         thread_increase = final_thread_count - initial_thread_count

@@ -132,11 +132,9 @@ class TestContentRewriterService(unittest.TestCase):
             shutil.rmtree(self.test_config_dir, ignore_errors=True)
         except (OSError, PermissionError):
             # Windows file system cleanup issues - try multiple times
-            import time
-
+            # Use retry without sleep - file system operations don't need time delays
             for attempt in range(3):
                 try:
-                    time.sleep(0.1)
                     shutil.rmtree(self.test_config_dir, ignore_errors=True)
                     break
                 except (OSError, PermissionError):

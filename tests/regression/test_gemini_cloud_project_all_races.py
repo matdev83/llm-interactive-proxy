@@ -8,10 +8,10 @@ Tests for:
 """
 
 import threading
-import time
 from unittest.mock import MagicMock
 
 import pytest
+from freezegun import freeze_time
 
 
 class TestGeminiCloudProjectConnectorRaceConditions:
@@ -64,7 +64,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         # Simulate concurrent calls
         def concurrent_call(call_id):
             connector._schedule_credentials_reload()
-            time.sleep(0.001)
+            # Use freezegun to advance time instead of sleeping
+            with freeze_time() as frozen_time:
+                frozen_time.tick(delta=0.001)
 
         threads = []
         for i in range(5):

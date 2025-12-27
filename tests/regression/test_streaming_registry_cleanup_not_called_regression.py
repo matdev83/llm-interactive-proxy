@@ -6,7 +6,6 @@ streams are created but processing stops.
 """
 
 from freezegun import freeze_time
-
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 

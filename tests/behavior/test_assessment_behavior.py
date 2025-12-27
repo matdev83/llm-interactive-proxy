@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from freezegun import freeze_time
 from src.core.app.middleware.assessment_middleware import AssessmentMiddleware
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
@@ -950,10 +951,12 @@ class TestSessionStateBehavior:
         initial_last_updated = initial_state.last_updated
 
         # When - Mark assessment as performed
-        import time
-
-        time.sleep(0.001)  # Small delay to ensure different timestamps
-        turn_counter.mark_assessment_performed(session_id)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(
+                delta=timedelta(milliseconds=1)
+            )  # Advance time to ensure different timestamps
+            turn_counter.mark_assessment_performed(session_id)
 
         # Then - Assessment tracking should be updated
         updated_state = repository.get_session_state(session_id)

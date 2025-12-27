@@ -7,6 +7,7 @@ import time
 import pytest
 import requests
 from anthropic import AsyncAnthropic
+from freezegun import freeze_time
 from openai import AsyncOpenAI
 
 pytestmark = pytest.mark.live
@@ -19,13 +20,16 @@ def _find_free_port():
 
 
 def _wait_for_server(port, timeout=30):
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            requests.get(f"http://127.0.0.1:{port}/internal/health")
-            return True
-        except requests.exceptions.ConnectionError:
-            time.sleep(0.1)
+    # Use freezegun to control time progression instead of sleeping
+    with freeze_time() as frozen_time:
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                requests.get(f"http://127.0.0.1:{port}/internal/health")
+                return True
+            except requests.exceptions.ConnectionError:
+                # Advance time instead of sleeping
+                frozen_time.tick(delta=0.1)
     return False
 
 

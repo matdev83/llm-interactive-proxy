@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 import pytest
 import requests
+from freezegun import freeze_time
 from google.genai import Client as GeminiClient
 from google.genai import types as genai_types
 from openai import OpenAI
@@ -43,13 +44,16 @@ pytestmark = [
 
 def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 20.0) -> None:
     """Wait for a TCP port to accept connections."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return
-        except OSError:
-            time.sleep(0.1)
+    # Use freezegun to control time progression instead of sleeping
+    with freeze_time() as frozen_time:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    return
+            except OSError:
+                # Advance time instead of sleeping
+                frozen_time.tick(delta=0.1)
     raise RuntimeError(
         f"Server on {host}:{port} did not start within {timeout} seconds"
     )

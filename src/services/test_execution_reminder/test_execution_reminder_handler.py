@@ -56,7 +56,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
         message: str | None = None,
         enabled: bool = True,
         *,
-        state_ttl_seconds: int = 1800,
+        state_ttl_seconds: float = 1800.0,
         max_sessions: int = 1024,
         test_runner_registry: TestRunnerRegistry | None = None,
     ) -> None:
@@ -72,7 +72,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
         self._message = message or DEFAULT_STEERING_MESSAGE
         self._enabled = enabled
         self._session_state: dict[str, TestExecutionSessionState] = {}
-        self._state_ttl_seconds = max(state_ttl_seconds, 1)
+        self._state_ttl_seconds = max(float(state_ttl_seconds), 0.001)
         self._max_sessions = max(max_sessions, 1)
         self._test_runner_registry = test_runner_registry or TestRunnerRegistry()
         self._lock = threading.RLock()
@@ -261,7 +261,9 @@ class TestExecutionReminderHandler(IToolCallHandler):
             )
             return ToolCallReactionResult(should_swallow=False)
 
-    async def _mark_session_dirty(self, session_id: str, tool_name: str | None = None) -> None:
+    async def _mark_session_dirty(
+        self, session_id: str, tool_name: str | None = None
+    ) -> None:
         """Mark a session as dirty (files modified).
 
         Args:
@@ -272,7 +274,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
             with self._lock:
                 # Prune expired/excess sessions before adding new ones
                 self._prune_session_state()
-                
+
                 state = self._session_state.get(session_id)
                 if not state:
                     state = TestExecutionSessionState()
@@ -338,7 +340,9 @@ class TestExecutionReminderHandler(IToolCallHandler):
                 exc_info=True,
             )
 
-    async def _get_session_state(self, session_id: str) -> TestExecutionSessionState | None:
+    async def _get_session_state(
+        self, session_id: str
+    ) -> TestExecutionSessionState | None:
         """Get the session state for a given session ID.
 
         Args:

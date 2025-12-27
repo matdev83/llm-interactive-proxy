@@ -669,7 +669,7 @@ class TestHeartbeatTimeout:
         assert session.session_id == "stale-session"
 
         # Wait for timeout
-        await asyncio.sleep(0.3)  # Reduced from 0.5
+        await asyncio.sleep(0.5)  # Increased to ensure timeout passes
 
         # Run cleanup
         await connection_manager.cleanup_stale_connections()

@@ -5,7 +5,6 @@ even when streams are created but never accessed again (orphaned streams).
 """
 
 from freezegun import freeze_time
-
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 

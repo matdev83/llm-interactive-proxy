@@ -65,7 +65,7 @@ class ReplacementMetrics:
     )
 
     # Metadata
-    start_time: float = field(default_factory=time.time)
+    start_time: float = field(default_factory=lambda: time.time())
 
     # Internal histograms (replacing unbounded lists)
     _turn_count_histogram: dict[int, int] = field(

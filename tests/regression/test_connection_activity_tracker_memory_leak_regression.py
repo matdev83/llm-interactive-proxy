@@ -4,8 +4,9 @@ This test verifies that abandoned connections are properly cleaned up
 and don't accumulate over multiple connection cycles.
 """
 
-from freezegun import freeze_time
+import time
 
+from freezegun import freeze_time
 from src.core.domain.connection_activity import ConnectionActivity, ConnectionType
 from src.core.services.connection_activity_tracker import (
     ConnectionActivityTracker,
@@ -27,7 +28,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
     def test_abandoned_connections_are_cleaned_up(self) -> None:
         """Test that abandoned connections are cleaned up by cleanup_stale_connections."""
         import time
-        
+
         with freeze_time() as frozen_time:
             tracker = ConnectionActivityTracker(stale_timeout_seconds=0.1)
 
@@ -101,7 +102,7 @@ class TestConnectionActivityTrackerMemoryLeakRegression:
     def test_mixed_normal_and_abandoned_connections(self) -> None:
         """Test cleanup with mix of normal and abandoned connections."""
         import time
-        
+
         with freeze_time() as frozen_time:
             tracker = ConnectionActivityTracker(stale_timeout_seconds=0.1)
 

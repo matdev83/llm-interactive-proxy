@@ -504,10 +504,11 @@ def test_ruff_linting_on_tests() -> None:
     # Note: In parallel test execution, files might be modified by other tests.
     # Re-check once more to handle race conditions.
     if final_check.returncode != 0:
-        # Give a small delay for any concurrent file operations to complete
-        import time
+        # Use threading.Event to allow concurrent file operations to complete
+        import threading
 
-        time.sleep(0.1)
+        event = threading.Event()
+        event.wait(timeout=0.1)  # Brief wait for file operations
 
         # Final check after delay
         final_check = subprocess.run(

@@ -7,6 +7,7 @@ TTLCache for bounded state retention and automatic cleanup.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -63,7 +64,7 @@ class SessionCancellationCoordinator(ISessionCancellationCoordinator):
         # Use a large maxsize (100k entries) with TTL for bounded retention
         # This provides both size-based and time-based cleanup
         self._cache: TTLCache[SessionKey, _CancellationState] = TTLCache(
-            maxsize=100_000, ttl=ttl_seconds
+            maxsize=100_000, ttl=ttl_seconds, timer=time.time
         )
         self._lock = Lock()
 

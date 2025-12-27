@@ -11,7 +11,8 @@ This test simulates the buggy behavior and verifies the fix works correctly.
 
 import asyncio
 import threading
-import time
+
+from freezegun import freeze_time
 
 
 def test_schedule_credentials_reload_race_condition():
@@ -71,7 +72,7 @@ def test_schedule_credentials_reload_race_condition():
 
             async def reload_task():
                 self._reload_exec_count += 1
-                time.sleep(0.01)  # Simulate work
+                await asyncio.sleep(0.01)  # Simulate work
 
             # BUGGY: Task assignment happens outside original lock
             task = loop.create_task(reload_task())
@@ -118,7 +119,7 @@ def test_schedule_credentials_reload_race_condition():
 
             async def reload_task():
                 self._reload_exec_count += 1
-                time.sleep(0.01)  # Simulate work
+                await asyncio.sleep(0.01)  # Simulate work
 
             # FIXED: All critical operations inside same lock
             task = loop.create_task(reload_task())
@@ -154,7 +155,9 @@ def test_schedule_credentials_reload_race_condition():
 
         def concurrent_call(call_id):
             connector.schedule_reload_buggy()
-            time.sleep(0.001)  # Small delay to allow race window
+            # Use freezegun to advance time instead of sleeping
+            with freeze_time() as frozen_time:
+                frozen_time.tick(delta=0.001)  # Small delay to allow race window
             reload_scheduling_count.append(connector._schedule_count)
             reload_exec_count.append(connector._reload_exec_count)
 
@@ -171,8 +174,9 @@ def test_schedule_credentials_reload_race_condition():
         for t in threads:
             t.join(timeout=2)
 
-        # Give time for tasks to schedule
-        time.sleep(0.5)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(delta=0.5)  # Give time for tasks to schedule
 
         # Assertions
         print(f"  Scheduling attempts: {sum(reload_scheduling_count)}")
@@ -203,7 +207,9 @@ def test_schedule_credentials_reload_race_condition():
 
         def concurrent_call(call_id):
             connector.schedule_reload_fixed()
-            time.sleep(0.001)  # Small delay
+            # Use freezegun to advance time instead of sleeping
+            with freeze_time() as frozen_time:
+                frozen_time.tick(delta=0.001)  # Small delay
             reload_scheduling_count.append(connector._schedule_count)
             reload_exec_count.append(connector._reload_exec_count)
 
@@ -220,8 +226,9 @@ def test_schedule_credentials_reload_race_condition():
         for t in threads:
             t.join(timeout=2)
 
-        # Give time for tasks to schedule
-        time.sleep(0.5)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(delta=0.5)  # Give time for tasks to schedule
 
         # Assertions
         print(f"  Scheduling attempts: {sum(reload_scheduling_count)}")

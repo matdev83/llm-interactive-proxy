@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
@@ -286,8 +287,6 @@ async def test_property_14_database_status_synchronization(
         await repository.store_token(token_record)
 
         # Get the initial timestamp from database
-        import time
-
         import aiosqlite
 
         async with aiosqlite.connect(temp_database) as db:
@@ -302,22 +301,25 @@ async def test_property_14_database_status_synchronization(
                 row["last_authenticated_at"]
             ).replace(tzinfo=None)
 
-        # Small delay to ensure timestamp difference
-        time.sleep(0.01)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(
+                delta=timedelta(milliseconds=10)
+            )  # Advance time to ensure timestamp difference
 
-        # Change authentication status
-        new_auth_status = not initial_auth_status
-        new_expiry = (
-            datetime.now(timezone.utc) + timedelta(hours=24)
-            if new_auth_status
-            else None
-        )
+            # Change authentication status
+            new_auth_status = not initial_auth_status
+            new_expiry = (
+                datetime.now(timezone.utc) + timedelta(hours=24)
+                if new_auth_status
+                else None
+            )
 
-        await repository.update_auth_status(
-            token_record.id,
-            new_auth_status,
-            new_expiry,
-        )
+            await repository.update_auth_status(
+                token_record.id,
+                new_auth_status,
+                new_expiry,
+            )
 
         # Verify the status was updated in the database
         import aiosqlite
@@ -413,17 +415,20 @@ async def test_property_14_multiple_status_changes(
             ).replace(tzinfo=None)
 
         # Apply each status change
-        import time
+        with freeze_time() as frozen_time:
+            for new_status in status_changes:
+                frozen_time.tick(
+                    delta=timedelta(milliseconds=10)
+                )  # Advance time to ensure timestamp differences
+                new_expiry = (
+                    datetime.utcnow() + timedelta(hours=24) if new_status else None
+                )
 
-        for new_status in status_changes:
-            time.sleep(0.01)  # Small delay to ensure timestamp differences
-            new_expiry = datetime.utcnow() + timedelta(hours=24) if new_status else None
-
-            await repository.update_auth_status(
-                token_record.id,
-                new_status,
-                new_expiry,
-            )
+                await repository.update_auth_status(
+                    token_record.id,
+                    new_status,
+                    new_expiry,
+                )
 
             # Verify the change was persisted
             import aiosqlite
@@ -482,7 +487,6 @@ async def test_property_14_timestamp_monotonicity(
         await repository.store_token(token_record)
 
         # Get initial timestamp
-        import time
 
         import aiosqlite
 
@@ -499,27 +503,30 @@ async def test_property_14_timestamp_monotonicity(
             ).replace(tzinfo=None)
 
         # Perform multiple status updates
-        for _ in range(3):
-            time.sleep(0.01)  # Small delay to ensure timestamp increments
-            await repository.update_auth_status(
-                token_record.id,
-                True,
-                datetime.now(timezone.utc) + timedelta(hours=24),
-            )
-
-            # Verify timestamp never decreases
-            async with aiosqlite.connect(temp_database) as db:
-                db.row_factory = aiosqlite.Row
-                cursor = await db.execute(
-                    "SELECT last_authenticated_at FROM agent_tokens WHERE id = ?",
-                    (token_record.id,),
+        with freeze_time() as frozen_time:
+            for _ in range(3):
+                frozen_time.tick(
+                    delta=timedelta(milliseconds=10)
+                )  # Advance time to ensure timestamp increments
+                await repository.update_auth_status(
+                    token_record.id,
+                    True,
+                    datetime.now(timezone.utc) + timedelta(hours=24),
                 )
-                row = await cursor.fetchone()
-                current_timestamp = datetime.fromisoformat(
-                    row["last_authenticated_at"]
-                ).replace(tzinfo=None)
 
-                # Timestamp should be >= initial timestamp
-                assert current_timestamp >= initial_timestamp.replace(tzinfo=None)
+                # Verify timestamp never decreases
+                async with aiosqlite.connect(temp_database) as db:
+                    db.row_factory = aiosqlite.Row
+                    cursor = await db.execute(
+                        "SELECT last_authenticated_at FROM agent_tokens WHERE id = ?",
+                        (token_record.id,),
+                    )
+                    row = await cursor.fetchone()
+                    current_timestamp = datetime.fromisoformat(
+                        row["last_authenticated_at"]
+                    ).replace(tzinfo=None)
+
+                    # Timestamp should be >= initial timestamp
+                    assert current_timestamp >= initial_timestamp.replace(tzinfo=None)
     finally:
         await cleanup_temp_database(temp_database, temp_dir)

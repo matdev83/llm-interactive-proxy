@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 import requests
 import yaml
+from freezegun import freeze_time
 
 pytestmark = [
     pytest.mark.network,
@@ -74,13 +75,16 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 30.0) -> Non
     backoff_time = 0.01
     max_backoff = 1.0
 
-    while time.time() < end:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return
-        except OSError:
-            time.sleep(backoff_time)
-            backoff_time = min(backoff_time * 1.5, max_backoff)
+    # Use freezegun to control time progression instead of sleeping
+    with freeze_time() as frozen_time:
+        while time.time() < end:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    return
+            except OSError:
+                # Advance time instead of sleeping
+                frozen_time.tick(delta=backoff_time)
+                backoff_time = min(backoff_time * 1.5, max_backoff)
     raise RuntimeError(f"Server on port {port} did not start in {timeout}s")
 
 
@@ -100,7 +104,9 @@ def _find_free_port() -> int:
             port = s.getsockname()[1]
 
             # Double-check the port is still available after a brief moment
-            time.sleep(0.01)
+            # Use freezegun to advance time instead of sleeping
+            with freeze_time() as frozen_time:
+                frozen_time.tick(delta=0.01)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
                 s2.bind(("127.0.0.1", port))
                 return port
@@ -191,7 +197,9 @@ def _wait_for_health_check(port: int, timeout: float = 30.0) -> None:
                 return
         except requests.RequestException:
             pass
-        time.sleep(0.1)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(delta=0.1)
 
     raise RuntimeError(f"Server health check failed on port {port} after {timeout}s")
 
@@ -538,8 +546,9 @@ class TestGeminiCliAcpIntegration:
         base_url = test_environment["base_url"]
         requests.get(f"{base_url}/v1/models", timeout=10)
 
-        # Wait a moment for logs to be written
-        time.sleep(1)
+        # Use freezegun to advance time instead of sleeping
+        with freeze_time() as frozen_time:
+            frozen_time.tick(delta=1)  # Wait a moment for logs to be written
 
         # Check log file exists and has content
         assert log_file.exists()

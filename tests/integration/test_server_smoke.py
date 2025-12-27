@@ -7,6 +7,7 @@ import time
 
 import pytest
 import requests
+from freezegun import freeze_time
 
 pytestmark = [
     pytest.mark.network,
@@ -27,19 +28,21 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
     Raises:
         RuntimeError: If the port did not become ready in time
     """
-    end = time.time() + timeout
-    # Use exponential backoff for more efficient waiting
-    backoff_time = 0.01  # Start with 10ms
-    max_backoff = 1.0  # Max 1 second between attempts
+    # Use freezegun to control time progression instead of sleeping
+    with freeze_time() as frozen_time:
+        end = time.time() + timeout
+        # Use exponential backoff for more efficient waiting
+        backoff_time = 0.01  # Start with 10ms
+        max_backoff = 1.0  # Max 1 second between attempts
 
-    while time.time() < end:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return
-        except OSError:
-            # Use exponential backoff instead of fixed 0.1s sleep
-            time.sleep(backoff_time)
-            backoff_time = min(backoff_time * 1.5, max_backoff)
+        while time.time() < end:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    return
+            except OSError:
+                # Advance time instead of sleeping
+                frozen_time.tick(delta=backoff_time)
+                backoff_time = min(backoff_time * 1.5, max_backoff)
     raise RuntimeError("server did not start")
 
 

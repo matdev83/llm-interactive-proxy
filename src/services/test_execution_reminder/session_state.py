@@ -18,13 +18,13 @@ class TestExecutionSessionState:
     is_dirty: bool = False
     """Whether files have been modified since last test run."""
 
-    last_modification_time: float = field(default_factory=time)
+    last_modification_time: float = field(default_factory=lambda: time())
     """Timestamp of last file modification."""
 
     last_test_time: float = 0.0
     """Timestamp of last test execution."""
 
-    last_seen: float = field(default_factory=time)
+    last_seen: float = field(default_factory=lambda: time())
     """Timestamp of last activity (for TTL cleanup)."""
 
     modification_count: int = 0
