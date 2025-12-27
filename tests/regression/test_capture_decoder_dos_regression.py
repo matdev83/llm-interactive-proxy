@@ -8,7 +8,6 @@ depth and array size limits.
 """
 
 import json
-import time
 
 import pytest
 from src.core.common.json_validation import (

@@ -5,7 +5,6 @@ ensuring that models are only probed when in cooldown and that rate limiting
 for one model doesn't block other models.
 """
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -13,6 +12,7 @@ import pytest
 from src.connectors.antigravity_oauth import AntigravityOAuthConnector
 from src.connectors.gemini_oauth_base import GracefulDegradationConfig, ModelRetryState
 from src.core.common.exceptions import BackendError
+
 from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 

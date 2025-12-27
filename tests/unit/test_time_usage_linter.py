@@ -387,23 +387,16 @@ class _TimeUsageScanner(ast.NodeVisitor):
             func_node = decorator.func
 
             # Check for @real_time(...) - direct import from markers module
-            if isinstance(func_node, ast.Name) and func_node.id == "real_time":
+            if isinstance(func_node, ast.Name) and func_node.id == "real_time" or isinstance(func_node, ast.Attribute) and (
+                func_node.attr == "real_time"
+                and isinstance(func_node.value, ast.Attribute)
+                and func_node.value.attr == "mark"
+                and isinstance(func_node.value.value, ast.Name)
+                and func_node.value.value.id == "pytest"
+            ):
                 # Validate reason argument exists and is non-empty
                 if self._has_valid_reason_argument(decorator):
                     return True
-
-            # Check for @pytest.mark.real_time(...)
-            elif isinstance(func_node, ast.Attribute):
-                if (
-                    func_node.attr == "real_time"
-                    and isinstance(func_node.value, ast.Attribute)
-                    and func_node.value.attr == "mark"
-                    and isinstance(func_node.value.value, ast.Name)
-                    and func_node.value.value.id == "pytest"
-                ):
-                    # Validate reason argument exists and is non-empty
-                    if self._has_valid_reason_argument(decorator):
-                        return True
 
         return False
 

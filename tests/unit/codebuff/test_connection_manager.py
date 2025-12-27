@@ -6,7 +6,7 @@ heartbeat monitoring, and subscription management.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.codebuff.connection_manager import ConnectionManager
@@ -92,7 +92,7 @@ class TestConnectionManager:
         from freezegun import freeze_time
 
         with freeze_time("2024-01-01 12:00:00") as frozen_time:
-            base_time = datetime.utcnow()
+            datetime.utcnow()
             frozen_time.tick(timedelta(microseconds=10000))  # Advance 0.01 seconds
             await manager.update_last_seen(websocket)
 

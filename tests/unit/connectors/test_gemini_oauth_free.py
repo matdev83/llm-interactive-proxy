@@ -3,7 +3,6 @@ Tests for Gemini OAuth Free connector.
 """
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -79,6 +78,7 @@ class TestGeminiOAuthFreeConnector:
     ):
         """Ensure refresh waits for credentials file update instead of failing fast."""
         from src.connectors.gemini_base.models import GeminiOAuthCredentials
+
         from tests.utils.fake_clock import FakeClock, FakeClockContext
 
         async with FakeClockContext(FakeClock(initial_time=1704067200.0)) as clock:

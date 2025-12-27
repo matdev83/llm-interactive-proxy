@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, call, patch
 
 import pytest
-from tests.utils.fake_clock import FakeClock, FakeClockContext
 from fastapi import HTTPException
 from src.connectors.cline import ClineConnector
 from src.connectors.openai import OpenAIConnector
@@ -23,6 +22,8 @@ from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.translation_service import TranslationService
+
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class _DummyResponse:

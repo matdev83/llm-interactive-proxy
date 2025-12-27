@@ -38,7 +38,7 @@ def mock_backend():
 @pytest.mark.asyncio
 async def test_backend_retry_after_set_and_get(mock_backend):
     """Test setting and getting retry-after values."""
-    async with FakeClockContext() as clock:
+    async with FakeClockContext():
         # Initially no retry-after
         assert mock_backend.get_retry_after_remaining() is None
         assert not mock_backend.is_rate_limited()

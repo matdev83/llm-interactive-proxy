@@ -17,6 +17,7 @@ from src.core.common.exceptions import (
     BackendError,
     RateLimitExceededError,
 )
+from src.core.common.logging_utils import redact_dict
 from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import StreamingResponseHandle
@@ -24,8 +25,6 @@ from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
-
-from src.core.common.logging_utils import redact_dict
 
 logger = logging.getLogger(__name__)
 

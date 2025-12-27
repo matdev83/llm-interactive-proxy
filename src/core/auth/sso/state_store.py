@@ -33,16 +33,6 @@ class StateStore:
         async with self._lock:
             return self._store.pop(key, default)
 
-    async def items(self) -> list[tuple[str, str | dict[str, Any]]]:
-        """Get all items as a snapshot list."""
-        async with self._lock:
-            return list(self._store.items())
-
-    async def delete(self, key: str) -> None:
-        """Delete key."""
-        async with self._lock:
-            del self._store[key]
-
     async def _cleanup_expired(self) -> None:
         """Remove expired entries and enforce max size."""
         import time

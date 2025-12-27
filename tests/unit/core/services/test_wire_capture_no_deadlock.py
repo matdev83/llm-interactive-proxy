@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from src.core.config.app_config import AppConfig
-from src.core.services.wire_capture_service import WireCapture
 from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.core.services.wire_capture_service import WireCapture
 
 
 @pytest.fixture

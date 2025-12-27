@@ -9,6 +9,7 @@ from src.connectors._openai_codex_session_detector import (
     SessionDetector,
 )
 from src.connectors._openai_codex_telemetry import get_telemetry, reset_telemetry
+
 from tests.unit.fixtures.markers import real_time
 
 

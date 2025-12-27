@@ -422,7 +422,7 @@ class BufferedWireCapture(IWireCapture):
         else:
             payload = normalized_payload
 
-        entry = self._create_entry(
+        entry = await self._create_entry(
             direction="inbound_request",
             source=self._get_client_info(context),
             destination="proxy",
@@ -452,7 +452,7 @@ class BufferedWireCapture(IWireCapture):
         # Ensure background task runs in async contexts
         self._maybe_start_flush_task()
 
-        entry = self._create_entry(
+        entry = await self._create_entry(
             direction="outbound_request",
             source=self._get_client_info(context),
             destination=backend,
@@ -487,7 +487,7 @@ class BufferedWireCapture(IWireCapture):
         if canonical_usage is not None:
             metadata["canonical_usage"] = canonical_usage
 
-        entry = self._create_entry(
+        entry = await self._create_entry(
             direction="inbound_response",
             source=backend,
             destination=self._get_client_info(context),
@@ -517,7 +517,7 @@ class BufferedWireCapture(IWireCapture):
             return
         self._maybe_start_flush_task()
 
-        entry = self._create_entry(
+        entry = await self._create_entry(
             direction="outbound_response",
             source="proxy",
             destination=self._get_client_info(context),
@@ -550,7 +550,7 @@ class BufferedWireCapture(IWireCapture):
 
         async def _capture_stream() -> AsyncIterator[bytes]:
             # Stream start marker
-            start_entry = self._create_entry(
+            start_entry = await self._create_entry(
                 direction="stream_start",
                 source=backend,
                 destination=self._get_client_info(context),
@@ -572,7 +572,7 @@ class BufferedWireCapture(IWireCapture):
 
                 # Capture chunk (with optional size limits for performance)
                 chunk_text = chunk.decode("utf-8", errors="replace")
-                chunk_entry = self._create_entry(
+                chunk_entry = await self._create_entry(
                     direction="stream_chunk",
                     source=backend,
                     destination=self._get_client_info(context),
@@ -589,7 +589,7 @@ class BufferedWireCapture(IWireCapture):
                 yield chunk
 
             # Stream end marker
-            end_entry = self._create_entry(
+            end_entry = await self._create_entry(
                 direction="stream_end",
                 source=backend,
                 destination=self._get_client_info(context),
@@ -634,7 +634,7 @@ class BufferedWireCapture(IWireCapture):
             metadata["canonical_usage"] = canonical_usage_dict
         if eos_metadata:
             metadata["eos_metadata"] = eos_metadata
-        completion_entry = self._create_entry(
+        completion_entry = await self._create_entry(
             direction="stream_completion",
             source=backend,
             destination=self._get_client_info(context),
@@ -665,7 +665,7 @@ class BufferedWireCapture(IWireCapture):
         stream_session_id = self._resolve_stream_session_id(session_id, context)
 
         async def _capture_stream() -> AsyncIterator[bytes]:
-            start_entry = self._create_entry(
+            start_entry = await self._create_entry(
                 direction="outbound_stream_start",
                 source="proxy",
                 destination=self._get_client_info(context),
@@ -685,7 +685,7 @@ class BufferedWireCapture(IWireCapture):
                 chunk_count += 1
                 total_bytes += len(chunk)
                 chunk_text = chunk.decode("utf-8", errors="replace")
-                chunk_entry = self._create_entry(
+                chunk_entry = await self._create_entry(
                     direction="outbound_stream_chunk",
                     source="proxy",
                     destination=self._get_client_info(context),
@@ -704,7 +704,7 @@ class BufferedWireCapture(IWireCapture):
                 await self._buffer_entry(chunk_entry)
                 yield chunk
 
-            end_entry = self._create_entry(
+            end_entry = await self._create_entry(
                 direction="outbound_stream_end",
                 source="proxy",
                 destination=self._get_client_info(context),
@@ -723,7 +723,7 @@ class BufferedWireCapture(IWireCapture):
 
         return _capture_stream()
 
-    def _create_entry(
+    async def _create_entry(
         self,
         *,
         direction: str,

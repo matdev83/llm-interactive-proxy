@@ -4,7 +4,6 @@ Tests for Gemini Cloud Project credential handling.
 
 import asyncio
 import threading
-import time
 from unittest.mock import AsyncMock
 
 import httpx
