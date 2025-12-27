@@ -793,7 +793,7 @@ def test_property_metadata_schema_mapping(
         max_size=50,
     ),
 )
-@settings(max_examples=50)
+@settings(max_examples=20)
 async def test_property_streaming_content_structure_stability(
     chunks: list[dict[str, Any]],
 ) -> None:

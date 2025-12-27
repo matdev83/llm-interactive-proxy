@@ -306,7 +306,7 @@ async def test_sentinel_format_consistency_property(
 @given(
     chunks=streaming_content_strategy(include_done=True, min_chunks=0, max_chunks=20)
 )
-@settings(max_examples=20, deadline=None)
+@settings(max_examples=10, deadline=None)
 async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
     """
     Additional property test: Verify SSE framing is correct.

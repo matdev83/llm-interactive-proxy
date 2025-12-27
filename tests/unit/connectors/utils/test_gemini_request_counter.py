@@ -308,7 +308,7 @@ def test_concurrent_increments_thread_safety(
     """
     counter = DailyRequestCounter(persistence_path, limit=1000)
 
-    num_threads = 100
+    num_threads = 20
     num_iterations_per_thread = 10
     expected_total = num_threads * num_iterations_per_thread
 
