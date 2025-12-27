@@ -165,6 +165,7 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     Integration test to verify that reactors are not executed multiple times
     for the same tool call in a real scenario.
     """
+    import uuid
     from unittest.mock import AsyncMock, patch
 
     from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
@@ -187,7 +188,8 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     )
 
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
-    context = {"session_id": "test_session"}
+    unique_session_id = f"test_session_no_dupe_{uuid.uuid4()}"
+    context = {"session_id": unique_session_id}
 
     # Mock the orchestrator's reactor process_tool_call method to track calls
     mock_process = AsyncMock()
@@ -196,10 +198,10 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     ):
         # Act - Process the message twice
         await reactor_middleware.process(
-            response=message, session_id="test_session", context=context
+            response=message, session_id=unique_session_id, context=context
         )
         await reactor_middleware.process(
-            response=message, session_id="test_session", context=context
+            response=message, session_id=unique_session_id, context=context
         )
 
         # Assert - Reactor should only be called once (deduplication prevents second call)

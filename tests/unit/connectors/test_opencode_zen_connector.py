@@ -629,11 +629,19 @@ class TestChatCompletions:
             enable_opencode_zen_backend_debugging_override=True,
         )
 
-        # Force token to appear expired
-        connector._oauth_credentials["expires"] = time.time() - 100
+        # Update credentials file to have an expired token (file mtime will be newer)
+        expired_creds = {
+            "opencode": {
+                "type": "oauth",
+                "access": "test-access-token",
+                "refresh": "test-refresh-token",
+                "expires": int(time.time()) - 100,  # Expired
+            }
+        }
+        temp_credentials_file.write_text(json.dumps(expired_creds), encoding="utf-8")
 
-        # Ensure file mtime changes to trigger reload
-        os.utime(temp_credentials_file, None)
+        # Also force in-memory credentials to appear expired to trigger reload
+        connector._oauth_credentials["expires"] = time.time() - 100
 
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",
@@ -643,12 +651,15 @@ class TestChatCompletions:
 
         from src.connectors.openai import OpenAIConnector
 
-        with patch.object(
-            OpenAIConnector,
-            "chat_completions",
-            new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+        with (
+            patch.object(
+                OpenAIConnector,
+                "chat_completions",
+                new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+            ),
+            pytest.raises(AuthenticationError, match="OpenCode OAuth token is expired"),
         ):
-            # Should reload credentials and continue
+            # Should reload credentials and raise error for expired token
             await connector.chat_completions(
                 chat_request,
                 chat_request.messages,
