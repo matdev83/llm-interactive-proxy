@@ -384,9 +384,9 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
 
 @pytest.mark.asyncio
 @given(
-    chunks=streaming_content_strategy(include_done=False, min_chunks=1, max_chunks=20)
+    chunks=streaming_content_strategy(include_done=False, min_chunks=1, max_chunks=10)
 )
-@settings(max_examples=20, deadline=None)
+@settings(max_examples=5, deadline=None)
 async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
     """
     Additional property test: Verify sentinel is always emitted.

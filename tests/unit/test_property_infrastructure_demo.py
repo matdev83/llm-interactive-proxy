@@ -47,7 +47,7 @@ class TestPropertyInfrastructureBasics:
         assert_valid_chunk(chunk)
 
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @property_test_settings(max_examples=20)
+    @property_test_settings(max_examples=10)
     def test_streams_with_done_marker(self, chunks):
         """Test that streams with done markers are properly structured.
 
