@@ -221,3 +221,24 @@ def test_example():
         if not _is_suppressed(finding, suppressions)
     ]
     assert suppressed == []
+
+
+def test_stall_linter_detects_forbidden_recursive_patch(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+from unittest.mock import patch
+
+
+def test_example():
+    patch("asyncio.sleep", return_value=asyncio.sleep(0))
+"""
+    file_path = tmp_path / "sample_test.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    suppressions = _build_stall_lint_suppressions(sample)
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _PatchRecursionVisitor(file_path=file_path)
+    visitor.visit(tree)
+
+    assert [f.rule for f in visitor.findings] == ["STALL001"]
+    assert not _is_suppressed(visitor.findings[0], suppressions)
