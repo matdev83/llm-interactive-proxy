@@ -72,10 +72,10 @@ class TestAutoEnabledSessionsLeakRegression:
         """
         from cachetools import TTLCache
 
-        # Create middleware with a short TTL for testing (1 second)
+        # Create middleware with a very short TTL for testing (0.1 second)
         middleware = MemoryCaptureMiddleware(mock_memory_service, config)
         # Replace the cache with a shorter TTL version for testing
-        middleware._auto_enabled_sessions = TTLCache(maxsize=10000, ttl=1)
+        middleware._auto_enabled_sessions = TTLCache(maxsize=10000, ttl=0.1)
 
         # Enable a session
         session_id = "test_session"
@@ -89,7 +89,7 @@ class TestAutoEnabledSessionsLeakRegression:
         assert session_id in middleware._auto_enabled_sessions
 
         # Wait for TTL to expire (plus small buffer)
-        await asyncio.sleep(1.5)  # Wait slightly longer than TTL
+        await asyncio.sleep(0.15)  # Wait slightly longer than TTL
 
         # TTLCache expiration happens lazily on access, so we need to trigger it
         # by accessing the cache. The expired entry should be removed.
@@ -98,7 +98,7 @@ class TestAutoEnabledSessionsLeakRegression:
 
         # Verify the cache has expiration mechanism
         assert hasattr(middleware._auto_enabled_sessions, "ttl")
-        assert middleware._auto_enabled_sessions.ttl == 1
+        assert middleware._auto_enabled_sessions.ttl == 0.1
 
         # Note: Due to TTLCache's lazy expiration, the entry might still be present
         # until the cache is accessed. The important thing is that the mechanism exists.

@@ -116,18 +116,18 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         threads_before = threading.active_count()
 
         # Rapidly create, start, and stop stores
-        for i in range(10):
+        for i in range(5):
             store = InMemoryUsageStore(
                 persistence_path=temp_dir / f"test_usage_store_{i}.json",
                 flush_interval_seconds=0.5,
             )
             store.start_persistence_thread()
-            time.sleep(0.05)  # Small delay to let thread start
+            time.sleep(0.01)  # Small delay to let thread start
             store.stop_persistence_thread()
-            time.sleep(0.05)  # Small delay to let thread stop
+            time.sleep(0.01)  # Small delay to let thread stop
 
         # Wait for all threads to stop
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         threads_after = threading.active_count()
         # Allow margin for other threads

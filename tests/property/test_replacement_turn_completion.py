@@ -43,7 +43,9 @@ def create_test_service(
         lambda x: x.replace("-", "").isalnum()
     ),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=15, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_22_deactivation_logging(
     turn_count: int,
     original_backend: str,

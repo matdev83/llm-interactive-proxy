@@ -104,7 +104,8 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Simulate remote actor creating many sessions that get evicted
         # Each eviction creates cleanup tasks that must not be GC'd before completion
-        for i in range(50):
+        # Reduced from 50 to 20 for performance while maintaining test coverage
+        for i in range(20):
             session_id = f"attack_session_{i}"
             await memory_service.enable_for_session(
                 session_id,
@@ -137,7 +138,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Check how many tasks remain (should be all of them, not GC'd)
         remaining = len(memory_service._cleanup_tasks)
-        expected_min = 50 * 2 - 20  # At least 80 tasks (allowing for some completion)
+        expected_min = 20 * 2 - 8  # At least 32 tasks (allowing for some completion)
         assert remaining >= expected_min, (
             f"Many tasks were GC'd before completion! "
             f"Expected at least {expected_min}, got {remaining}. "

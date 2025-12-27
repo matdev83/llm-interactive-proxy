@@ -36,16 +36,20 @@
   "executionEnvironments": [
     {
       "root": "src",
-      "extraPaths": ["src"]
+      "extraPaths": [".", "src"]
     },
     {
       "root": "tests",
-      "extraPaths": ["src"],
+      "extraPaths": [".", "src"],
       "reportPrivateUsage": "none"
     },
     {
       "root": "scripts",
-      "extraPaths": ["src"]
+      "extraPaths": [".", "src"]
+    },
+    {
+      "root": ".",
+      "extraPaths": [".", "src"]
     }
   ]
 }

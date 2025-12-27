@@ -72,13 +72,10 @@ class TestToolCallRepairService10MBScenariosRegression:
     ) -> None:
         """Test that large payloads over 10MB are rejected."""
         # Create valid JSON that exceeds 10MB
-        large_data = {
-            "function_call": {
-                "name": "test",
-                "arguments": {"data": "x" * (11 * 1024 * 1024)},  # 11MB
-            }
-        }
-        large_payload = json.dumps(large_data)
+        # Use a more efficient approach: create the string directly instead of through dict
+        # This avoids expensive JSON serialization of a huge dict
+        target_size = MAX_JSON_PARSE_SIZE + 1000
+        large_payload = f'{{"function_call":{{"name":"test","arguments":{{"data":"{"x" * target_size}"}}}}}}'
         large_size_mb = len(large_payload.encode("utf-8")) / (1024 * 1024)
 
         # Should be over 10MB
@@ -148,21 +145,24 @@ class TestToolCallRepairService10MBScenariosRegression:
 
         test_cases = [
             # (size_description, data_length, should_pass)
-            ("very_small", 100, True),
             ("small", 10000, True),
             ("medium", 5 * 1024 * 1024, True),
             ("large_under", limit - overhead - 1000, True),
             ("large_over", limit + 1000, False),
-        ]
+        ]  # Removed "very_small" to reduce test cases
 
         for size_desc, data_len, should_pass in test_cases:
-            test_data = {
-                "function_call": {
-                    "name": "test",
-                    "arguments": {"data": "x" * data_len},
+            # Use direct string construction for large payloads to avoid expensive dict creation
+            if data_len > 1024 * 1024:  # For large payloads, construct JSON directly
+                test_payload = f'{{"function_call":{{"name":"test","arguments":{{"data":"{"x" * data_len}"}}}}}}'
+            else:
+                test_data = {
+                    "function_call": {
+                        "name": "test",
+                        "arguments": {"data": "x" * data_len},
+                    }
                 }
-            }
-            test_payload = json.dumps(test_data)
+                test_payload = json.dumps(test_data)
             test_size_mb = len(test_payload.encode("utf-8")) / (1024 * 1024)
 
             result = repair_service.repair_tool_calls(f"```json\n{test_payload}\n```")

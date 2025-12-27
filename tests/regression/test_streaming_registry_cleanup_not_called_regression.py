@@ -17,7 +17,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         """Test that expired states are cleaned up when streams are accessed."""
         registry = StreamingContextRegistry(
             state_ttl_seconds=1
-        )  # Very short TTL for testing
+        )  # Very short TTL for testing (reduced for performance)
 
         # Create many stream states
         num_streams = 50
@@ -28,8 +28,8 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         initial_size = len(registry._states)
         assert initial_size == num_streams
 
-        # Wait for TTL to expire
-        time.sleep(2)
+        # Wait for TTL to expire (reduced sleep time for performance)
+        time.sleep(1.1)
 
         # Access one stream - this should trigger cleanup
         registry.get_content_state("stream_0")
@@ -46,7 +46,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         """Test that orphaned streams are cleaned up when any stream is accessed."""
         registry = StreamingContextRegistry(
             state_ttl_seconds=1
-        )  # Short TTL for testing
+        )  # Short TTL for testing (reduced for performance)
 
         # Create many streams but never access them again
         num_streams = 100
@@ -57,8 +57,8 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         initial_size = len(registry._states)
         assert initial_size == num_streams
 
-        # Wait for TTL to expire
-        time.sleep(2)
+        # Wait for TTL to expire (reduced sleep time for performance)
+        time.sleep(1.1)
 
         # Access one stream - this should trigger cleanup of all expired streams
         registry.get_content_state("orphan_stream_0")
@@ -76,7 +76,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         """Test that manual cleanup_expired() call works correctly."""
         registry = StreamingContextRegistry(
             state_ttl_seconds=1
-        )  # Very short TTL for testing
+        )  # Very short TTL for testing (reduced for performance)
 
         # Create stream states
         num_streams = 50
@@ -87,8 +87,8 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         initial_size = len(registry._states)
         assert initial_size == num_streams
 
-        # Wait for TTL to expire
-        time.sleep(2)
+        # Wait for TTL to expire (reduced sleep time for performance)
+        time.sleep(1.1)
 
         # Manually call cleanup_expired()
         registry.cleanup_expired()
@@ -103,7 +103,9 @@ class TestStreamingRegistryCleanupNotCalledRegression:
 
     def test_recently_accessed_streams_not_cleaned_up(self) -> None:
         """Test that recently accessed streams are not cleaned up."""
-        registry = StreamingContextRegistry(state_ttl_seconds=2)  # 2 second TTL
+        registry = StreamingContextRegistry(
+            state_ttl_seconds=0.2
+        )  # Reduced TTL for performance (was 2)
 
         # Create streams
         for i in range(20):
@@ -114,8 +116,8 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         for i in range(5):
             registry.get_content_state(f"stream_{i}")
 
-        # Wait less than TTL
-        time.sleep(1)
+        # Wait less than TTL (reduced sleep time for performance)
+        time.sleep(0.1)  # Reduced from 1 second
 
         # Access one stream to trigger cleanup
         registry.get_content_state("stream_0")

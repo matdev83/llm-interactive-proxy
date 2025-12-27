@@ -111,7 +111,7 @@ def test_property_11_turn_counter_initialization(
     ),
 )
 @property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
-def test_property_21_activation_logging(
+async def test_property_21_activation_logging(
     turn_count: int,
     original_backend: str,
     original_model: str,
@@ -165,12 +165,8 @@ def test_property_21_activation_logging(
     original_logger.info = capture_info
 
     try:
-        # Activate replacement
-        import asyncio
-
-        asyncio.run(
-            service.activate_replacement(session_id, original_backend, original_model)
-        )
+        # Activate replacement (async test, no need for asyncio.run)
+        await service.activate_replacement(session_id, original_backend, original_model)
 
         # Verify INFO log was emitted
         activation_logs = [log for log in log_calls if "Replacement activated" in log]

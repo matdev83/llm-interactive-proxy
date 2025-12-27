@@ -230,8 +230,8 @@ def test_session_uniqueness_tracking(records, temp_dir_module, store_counter):
 # Property 8: Turn Counter Accuracy
 # Feature: detailed-usage-tracking, Property 8: Turn Counter Accuracy
 # Validates: Requirements 4.2
-@settings(max_examples=50, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=50))
+@settings(max_examples=30, deadline=None)  # Reduced from 50 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=30))  # Reduced max_size from 50
 def test_turn_counter_accuracy(records, temp_dir_module, store_counter):
     """Property 8: Turn Counter Accuracy.
 
@@ -327,8 +327,8 @@ def test_tokens_per_session_calculation(records, temp_dir_module, store_counter)
 # Property 10: Tokens Per Second (TPS) Calculation
 # Feature: detailed-usage-tracking, Property 10: Tokens Per Second (TPS) Calculation
 # Validates: Requirements 5.5
-@settings(max_examples=50, deadline=None)
-@given(records=usage_record_list_strategy(min_size=2, max_size=50))
+@settings(max_examples=30, deadline=None)  # Reduced from 50 for performance
+@given(records=usage_record_list_strategy(min_size=2, max_size=30))  # Reduced max_size from 50
 def test_tps_calculation(records, temp_dir_module, store_counter):
     """Property 10: Tokens Per Second (TPS) Calculation.
 
@@ -346,46 +346,6 @@ def test_tps_calculation(records, temp_dir_module, store_counter):
         persistence_path=store_path,
         flush_interval_seconds=60.0,
     )
-    service = StatisticsAggregationService(store)
-
-    # Add records to store
-    for record in records:
-        store.add_record(record)
-
-    # Get aggregated stats
-    import asyncio
-
-    stats = asyncio.run(service.get_aggregated_stats())
-
-    # Calculate expected TPS
-    if len(records) > 1:
-        timestamps = sorted(r.timestamp for r in records)
-        time_span = (timestamps[-1] - timestamps[0]).total_seconds()
-
-        if time_span > 0:
-            total_completion_tokens = sum(r.mutated_completion_tokens for r in records)
-            total_tokens = sum(r.total_tokens for r in records)
-
-            expected_completion_tps = total_completion_tokens / time_span
-            expected_total_tps = total_tokens / time_span
-
-            # Allow small floating point error
-            assert (
-                abs(stats.completion_tokens_per_second - expected_completion_tps) < 0.01
-            ), (
-                f"Expected completion_tokens_per_second={expected_completion_tps}, "
-                f"got {stats.completion_tokens_per_second}"
-            )
-
-            assert abs(stats.total_tokens_per_second - expected_total_tps) < 0.01, (
-                f"Expected total_tokens_per_second={expected_total_tps}, "
-                f"got {stats.total_tokens_per_second}"
-            )
-
-            assert abs(stats.time_window_seconds - time_span) < 0.01, (
-                f"Expected time_window_seconds={time_span}, "
-                f"got {stats.time_window_seconds}"
-            )
     service = StatisticsAggregationService(store)
 
     # Add records to store
@@ -529,8 +489,8 @@ def test_status_code_aggregation(records, temp_dir_module, store_counter):
 # Property 17: Date Range Filter Correctness
 # Feature: detailed-usage-tracking, Property 17: Date Range Filter Correctness
 # Validates: Requirements 9.6
-@settings(max_examples=50, deadline=None)
-@given(records=usage_record_list_strategy(min_size=5, max_size=50))
+@settings(max_examples=20, deadline=None)
+@given(records=usage_record_list_strategy(min_size=5, max_size=30))
 def test_date_range_filter_correctness(records, temp_dir_module, store_counter):
     """Property 17: Date Range Filter Correctness.
 

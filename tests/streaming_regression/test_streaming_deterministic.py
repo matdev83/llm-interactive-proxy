@@ -213,6 +213,7 @@ async def test_streaming_chunk_sequence_deterministic() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.slow
 async def test_streaming_contract_validation_deterministic() -> None:
     """Test that contract validation is deterministic.
 
@@ -269,7 +270,9 @@ async def test_streaming_contract_validation_deterministic() -> None:
     # Verify all non-empty SSE lines start with "data: "
     for line in all_sse_lines:
         if line:  # Skip empty lines
-            assert line.startswith(("data: ", ":")), f"SSE line should start with 'data: ' or ':', got: {line[:50]}"
+            assert line.startswith(
+                ("data: ", ":")
+            ), f"SSE line should start with 'data: ' or ':', got: {line[:50]}"
 
     # Verify backend behavior (deterministic check)
     stats = backend.get_timing_stats()

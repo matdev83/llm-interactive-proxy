@@ -28,7 +28,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
         assert initial_size == num_streams
 
         # Wait for TTL to expire
-        time.sleep(2)
+        time.sleep(1.1)
 
         # Access one stream - this should trigger cleanup
         registry.get_content_state("stream_0")
@@ -59,7 +59,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
                 registry.get_content_state(f"orphan_stream_{i}")
 
         # Wait for TTL to expire
-        time.sleep(2)
+        time.sleep(1.1)
 
         # Access one of the frequently accessed streams to trigger cleanup
         registry.get_content_state("orphan_stream_0")
@@ -79,7 +79,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
 
     def test_cleanup_preserves_recently_accessed_streams(self) -> None:
         """Test that recently accessed streams are not cleaned up."""
-        registry = StreamingContextRegistry(state_ttl_seconds=2)  # 2 second TTL
+        registry = StreamingContextRegistry(state_ttl_seconds=0.2)  # Reduced TTL for performance (was 2)
 
         # Create streams
         for i in range(20):
@@ -91,7 +91,7 @@ class TestStreamContextRegistryTTLCleanupRegression:
             registry.get_content_state(f"stream_{i}")
 
         # Wait less than TTL
-        time.sleep(1)
+        time.sleep(0.1)  # Reduced from 1 second
 
         # Access one stream to trigger cleanup
         registry.get_content_state("stream_0")

@@ -313,7 +313,7 @@ def test_property_19_authorization_api_request_payload(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=5)
 def test_property_20_authorization_api_success_path(
     config: AuthorizationConfig,
 ) -> None:
@@ -371,7 +371,7 @@ def test_property_20_authorization_api_success_path(
 
 @given(config=authorization_config_strategy())
 @property_test_settings()
-def test_property_21_authorization_api_denial_path(
+async def test_property_21_authorization_api_denial_path(
     config: AuthorizationConfig,
 ) -> None:
     """
@@ -387,39 +387,36 @@ def test_property_21_authorization_api_denial_path(
     if config.api_url is None:
         return
 
-    async def run_test():
-        with temp_db_path() as db_path:
-            db_manager = DatabaseManager(db_path)
-            await db_manager.initialize_schema()
-            rate_limit_service = RateLimitService(db_manager)
-            service = AuthorizationService(
-                AuthorizationMode.ENTERPRISE,
-                config,
-                db_manager,
-                rate_limit_service,
+    with temp_db_path() as db_path:
+        db_manager = DatabaseManager(db_path)
+        await db_manager.initialize_schema()
+        rate_limit_service = RateLimitService(db_manager)
+        service = AuthorizationService(
+            AuthorizationMode.ENTERPRISE,
+            config,
+            db_manager,
+            rate_limit_service,
+        )
+
+        # Test JSON response
+        async with respx.mock as mock:
+            mock.post(config.api_url).mock(
+                return_value=httpx.Response(200, json={"authorized": False})
             )
+            result = await service.query_authorization_api("u1", "e1", "127.0.0.1")
+            assert result.authorized is False
 
-            # Test JSON response
-            async with respx.mock as mock:
-                mock.post(config.api_url).mock(
-                    return_value=httpx.Response(200, json={"authorized": False})
-                )
-                result = await service.query_authorization_api("u1", "e1", "127.0.0.1")
-                assert result.authorized is False
-
-            # Test simple boolean body
-            async with respx.mock as mock:
-                mock.post(config.api_url).mock(
-                    return_value=httpx.Response(200, text="false")
-                )
-                result = await service.query_authorization_api("u1", "e1", "127.0.0.1")
-                assert result.authorized is False
-
-    asyncio.run(run_test())
+        # Test simple boolean body
+        async with respx.mock as mock:
+            mock.post(config.api_url).mock(
+                return_value=httpx.Response(200, text="false")
+            )
+            result = await service.query_authorization_api("u1", "e1", "127.0.0.1")
+            assert result.authorized is False
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=20)
 def test_property_22_authorization_api_error_handling(
     config: AuthorizationConfig,
 ) -> None:

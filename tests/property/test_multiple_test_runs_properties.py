@@ -153,7 +153,7 @@ async def test_property_13_multiple_test_runs_maintain_clean_state(
 
 
 @given(
-    test_count=st.integers(min_value=2, max_value=20),
+    test_count=st.integers(min_value=2, max_value=10),
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings()

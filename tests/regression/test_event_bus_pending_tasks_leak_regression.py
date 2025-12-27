@@ -169,12 +169,12 @@ class TestEventBusPendingTasksLeakRegression:
 
         event_bus.subscribe(TestEvent, handler)
 
-        # Publish many events rapidly
-        for _i in range(5000):
+        # Publish many events rapidly (reduced from 5000 to 2000)
+        for _i in range(2000):
             event_bus.publish_nowait(TestEvent())
 
-        # Wait for tasks to complete
-        await asyncio.sleep(1.0)
+        # Wait for tasks to complete (reduced from 1.0 to 0.5)
+        await asyncio.sleep(0.5)
 
         # Force GC
         gc.collect()

@@ -13,28 +13,38 @@ class TestStreamContextRegistryMaxLimitRegression:
 
     def test_max_limit_enforced_when_exceeding_limit(self) -> None:
         """Test that max limit prevents unbounded growth when creating many streams."""
-        registry = StreamingContextRegistry(state_ttl_seconds=300)
-        max_limit = registry._MAX_STREAM_STATES
+        # Use smaller limit for test performance - still tests the same eviction logic
+        test_max_limit = 1000
+        num_streams = test_max_limit + 100
 
-        # Create more streams than the limit
-        num_streams = max_limit + 100
-        for i in range(num_streams):
-            stream_id = f"stream_{i}"
-            registry.get_content_state(stream_id)
+        # Create registry with test limit by monkeypatching the constant
+        # This tests the same eviction logic without needing 10,000+ iterations
+        original_max = StreamingContextRegistry._MAX_STREAM_STATES
+        StreamingContextRegistry._MAX_STREAM_STATES = test_max_limit
 
-            # States size should never exceed max limit
-            states_size = len(registry._states)
-            assert states_size <= max_limit, (
-                f"States size ({states_size}) exceeded max limit ({max_limit}) "
-                f"after creating {i+1} streams. Max limit enforcement is not working."
+        try:
+            registry = StreamingContextRegistry(state_ttl_seconds=300)
+
+            # Create more streams than the limit
+            for i in range(num_streams):
+                stream_id = f"stream_{i}"
+                registry.get_content_state(stream_id)
+
+                # States size should never exceed max limit
+                states_size = len(registry._states)
+                assert states_size <= test_max_limit, (
+                    f"States size ({states_size}) exceeded max limit ({test_max_limit}) "
+                    f"after creating {i+1} streams. Max limit enforcement is not working."
+                )
+
+            # Final size should be at or below max limit
+            final_size = len(registry._states)
+            assert final_size <= test_max_limit, (
+                f"Final states size ({final_size}) exceeds max limit ({test_max_limit}). "
+                "Max limit enforcement failed."
             )
-
-        # Final size should be at or below max limit
-        final_size = len(registry._states)
-        assert final_size <= max_limit, (
-            f"Final states size ({final_size}) exceeds max limit ({max_limit}). "
-            "Max limit enforcement failed."
-        )
+        finally:
+            StreamingContextRegistry._MAX_STREAM_STATES = original_max
 
     def test_max_limit_enforced_with_orphaned_streams(self) -> None:
         """Test that max limit is enforced even when streams are never accessed again."""

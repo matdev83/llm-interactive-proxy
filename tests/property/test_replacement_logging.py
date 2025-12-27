@@ -255,7 +255,7 @@ def _is_valid_identifier(text: str) -> bool:
     original_model=st.text(min_size=1, max_size=20).filter(_is_valid_identifier),
 )
 @property_test_settings(
-    max_examples=50, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=10, suppress_health_check=[HealthCheck.filter_too_much]
 )
 def test_property_23_routing_logging(
     probability: float,

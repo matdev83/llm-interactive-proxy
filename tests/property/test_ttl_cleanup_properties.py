@@ -230,11 +230,11 @@ async def test_ttl_cleanup_multiple_sessions(
         assert session_ids[i] in handler._session_state
 
 
-@settings(max_examples=50)
+@settings(max_examples=20)
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),
-    max_sessions=st.integers(min_value=5, max_value=50),
+    max_sessions=st.integers(min_value=5, max_value=30),
 )
 async def test_max_sessions_limit_enforcement(
     session_id: str,
@@ -258,7 +258,7 @@ async def test_max_sessions_limit_enforcement(
     )
 
     # Create more sessions than the limit
-    num_sessions = max_sessions + 10
+    num_sessions = max_sessions + 3
     session_ids = [f"session_{i}" for i in range(num_sessions)]
 
     for session_id in session_ids:

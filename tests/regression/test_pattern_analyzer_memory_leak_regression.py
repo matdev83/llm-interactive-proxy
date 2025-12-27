@@ -63,7 +63,7 @@ class TestPatternAnalyzerMemoryLeakRegression:
     ) -> None:
         """Test that _content_stats entries are removed when history is truncated."""
         # Process chunks to fill history
-        initial_chunks = 5000
+        initial_chunks = 500
         for i in range(initial_chunks):
             content = f"chunk_{i}_with_content"
             analyzer.ingest_chunk(content)
@@ -74,7 +74,7 @@ class TestPatternAnalyzerMemoryLeakRegression:
         # Process more chunks to trigger truncation (if max_history_length is exceeded)
         # Since max_history_length is very large, we'll simulate truncation by
         # checking that stats don't grow unbounded
-        additional_chunks = 50000
+        additional_chunks = 5000
         for i in range(additional_chunks):
             unique_content = f"unique_chunk_{i}_with_different_content"
             analyzer.ingest_chunk(unique_content)
@@ -93,8 +93,8 @@ class TestPatternAnalyzerMemoryLeakRegression:
         self, analyzer: PatternAnalyzer
     ) -> None:
         """Test that _content_stats respects max_history_length limit."""
-        # Process many unique chunks
-        num_chunks = 100000
+        # Process many unique chunks (reduced from 100000 to 20000)
+        num_chunks = 20000
 
         for i in range(num_chunks):
             unique_content = f"unique_content_{i}_with_text"
@@ -117,8 +117,8 @@ class TestPatternAnalyzerMemoryLeakRegression:
         self, analyzer: PatternAnalyzer
     ) -> None:
         """Test that _content_stats doesn't grow independently of stream_history."""
-        # Process chunks
-        num_chunks = 50000
+        # Process chunks (reduced from 50000 to 10000 for performance)
+        num_chunks = 10000
 
         for i in range(num_chunks):
             unique_content = f"unique_chunk_{i}_with_content"

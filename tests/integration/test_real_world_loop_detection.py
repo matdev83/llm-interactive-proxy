@@ -115,7 +115,12 @@ class TestRealWorldLoopDetection:
         """Test that no loop is detected in normal content (example3_no_loop.md)."""
         content = self.load_test_data("example3_no_loop.md")
 
-        detector = self._create_detector()
+        detector = self._create_detector(
+            min_long_repetitions=3,
+        )
+
+        # Override max_pattern_length to reduce test runtime while keeping precision
+        detector.long_detector.max_pattern_length = 200
 
         # Process the content
         result = detector.process_chunk(content)

@@ -37,11 +37,11 @@ async def test_subprocess_leak_with_circular_ref() -> None:
     provider._token_manager_ref = token_manager  # type: ignore[attr-defined]
 
     # Launch subprocess (this creates a subprocess)
-    # Use a command that will stay alive for a bit
+    # Use a command that will stay alive for a bit (reduced from 5s to 1s for performance)
     if sys.platform == "win32":
-        cmd = ["python", "-c", "import time; time.sleep(5)"]
+        cmd = ["python", "-c", "import time; time.sleep(1)"]
     else:
-        cmd = ["python3", "-c", "import time; time.sleep(5)"]
+        cmd = ["python3", "-c", "import time; time.sleep(1)"]
 
     try:
         process = subprocess.Popen(
@@ -61,8 +61,8 @@ async def test_subprocess_leak_with_circular_ref() -> None:
         # Force garbage collection
         gc.collect()
 
-        # Wait a bit
-        await asyncio.sleep(0.5)
+        # Wait a bit (reduced from 0.5s to 0.1s for performance)
+        await asyncio.sleep(0.1)
 
         # Check if process is still running
         # With circular references, __del__ may not be called

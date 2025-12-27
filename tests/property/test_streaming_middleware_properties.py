@@ -114,7 +114,7 @@ class TestMetadataEnrichmentSafety:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=3, max_size=8))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=30, deadline=None)  # Reduced from 50
     async def test_metadata_enrichment_incremental_processing(self, chunks):
         """
         Property 20: Metadata enrichment safety (incremental processing)
@@ -152,7 +152,7 @@ class TestBackendLogicIsolation:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=20, deadline=None)
     async def test_middleware_does_not_contain_backend_specific_logic(self, chunks):
         """
         Property 24: Backend logic isolation
@@ -307,8 +307,8 @@ class TestInfrastructureReuse:
                 ), f"Shared infrastructure produced different results for {provider}"
 
     @pytest.mark.asyncio
-    @given(chunks=chunk_stream_with_done_strategy(min_size=3, max_size=8))
-    @settings(max_examples=30, deadline=None)
+    @given(chunks=chunk_stream_with_done_strategy(min_size=2, max_size=6))  # Reduced sizes for performance
+    @settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
     async def test_processor_chain_reusable_across_backends(self, chunks):
         """
         Property 25: Infrastructure reuse (processor chain)

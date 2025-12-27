@@ -80,8 +80,11 @@ class TestWebSocketDoSRegression:
         """Test that large payloads (>1MB) are rejected."""
         max_message_size = app.state.codebuff_server.config.max_message_size_bytes
 
-        # Create payload larger than limit
-        large_payload = self.create_large_payload(size_mb=2)  # 2MB > 1MB limit
+        # Create payload larger than limit (reduced from 2MB to 1.1MB for performance)
+        # Using 1.1MB ensures it exceeds 1MB limit while being faster than 2MB
+        large_payload = self.create_large_payload(size_mb=1)
+        # Add extra data to ensure it exceeds limit (base payload + nested structures may not be enough)
+        large_payload["extra"] = "x" * (150 * 1024)  # Add ~150KB to exceed 1MB limit
         payload_json = json.dumps(large_payload)
         payload_size = len(payload_json.encode("utf-8"))
 

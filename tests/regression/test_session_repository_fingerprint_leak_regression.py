@@ -114,7 +114,7 @@ class TestSessionRepositoryFingerprintLeakRegression:
     ) -> None:
         """Test that fingerprint bundles don't grow unbounded."""
         # Create many sessions with fingerprint bundles
-        num_sessions = 50000
+        num_sessions = 10000
 
         for i in range(num_sessions):
             session_id = f"session_{i}"

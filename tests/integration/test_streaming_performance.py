@@ -131,7 +131,7 @@ class TestStreamingNoBuffering:
         doesn't introduce significant overhead that degrades throughput.
         """
         chunk_count = 100
-        stream = self._create_test_stream(chunk_count, delay=0.001)
+        stream = self._create_test_stream(chunk_count, delay=0)
 
         envelope = StreamingResponseEnvelope(
             content=stream,  # type: ignore[arg-type]

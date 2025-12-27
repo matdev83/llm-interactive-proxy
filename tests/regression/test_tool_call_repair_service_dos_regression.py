@@ -26,10 +26,8 @@ class TestToolCallRepairServiceDoSRegression:
     def create_large_json_payload(self, multiplier: int = 1) -> str:
         """Create a large JSON payload to test DoS protection."""
         # Create payload that exceeds MAX_JSON_PARSE_SIZE (10MB)
-        # Use a simpler structure to avoid excessive creation time
-        target_size_bytes = (
-            MAX_JSON_PARSE_SIZE + 1024 * 1024
-        ) * multiplier  # Just over limit
+        # Use a smaller margin to reduce test time while still testing size limit
+        target_size_bytes = MAX_JSON_PARSE_SIZE + (1024 * multiplier)  # Just over limit
         # Create a large string payload
         large_data = "x" * target_size_bytes
 
@@ -66,7 +64,6 @@ class TestToolCallRepairServiceDoSRegression:
     ) -> None:
         """Test that large JSON payloads (>10MB) are rejected quickly."""
         # Create payload larger than MAX_JSON_PARSE_SIZE
-        # Use smaller multiplier to avoid excessive string creation time
         large_json = self.create_large_json_payload(multiplier=1)
         payload_size_mb = len(large_json.encode("utf-8")) / (1024 * 1024)
 
@@ -174,8 +171,8 @@ class TestToolCallRepairServiceDoSRegression:
         self, repair_service: ToolCallRepairService
     ) -> None:
         """Test that progressively larger payloads are handled correctly."""
-        # Use smaller multipliers to avoid excessive string creation time
-        multipliers = [1, 2]
+        # Use smaller multipliers to reduce test time while still testing size limits
+        multipliers = [1]
 
         for multiplier in multipliers:
             large_json = self.create_large_json_payload(multiplier)

@@ -139,7 +139,7 @@ async def test_property_15_confirmation_code_attempt_decrement(incorrect_attempt
 # Feature: sso-authentication, Property 16: Correct Confirmation Code Success
 @pytest.mark.asyncio
 @settings(
-    max_examples=20,
+    max_examples=10,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

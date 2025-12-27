@@ -142,7 +142,7 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         threads_before = count_watchdog_threads()
 
         # Rapidly create, start, and stop watchers
-        for _i in range(10):
+        for _i in range(5):
             state = FileWatcherState()
             FileWatcher.start_file_watching(
                 temp_creds_file,
@@ -150,12 +150,12 @@ class TestFileWatcherWatchdogThreadLeakRegression:
                 state,
                 mock_reload_callback,
             )
-            time.sleep(0.05)  # Small delay to let thread start
+            time.sleep(0.01)  # Small delay to let thread start
             FileWatcher.stop_file_watching(state)
-            time.sleep(0.05)  # Small delay to let thread stop
+            time.sleep(0.01)  # Small delay to let thread stop
 
         # Wait for all threads to stop
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         threads_after = count_watchdog_threads()
         # Allow margin for other threads

@@ -175,10 +175,10 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
     # Give streams time to fully complete and cleanup
     # The finally blocks in async generators execute when the generator is closed
     # Wait for streams to complete and cleanup to happen
-    max_wait = 10
+    max_wait = 5  # Reduced from 10
     waited = 0
     while backend.active_sessions and waited < max_wait:
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)  # Reduced from 0.1
         waited += 1
 
     # Sessions should be cleaned up after streams complete

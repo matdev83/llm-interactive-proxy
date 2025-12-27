@@ -176,7 +176,7 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         queue = AsyncUsageWriteQueue(
             writer,
             batch_size=10,
-            flush_interval_seconds=1.0,
+            flush_interval_seconds=0.2,
             max_pending_records=max_pending,
         )
 
@@ -189,7 +189,7 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             queue.enqueue_insert(record)
 
         # Wait a bit
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.15)
 
         # Check that pending count is limited
         pending_count = queue.pending_count

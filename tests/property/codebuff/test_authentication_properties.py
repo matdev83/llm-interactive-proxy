@@ -207,6 +207,7 @@ async def test_property_16_cost_attribution(action: PromptAction):
 
 
 @pytest.mark.asyncio
+@settings(max_examples=20, deadline=None)
 @given(action=prompt_action_strategy())
 async def test_property_33_accounting_integration(action: PromptAction):
     """

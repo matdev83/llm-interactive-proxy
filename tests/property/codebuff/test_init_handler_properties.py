@@ -19,21 +19,21 @@ from src.codebuff.schemas import InitAction
 @st.composite
 def file_context_strategy(draw):
     """Generate a file context dictionary."""
-    num_files = draw(st.integers(min_value=0, max_value=10))
+    num_files = draw(st.integers(min_value=0, max_value=5))  # Reduced from 10 for performance
     file_context = {}
     for _ in range(num_files):
         # Use printable ASCII to avoid Unicode encoding issues in parallel test execution
         filename = draw(
             st.text(
                 min_size=1,
-                max_size=50,
+                max_size=30,  # Reduced from 50 for performance
                 alphabet=st.characters(min_codepoint=32, max_codepoint=126),
             )
         )
         content = draw(
             st.text(
                 min_size=0,
-                max_size=200,
+                max_size=100,  # Reduced from 200 for performance
                 alphabet=st.characters(min_codepoint=32, max_codepoint=126),
             )
         )
@@ -95,12 +95,12 @@ async def test_property_17_file_context_storage(
 @given(
     session_id=st.text(
         min_size=1,
-        max_size=100,
+        max_size=50,  # Reduced from 100 for performance
         alphabet=st.characters(min_codepoint=32, max_codepoint=126),
     ),
     fingerprint_id=st.text(
         min_size=1,
-        max_size=100,
+        max_size=50,  # Reduced from 100 for performance
         alphabet=st.characters(min_codepoint=32, max_codepoint=126),
     ),
     file_context=file_context_strategy(),

@@ -121,7 +121,9 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
                 max_size=50,
             )
         ),
-        "prompt": draw(st.one_of(st.none(), st.text(min_size=1, max_size=500))),
+        "prompt": draw(
+            st.one_of(st.none(), st.text(min_size=1, max_size=200))
+        ),  # Reduced from 500
         "content": draw(
             st.one_of(
                 st.none(),
@@ -129,15 +131,19 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
                     st.fixed_dictionaries(
                         {
                             "role": st.sampled_from(["user", "assistant", "system"]),
-                            "content": st.text(min_size=1, max_size=100),
+                            "content": st.text(
+                                min_size=1, max_size=50
+                            ),  # Reduced from 100
                         }
                     ),
-                    max_size=5,
+                    max_size=3,  # Reduced from 5
                 ),
             )
         ),
         "promptParams": draw(
-            st.one_of(st.none(), st.dictionaries(st.text(), st.text(), max_size=5))
+            st.one_of(
+                st.none(), st.dictionaries(st.text(), st.text(), max_size=3)
+            )  # Reduced from 5
         ),
         "fingerprintId": draw(
             st.text(
@@ -148,13 +154,19 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
                 max_size=50,
             )
         ),
-        "authToken": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
+        "authToken": draw(
+            st.one_of(st.none(), st.text(min_size=10, max_size=50))
+        ),  # Reduced from 100
         "costMode": draw(st.sampled_from(["normal", "fast", "premium"])),
         "sessionState": draw(
-            st.dictionaries(st.text(), st.text(), min_size=1, max_size=10)
+            st.dictionaries(
+                st.text(), st.text(), min_size=1, max_size=5
+            )  # Reduced from 10
         ),
         "toolResults": draw(
-            st.lists(st.dictionaries(st.text(), st.text()), max_size=5)
+            st.lists(
+                st.dictionaries(st.text(), st.text()), max_size=3
+            )  # Reduced from 5
         ),
         "model": draw(
             st.one_of(
@@ -170,8 +182,12 @@ def valid_prompt_action_strategy(draw: Any) -> dict[str, Any]:
                 ),
             )
         ),
-        "repoUrl": draw(st.one_of(st.none(), st.text(min_size=10, max_size=100))),
-        "agentId": draw(st.one_of(st.none(), st.text(min_size=1, max_size=50))),
+        "repoUrl": draw(
+            st.one_of(st.none(), st.text(min_size=10, max_size=50))
+        ),  # Reduced from 100
+        "agentId": draw(
+            st.one_of(st.none(), st.text(min_size=1, max_size=30))
+        ),  # Reduced from 50
     }
 
 

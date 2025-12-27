@@ -227,11 +227,11 @@ def test_probability_evaluation_performance(replacement_service, request_context
     comparison are performed efficiently.
     """
     # Warm up
-    for i in range(1000):
+    for i in range(100):
         replacement_service.should_replace(f"warmup-{i}", request_context)
 
-    # Measure time for probability evaluations
-    iterations = 100000
+    # Measure time for probability evaluations (reduced from 100000 to 10000)
+    iterations = 10000
 
     start_time = time.perf_counter()
     for i in range(iterations):

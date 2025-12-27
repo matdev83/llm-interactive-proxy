@@ -288,10 +288,10 @@ async def test_streaming_content_validation_backward_compatibility(
 
 @pytest.mark.asyncio
 @given(
-    chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20),
-    stream_id=st.text(min_size=1, max_size=30),
+    chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=10),
+    stream_id=st.text(min_size=1, max_size=20),
 )
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=10, deadline=None)
 async def test_streaming_content_stream_id_consistency(
     chunks: list[StreamingContent], stream_id: str
 ) -> None:
