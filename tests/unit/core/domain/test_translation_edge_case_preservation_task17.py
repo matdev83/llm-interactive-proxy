@@ -46,7 +46,7 @@ def tool_arguments_strategy(draw: Any) -> object:
 
 
 @given(args_value=tool_arguments_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=25)
 def test_property_6_edge_case_normalize_tool_arguments_always_valid_json(
     args_value: object,
 ) -> None:

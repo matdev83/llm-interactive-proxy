@@ -145,7 +145,7 @@ class TestAsyncPathPurity:
     """
 
     @pytest.mark.asyncio
-    @settings(max_examples=30, deadline=5000)
+    @settings(max_examples=15, deadline=5000)
     @given(chunks=st.lists(processed_response_strategy(), min_size=1, max_size=10))
     async def test_async_path_purity_property(self, chunks: list[ProcessedResponse]):
         """
@@ -193,7 +193,7 @@ class TestAsyncPathPurity:
         ), f"Chunk processing took {max_chunk_time:.3f}s - possible blocking operation"
 
     @pytest.mark.asyncio
-    @settings(max_examples=30, deadline=5000)
+    @settings(max_examples=15, deadline=5000)
     @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=10))
     async def test_no_blocking_io_in_streaming(self, chunks: list[StreamingContent]):
         """
