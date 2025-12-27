@@ -15,18 +15,24 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.translation_service import TranslationService
 
 
+@pytest.fixture
+def translation_service():
+    """Fixture providing TranslationService instance."""
+    return TranslationService()
+
+
 def _messages() -> list[Any]:
     return [ChatMessage(role="user", content="Hello")]
 
 
 @pytest.mark.asyncio
 async def test_openai_payload_contains_temperature_and_top_p(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, translation_service
 ) -> None:
     cfg = AppConfig()
     client = httpx.AsyncClient()
-    connector = OpenAIConnector(client, cfg, translation_service=TranslationService())
-    connector.api_key = "test-api-key"  # Add API key to avoid authentication error
+    connector = OpenAIConnector(client, cfg, translation_service=translation_service)
+    connector.api_key = "test-api-key"
     req = ChatRequest(model="gpt-4", messages=_messages(), temperature=0.12, top_p=0.34)
 
     captured_payload = {}
@@ -47,11 +53,11 @@ async def test_openai_payload_contains_temperature_and_top_p(
 
 @pytest.mark.asyncio
 async def test_openai_payload_uses_processed_messages_with_list_content(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, translation_service
 ) -> None:
     cfg = AppConfig()
     client = httpx.AsyncClient()
-    connector = OpenAIConnector(client, cfg, translation_service=TranslationService())
+    connector = OpenAIConnector(client, cfg, translation_service=translation_service)
     connector.api_key = "test-api-key"
     req = ChatRequest(model="gpt-4", messages=_messages())
 
@@ -82,12 +88,12 @@ async def test_openai_payload_uses_processed_messages_with_list_content(
 
 @pytest.mark.asyncio
 async def test_openrouter_payload_contains_temperature_and_top_p(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, translation_service
 ) -> None:
     cfg = AppConfig()
     client = httpx.AsyncClient()
-    connector = OpenRouterBackend(client, cfg, translation_service=TranslationService())
-    connector.api_key = "test-api-key"  # Add API key to avoid authentication error
+    connector = OpenRouterBackend(client, cfg, translation_service=translation_service)
+    connector.api_key = "test-api-key"
     req = ChatRequest(
         model="openrouter:gpt-4", messages=_messages(), temperature=0.2, top_p=0.5
     )
@@ -110,11 +116,11 @@ async def test_openrouter_payload_contains_temperature_and_top_p(
 
 @pytest.mark.asyncio
 async def test_anthropic_payload_contains_temperature_and_top_p(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, translation_service
 ) -> None:
     cfg = AppConfig()
     client = httpx.AsyncClient()
-    backend = AnthropicBackend(client, cfg, TranslationService())
+    backend = AnthropicBackend(client, cfg, translation_service)
 
     captured: dict[str, Any] = {}
 
@@ -151,10 +157,10 @@ async def test_anthropic_payload_contains_temperature_and_top_p(
     assert payload.get("top_p") == 0.6
 
 
-def test_gemini_public_generation_config_clamping_and_topk() -> None:
+def test_gemini_public_generation_config_clamping_and_topk(translation_service) -> None:
     cfg = AppConfig()
     backend = GeminiBackend(
-        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+        httpx.AsyncClient(), cfg, translation_service=translation_service
     )
     payload: dict[str, Any] = {}
     req = ChatRequest(
@@ -167,10 +173,10 @@ def test_gemini_public_generation_config_clamping_and_topk() -> None:
     assert gc.get("topK") == 50
 
 
-def test_gemini_oauth_personal_builds_topk() -> None:
+def test_gemini_oauth_personal_builds_topk(translation_service) -> None:
     cfg = AppConfig()
     backend = GeminiOAuthPlanConnector(
-        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+        httpx.AsyncClient(), cfg, translation_service=translation_service
     )
 
     class _Req:
@@ -185,13 +191,12 @@ def test_gemini_oauth_personal_builds_topk() -> None:
     assert gc["topK"] == 33
 
 
-def test_gemini_cloud_project_builds_topk() -> None:
+def test_gemini_cloud_project_builds_topk(translation_service) -> None:
     cfg = AppConfig()
-    # Minimal init (project id may be None for this isolated helper test)
     backend = GeminiCloudProjectConnector(
         httpx.AsyncClient(),
         cfg,
-        translation_service=TranslationService(),
+        translation_service=translation_service,
         gcp_project_id="test-proj",
     )
 

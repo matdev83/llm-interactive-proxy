@@ -18,7 +18,7 @@ from src.core.persistence import ConfigManager, FailoverValidationResult
 from src.core.services.application_state_service import ApplicationStateService
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
     # Store original environment
     import os
@@ -63,6 +63,7 @@ def test_save_and_load_persistent_config(
     monkeypatch: pytest.MonkeyPatch,
     functional_backend: str,
     caplog: pytest.LogCaptureFixture,
+    manage_env_vars,
 ):
     cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
@@ -167,7 +168,10 @@ def test_save_and_load_persistent_config(
 
 
 def test_invalid_persisted_backend(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    functional_backend: str,
+    manage_env_vars,
 ):
     cfg_path = tmp_path / "cfg.yaml"
     # Persist an invalid default_backend
