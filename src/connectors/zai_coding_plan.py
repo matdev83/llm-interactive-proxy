@@ -25,6 +25,8 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 
+from src.core.common.logging_utils import redact_dict
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,13 +112,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         if "x-llmproxy-loop-guard" in headers:
             headers.pop("x-llmproxy-loop-guard", None)
 
-        # Log headers for debugging (mask Authorization header)
-        debug_headers = dict(headers)
-        if "Authorization" in debug_headers:
-            auth_value = debug_headers["Authorization"]
-            if auth_value.startswith("Bearer "):
-                token = auth_value[7:]  # Remove "Bearer " prefix
-                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+        # Log headers for debugging (redact sensitive headers comprehensively)
+        debug_headers = redact_dict(dict(headers) if headers else {})
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("ZAI Coding Plan request headers: %s", debug_headers)
 
@@ -356,13 +353,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
                 )
 
-        # Log request details with masked auth
-        debug_headers = dict(headers) if headers else {}
-        if "Authorization" in debug_headers:
-            auth_value = debug_headers["Authorization"]
-            if auth_value.startswith("Bearer "):
-                token = auth_value[7:]
-                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+        # Log request details with redacted headers
+        debug_headers = redact_dict(dict(headers) if headers else {})
 
         logger.info("ZAI API Request (non-streaming): POST %s", url)
         logger.info("ZAI API Headers: %s", debug_headers)
@@ -394,13 +386,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
                 )
 
-        # Log request details with masked auth
-        debug_headers = dict(headers) if headers else {}
-        if "Authorization" in debug_headers:
-            auth_value = debug_headers["Authorization"]
-            if auth_value.startswith("Bearer "):
-                token = auth_value[7:]
-                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+        # Log request details with redacted headers
+        debug_headers = redact_dict(dict(headers) if headers else {})
 
         logger.info("ZAI API Request (streaming): POST %s", url)
         logger.info("ZAI API Headers: %s", debug_headers)
