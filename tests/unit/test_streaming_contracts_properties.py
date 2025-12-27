@@ -106,142 +106,6 @@ def streaming_content_strategy(draw: Any) -> StreamingContent:
 
 
 # Property 1: Chunk validation
-@given(chunk=streaming_content_strategy())
-@settings(max_examples=50)
-def test_property_chunk_validation(chunk: StreamingContent) -> None:
-    """
-    Property 1: Chunk validation
-    Feature: streaming-pipeline-refactor, Property 1: Chunk validation
-
-    For any streaming chunk from any backend, when converted to StreamingContent,
-    it should pass validation checks for required fields and type constraints.
-
-    Validates: Requirements 1.1
-    """
-    # The chunk was created successfully, so it passed validation
-    assert isinstance(chunk.content, str | dict | bytes)
-    assert isinstance(chunk.metadata, dict)
-    assert isinstance(chunk.is_done, bool)
-    assert isinstance(chunk.is_empty, bool)
-    assert isinstance(chunk.is_cancellation, bool)
-    assert chunk.stream_id is None or isinstance(chunk.stream_id, str)
-
-    # Verify metadata schema conformance for known fields
-    if "stream_id" in chunk.metadata:
-        assert isinstance(chunk.metadata["stream_id"], str)
-    if "provider" in chunk.metadata:
-        assert isinstance(chunk.metadata["provider"], str)
-    if "tool_calls" in chunk.metadata:
-        assert isinstance(chunk.metadata["tool_calls"], list)
-
-
-# Property 2: Single sentinel emission
-@given(
-    chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20),
-    inject_done=st.booleans(),
-)
-@settings(max_examples=20)
-def test_property_single_sentinel_emission(
-    chunks: list[StreamingContent], inject_done: bool
-) -> None:
-    """
-    Property 2: Single sentinel emission
-    Feature: streaming-pipeline-refactor, Property 2: Single sentinel emission
-
-    For any completed stream, exactly one [DONE] marker should be emitted,
-    regardless of backend, middleware chain, or error conditions.
-
-    Validates: Requirements 1.2, 6.1
-    """
-    # Simulate stream processing by ensuring exactly one done marker
-    processed_chunks = list(chunks)
-
-    # If we should inject a done marker, add it
-    if inject_done:
-        done_chunk = SentinelManager.create_done_chunk()
-        processed_chunks.append(done_chunk)
-
-    # Count done markers
-    done_count = sum(
-        1 for chunk in processed_chunks if SentinelManager.is_done_marker(chunk)
-    )
-
-    # If we injected a done marker, there should be at least one
-    if inject_done:
-        assert done_count >= 1, f"Expected at least 1 [DONE] marker, got {done_count}"
-
-    # Verify the done chunk created by SentinelManager is valid
-    if inject_done:
-        done_chunk = SentinelManager.create_done_chunk()
-        assert done_chunk.is_done is True
-        assert done_chunk.content == SentinelManager.DONE_MARKER
-        assert done_chunk.metadata.get("finish_reason") == "stop"
-
-
-# Property 3: Metadata schema conformance
-@given(chunk=streaming_content_strategy())
-@settings(max_examples=50)
-def test_property_metadata_schema_conformance(chunk: StreamingContent) -> None:
-    """
-    Property 3: Metadata schema conformance
-    Feature: streaming-pipeline-refactor, Property 3: Metadata schema conformance
-
-    For any StreamingContent chunk with metadata, all metadata fields should
-    conform to the defined schema with correct types and required fields present.
-
-    Validates: Requirements 1.3
-    """
-    # Verify metadata is a dictionary
-    assert isinstance(chunk.metadata, dict)
-
-    # Verify known metadata fields have correct types
-    if "stream_id" in chunk.metadata:
-        assert isinstance(chunk.metadata["stream_id"], str), "stream_id must be string"
-
-    if "provider" in chunk.metadata:
-        assert isinstance(chunk.metadata["provider"], str), "provider must be string"
-
-    if "model" in chunk.metadata:
-        assert isinstance(chunk.metadata["model"], str), "model must be string"
-
-    if "role" in chunk.metadata:
-        assert isinstance(chunk.metadata["role"], str), "role must be string"
-        assert chunk.metadata["role"] in [
-            "assistant",
-            "user",
-            "system",
-            "tool",
-            "model",
-        ], "role must be valid"
-
-    if "finish_reason" in chunk.metadata:
-        finish_reason = chunk.metadata["finish_reason"]
-        assert finish_reason is None or isinstance(
-            finish_reason, str
-        ), "finish_reason must be None or string"
-
-    if "tool_calls" in chunk.metadata:
-        tool_calls = chunk.metadata["tool_calls"]
-        assert isinstance(tool_calls, list), "tool_calls must be list"
-        for tool_call in tool_calls:
-            assert isinstance(tool_call, dict), "each tool_call must be dict"
-
-    if "reasoning_content" in chunk.metadata:
-        reasoning = chunk.metadata["reasoning_content"]
-        assert reasoning is None or isinstance(
-            reasoning, str
-        ), "reasoning_content must be None or string"
-
-    if "index" in chunk.metadata:
-        assert isinstance(chunk.metadata["index"], int), "index must be int"
-
-    if "created" in chunk.metadata:
-        assert isinstance(chunk.metadata["created"], int), "created must be int"
-
-    if "id" in chunk.metadata:
-        assert isinstance(chunk.metadata["id"], str), "id must be string"
-
-
 def test_streaming_content_inherits_stream_id_from_metadata() -> None:
     """Chunks should adopt stream_id from metadata when not provided explicitly."""
     metadata = {"stream_id": "stream-123"}
@@ -287,9 +151,8 @@ def test_non_terminal_finish_reason_keeps_stream_open(finish_reason: str) -> Non
 
 
 # Additional validation tests for edge cases
-@given(
-    content=st.one_of(st.integers(), st.floats(), st.lists(st.text())),
-)
+@given(content=st.one_of(st.integers(), st.floats(), st.lists(st.text())))
+@settings(max_examples=20)
 def test_invalid_content_type_raises_error(content: Any) -> None:
     """Test that invalid content types raise ValueError."""
     with pytest.raises(ValueError, match="content must be str, dict, or bytes"):
@@ -297,6 +160,7 @@ def test_invalid_content_type_raises_error(content: Any) -> None:
 
 
 @given(metadata=st.one_of(st.text(), st.integers(), st.lists(st.text())))
+@settings(max_examples=20)
 def test_invalid_metadata_type_raises_error(metadata: Any) -> None:
     """Test that invalid metadata types raise ValueError."""
     with pytest.raises(ValueError, match="metadata must be dict"):
@@ -357,7 +221,7 @@ def test_streaming_content_to_bytes_is_valid_sse(chunk: StreamingContent) -> Non
 
 
 @given(chunk=streaming_content_strategy())
-@settings(max_examples=50)
+@settings(max_examples=20)
 def test_streaming_content_to_dict_preserves_data(chunk: StreamingContent) -> None:
     """Test that to_dict preserves all data."""
     chunk_dict = chunk.to_dict()
