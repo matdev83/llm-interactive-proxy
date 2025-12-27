@@ -140,10 +140,12 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
         self, middleware: ContentRewritingMiddleware
     ) -> None:
         """Test that arrays at the MAX_ARRAY_ELEMENTS limit are accepted."""
+        # Optimize: Use [0] * n instead of list(range(n)) for faster array creation
+        # This creates a list of zeros which is faster than generating sequential integers
         # Create payload with array exactly at 1M elements
         array_payload = {
             "messages": [{"role": "user", "content": "test"}],
-            "large_array": list(range(middleware.MAX_ARRAY_ELEMENTS)),
+            "large_array": [0] * middleware.MAX_ARRAY_ELEMENTS,
         }
 
         json_str = json.dumps(array_payload)

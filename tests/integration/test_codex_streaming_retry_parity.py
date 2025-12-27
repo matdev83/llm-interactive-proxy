@@ -319,7 +319,7 @@ async def test_streaming_retry_backoff_behavior(
     codex_connector._credential_manager.refresh_access_token = mock_refresh
 
     # Set known backoff sequence (reduced delays for test performance)
-    codex_connector._response_executor._retry_backoff_seconds = (0.01, 0.02, 0.03)
+    codex_connector._response_executor._retry_backoff_seconds = (0.001, 0.002, 0.003)  # Further reduced for performance
     codex_connector._response_executor._max_retries = 2
 
     # Create request
@@ -374,9 +374,9 @@ async def test_streaming_retry_backoff_behavior(
 
         end_time = time.time()
 
-        # Verify backoff was applied (should take at least 0.01 seconds)
+        # Verify backoff was applied (should take at least 0.001 seconds)
         elapsed = end_time - start_time
-        assert elapsed >= 0.01  # At least first backoff delay
+        assert elapsed >= 0.001  # At least first backoff delay
 
         assert isinstance(result, StreamingResponseEnvelope)
 

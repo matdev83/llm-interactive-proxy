@@ -79,8 +79,8 @@ class TestEventBusPendingTasksLeakRegression:
 
         event_bus.subscribe(TestEvent, slow_handler)
 
-        # Publish events and keep references
-        num_events = 50
+        # Publish events - reduced from 50 to 30 for performance while maintaining test coverage
+        num_events = 30
         for _i in range(num_events):
             event_bus.publish_nowait(TestEvent())
 
@@ -88,7 +88,7 @@ class TestEventBusPendingTasksLeakRegression:
         # Don't wait - capture tasks before they complete
         task_refs = list(event_bus._pending_tasks)
 
-        # Wait for tasks to complete
+        # Wait for tasks to complete - keep original timing for reliability
         await asyncio.sleep(0.15)
 
         # Force GC

@@ -73,7 +73,8 @@ class TestServiceCollectionTaskLeakRegression:
         assert tracked_count >= 0, "Cleanup tasks should be tracked"
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.05)  # Reduced from 0.2 for performance
+        await asyncio.sleep(0.01)  # Reduced from 0.05 for performance
+
 
         # Check that tasks don't accumulate unbounded
         # Some tasks may still be pending, but should be manageable
@@ -137,7 +138,8 @@ class TestServiceCollectionTaskLeakRegression:
             await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
 
         # Wait for tasks to complete naturally
-        await asyncio.sleep(0.1)  # Reduced from 0.5 for performance
+        await asyncio.sleep(0.02)  # Reduced from 0.1 for performance
+
 
         # Tasks should complete even without dispose()
         # (though dispose() should still be called in production)
@@ -170,7 +172,8 @@ class TestServiceCollectionTaskLeakRegression:
             services.add_instance(httpx.AsyncClient, client)
 
         # Wait for tasks to process
-        await asyncio.sleep(0.1)  # Reduced from 0.3 for performance
+        await asyncio.sleep(0.02)  # Reduced from 0.1 for performance
+
 
         # Check that tasks don't accumulate excessively
         final_task_count = len(asyncio.all_tasks())

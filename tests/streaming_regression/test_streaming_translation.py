@@ -76,7 +76,7 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.01)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
@@ -129,7 +129,7 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
         AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.01)
+    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced from 0.01 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
@@ -182,7 +182,7 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.01)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
@@ -236,7 +236,7 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.01)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
@@ -290,7 +290,7 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.01)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
@@ -345,7 +345,7 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
         AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.01)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 

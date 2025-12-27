@@ -73,7 +73,8 @@ class TestToolCallRepairService10MBScenariosRegression:
         # Create valid JSON that exceeds 10MB
         # Use a more efficient approach: create the string directly instead of through dict
         # This avoids expensive JSON serialization of a huge dict
-        target_size = MAX_JSON_PARSE_SIZE + 1000
+        # Reduced target_size to minimize string creation time while still testing rejection
+        target_size = MAX_JSON_PARSE_SIZE + 100  # Reduced from 1000 for performance
         large_payload = f'{{"function_call":{{"name":"test","arguments":{{"data":"{"x" * target_size}"}}}}}}'
         large_size_mb = len(large_payload.encode("utf-8")) / (1024 * 1024)
 
@@ -117,7 +118,7 @@ class TestToolCallRepairService10MBScenariosRegression:
         # Create payload that's just over 10MB
         # Calculate string size needed: JSON overhead is ~50 bytes
         json_overhead = 50  # Approximate overhead for JSON structure
-        target_size = MAX_JSON_PARSE_SIZE - json_overhead + 1000
+        target_size = MAX_JSON_PARSE_SIZE - json_overhead + 100  # Reduced from 1000 for performance
 
         # Create minimal dict structure and serialize efficiently
         # Using a single large string is faster than many small objects
@@ -151,8 +152,8 @@ class TestToolCallRepairService10MBScenariosRegression:
             # (size_description, data_length, should_pass)
             ("small", 10000, True),
             ("medium", 1 * 1024 * 1024, True),  # Reduced from 5MB for performance
-            ("large_under", limit - 1000, True),
-            ("large_over", limit + 1000, False),
+            ("large_under", limit - 100, True),  # Reduced from 1000 for performance
+            ("large_over", limit + 100, False),  # Reduced from 1000 for performance
         ]
 
         for size_desc, data_len, should_pass in test_cases:

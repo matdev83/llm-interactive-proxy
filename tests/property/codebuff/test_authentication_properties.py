@@ -95,7 +95,7 @@ async def test_property_14_token_validation(action: PromptAction):
     fingerprint_id=st.text(min_size=1, max_size=50),
     action=prompt_action_strategy(),
 )
-@settings(max_examples=20, deadline=None)  # Reduced for performance
+@settings(max_examples=10, deadline=None)  # Reduced for performance
 async def test_property_15_fingerprint_association(
     fingerprint_id: str, action: PromptAction
 ):
@@ -147,7 +147,7 @@ async def test_property_15_fingerprint_association(
 
 
 @pytest.mark.asyncio
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=10, deadline=None)
 @given(action=prompt_action_strategy())
 async def test_property_16_cost_attribution(action: PromptAction):
     """

@@ -143,7 +143,7 @@ def statistics_filter_strategy(draw: st.DrawFn) -> StatisticsFilter:
     filters=statistics_filter_strategy(),
 )
 @settings(
-    max_examples=30,
+    max_examples=15,  # Reduced from 30 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -245,7 +245,7 @@ async def test_api_filter_application_property(
     records=st.lists(usage_record_strategy(), min_size=10, max_size=50),
 )
 @settings(
-    max_examples=20,
+    max_examples=10,  # Reduced from 20 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

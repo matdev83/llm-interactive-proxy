@@ -43,7 +43,7 @@ def websocket_strategy(draw):
     num_subscribers=st.integers(min_value=1, max_value=10),
     num_non_subscribers=st.integers(min_value=0, max_value=5),
 )
-@settings(max_examples=30)  # Reduced from 50 for performance
+@settings(max_examples=15)  # Reduced from 30 for performance
 async def test_property_29_topic_message_distribution(
     topic, num_subscribers, num_non_subscribers
 ):

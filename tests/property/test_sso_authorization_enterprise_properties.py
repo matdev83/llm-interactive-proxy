@@ -247,7 +247,7 @@ async def test_property_20_authorization_api_success_path(
 # Feature: sso-authentication, Property 21: Authorization API Denial Path
 @pytest.mark.asyncio
 @settings(
-    max_examples=10,  # Reduced from 20 to 10
+    max_examples=5,  # Reduced from 10 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

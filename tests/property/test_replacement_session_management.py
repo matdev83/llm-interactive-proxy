@@ -7,6 +7,7 @@ Validates: Requirements 5.1, 5.2, 5.3, 9.2, 9.5
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import HealthCheck, given
 from hypothesis import strategies as st
 from src.core.domain.configuration.replacement_config import ReplacementConfig
@@ -103,7 +104,8 @@ def test_property_19_session_cleanup(
     session_id=st.text(min_size=1, max_size=10).filter(lambda x: x.isalnum()),
 )
 @property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
-def test_property_32_35_session_disable_and_deactivation(
+@pytest.mark.asyncio
+async def test_property_32_35_session_disable_and_deactivation(
     session_id: str,
 ) -> None:
     """
@@ -114,10 +116,8 @@ def test_property_32_35_session_disable_and_deactivation(
     service = create_test_service()
     context = RequestContext(headers={}, cookies={}, state=None, app_state=None)
 
-    # Activate session
-    import asyncio
-
-    asyncio.run(service.activate_replacement(session_id, "orig", "mod"))
+    # Activate session - use await instead of asyncio.run() for better performance
+    await service.activate_replacement(session_id, "orig", "mod")
     assert service.get_state(session_id).active is True
 
     # Disable session

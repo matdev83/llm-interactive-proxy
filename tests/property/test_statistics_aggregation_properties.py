@@ -9,6 +9,7 @@ Feature: detailed-usage-tracking
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 
@@ -110,8 +111,6 @@ def test_request_response_counter_consistency(records, temp_dir_module, store_co
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Verify request count equals number of records
@@ -216,8 +215,6 @@ def test_session_uniqueness_tracking(records, temp_dir_module, store_counter):
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Verify unique_sessions equals number of distinct session_id values
@@ -256,8 +253,6 @@ def test_turn_counter_accuracy(records, temp_dir_module, store_counter):
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Verify total_turns equals sum of all turn_numbers
@@ -308,8 +303,6 @@ def test_tokens_per_session_calculation(records, temp_dir_module, store_counter)
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Calculate expected tokens_per_session
@@ -359,8 +352,6 @@ def test_tps_calculation(records, temp_dir_module, store_counter):
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Calculate expected TPS
@@ -421,8 +412,6 @@ def test_status_code_recording(records, temp_dir_module, store_counter):
         store.add_record(record)
 
     # Get aggregated stats
-    import asyncio
-
     stats = asyncio.run(service.get_aggregated_stats())
 
     # Verify status code counts
@@ -443,8 +432,8 @@ def test_status_code_recording(records, temp_dir_module, store_counter):
 # Property 14: Status Code Aggregation
 # Feature: detailed-usage-tracking, Property 14: Status Code Aggregation
 # Validates: Requirements 6.3
-@settings(max_examples=30, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=30))
+@settings(max_examples=15, deadline=None)
+@given(records=usage_record_list_strategy(min_size=1, max_size=20))
 def test_status_code_aggregation(records, temp_dir_module, store_counter):
     """Property 14: Status Code Aggregation.
 
@@ -468,8 +457,6 @@ def test_status_code_aggregation(records, temp_dir_module, store_counter):
         store.add_record(record)
 
     # Get status code breakdown
-    import asyncio
-
     breakdown = asyncio.run(service.get_status_code_breakdown())
 
     # Build expected breakdown

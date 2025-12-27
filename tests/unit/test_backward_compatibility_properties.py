@@ -87,7 +87,7 @@ def streaming_content_strategy(draw: Any) -> StreamingContent:
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
 async def test_streaming_content_serialization_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:
@@ -253,7 +253,7 @@ async def test_streaming_timing_determinism_with_fake_clock(
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
 async def test_streaming_content_validation_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:

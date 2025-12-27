@@ -38,7 +38,7 @@ def websocket_strategy(draw):
 
 # Property 1: Connection tracking
 @given(session_id=session_id_strategy())
-@settings(max_examples=50)
+@settings(max_examples=30)  # Reduced from 50 for performance
 @pytest.mark.asyncio
 async def test_property_1_connection_tracking(session_id):
     """

@@ -74,7 +74,7 @@ def create_test_context() -> RequestContext:
     turn_count=st.integers(min_value=1, max_value=100),
 )
 @property_test_settings(
-    max_examples=20, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=10, suppress_health_check=[HealthCheck.filter_too_much]  # Reduced from 20 for performance
 )
 def test_property_25_configuration_loading_logging(
     enabled: bool,

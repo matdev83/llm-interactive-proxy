@@ -142,7 +142,8 @@ async def test_loop_detection_in_streaming_response():
             yield StreamingChatResponse(
                 model="test-model", content="I will repeat myself. "
             )
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)
+
 
     # Patch the backend service to return the streaming response
     with (

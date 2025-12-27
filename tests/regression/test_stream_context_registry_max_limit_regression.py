@@ -53,9 +53,9 @@ class TestStreamContextRegistryMaxLimitRegression:
 
         # Create many streams that will never be accessed again
         # Use smaller number but still exceed limit to test eviction
-        num_streams = max_limit + 25  # Reduced from 50 for performance
+        num_streams = max_limit + 10  # Reduced from 25 for performance - still tests eviction
         # Check periodically instead of every iteration to reduce overhead
-        check_interval = max(1, num_streams // 20)  # Check ~20 times
+        check_interval = max(1, num_streams // 10)  # Check ~10 times (reduced from 20)
         for i in range(num_streams):
             stream_id = f"orphan_stream_{i}"
             registry.get_content_state(stream_id)

@@ -139,9 +139,9 @@ class TestCaptureDecoderDoSRegression:
     def test_boundary_array_size_works(self, decoder: CaptureDecoder) -> None:
         """Test that arrays at maximum allowed size work."""
         # Test with array size exactly at MAX_ARRAY_ELEMENTS
-        # Use smaller test size (100k) that still tests boundary validation logic
+        # Use smaller test size (10k) that still tests boundary validation logic
         # The validation checks array size before parsing, so smaller size still validates correctly
-        test_size = min(MAX_ARRAY_ELEMENTS, 100_000)  # Reduced for performance
+        test_size = min(MAX_ARRAY_ELEMENTS, 10_000)  # Reduced from 100k for performance
         large_data = self.create_large_array_json(test_size)
         json_str = json.dumps(large_data)
         json_bytes = json_str.encode("utf-8")

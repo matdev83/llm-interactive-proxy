@@ -4,7 +4,6 @@ This test verifies that MemoryService properly bounds session state growth
 and cleans up stale sessions to prevent unbounded memory growth.
 """
 
-import asyncio
 import time
 
 import pytest
@@ -42,6 +41,10 @@ class TestMemoryServiceUnboundedGrowthRegression:
     """Regression tests for MemoryService unbounded growth fix."""
 
     @pytest.fixture
+    def max_session_states_limit(self) -> int:
+        return 200
+
+    @pytest.fixture
     def config(self):
         """Create memory configuration."""
         return MemoryConfiguration(
@@ -63,34 +66,33 @@ class TestMemoryServiceUnboundedGrowthRegression:
 
     @pytest.mark.asyncio
     async def test_sessions_bounded_by_max_limit(
-        self, memory_service: MemoryService
+        self, memory_service: MemoryService, max_session_states_limit: int
     ) -> None:
         """Test that session states don't exceed MAX_SESSION_STATES limit."""
-        # Import the constant to check against
-        from src.core.memory.service import _MAX_SESSION_STATES
+        import src.core.memory.service as memory_service_module
 
-        # Enable many sessions (more than max limit, reduced for test performance)
-        # Use smaller number but still exceed limit to test eviction
-        num_sessions = _MAX_SESSION_STATES + 25  # Reduced from 50 for performance
+        original_max = memory_service_module._MAX_SESSION_STATES
+        memory_service_module._MAX_SESSION_STATES = max_session_states_limit
 
-        # Batch async calls to reduce overhead
-        tasks = []
-        for i in range(num_sessions):
-            session_id = f"enabled-only-{i}"
-            tasks.append(
-                memory_service.enable_for_session(
+        try:
+            # Enable many sessions (more than max limit) to test eviction.
+            num_sessions = max_session_states_limit + 25
+
+            for i in range(num_sessions):
+                session_id = f"enabled-only-{i}"
+                await memory_service.enable_for_session(
                     session_id,
                     user_id="test-user",
                     project_root=f"/project/{i}",
                 )
-            )
-        await asyncio.gather(*tasks)
+        finally:
+            memory_service_module._MAX_SESSION_STATES = original_max
 
         # Session count should not exceed max limit
         session_count = memory_service.get_active_session_count()
-        assert session_count <= _MAX_SESSION_STATES, (
+        assert session_count <= max_session_states_limit, (
             f"Session count ({session_count}) exceeded max limit "
-            f"({_MAX_SESSION_STATES}). Eviction is not working."
+            f"({max_session_states_limit}). Eviction is not working."
         )
 
     @pytest.mark.asyncio
@@ -199,45 +201,39 @@ class TestMemoryServiceUnboundedGrowthRegression:
 
     @pytest.mark.asyncio
     async def test_oldest_sessions_evicted_when_limit_reached(
-        self, memory_service: MemoryService
+        self, memory_service: MemoryService, max_session_states_limit: int
     ) -> None:
         """Test that oldest sessions are evicted when max limit is reached (LRU)."""
-        from src.core.memory.service import _MAX_SESSION_STATES
+        import src.core.memory.service as memory_service_module
 
-        # Fill up to max limit - batch async calls for performance
-        tasks = []
-        for i in range(_MAX_SESSION_STATES):
-            session_id = f"session-{i}"
-            tasks.append(
-                memory_service.enable_for_session(
+        original_max = memory_service_module._MAX_SESSION_STATES
+        memory_service_module._MAX_SESSION_STATES = max_session_states_limit
+
+        try:
+            # Fill up to max limit
+            for i in range(max_session_states_limit):
+                session_id = f"session-{i}"
+                await memory_service.enable_for_session(
                     session_id,
                     user_id="test-user",
                     project_root=f"/project/{i}",
                 )
-            )
-        # Process in batches to reduce memory pressure
-        batch_size = 1000
-        for batch_start in range(0, len(tasks), batch_size):
-            batch_end = min(batch_start + batch_size, len(tasks))
-            await asyncio.gather(*tasks[batch_start:batch_end])
 
-        assert memory_service.get_active_session_count() == _MAX_SESSION_STATES
+            assert memory_service.get_active_session_count() == max_session_states_limit
 
-        # Add more sessions - should evict oldest
-        tasks = []
-        for i in range(_MAX_SESSION_STATES, _MAX_SESSION_STATES + 10):
-            session_id = f"session-{i}"
-            tasks.append(
-                memory_service.enable_for_session(
+            # Add more sessions - should evict oldest
+            for i in range(max_session_states_limit, max_session_states_limit + 10):
+                session_id = f"session-{i}"
+                await memory_service.enable_for_session(
                     session_id,
                     user_id="test-user",
                     project_root=f"/project/{i}",
                 )
-            )
-        await asyncio.gather(*tasks)
+        finally:
+            memory_service_module._MAX_SESSION_STATES = original_max
 
         # Should still be at max limit (oldest evicted)
-        assert memory_service.get_active_session_count() <= _MAX_SESSION_STATES, (
+        assert memory_service.get_active_session_count() <= max_session_states_limit, (
             "Session count exceeded max limit after adding more sessions. "
             "LRU eviction is not working."
         )

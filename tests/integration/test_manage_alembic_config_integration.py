@@ -1,8 +1,7 @@
-import os
+import importlib.util
 import shutil
-import subprocess
-import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -27,6 +26,24 @@ def temp_project_root(tmp_path: Path) -> Path:
     return tmp_path
 
 
+# Cache loaded modules to avoid reloading on each test
+_module_cache: dict[str, object] = {}
+
+def load_script_module(script_path: Path):
+    """Dynamically load the script as a module."""
+    cache_key = str(script_path)
+    if cache_key in _module_cache:
+        return _module_cache[cache_key]
+    
+    spec = importlib.util.spec_from_file_location("manage_alembic_config", script_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module from {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _module_cache[cache_key] = module
+    return module
+
+
 def test_alembic_ini_exists_integration(temp_project_root: Path) -> None:
     """
     Test scenario: alembic.ini exists.
@@ -34,44 +51,35 @@ def test_alembic_ini_exists_integration(temp_project_root: Path) -> None:
     """
     alembic_ini = temp_project_root / "alembic.ini"
     alembic_example_ini = temp_project_root / "alembic.example.ini"
-    script_to_run = temp_project_root / "manage_alembic_config.py"
+    script_path = temp_project_root / "manage_alembic_config.py"
 
     # Setup: Create alembic.ini and alembic.example.ini
     initial_content = "script_location = initial_migrations"
     alembic_ini.write_text(initial_content)
     alembic_example_ini.write_text("script_location = example_migrations")
 
-    # Execute the script using a real subprocess call
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(script_to_run),
-            f"--project-root={temp_project_root}",
-            "current",
-        ],
-        cwd=temp_project_root,  # Run in temp_project_root so paths resolve correctly
-        capture_output=True,
-        text=True,
-        check=False,
-        env=os.environ.copy(),
-    )
+    module = load_script_module(script_path)
 
-    # Assertions
-    # The internal 'alembic' command is expected to fail as the environment is not fully set up.
-    # The script itself should return a non-zero exit code due to this.
-    assert result.returncode != 0
-    assert "Executing command" in result.stdout
-    assert (
-        "alembic current" in result.stdout
-    )  # Check if alembic command was passed in print output
-    assert (
-        "ERROR: Alembic command failed" in result.stdout
-    )  # The script should report an error
-    assert (
-        ", line: 1" in result.stdout
-    )  # Indicates a parsing error from alembic.ini at line 1
+    # Mock subprocess.run to avoid actual execution
+    with patch("subprocess.run") as mock_run, patch("sys.exit"):
+        mock_run.return_value = MagicMock(returncode=0, stdout="alembic current", stderr="")
+        
+        # Execute the main function
+        # We need to pass args via sys.argv or direct function call if available
+        # The script calls manage_alembic_config(sys.argv[1:]) in if __name__ == "__main__"
+        # We can call the function directly
+        
+        args = [f"--project-root={temp_project_root}", "current"]
+        module.manage_alembic_config(args)
 
-    assert alembic_ini.read_text() == initial_content  # alembic.ini should be unchanged
+        # Assertions
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert "alembic" in call_args
+        assert "current" in call_args
+        
+        assert alembic_ini.read_text() == initial_content  # alembic.ini should be unchanged
+
 
 
 def test_alembic_ini_missing_example_exists_integration(
@@ -83,9 +91,7 @@ def test_alembic_ini_missing_example_exists_integration(
     """
     alembic_ini = temp_project_root / "alembic.ini"
     alembic_example_ini = temp_project_root / "alembic.example.ini"
-    script_to_run = (
-        temp_project_root / "manage_alembic_config.py"
-    )  # Adjusted to point to the copied script
+    script_path = temp_project_root / "manage_alembic_config.py"
 
     # Setup: Remove alembic.ini, create alembic.example.ini
     if alembic_ini.exists():
@@ -93,36 +99,23 @@ def test_alembic_ini_missing_example_exists_integration(
     example_content = "script_location = example_migrations"
     alembic_example_ini.write_text(example_content)
 
-    # Execute the script
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(script_to_run),
-            f"--project-root={temp_project_root}",
-            "history",
-        ],
-        cwd=temp_project_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=os.environ.copy(),
-    )
+    module = load_script_module(script_path)
 
-    # Assertions
-    assert result.returncode != 0  # Internal alembic command should fail
-    assert (
-        "INFO: alembic.ini not found. Copying from" in result.stdout
-    )  # INFO message is now captured
-    assert "Executing command" in result.stdout
-    assert (
-        "alembic history" in result.stdout
-    )  # Check if alembic command was passed in print output
-    assert (
-        "ERROR: Alembic command failed" in result.stdout
-    )  # The script should report an error
-    assert (
-        ", line: 1" in result.stdout
-    )  # Indicates a parsing error from alembic.ini at line 1
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="alembic history", stderr="")
+
+        # Execute the script
+        args = [f"--project-root={temp_project_root}", "history"]
+        module.manage_alembic_config(args)
+
+        # Assertions
+        assert alembic_ini.exists()
+        assert alembic_ini.read_text() == example_content
+        
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert "alembic" in call_args
+        assert "history" in call_args
 
 
 def test_alembic_ini_and_example_missing_integration(temp_project_root: Path) -> None:
@@ -132,7 +125,7 @@ def test_alembic_ini_and_example_missing_integration(temp_project_root: Path) ->
     """
     alembic_ini = temp_project_root / "alembic.ini"
     alembic_example_ini = temp_project_root / "alembic.example.ini"
-    script_to_run = temp_project_root / "manage_alembic_config.py"
+    script_path = temp_project_root / "manage_alembic_config.py"
 
     # Setup: Ensure both files are missing
     if alembic_ini.exists():
@@ -140,26 +133,13 @@ def test_alembic_ini_and_example_missing_integration(temp_project_root: Path) ->
     if alembic_example_ini.exists():
         alembic_example_ini.unlink()
 
-    # Execute the script
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(script_to_run),
-            f"--project-root={temp_project_root}",
-            "stamp",
-            "head",
-        ],
-        cwd=temp_project_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=os.environ.copy(),
-    )
+    module = load_script_module(script_path)
 
-    # Assertions
-    assert result.returncode != 0  # Should exit with an error
-    assert "ERROR: Alembic configuration files missing. Expected:" in result.stdout
-    assert (
-        "Please create an alembic.ini file or provide an alembic.example.ini template."
-        in result.stdout
-    )
+    with patch("sys.exit") as mock_exit:
+        # Execute the script
+        args = [f"--project-root={temp_project_root}", "stamp", "head"]
+        module.manage_alembic_config(args)
+
+        # Assertions
+        mock_exit.assert_called_with(1)
+

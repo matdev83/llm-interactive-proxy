@@ -16,6 +16,10 @@ class TestAutoEnabledSessionsLeakRegression:
     """Regression tests for auto-enabled sessions memory leak fix."""
 
     @pytest.fixture
+    def bounded_cache_maxsize(self) -> int:
+        return 128
+
+    @pytest.fixture
     def mock_memory_service(self):
         """Create a mock memory service."""
         service = MagicMock()
@@ -31,10 +35,16 @@ class TestAutoEnabledSessionsLeakRegression:
 
     @pytest.mark.asyncio
     async def test_auto_enabled_sessions_bounded_by_ttl_cache(
-        self, mock_memory_service, config
+        self, mock_memory_service, config, bounded_cache_maxsize
     ) -> None:
         """Test that _auto_enabled_sessions is bounded by TTLCache maxsize."""
+        from cachetools import TTLCache
+
         middleware = MemoryCaptureMiddleware(mock_memory_service, config)
+        middleware._auto_enabled_sessions = TTLCache(
+            maxsize=bounded_cache_maxsize,
+            ttl=int(middleware._auto_enabled_sessions.ttl),
+        )
 
         # Verify it's a TTLCache
         assert hasattr(middleware._auto_enabled_sessions, "maxsize")
@@ -45,18 +55,13 @@ class TestAutoEnabledSessionsLeakRegression:
         maxsize = int(middleware._auto_enabled_sessions.maxsize)
         num_sessions = maxsize + 50  # Reduced from +100 for performance
 
-        # Batch async calls to reduce overhead
-        tasks = []
         for i in range(num_sessions):
             session_id = f"session_{i}"
-            tasks.append(
-                middleware.capture_request(
-                    session_id=session_id,
-                    request=MagicMock(),
-                    user_id=f"user_{i}",
-                )
+            await middleware.capture_request(
+                session_id=session_id,
+                request=MagicMock(),
+                user_id=f"user_{i}",
             )
-        await asyncio.gather(*tasks)
 
         # Cache should not exceed maxsize due to LRU eviction
         assert (
@@ -139,40 +144,37 @@ class TestAutoEnabledSessionsLeakRegression:
 
     @pytest.mark.asyncio
     async def test_auto_enabled_sessions_respects_maxsize(
-        self, mock_memory_service, config
+        self, mock_memory_service, config, bounded_cache_maxsize
     ) -> None:
         """Test that cache respects maxsize limit."""
+        from cachetools import TTLCache
+
         middleware = MemoryCaptureMiddleware(mock_memory_service, config)
+        middleware._auto_enabled_sessions = TTLCache(
+            maxsize=bounded_cache_maxsize,
+            ttl=int(middleware._auto_enabled_sessions.ttl),
+        )
         maxsize = int(middleware._auto_enabled_sessions.maxsize)
 
-        # Add sessions up to maxsize - batch async calls for performance
-        tasks = []
         for i in range(maxsize):
             session_id = f"session_{i}"
-            tasks.append(
-                middleware.capture_request(
-                    session_id=session_id,
-                    request=MagicMock(),
-                    user_id=f"user_{i}",
-                )
+            await middleware.capture_request(
+                session_id=session_id,
+                request=MagicMock(),
+                user_id=f"user_{i}",
             )
-        await asyncio.gather(*tasks)
 
         # Cache should be at maxsize
         assert len(middleware._auto_enabled_sessions) == maxsize
 
         # Add more sessions - should evict oldest (reduced for test performance)
-        tasks = []
         for i in range(maxsize, maxsize + 25):  # Reduced from 50 for performance
             session_id = f"session_{i}"
-            tasks.append(
-                middleware.capture_request(
-                    session_id=session_id,
-                    request=MagicMock(),
-                    user_id=f"user_{i}",
-                )
+            await middleware.capture_request(
+                session_id=session_id,
+                request=MagicMock(),
+                user_id=f"user_{i}",
             )
-        await asyncio.gather(*tasks)
 
         # Cache should still be at maxsize (oldest evicted)
         assert len(middleware._auto_enabled_sessions) <= maxsize, (

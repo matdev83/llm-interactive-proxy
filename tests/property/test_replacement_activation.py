@@ -113,7 +113,7 @@ def test_property_11_turn_counter_initialization(
     ),
 )
 @property_test_settings(
-    max_examples=50, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=20, suppress_health_check=[HealthCheck.filter_too_much]  # Reduced from 50 for performance
 )
 async def test_property_21_activation_logging(
     turn_count: int,

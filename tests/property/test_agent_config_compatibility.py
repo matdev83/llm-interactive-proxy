@@ -286,11 +286,12 @@ async def test_no_agent_config_does_not_break_replacement(
     turn_count=st.integers(min_value=1, max_value=10),
     agent_config=agent_config_strategy,
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much], max_examples=20)
 @pytest.mark.asyncio
 async def test_agent_config_keys_not_modified(
     probability: float, turn_count: int, agent_config: dict
 ) -> None:
+
     """
     Test that replacement does not add or remove agent configuration keys.
 

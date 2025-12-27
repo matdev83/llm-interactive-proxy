@@ -162,10 +162,10 @@ def test_property_27_sso_config_accepts_standard_params(
         keys=st.text(min_size=1, max_size=50),
         values=provider_config_strategy(),
         min_size=1,
-        max_size=5,
+        max_size=3,  # Reduced for performance
     )
 )
-@property_test_settings(max_examples=25)
+@property_test_settings(max_examples=15)  # Reduced from 25 for performance
 def test_property_27_multiple_providers_configuration(
     provider_configs: dict[str, ProviderConfig],
 ) -> None:

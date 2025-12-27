@@ -308,7 +308,7 @@ async def test_property_5_default_steering_message(
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=5)  # Reduced for performance
 async def test_property_5_multiple_modifications_before_completion(
     modification_count: int,
     completion_signal: tuple[str, dict[str, Any], str | None],

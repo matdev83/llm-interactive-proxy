@@ -172,7 +172,8 @@ def test_property_7_summary_model_format(summary: SessionSummary) -> None:
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=30, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=15,  # Reduced from 30 for performance
+    suppress_health_check=[HealthCheck.filter_too_much]
 )
 def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> None:
     """

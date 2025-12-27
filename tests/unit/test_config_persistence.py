@@ -101,8 +101,7 @@ def test_save_and_load_persistent_config(
     import yaml
 
     yaml_content = cfg_path.read_text()
-
-    data = yaml.safe_load(cfg_path.read_text())
+    data = yaml.safe_load(yaml_content)  # Reuse the already read content
     assert data["backends"]["default_backend"] == functional_backend
     assert data["session"]["default_interactive_mode"] is True  # Updated path
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]

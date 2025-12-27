@@ -433,7 +433,7 @@ def test_property_9_unsubscribe_message_validation(
 
 
 @given(action_data=valid_prompt_action_strategy())
-@property_test_settings(max_examples=30)
+@property_test_settings(max_examples=15)  # Reduced from 30 for performance
 def test_property_9_prompt_action_validation(action_data: dict[str, Any]) -> None:
     """
     Property 9: Prompt Action Validation.
@@ -548,7 +548,7 @@ def test_property_9_response_chunk_action_validation(
 
 
 @given(action_data=valid_prompt_response_action_strategy())
-@property_test_settings(max_examples=30)  # Reduced from default 50 for performance
+@property_test_settings(max_examples=15)  # Reduced from 30 for performance
 def test_property_9_prompt_response_action_validation(
     action_data: dict[str, Any]
 ) -> None:

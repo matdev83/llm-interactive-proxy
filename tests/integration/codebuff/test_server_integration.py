@@ -18,17 +18,18 @@ async def test_codebuff_endpoint_registration_when_enabled() -> None:
 
     Validates: Requirements 10.5
     """
-    # Create config with Codebuff enabled
-    config = AppConfig.from_env()
-    # Override codebuff settings
-    config_dict = config.model_dump()
-    config_dict["codebuff"] = {
-        "enabled": True,
-        "websocket_path": "/ws",
-        "heartbeat_timeout_seconds": 60,
-        "session_cleanup_hours": 1,
-        "max_connections": 1000,
-        "max_message_size_bytes": 1048576,
+    # Create minimal config with Codebuff enabled
+    config_dict = {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "codebuff": {
+            "enabled": True,
+            "websocket_path": "/ws",
+            "heartbeat_timeout_seconds": 60,
+            "session_cleanup_hours": 1,
+            "max_connections": 1000,
+            "max_message_size_bytes": 1048576,
+        },
     }
     config = AppConfig(**config_dict)
 
@@ -53,17 +54,18 @@ async def test_codebuff_endpoint_not_registered_when_disabled() -> None:
 
     Validates: Requirements 10.5
     """
-    # Create config with Codebuff disabled
-    config = AppConfig.from_env()
-    # Override codebuff settings
-    config_dict = config.model_dump()
-    config_dict["codebuff"] = {
-        "enabled": False,
-        "websocket_path": "/ws",
-        "heartbeat_timeout_seconds": 60,
-        "session_cleanup_hours": 1,
-        "max_connections": 1000,
-        "max_message_size_bytes": 1048576,
+    # Create minimal config with Codebuff disabled
+    config_dict = {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "codebuff": {
+            "enabled": False,
+            "websocket_path": "/ws",
+            "heartbeat_timeout_seconds": 60,
+            "session_cleanup_hours": 1,
+            "max_connections": 1000,
+            "max_message_size_bytes": 1048576,
+        },
     }
     config = AppConfig(**config_dict)
 
@@ -87,16 +89,18 @@ async def test_configuration_loading() -> None:
 
     Validates: Requirements 10.5
     """
-    # Create config with custom Codebuff settings
-    config = AppConfig.from_env()
-    config_dict = config.model_dump()
-    config_dict["codebuff"] = {
-        "enabled": True,
-        "websocket_path": "/custom-ws",
-        "heartbeat_timeout_seconds": 120,
-        "session_cleanup_hours": 2,
-        "max_connections": 500,
-        "max_message_size_bytes": 2097152,
+    # Create minimal config with custom Codebuff settings
+    config_dict = {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "codebuff": {
+            "enabled": True,
+            "websocket_path": "/custom-ws",
+            "heartbeat_timeout_seconds": 120,
+            "session_cleanup_hours": 2,
+            "max_connections": 500,
+            "max_message_size_bytes": 2097152,
+        },
     }
     config = AppConfig(**config_dict)
 
@@ -115,16 +119,18 @@ async def test_websocket_connection_with_enabled_server() -> None:
 
     Validates: Requirements 10.5
     """
-    # Create config with Codebuff enabled
-    config = AppConfig.from_env()
-    config_dict = config.model_dump()
-    config_dict["codebuff"] = {
-        "enabled": True,
-        "websocket_path": "/ws",
-        "heartbeat_timeout_seconds": 60,
-        "session_cleanup_hours": 1,
-        "max_connections": 1000,
-        "max_message_size_bytes": 1048576,
+    # Create minimal config with Codebuff enabled
+    config_dict = {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "codebuff": {
+            "enabled": True,
+            "websocket_path": "/ws",
+            "heartbeat_timeout_seconds": 60,
+            "session_cleanup_hours": 1,
+            "max_connections": 1000,
+            "max_message_size_bytes": 1048576,
+        },
     }
     config = AppConfig(**config_dict)
 
@@ -148,8 +154,12 @@ async def test_default_configuration_values() -> None:
 
     Validates: Requirements 10.5
     """
-    # Create config without overriding Codebuff settings
-    config = AppConfig.from_env()
+    # Create minimal config without overriding Codebuff settings
+    config_dict = {
+        "host": "0.0.0.0",
+        "port": 8000,
+    }
+    config = AppConfig(**config_dict)
 
     # Verify default values
     assert config.codebuff.enabled is False

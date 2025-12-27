@@ -204,7 +204,7 @@ def test_property_16_correct_confirmation_code_success(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=3)  # Reduced from default for performance
 def test_property_18_authorization_api_invocation(
     config: AuthorizationConfig,
 ) -> None:

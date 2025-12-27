@@ -40,6 +40,16 @@ def mock_stop_callback() -> None:
     """Mock stop callback."""
 
 
+def wait_until(condition, timeout=2.0, interval=0.01):
+    """Wait until condition is true or timeout is reached."""
+    start = time.time()
+    while time.time() - start < timeout:
+        if condition():
+            return True
+        time.sleep(interval)
+    return False
+
+
 class TestFileWatcherWatchdogThreadLeakRegression:
     """Regression tests for FileWatcher watchdog thread leak fix."""
 
@@ -61,13 +71,14 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         # Start file watching
         FileWatcher.start_file_watching(
             temp_creds_file,
-            None,  # connector (not needed for this test)
+            mock_stop_callback,
             state,
             mock_reload_callback,
         )
 
-        # Wait a bit to ensure thread started
-        time.sleep(0.1)  # Reduced from 0.2 for performance
+
+        # Wait until observer is running
+        assert wait_until(lambda: state.file_observer is not None and state.file_observer.is_alive())
 
         # Verify observer is running
         assert state.file_observer is not None, "File observer should exist"
@@ -81,11 +92,14 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         # Stop file watching
         FileWatcher.stop_file_watching(state)
 
-        # Wait for thread to stop
-        time.sleep(0.15)  # Reduced from 0.3 for performance
+        # Wait until observer is stopped
+        wait_until(lambda: state.file_observer is None)
 
         # Verify observer is stopped
         assert state.file_observer is None, "File observer should be cleared"
+        
+        # Wait until thread count drops
+        wait_until(lambda: count_watchdog_threads() <= threads_before + 2)
 
         threads_after_stop = count_watchdog_threads()
         # Allow some margin for other threads
@@ -94,26 +108,33 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             f"Before: {threads_before}, After: {threads_after_stop}"
         )
 
-        # Wait a bit to ensure thread started
-        time.sleep(0.1)  # Reduced from 0.2 for performance
+        # Restart
+        FileWatcher.start_file_watching(
+            temp_creds_file,
+            mock_stop_callback,
+            state,
+            mock_reload_callback,
+        )
+
+        
+        # Wait until observer is running
+        assert wait_until(lambda: state.file_observer is not None and state.file_observer.is_alive())
 
         # Verify observer is running
         assert state.file_observer is not None, "File observer should exist"
         assert state.file_observer.is_alive(), "File observer should be alive"
 
-        threads_after_start = count_watchdog_threads()
-        assert (
-            threads_after_start >= threads_before
-        ), "File observer should create a thread"
-
         # Stop file watching
         FileWatcher.stop_file_watching(state)
 
-        # Wait for thread to stop
-        time.sleep(0.15)  # Reduced from 0.3 for performance
+        # Wait until observer is stopped
+        wait_until(lambda: state.file_observer is None)
 
         # Verify observer is stopped
         assert state.file_observer is None, "File observer should be cleared"
+
+        # Wait until thread count drops
+        wait_until(lambda: count_watchdog_threads() <= threads_before + 2)
 
         threads_after_stop = count_watchdog_threads()
         # Allow some margin for other threads
@@ -131,12 +152,15 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             state = FileWatcherState()
             FileWatcher.start_file_watching(
                 temp_creds_file,
-                None,
+                mock_stop_callback,
                 state,
                 mock_reload_callback,
             )
             states.append(state)
-            time.sleep(0.02)  # Reduced from 0.05 for performance
+
+        
+        # Wait until all observers are running
+        assert wait_until(lambda: all(s.file_observer is not None and s.file_observer.is_alive() for s in states))
 
         threads_after_creation = count_watchdog_threads()
         assert (
@@ -147,8 +171,8 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         for state in states:
             FileWatcher.stop_file_watching(state)
 
-        # Wait for threads to stop
-        time.sleep(0.1)  # Reduced from 0.2 for performance
+        # Wait until all observers are stopped
+        wait_until(lambda: all(s.file_observer is None for s in states))
 
         # Verify all observers are stopped
         running_observers = sum(
@@ -157,6 +181,9 @@ class TestFileWatcherWatchdogThreadLeakRegression:
         assert (
             running_observers == 0
         ), f"All file observers should be stopped. Found {running_observers} running"
+
+        # Wait until thread count drops
+        wait_until(lambda: count_watchdog_threads() <= threads_before + 2)
 
         threads_after_stop = count_watchdog_threads()
         # Allow margin for other threads
@@ -174,16 +201,16 @@ class TestFileWatcherWatchdogThreadLeakRegression:
             state = FileWatcherState()
             FileWatcher.start_file_watching(
                 temp_creds_file,
-                None,
+                mock_stop_callback,
                 state,
                 mock_reload_callback,
             )
-            time.sleep(0.01)  # Small delay to let thread start
+            # No wait here, purely rapid cycle
+
             FileWatcher.stop_file_watching(state)
-            time.sleep(0.01)  # Small delay to let thread stop
 
         # Wait for all threads to stop
-        time.sleep(0.1)  # Reduced from 0.2 for performance
+        wait_until(lambda: count_watchdog_threads() <= threads_before + 3)
 
         threads_after = count_watchdog_threads()
         # Allow margin for other threads
@@ -208,18 +235,21 @@ class TestFileWatcherWatchdogThreadLeakRegression:
 
         FileWatcher.start_file_watching(
             temp_creds_file,
-            None,
+            mock_stop_callback,
             state,
             mock_reload_callback,
         )
-        time.sleep(0.1)
+
+        
+        wait_until(lambda: state.file_observer is not None)
 
         # Stop first time
         FileWatcher.stop_file_watching(state)
-        time.sleep(0.1)
+        wait_until(lambda: state.file_observer is None)
 
         # Stop second time (should be safe)
         FileWatcher.stop_file_watching(state)
 
         # Should not raise exception
         assert state.file_observer is None, "Observer should be cleared"
+

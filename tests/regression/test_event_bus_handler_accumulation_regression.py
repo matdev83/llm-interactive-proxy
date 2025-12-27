@@ -20,7 +20,8 @@ class TestEventBusHandlerAccumulationRegression:
         bus = EventBus(max_total_handlers=max_handlers)
 
         # Attempt to subscribe more handlers than the limit
-        num_handlers = 1500  # More than max to test limit
+        # Reduced from 1500 to 1100 for performance while still testing limit enforcement
+        num_handlers = 1100
         subscribed_count = 0
 
         for _i in range(num_handlers):
@@ -102,7 +103,7 @@ class TestEventBusHandlerAccumulationRegression:
 
         # Subscribe handlers with different topics
         topics = ["topic1", "topic2", "topic3"]
-        for _i in range(200):
+        for _i in range(100):  # Reduced from 200 for performance
             for topic in topics:
 
                 async def handler(event: TestEvent) -> None:

@@ -157,7 +157,7 @@ async def test_streaming_chunk_sequence_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.01)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.001)  # Reduced from 0.01 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -226,7 +226,7 @@ async def test_streaming_contract_validation_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.01)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.001)  # Reduced from 0.01 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

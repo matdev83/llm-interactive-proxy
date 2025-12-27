@@ -95,7 +95,7 @@ def non_loopback_address_strategy(draw):
 
 
 # Property 1: SSO Mode Activation
-@settings(max_examples=50)
+@settings(max_examples=30)  # Reduced from 50 for performance
 @given(
     sso_config=sso_config_strategy(enabled=True),
     host=st.text(min_size=1, max_size=50),

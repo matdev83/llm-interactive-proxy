@@ -207,7 +207,7 @@ async def test_property_13_many_identical_test_runs_maintain_clean_state(
     test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=10),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=15)  # Reduced for performance
+@property_test_settings(max_examples=10)  # Reduced from 15 for performance
 async def test_property_13_test_runs_with_different_languages_maintain_clean_state(
     test_commands: list[str], session_id: str
 ) -> None:

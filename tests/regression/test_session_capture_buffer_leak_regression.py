@@ -71,7 +71,7 @@ class TestSessionCaptureBufferLeakRegression:
             )
             await buffer.append(session_id, interaction)
             # Small delay to ensure different last_accessed times
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
 
         # Record which sessions exist before eviction
         await buffer.get_active_session_count()

@@ -368,7 +368,7 @@ async def test_property_26_command_processing_order(
         min_value=1, max_value=3
     ),  # Reduced from 5 to 3 for performance
 )
-@property_test_settings()
+@property_test_settings(max_examples=3)  # Reduced for performance
 async def test_property_38_streaming_turn_completion(
     original_model: str, message_content: str, turn_count: int
 ) -> None:

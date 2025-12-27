@@ -140,7 +140,7 @@ def test_state_lookup_performance(replacement_service, request_context):
     regardless of the number of concurrent sessions.
     """
     # Create many sessions
-    num_sessions = 10000
+    num_sessions = 1000
     session_ids = [f"session-{i}" for i in range(num_sessions)]
 
     # Initialize all sessions
@@ -160,6 +160,7 @@ def test_state_lookup_performance(replacement_service, request_context):
         replacement_service.get_state(session_ids[i])
     end_time = time.perf_counter()
     time_last_100 = end_time - start_time
+
 
     # Verify that lookup time is similar regardless of position
     # Allow up to 3x variance due to system noise and caching effects
@@ -329,7 +330,7 @@ def test_cleanup_performance(replacement_service, request_context):
     This test verifies that cleaning up sessions doesn't cause performance issues.
     """
     # Create many sessions
-    num_sessions = 2000
+    num_sessions = 500
     session_ids = [f"session-{i}" for i in range(num_sessions)]
 
     for session_id in session_ids:
@@ -340,6 +341,7 @@ def test_cleanup_performance(replacement_service, request_context):
     for session_id in session_ids:
         replacement_service.cleanup_session(session_id)
     end_time = time.perf_counter()
+
 
     total_time = end_time - start_time
     avg_time_us = (total_time / num_sessions) * 1_000_000

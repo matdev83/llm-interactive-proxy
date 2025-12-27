@@ -169,9 +169,11 @@ class TestQwenOAuthAuthentication:
             patch.object(
                 connector, "_load_oauth_credentials", return_value=False
             ),  # Force CLI refresh
+            patch.object(connector, "_poll_for_new_token", return_value=False),
         ):
             # Execute refresh
             success = await connector._refresh_token_if_needed()
+
 
             # Verify refresh failed
             assert success is False
