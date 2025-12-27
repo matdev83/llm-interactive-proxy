@@ -78,9 +78,22 @@ class UsageNormalizer:
                 result = parsed.to_openrouter_dict()
                 # Still apply recalculation logic
                 return self._ensure_total_valid(result)
-        except Exception:
+        except (ValueError, KeyError, TypeError) as exc:
+            # Expected errors for invalid usage formats
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to parse as OpenRouterUsage", exc_info=True)
+                logger.debug(
+                    "Failed to parse as OpenRouterUsage due to validation error: %s",
+                    exc,
+                    exc_info=True,
+                )
+        except Exception as exc:
+            # Unexpected error during parsing
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error parsing usage as OpenRouterUsage: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         # Fallback to basic normalization
         return self._normalize_basic(usage)
@@ -100,7 +113,18 @@ class UsageNormalizer:
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
             try:
                 value = int(normalized.get(key, 0) or 0)
-            except Exception:
+            except (ValueError, TypeError):
+                # Expected errors for non-numeric values
+                value = 0
+            except Exception as exc:
+                # Unexpected error during coercion
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error coercing usage field '%s': %s",
+                        key,
+                        exc,
+                        exc_info=True,
+                    )
                 value = 0
             normalized[key] = max(value, 0)
 
@@ -208,7 +232,21 @@ class UsageNormalizer:
             )
 
             return get_usage_calculation_service()
-        except Exception:
+        except (ImportError, AttributeError) as exc:
+            # Expected errors when service is not available or not yet registered
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Could not get usage calculation service", exc_info=True)
+                logger.debug(
+                    "Usage calculation service not available: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return None
+        except Exception as exc:
+            # Unexpected error getting service
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error getting usage calculation service: %s",
+                    exc,
+                    exc_info=True,
+                )
             return None

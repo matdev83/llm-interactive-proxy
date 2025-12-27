@@ -74,8 +74,12 @@ class NewCommandService(ICommandService):
             )
             if resolved_prefix:
                 self.command_parser.command_prefix = resolved_prefix
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(
+                "Failed to resolve initial command prefix, using default: %s",
+                exc,
+                exc_info=True,
+            )
 
     def _determine_command_prefix(self, session: "Session | None") -> str:
         """Resolve the effective command prefix for the provided session."""

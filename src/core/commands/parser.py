@@ -60,9 +60,18 @@ class CommandParser:
                 "Failed to import command handler module: %s - handlers will not be available",
                 e,
             )
-        except Exception:
+        except OSError as exc:
+            # Filesystem errors during module iteration (e.g., permission issues)
             logger.error(
-                "Unexpected error importing command handler modules",
+                "Filesystem error while loading command handler modules: %s",
+                exc,
+                exc_info=True,
+            )
+        except Exception as exc:
+            # Catch-all for truly unexpected errors
+            logger.error(
+                "Unexpected error importing command handler modules: %s",
+                exc,
                 exc_info=True,
             )
 
