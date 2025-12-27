@@ -487,7 +487,7 @@ class TestBufferManagementBehavior:
             config.logging = Mock()
             config.logging.capture_file = os.path.join(temp_dir, "test.log")
             config.logging.capture_max_entries_per_flush = 100  # Large buffer
-            config.logging.capture_flush_interval = 0.2  # Short interval for testing
+            config.logging.capture_flush_interval = 0.05  # Short interval for testing
 
             service = BufferedWireCapture(config)
 
@@ -502,7 +502,7 @@ class TestBufferManagementBehavior:
             )
 
             # Wait longer than flush interval
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.1)
             await service.shutdown()
 
             # Then - Entry should have been flushed
@@ -672,7 +672,7 @@ class TestFileRotationBehavior:
             config.logging.capture_file = capture_file
             config.logging.capture_max_bytes = 500  # Small to trigger frequent rotation
             config.logging.capture_max_files = 2  # Keep only 2 rotated files
-            config.logging.capture_flush_interval = 0.1
+            config.logging.capture_flush_interval = 0.05
 
             service = BufferedWireCapture(config)
 
@@ -690,7 +690,7 @@ class TestFileRotationBehavior:
                     response_content=large_payload,
                 )
 
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
             await service.shutdown()
 
             # Then - Only max_files should exist

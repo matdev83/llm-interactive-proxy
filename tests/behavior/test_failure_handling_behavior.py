@@ -251,8 +251,8 @@ class TestKeepAliveGeneration:
         start = asyncio.get_event_loop().time()
 
         async for chunk in generate_keepalive_chunks(
-            interval_seconds=0.1,
-            total_duration=0.35,
+            interval_seconds=0.03,
+            total_duration=0.11,
         ):
             chunks.append(chunk)
 
@@ -260,7 +260,7 @@ class TestKeepAliveGeneration:
 
         # Should have generated 3 or 4 chunks depending on timing
         assert len(chunks) in (3, 4)
-        assert elapsed >= 0.3
+        assert elapsed >= 0.09
         # Check that chunks are marked as keepalive in metadata
         assert all(chunk.metadata.get("_keepalive") for chunk in chunks)
 
@@ -271,8 +271,8 @@ class TestKeepAliveGeneration:
 
         chunks = []
         async for chunk in generate_keepalive_with_status(
-            wait_seconds=0.25,
-            interval_seconds=0.1,
+            wait_seconds=0.1,
+            interval_seconds=0.03,
         ):
             chunks.append(chunk)
 
