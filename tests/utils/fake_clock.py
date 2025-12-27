@@ -144,31 +144,46 @@ class FakeClockContext:
     )
     _ORIGINAL_ASYNCIO_SLEEP: Any = None
     _ORIGINAL_TIME: Any = None
+    _SLEEP_WRAPPER: Any = None
+    _TIME_WRAPPER: Any = None
 
     @classmethod
     def _ensure_patched(cls) -> None:
-        if cls._PATCHED:
-            return
+        # Capture originals once (before we replace them with wrappers).
+        if cls._ORIGINAL_ASYNCIO_SLEEP is None:
+            cls._ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
+        if cls._ORIGINAL_TIME is None:
+            cls._ORIGINAL_TIME = time_module.time
 
-        cls._ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
-        cls._ORIGINAL_TIME = time_module.time
+        # Create stable wrapper functions once; re-install them if another test
+        # overwrote asyncio.sleep/time.time in the meantime.
+        if cls._SLEEP_WRAPPER is None:
 
-        def _sleep(delay: float, result: Any = None) -> Any:
-            if delay <= 0:
-                return cls._ORIGINAL_ASYNCIO_SLEEP(0, result=result)  # type: ignore[misc]
-            clock = cls._ACTIVE_CLOCK.get()
-            if clock is None:
-                return cls._ORIGINAL_ASYNCIO_SLEEP(delay, result=result)  # type: ignore[misc]
-            return clock.sleep(delay, result=result)
+            def _sleep(delay: float, result: Any = None) -> Any:
+                if delay <= 0:
+                    return cls._ORIGINAL_ASYNCIO_SLEEP(0, result=result)  # type: ignore[misc]
+                clock = cls._ACTIVE_CLOCK.get()
+                if clock is None:
+                    return cls._ORIGINAL_ASYNCIO_SLEEP(delay, result=result)  # type: ignore[misc]
+                return clock.sleep(delay, result=result)
 
-        def _time() -> float:
-            clock = cls._ACTIVE_CLOCK.get()
-            if clock is None:
-                return float(cls._ORIGINAL_TIME())
-            return float(clock.now())
+            cls._SLEEP_WRAPPER = _sleep
 
-        asyncio.sleep = _sleep  # type: ignore[assignment]
-        time_module.time = _time  # type: ignore[assignment]
+        if cls._TIME_WRAPPER is None:
+
+            def _time() -> float:
+                clock = cls._ACTIVE_CLOCK.get()
+                if clock is None:
+                    return float(cls._ORIGINAL_TIME())
+                return float(clock.now())
+
+            cls._TIME_WRAPPER = _time
+
+        if asyncio.sleep is not cls._SLEEP_WRAPPER:
+            asyncio.sleep = cls._SLEEP_WRAPPER  # type: ignore[assignment]
+        if time_module.time is not cls._TIME_WRAPPER:
+            time_module.time = cls._TIME_WRAPPER  # type: ignore[assignment]
+
         cls._PATCHED = True
 
     async def __aenter__(self) -> FakeClock:

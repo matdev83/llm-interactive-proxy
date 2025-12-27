@@ -138,13 +138,13 @@ chore: fix tests using calls to get true system date/time while mocked/freezed t
 ## Non-Functional Requirements
 
 ### NFR 1: Determinism
-NFR1.1 The Test Suite shall produce repeatable results for time-dependent tests across different machines and time zones when using test-controlled time.
+9.1 The Test Suite shall produce repeatable results for time-dependent tests across different machines and time zones when using test-controlled time.
 
 ### NFR 2: Maintainability
-NFR2.1 The Test Suite shall make time-dependency explicit in time-dependent tests (either via test-controlled time usage or an approved exception rationale).
+10.1 The Test Suite shall make time-dependency explicit in time-dependent tests (either via test-controlled time usage or an approved exception rationale).
 
 ### NFR 3: CI Compatibility
-NFR3.1 When tests are run under the default CI configuration, the Test Suite shall not exhibit flakiness attributable to wall-clock date/time changes.
+11.1 When tests are run under the default CI configuration, the Test Suite shall not exhibit flakiness attributable to wall-clock date/time changes.
 
 ## Glossary
 | Term | Definition |

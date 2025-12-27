@@ -126,9 +126,9 @@ sequenceDiagram
 | 8.2 | Linter fails on non-exempt real-time calls | TimeUsageLinter | | |
 | 8.3 | Marker-based exclusions supported | TimeUsageLinter, ExceptionPolicy | ExceptionPolicy | |
 | 8.4 | Linter reports actionable locations | TimeUsageLinter | | |
-| NFR1.1 | Deterministic outcomes across machines/time zones | TimeSource, TimeOverride, TimeUsageLinter | ITimeSource | Deterministic Test Using Central Time Source |
-| NFR2.1 | Make time dependency explicit | ExceptionPolicy, TimeUsageLinter | ExceptionPolicy | |
-| NFR3.1 | CI stability for time-dependent tests | TimeUsageLinter, ExceptionPolicy | ExceptionPolicy | |
+| 9.1 | Deterministic outcomes across machines/time zones | TimeSource, TimeOverride, TimeUsageLinter | ITimeSource | Deterministic Test Using Central Time Source |
+| 10.1 | Make time dependency explicit | ExceptionPolicy, TimeUsageLinter | ExceptionPolicy | |
+| 11.1 | CI stability for time-dependent tests | TimeUsageLinter, ExceptionPolicy | ExceptionPolicy | |
 
 ## Components and Interfaces
 

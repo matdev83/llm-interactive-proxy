@@ -93,6 +93,11 @@ class CredentialWatcher:
         self._reload_task_lock = threading.Lock()
         self._pending_reload_task: asyncio.Future[None] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._shutdown_requested = False
+
+    def request_shutdown(self) -> None:
+        """Prevent future reload scheduling during teardown."""
+        self._shutdown_requested = True
 
     def start(self, auth_path: Path) -> None:
         """Start watching the credentials file for changes.
@@ -122,10 +127,20 @@ class CredentialWatcher:
 
     def stop(self) -> None:
         """Stop watching the credentials file."""
+        self._shutdown_requested = True
+
         if self._observer is not None:
             try:
-                self._observer.stop()
-                self._observer.join(timeout=1.0)
+                observer = self._observer
+                self._observer = None
+
+                observer.stop()
+                if observer is not threading.current_thread():
+                    observer.join(timeout=5.0)
+                if observer.is_alive() and logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "OpenAI Codex credentials file watcher did not terminate cleanly."
+                    )
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Error stopping OpenAI Codex file watcher: %s", e)
@@ -138,15 +153,21 @@ class CredentialWatcher:
 
     async def cancel_pending_reload(self) -> None:
         """Cancel any pending reload task."""
+        pending_task: asyncio.Future[None] | None = None
         with self._reload_task_lock:
             if (
                 self._pending_reload_task is not None
                 and not self._pending_reload_task.done()
             ):
-                self._pending_reload_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._pending_reload_task
-                self._pending_reload_task = None
+                pending_task = self._pending_reload_task
+                pending_task.cancel()
+
+        if pending_task is not None:
+            with contextlib.suppress(asyncio.CancelledError, RuntimeError):
+                await pending_task
+            with self._reload_task_lock:
+                if self._pending_reload_task is pending_task:
+                    self._pending_reload_task = None
         self._reload_scheduling_event.clear()
 
     def schedule_reload(self) -> None:
@@ -155,6 +176,9 @@ class CredentialWatcher:
         This method ensures only one reload task per change window by using
         event gating and task tracking. Called when file watcher detects changes.
         """
+        if self._shutdown_requested:
+            return
+
         # Use threading.Event for thread-safe coordination
         if self._reload_scheduling_event.is_set():
             # Reload already in progress
@@ -688,8 +712,9 @@ class CredentialManager(ICredentialManager):
 
         Safe to call multiple times; subsequent calls are no-ops.
         """
-        self._watcher.stop()
+        self._watcher.request_shutdown()
         await self._watcher.cancel_pending_reload()
+        self._watcher.stop()
 
     def is_watcher_running(self) -> bool:
         """Return True if the credential file watcher is active.

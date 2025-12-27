@@ -103,6 +103,11 @@ Backend calls are orchestrated via a dedicated coordinator that centralizes fail
 - Default addopts are optimized for local runs (testmon + xdist); see `pyproject.toml` `[tool.pytest.ini_options] addopts`
 - Slow/integration/codex suites are selected explicitly via `-m ...` (marker list is in `pyproject.toml`)
 
+### Test-driven development (TDD)
+- Default workflow is **TDD (Red → Green → Refactor)**.
+- Treat tests as **executable specifications**: new behavior should be introduced by a failing test first.
+- New tests must be detailed enough to re-create intended behavior/contracts even if implementation code was accidentally removed (see `.kiro/steering/testing.md`).
+
 ## Canonical Commands (Windows-first)
 
 Use the in-repo venv interpreter:
@@ -131,5 +136,6 @@ Use the in-repo venv interpreter:
 
 ---
 
-_Updated: 2025-12-17_
+_Updated: 2025-12-27_
+_Reason: Add explicit TDD + “tests as executable specification” guidance_
 _Keep this file factual: describe stable patterns and point to sources of truth_

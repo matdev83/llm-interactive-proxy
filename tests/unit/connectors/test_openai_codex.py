@@ -51,7 +51,10 @@ async def openai_codex_backend_fixture(auth_dir: Path):
             )
             # Set the credentials for the test
             backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
-            yield backend
+            try:
+                yield backend
+            finally:
+                await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -278,23 +281,26 @@ async def test_schedule_credentials_reload_valid_update(auth_dir: Path):
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
 
-        # Update credentials file with new token
-        new_data = {"tokens": {"access_token": "new_token_123"}}
-        (auth_dir / "auth.json").write_text(json.dumps(new_data), encoding="utf-8")
+        try:
+            # Update credentials file with new token
+            new_data = {"tokens": {"access_token": "new_token_123"}}
+            (auth_dir / "auth.json").write_text(json.dumps(new_data), encoding="utf-8")
 
-        # Mock _load_auth to return success
-        with patch.object(backend, "_load_auth", return_value=True) as mock_load:
-            backend._auth_credentials = new_data
+            # Mock _load_auth to return success
+            with patch.object(backend, "_load_auth", return_value=True) as mock_load:
+                backend._auth_credentials = new_data
 
-            # Call the reload method
-            backend._schedule_credentials_reload()
+                # Call the reload method
+                backend._schedule_credentials_reload()
 
-            # Wait for the task to complete
-            if backend._pending_reload_task:
-                await backend._pending_reload_task
+                # Wait for the task to complete
+                if backend._pending_reload_task:
+                    await backend._pending_reload_task
 
-            # Verify load_auth was called with force_reload=True
-            mock_load.assert_called_once_with(force_reload=True)
+                # Verify load_auth was called with force_reload=True
+                mock_load.assert_called_once_with(force_reload=True)
+        finally:
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -319,29 +325,32 @@ async def test_schedule_credentials_reload_invalid_file(auth_dir: Path):
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
 
-        # Mock validation to return failure
-        from src.core.domain.validation import ValidationResult
+        try:
+            # Mock validation to return failure
+            from src.core.domain.validation import ValidationResult
 
-        with (
-            patch.object(backend, "_load_auth", return_value=True),
-            patch.object(
-                backend,
-                "_validate_credentials_structure",
-                return_value=ValidationResult.failure(["Missing required fields"]),
-            ),
-        ):
-            backend._auth_credentials = {}
+            with (
+                patch.object(backend, "_load_auth", return_value=True),
+                patch.object(
+                    backend,
+                    "_validate_credentials_structure",
+                    return_value=ValidationResult.failure(["Missing required fields"]),
+                ),
+            ):
+                backend._auth_credentials = {}
 
-            # Call the reload method
-            backend._schedule_credentials_reload()
+                # Call the reload method
+                backend._schedule_credentials_reload()
 
-            # Wait for the task to complete
-            if backend._pending_reload_task:
-                await backend._pending_reload_task
+                # Wait for the task to complete
+                if backend._pending_reload_task:
+                    await backend._pending_reload_task
 
-            # Verify backend was degraded
-            assert not backend.is_functional
-            assert len(backend._credential_validation_errors) > 0
+                # Verify backend was degraded
+                assert not backend.is_functional
+                assert len(backend._credential_validation_errors) > 0
+        finally:
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -366,20 +375,23 @@ async def test_schedule_credentials_reload_load_failure(auth_dir: Path):
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
 
-        # Mock _load_auth to fail
-        with patch.object(backend, "_load_auth", return_value=False):
-            # Call the reload method
-            backend._schedule_credentials_reload()
+        try:
+            # Mock _load_auth to fail
+            with patch.object(backend, "_load_auth", return_value=False):
+                # Call the reload method
+                backend._schedule_credentials_reload()
 
-            # Wait for the task to complete
-            if backend._pending_reload_task:
-                await backend._pending_reload_task
+                # Wait for the task to complete
+                if backend._pending_reload_task:
+                    await backend._pending_reload_task
 
-            # Verify backend was degraded
-            assert not backend.is_functional
-            assert "Failed to reload credentials from file" in str(
-                backend._credential_validation_errors
-            )
+                # Verify backend was degraded
+                assert not backend.is_functional
+                assert "Failed to reload credentials from file" in str(
+                    backend._credential_validation_errors
+                )
+        finally:
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -490,36 +502,39 @@ async def test_openai_codex_blocked_without_flag(auth_dir: Path):
         backend = OpenAICodexConnector(
             client, mock_config, translation_service=ts
         )  # Initialize WITHOUT the flag
-    with (
-        patch.object(
-            backend, "_validate_credentials_file_exists", return_value=(True, [])
-        ),
-        patch.object(
-            backend, "_validate_credentials_structure", return_value=(True, [])
-        ),
-        patch.object(backend, "_start_file_watching"),
-    ):
-        await backend.initialize(
-            openai_codex_path=str(auth_dir),
-            enable_openai_codex_backend_debugging_override=False,
-        )
-        backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
+    try:
+        with (
+            patch.object(
+                backend, "_validate_credentials_file_exists", return_value=(True, [])
+            ),
+            patch.object(
+                backend, "_validate_credentials_structure", return_value=(True, [])
+            ),
+            patch.object(backend, "_start_file_watching"),
+        ):
+            await backend.initialize(
+                openai_codex_path=str(auth_dir),
+                enable_openai_codex_backend_debugging_override=False,
+            )
+            backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
 
-    req = ChatRequest(
-        model="openai-codex:gpt-4o-mini",
-        messages=[ChatMessage(role="user", content="hi")],
-        max_tokens=16,
-        stream=False,
-    )
-
-    # Attempt to call chat_completions should raise HTTPException(403)
-    with pytest.raises(HTTPException) as exc_info:
-        await backend.chat_completions(
-            request_data=req,
-            processed_messages=[ChatMessage(role="user", content="hi")],
-            effective_model="gpt-4o-mini",
+        req = ChatRequest(
+            model="openai-codex:gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+            max_tokens=16,
+            stream=False,
         )
 
-    assert exc_info.value.status_code == 403
-    assert "Forbidden" in exc_info.value.detail
-    assert "--enable-openai-codex-backend-debugging-override" in exc_info.value.detail
+        # Attempt to call chat_completions should raise HTTPException(403)
+        with pytest.raises(HTTPException) as exc_info:
+            await backend.chat_completions(
+                request_data=req,
+                processed_messages=[ChatMessage(role="user", content="hi")],
+                effective_model="gpt-4o-mini",
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "Forbidden" in exc_info.value.detail
+        assert "--enable-openai-codex-backend-debugging-override" in exc_info.value.detail
+    finally:
+        await backend.shutdown()

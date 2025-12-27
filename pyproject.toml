@@ -164,6 +164,7 @@ markers = [
     "slow: marks tests that are slow to run and should be excluded by default",
     "codex: marks tests for Codex backend (development only, excluded by default)",
     "testmon_cache: marks tests that should disable testmon cache",
+    "real_time: marks tests that legitimately require real system wall-clock time (requires reason parameter)",
 ]
 
 [tool.mdformat]

@@ -88,8 +88,12 @@ async def test_codex_dependencies_registration(auth_dir: Path):
     credential_manager = provider.get_service(ICredentialManager)
     assert credential_manager is not None
 
-    tool_execution_service = provider.get_service(IToolExecutionService)
-    assert tool_execution_service is not None
+    try:
+        tool_execution_service = provider.get_service(IToolExecutionService)
+        assert tool_execution_service is not None
+    finally:
+        # cleanup credential manager
+        await credential_manager.shutdown()
 
 
 @pytest.mark.integration
@@ -220,27 +224,30 @@ async def test_connector_initialization_with_dependencies(auth_dir: Path):
         # Create connector - components are initialized in __init__
         connector = OpenAICodexConnector(client, config, translation_service=ts)
 
-        # Verify components are initialized (they should be after __init__)
-        assert connector._settings_loader is not None
-        assert connector._credential_manager is not None
-        assert connector._payload_builder is not None
-        assert connector._response_executor is not None
+        try:
+            # Verify components are initialized (they should be after __init__)
+            assert connector._settings_loader is not None
+            assert connector._credential_manager is not None
+            assert connector._payload_builder is not None
+            assert connector._response_executor is not None
 
-        # Initialize connector with mocked validation
-        with (
-            patch.object(
-                connector, "_validate_credentials_file_exists", return_value=(True, [])
-            ),
-            patch.object(
-                connector, "_validate_credentials_structure", return_value=(True, [])
-            ),
-            patch.object(connector, "_start_file_watching"),
-        ):
-            await connector.initialize(openai_codex_path=str(auth_dir))
-            connector._auth_credentials = {"tokens": {"access_token": "test_token"}}
+            # Initialize connector with mocked validation
+            with (
+                patch.object(
+                    connector, "_validate_credentials_file_exists", return_value=(True, [])
+                ),
+                patch.object(
+                    connector, "_validate_credentials_structure", return_value=(True, [])
+                ),
+                patch.object(connector, "_start_file_watching"),
+            ):
+                await connector.initialize(openai_codex_path=str(auth_dir))
+                connector._auth_credentials = {"tokens": {"access_token": "test_token"}}
 
-            # Verify credential manager was initialized
-            assert connector._credential_manager.get_access_token() is not None
+                # Verify credential manager was initialized
+                assert connector._credential_manager.get_access_token() is not None
+        finally:
+            await connector.shutdown()
 
 
 @pytest.mark.integration
@@ -259,20 +266,23 @@ async def test_backend_functional_state_after_init(auth_dir: Path):
         # Before initialization, backend should not be functional
         assert backend.is_backend_functional() is False
 
-        with (
-            patch.object(
-                backend, "_validate_credentials_file_exists", return_value=(True, [])
-            ),
-            patch.object(
-                backend, "_validate_credentials_structure", return_value=(True, [])
-            ),
-            patch.object(backend, "_start_file_watching"),
-        ):
-            await backend.initialize(openai_codex_path=str(auth_dir))
-            backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
+        try:
+            with (
+                patch.object(
+                    backend, "_validate_credentials_file_exists", return_value=(True, [])
+                ),
+                patch.object(
+                    backend, "_validate_credentials_structure", return_value=(True, [])
+                ),
+                patch.object(backend, "_start_file_watching"),
+            ):
+                await backend.initialize(openai_codex_path=str(auth_dir))
+                backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
 
-            # After initialization, backend should be functional
-            assert backend.is_backend_functional() is True
+                # After initialization, backend should be functional
+                assert backend.is_backend_functional() is True
+        finally:
+            await backend.shutdown()
 
 
 @pytest.mark.integration
@@ -312,13 +322,17 @@ async def test_full_staged_initialization_pipeline(auth_dir: Path):
         app_config=config,
         backend_config=backend_config,
     )
-    assert backend is not None
-    # In test mode, backend might be a mock, so we verify it was created
-    # and that the backend type is registered
-    assert "openai-codex" in backend_registry.get_registered_backends()
-    # If backend has backend_type attribute, verify it
-    if hasattr(backend, "backend_type"):
-        assert backend.backend_type == "openai-codex"
+    try:
+        assert backend is not None
+        # In test mode, backend might be a mock, so we verify it was created
+        # and that the backend type is registered
+        assert "openai-codex" in backend_registry.get_registered_backends()
+        # If backend has backend_type attribute, verify it
+        if hasattr(backend, "backend_type"):
+            assert backend.backend_type == "openai-codex"
+    finally:
+        if hasattr(backend, "shutdown"):
+            await backend.shutdown()
 
 
 @pytest.mark.integration

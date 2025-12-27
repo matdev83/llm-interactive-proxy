@@ -68,6 +68,7 @@ Not everything is under `src/core/`; some features live at top-level:
 - `tests/`: suites mirror the project structure
   - `tests/unit/`, `tests/integration/`, `tests/property/`, `tests/behavior/`, `tests/regression/`
   - markers live in `pyproject.toml` under `[tool.pytest.ini_options]`
+  - TDD and test detail expectations (tests as executable specifications): see `.kiro/steering/testing.md`
 
 ### Tooling & Scripts
 - `scripts/`: **End-user tools** only (CLI helpers, inspection tools, admin scripts).
@@ -111,5 +112,6 @@ Default stage order:
 
 ---
 
-_Updated: 2025-12-22_
+_Updated: 2025-12-27_
+_Reason: Link structure map to TDD/testing steering_
 _Document stable structure and change locations; avoid exhaustive file listings_

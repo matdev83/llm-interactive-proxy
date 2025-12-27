@@ -165,6 +165,7 @@ class OpenAICodexConnector(OpenAIConnector):
         self._pending_reload_task: asyncio.Future[None] | None = None
         self._reload_scheduling_event = threading.Event()
         self._reload_task_lock = threading.Lock()
+        self._shutdown_requested = threading.Event()
 
         # Dependency resolution
         self._dependencies = dependencies or self._resolve_dependencies()
@@ -1541,16 +1542,26 @@ class OpenAICodexConnector(OpenAIConnector):
 
         self._file_observer = None
 
-        def _stop_observer() -> None:
-            try:
-                observer.stop()
-                observer.join(timeout=1.0)
-            except Exception as exc:
-                logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
-
-        threading.Thread(target=_stop_observer, daemon=True).start()
+        try:
+            observer.stop()
+            # 5.0s timeout to allow clean thread termination
+            observer.join(timeout=5.0)
+            
+            # Verify thread stopped (safe check for BaseObserver which extends Thread)
+            if hasattr(observer, "is_alive") and observer.is_alive():  # type: ignore
+                logger.warning(
+                    "OpenAI Codex file watcher thread did not stop within timeout. "
+                    "This may cause issues in parallel test execution."
+                )
+        except Exception as exc:
+            logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
 
     def _schedule_credentials_reload(self) -> None:
+        if self._shutdown_requested.is_set():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Skipping reload - shutdown requested")
+            return
+
         if self._reload_scheduling_event.is_set():
             return
 
@@ -1960,8 +1971,27 @@ class OpenAICodexConnector(OpenAIConnector):
 
     async def shutdown(self) -> None:
         """Stop background file watchers to avoid thread leaks."""
-        self._stop_file_watching()
+        # 1. Signal shutdown to prevent new tasks
+        self._shutdown_requested.set()
+        
+        # 2. Cancel local pending reload tasks
+        with self._reload_task_lock:
+            if (
+                self._pending_reload_task is not None
+                and not self._pending_reload_task.done()
+            ):
+                self._pending_reload_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._pending_reload_task
+                self._pending_reload_task = None
         self._reload_scheduling_event.clear()
+
+        # 3. Stop local file watcher synchronously
+        self._stop_file_watching()
+        
+        # 4. Stop delegated credential manager
+        if hasattr(self._credential_manager, "shutdown"):
+            await self._credential_manager.shutdown()
 
 
 backend_registry.register_backend("openai-codex", OpenAICodexConnector)

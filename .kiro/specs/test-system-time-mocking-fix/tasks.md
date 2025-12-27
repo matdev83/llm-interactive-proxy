@@ -1,35 +1,35 @@
 # Implementation Plan
 
-- [ ] 1. Establish test time policy and exception mechanism
-- [ ] 1.1 (P) Add explicit “real-time-dependent test” marker with enforced rationale
+- [x] 1. Establish test time policy and exception mechanism
+- [x] 1.1 (P) Add explicit "real-time-dependent test" marker with enforced rationale
   - Add a dedicated pytest marker for tests that legitimately require real system wall-clock time.
   - Ensure the marker requires a non-empty `reason` so exceptions are reviewable in code review.
-  - Register the marker in the project’s pytest marker configuration to avoid unknown-marker warnings.
-  - _Requirements: 2.1, 2.3, 7.2, 8.3, NFR2.1_
+  - Register the marker in the project's pytest marker configuration to avoid unknown-marker warnings.
+  - _Requirements: 2.1, 2.3, 7.2, 8.3, 10.1_
 
-- [ ] 1.2 (P) Implement allow-list mechanism for approved real-time exceptions
+- [x] 1.2 (P) Implement allow-list mechanism for approved real-time exceptions
   - Add a versioned, machine-readable allow-list that supports:
     - per-test exemptions (pytest nodeid targeting),
     - per-file/per-directory exemptions (glob targeting),
     - and a required justification for every entry.
   - Define and implement precedence rules (nodeid > marker > glob), and ensure they are enforced consistently.
-  - _Requirements: 2.1, 2.3, 7.2, 8.3, NFR2.1_
+  - _Requirements: 2.1, 2.3, 7.2, 8.3, 10.1_
 
-- [ ] 1.3 Provide a single, code-enforced policy surface for choosing time-control techniques
-  - Add a reusable “time control policy” helper for tests (module-level documentation + helpers/constants) that makes the canonical technique selection explicit and discoverable in code review.
+- [x] 1.3 Provide a single, code-enforced policy surface for choosing time-control techniques
+  - Add a reusable "time control policy" helper for tests (module-level documentation + helpers/constants) that makes the canonical technique selection explicit and discoverable in code review.
   - Ensure the policy guides tests to prefer a single overrideable time boundary for repository-owned deterministic behavior, while allowing targeted tooling for legacy surfaces.
-  - _Requirements: 5.1, 5.2, 5.3, 5.4, NFR2.1_
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 10.1_
 
 - [ ] 2. Introduce a single overrideable wall-clock time boundary for deterministic code paths
 - [ ] 2.1 (P) Define a central time source contract and system-backed default behavior
   - Introduce a time source abstraction that supplies wall-clock time (UTC/local) and epoch seconds consistently.
   - Ensure duration-only primitives (monotonic time) remain available without being treated as wall-clock timestamps.
-  - _Requirements: 3.1, 6.1, 6.3, NFR1.1_
+  - _Requirements: 3.1, 6.1, 6.3, 9.1_
 
 - [ ] 2.2 Implement an async-safe override mechanism for tests
   - Provide a scoped override that allows tests to supply a deterministic time source without global patching.
   - Ensure override state does not leak between concurrent tests under parallel execution.
-  - _Requirements: 1.2, 3.1, 3.2, 6.2, NFR1.1, NFR3.1_
+  - _Requirements: 1.2, 3.1, 3.2, 6.2, 9.1, 11.1_
 
 - [ ] 2.3 Wire the time source into dependency injection so deterministic code can depend on it
   - Register the time source boundary in DI with a lifetime that matches cross-cutting, safe reuse.
@@ -39,7 +39,7 @@
 - [ ] 2.4 Migrate high-impact deterministic call sites to use the time boundary
   - Identify production/shared-library call sites that produce timestamps used in assertions or deterministic outputs.
   - Refactor those call sites to use the time boundary and verify that tests can override time without broad patching.
-  - _Requirements: 1.2, 3.2, 6.3, 6.4, NFR1.1_
+  - _Requirements: 1.2, 3.2, 6.3, 6.4, 9.1_
 
 - [ ] 3. Add a dedicated time-usage linter test to prevent regressions
 - [ ] 3.1 (P) Implement an AST-based scanner for real-time read call sites in tests
@@ -51,18 +51,18 @@
   - Recognize and exempt datetime wall-clock reads that occur under known datetime-freezing scopes.
   - Recognize and exempt epoch reads that occur under known fake-clock scopes.
   - Ensure “unguarded real-time reads” are what fail the suite.
-  - _Requirements: 1.3, 3.1, 8.1, 8.2, NFR1.1_
+  - _Requirements: 1.3, 3.1, 8.1, 8.2, 9.1_
 
 - [ ] 3.3 Enforce explicit exception policy in the linter
   - Exempt tests only via the explicit marker-with-reason mechanism or allow-list entries with justification.
   - Ensure the linter treats mixed real-time and test-controlled time in the same assertion path as non-compliant unless explicitly exempted.
-  - _Requirements: 2.1, 2.3, 3.3, 7.2, 8.3, NFR2.1_
+  - _Requirements: 2.1, 2.3, 3.3, 7.2, 8.3, 10.1_
 
 - [ ] 3.4 Integrate the linter into the default test run with CI-friendly performance
   - Implement the linter as a dedicated enforcement-style test that runs in normal workflows.
   - Add caching/fingerprinting to keep repeated runs fast while staying correct when tests change.
   - Ensure behavior is compatible with parallel pytest execution and fails fast when violations exist.
-  - _Requirements: 4.1, 7.1, 7.3, 8.2, NFR3.1_
+  - _Requirements: 4.1, 7.1, 7.3, 8.2, 11.1_
 
 - [ ] 4. Evaluate and remediate existing test usages case-by-case
 - [ ] 4.1 Create a baseline inventory of current real-time reads and classify each usage
@@ -85,7 +85,7 @@
   - Add allow-list entries only when marker-based exemption is not feasible or when exempting a whole suite is justified.
   - Ensure each exception preserves the documented rationale when modified, or updates it to reflect the new behavior.
   - When a time-control technique is not applicable for a test category, treat it as an exception candidate unless a safe alternative exists.
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 4.2, 4.4, 5.5, 7.2, 8.3, NFR2.1_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 4.2, 4.4, 5.5, 7.2, 8.3, 10.1_
 
 - [ ] 4.5 Eliminate mixed time semantics in non-exempt deterministic tests
   - Identify tests where assertions combine test-controlled time with real system time.
@@ -96,14 +96,14 @@
 - [ ] 5.1 (P) Add tests for the time boundary and override semantics
   - Validate deterministic behavior for UTC/local time and epoch time relationships.
   - Validate override scoping behavior, including parallel execution safety.
-  - _Requirements: 3.2, 6.2, 6.4, NFR1.1_
+  - _Requirements: 3.2, 6.2, 6.4, 9.1_
 
 - [ ] 5.2 (P) Add tests for the time-usage linter’s detection, guard scopes, and allow-list precedence
   - Validate accurate detection (including import-alias patterns) and actionable reporting.
   - Validate guarded-scope recognition and explicit exemption mechanisms.
-  - _Requirements: 7.3, 8.1, 8.2, 8.4, NFR3.1_
+  - _Requirements: 7.3, 8.1, 8.2, 8.4, 11.1_
 
 - [ ] 5.3 Run the full suite and iterate until deterministic and green
   - Ensure the suite fails on newly introduced unguarded real-time reads and passes when all findings are remediated or explicitly exempted.
   - Verify determinism across time zones and parallel execution configurations used by CI.
-  - _Requirements: 1.4, 4.4, 7.1, NFR1.1, NFR3.1_
+  - _Requirements: 1.4, 4.4, 7.1, 9.1, 11.1_

@@ -326,6 +326,10 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     config.addinivalue_line(
         "markers", "asyncio: mark tests that require pytest_asyncio"
     )
+    config.addinivalue_line(
+        "markers",
+        "real_time: marks tests that legitimately require real system wall-clock time (requires reason parameter)",
+    )
 
     # Enable JUnit XML generation in CI environments or when explicitly requested
     # This reduces I/O overhead during local development
