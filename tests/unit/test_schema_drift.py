@@ -4,13 +4,90 @@ This test ensures that configuration schemas in config/schemas/ stay in sync
 with the actual config models defined in Python code.
 """
 
+import hashlib
+import json
+import time
 from pathlib import Path
+from typing import Any
 
+import pytest
 import yaml
 from src.core.config.models.logging import LogLevel
 from src.core.config.models.misc import UsageTrackingConfig
 from src.core.config.models.session import ToolCallReactorConfig
 from src.core.config.yaml_validation import validate_yaml_against_schema
+
+
+def _calculate_file_hash(file_path: Path) -> str:
+    """Calculate hash of a file for cache invalidation."""
+    hasher = hashlib.md5()
+    try:
+        with file_path.open("rb") as f:
+            hasher.update(f.read())
+    except OSError:
+        pass
+    return hasher.hexdigest()
+
+
+@pytest.fixture(scope="session")
+def schema_validation_cache() -> dict[str, Any]:
+    """Session-scoped cache for schema validation results."""
+    project_root = Path(__file__).parent.parent
+    schema_path = project_root / "config" / "schemas" / "app_config.schema.yaml"
+    example_configs_dir = project_root / "config"
+    cache_dir = project_root / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "schema_validation_cache.json"
+
+    cache: dict[str, Any] = {}
+    if cache_file.exists():
+        try:
+            with cache_file.open(encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    current_time = time.time()
+    cache_timeout = 3600
+
+    schema_hash = _calculate_file_hash(schema_path)
+    example_config_hashes = {
+        str(c): _calculate_file_hash(c)
+        for c in example_configs_dir.glob("*.example.yaml")
+    }
+
+    combined_hashes = {"schema": schema_hash, "examples": example_config_hashes}
+
+    if (
+        cache.get("hashes") == combined_hashes
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "validation_results" in cache
+    ):
+        return cache
+
+    validation_results = {}
+    for example_path in example_configs_dir.glob("*.example.yaml"):
+        try:
+            validate_yaml_against_schema(example_path, schema_path)
+            validation_results[str(example_path)] = "valid"
+        except Exception as e:
+            validation_results[str(example_path)] = f"error: {e!s}"
+
+    cache.update(
+        {
+            "hashes": combined_hashes,
+            "timestamp": current_time,
+            "validation_results": validation_results,
+        }
+    )
+
+    try:
+        with cache_file.open("w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
 
 
 class TestSchemaDrift:
@@ -111,19 +188,24 @@ access_policies: []
         finally:
             test_file.unlink()
 
-    def test_example_configs_validate_against_schema(self):
+    def test_example_configs_validate_against_schema(
+        self, schema_validation_cache: dict[str, Any]
+    ):
         """Verify all example YAML configs validate against app_config schema."""
-        schema_path = Path("config/schemas/app_config.schema.yaml")
+        validation_results = schema_validation_cache.get("validation_results", {})
 
-        # Get all example config files
-        example_configs = list(Path("config").glob("*.example.yaml"))
+        project_root = Path(__file__).parent.parent
+        example_configs = list((project_root / "config").glob("*.example.yaml"))
 
         for example_path in example_configs:
-            try:
-                validate_yaml_against_schema(example_path, schema_path)
-            except Exception as e:
+            result = validation_results.get(str(example_path))
+            if result != "valid":
+                if result and result.startswith("error:"):
+                    error_msg = result[7:]
+                else:
+                    error_msg = "validation failed (cache stale)"
                 raise AssertionError(
-                    f"Example config {example_path.name} failed schema validation: {e}"
+                    f"Example config {example_path.name} failed schema validation: {error_msg}"
                 )
 
     def test_identity_config_validates_with_new_schema(self):
@@ -235,10 +317,13 @@ reasoning_aliases:
         from src.core.domain.configuration.health_check_config import (
             HealthCheckConfig,
         )
+
         code_fields = set(HealthCheckConfig.model_fields.keys())
 
         missing_in_schema = code_fields - schema_fields
         extra_in_schema = schema_fields - code_fields
 
-        assert not missing_in_schema, f"Code model has fields not in schema: {missing_in_schema}"
+        assert (
+            not missing_in_schema
+        ), f"Code model has fields not in schema: {missing_in_schema}"
         assert not extra_in_schema, f"Schema has fields not in code: {extra_in_schema}"

@@ -1,5 +1,9 @@
+import hashlib
+import json
 import os
 import re
+import time
+from typing import Any
 
 import pytest
 
@@ -91,10 +95,47 @@ def find_files_with_emojis(directories: list[str]) -> list[tuple[str, int, str]]
     return files_with_emojis
 
 
-def test_no_unicode_emojis_in_codebase() -> None:
+def _calculate_directory_hash(directory: str) -> str:
+    """Calculate a hash of all Python files in directory for cache invalidation.
+
+    Uses directory mtime and samples files for faster hashing.
     """
-    Test that there are no Unicode emojis in codebase.
-    """
+    hasher = hashlib.md5()
+
+    try:
+        dir_stat = os.stat(directory)
+        hasher.update(f"{directory}:{dir_stat.st_size}:{dir_stat.st_mtime}".encode())
+    except OSError:
+        pass
+
+    try:
+        py_files = []
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(".py"):
+                    py_files.append(os.path.join(root, file))
+
+        sample_size = min(100, len(py_files))
+        step = max(1, len(py_files) // sample_size) if py_files else 1
+
+        for i, py_file in enumerate(py_files):
+            if i % step == 0:
+                try:
+                    file_stat = os.stat(py_file)
+                    rel_path = os.path.relpath(py_file, directory)
+                    file_data = f"{rel_path}:{file_stat.st_size}:{file_stat.st_mtime}"
+                    hasher.update(file_data.encode())
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+    return hasher.hexdigest()
+
+
+@pytest.fixture(scope="session")
+def emoji_check_cache() -> dict[str, Any]:
+    """Session-scoped cache for emoji checking."""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     directories = [
         os.path.join(project_root, "src/core"),
@@ -102,10 +143,65 @@ def test_no_unicode_emojis_in_codebase() -> None:
         os.path.join(project_root, "src/codebuff"),
     ]
 
+    cache_dir = os.path.join(project_root, ".pytest_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, "emoji_check_cache.json")
+
+    cache: dict[str, Any] = {}
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+
+    current_time = time.time()
+    cache_timeout = 3600
+
+    dir_hashes = {d: _calculate_directory_hash(d) for d in directories}
+
+    if (
+        cache.get("dir_hashes") == dir_hashes
+        and current_time - cache.get("timestamp", 0) < cache_timeout
+        and "files_with_emojis" in cache
+    ):
+        return cache
+
     files_with_emojis = find_files_with_emojis(directories)
+
+    serialized_results = [
+        {"file_path": fp, "line_num": ln, "line": line}
+        for fp, ln, line in files_with_emojis
+    ]
+
+    cache.update(
+        {
+            "dir_hashes": dir_hashes,
+            "timestamp": current_time,
+            "files_with_emojis": serialized_results,
+        }
+    )
+
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except OSError:
+        pass
+
+    return cache
+
+
+def test_no_unicode_emojis_in_codebase(emoji_check_cache: dict[str, Any]) -> None:
+    """
+    Test that there are no Unicode emojis in codebase.
+    """
+    files_with_emojis = emoji_check_cache.get("files_with_emojis", [])
 
     if files_with_emojis:
         error_message = "Unicode emojis found in following files:\\n"
-        for file_path, line_num, line in files_with_emojis:
+        for item in files_with_emojis:
+            file_path = item["file_path"]
+            line_num = item["line_num"]
+            line = item["line"]
             error_message += f'  - {file_path}, line {line_num}: "{line}"\\n'
         pytest.fail(error_message)

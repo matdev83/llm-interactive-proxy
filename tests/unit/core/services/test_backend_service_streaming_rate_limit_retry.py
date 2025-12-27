@@ -38,7 +38,7 @@ async def test_streaming_429_with_short_retry_after_emits_keepalive_and_retries(
             BackendError(
                 "Rate limited",
                 status_code=429,
-                details={"retry_after": 1.5},
+                details={"retry_after": 1.0},
             ),
             success_response,
         ]
@@ -59,9 +59,9 @@ async def test_streaming_429_with_short_retry_after_emits_keepalive_and_retries(
         update={
             "failure_handling": FailureHandlingConfig(
                 enabled=True,
-                total_timeout_budget=3.0,
+                total_timeout_budget=2.0,
                 max_silent_wait=60.0,
-                keepalive_interval=1.0,  # Must be >= 1.0 per validation
+                keepalive_interval=1.0,
                 max_failover_hops=5,
                 min_retry_wait=0.1,
             )
