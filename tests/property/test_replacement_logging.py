@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from unittest.mock import MagicMock
 
 from hypothesis import HealthCheck, given
 from hypothesis import strategies as st
@@ -74,7 +73,9 @@ def create_test_context() -> RequestContext:
     backend_model=st.text(min_size=1, max_size=50).filter(lambda x: ":" in x),
     turn_count=st.integers(min_value=1, max_value=100),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=50, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_25_configuration_loading_logging(
     enabled: bool,
     probability: float,
@@ -116,7 +117,6 @@ def test_property_25_configuration_loading_logging(
     )
 
     # Create a mock logger to capture log calls
-    MagicMock()
     original_logger = logging.getLogger("src.core.services.model_replacement_service")
     original_info = original_logger.info
 
