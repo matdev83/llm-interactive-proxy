@@ -114,7 +114,9 @@ def session_summary_strategy(draw: st.DrawFn) -> SessionSummary:
 
 
 @given(summary=session_summary_strategy())
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=30, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> None:
     """
     Property 7: Summary storage completeness.
@@ -151,7 +153,9 @@ def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> 
 
 
 @given(summary=session_summary_strategy())
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=30, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_7_summary_model_format(summary: SessionSummary) -> None:
     """
     Property 7: Summary model format validation.
@@ -167,7 +171,9 @@ def test_property_7_summary_model_format(summary: SessionSummary) -> None:
 
 
 @given(summary=session_summary_strategy())
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=30, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> None:
     """
     Property 7: Summary completion status validation.

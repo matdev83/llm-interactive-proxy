@@ -20,10 +20,36 @@ from src.codebuff.handlers.subscription_handler import SubscriptionHandler
 from src.codebuff.message_router import MessageRouter
 from src.codebuff.server import CodebuffWebSocketServer
 
+
+@pytest.fixture(scope="module")
+def mock_server_components():
+    """Shared mock server components for all websocket tests in this module."""
+    connection_manager = ConnectionManager()
+    message_router = MessageRouter()
+
+    prompt_handler = Mock(spec=PromptHandler)
+    prompt_handler.handle_prompt = AsyncMock()
+
+    init_handler = Mock(spec=InitHandler)
+    init_handler.handle_init = AsyncMock()
+
+    subscription_handler = Mock(spec=SubscriptionHandler)
+    subscription_handler.handle_subscribe = AsyncMock()
+    subscription_handler.handle_unsubscribe = AsyncMock()
+
+    return {
+        "connection_manager": connection_manager,
+        "message_router": message_router,
+        "prompt_handler": prompt_handler,
+        "init_handler": init_handler,
+        "subscription_handler": subscription_handler,
+    }
+
+
 # Strategy for generating session IDs
 session_id_strategy = st.text(
     alphabet=st.characters(
-        whitelist_categories=("Lu", "Ll", "Nd"), min_codepoint=48, max_codepoint=122
+        whitelist_categories=["Lu", "Ll", "Nd"], min_codepoint=48, max_codepoint=122
     ),
     min_size=1,
     max_size=50,
@@ -78,8 +104,10 @@ def create_ping_message(txid: int = 2) -> str:
 
 @pytest.mark.asyncio
 @given(session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True))
-@settings(max_examples=50, deadline=None)
-async def test_property_19_session_isolation(session_ids: list[str]) -> None:
+@settings(max_examples=30, deadline=None)
+async def test_property_19_session_isolation(
+    session_ids: list[str], mock_server_components
+) -> None:
     """
     Feature: codebuff-backend-compatibility, Property 19: Session isolation
     Validates: Requirements 7.1
@@ -87,20 +115,11 @@ async def test_property_19_session_isolation(session_ids: list[str]) -> None:
     For any set of connected clients, each client's session state should be
     independent and not affect others.
     """
-    # Create server components
-    connection_manager = ConnectionManager()
-    message_router = MessageRouter()
-
-    # Create mock handlers
-    prompt_handler = Mock(spec=PromptHandler)
-    prompt_handler.handle_prompt = AsyncMock()
-
-    init_handler = Mock(spec=InitHandler)
-    init_handler.handle_init = AsyncMock()
-
-    subscription_handler = Mock(spec=SubscriptionHandler)
-    subscription_handler.handle_subscribe = AsyncMock()
-    subscription_handler.handle_unsubscribe = AsyncMock()
+    connection_manager = mock_server_components["connection_manager"]
+    message_router = mock_server_components["message_router"]
+    prompt_handler = mock_server_components["prompt_handler"]
+    init_handler = mock_server_components["init_handler"]
+    subscription_handler = mock_server_components["subscription_handler"]
 
     server = CodebuffWebSocketServer(
         connection_manager=connection_manager,

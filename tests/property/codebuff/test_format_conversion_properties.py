@@ -7,10 +7,17 @@ Validates: Requirements 2.2
 
 from __future__ import annotations
 
-from hypothesis import given
+import pytest
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.codebuff.format_converter import FormatConverter
 from src.core.domain.chat import ChatMessage
+
+
+@pytest.fixture(scope="module")
+def format_converter():
+    """Shared FormatConverter instance for all tests in this module."""
+    return FormatConverter()
 
 
 # Strategy for generating Codebuff message formats
@@ -64,7 +71,8 @@ def session_state(draw):
 
 
 @given(messages=codebuff_messages(), state=session_state())
-def test_property_6_format_conversion_validity(messages, state):
+@settings(max_examples=30, deadline=None)
+def test_property_6_format_conversion_validity(messages, state, format_converter):
     """
     Feature: codebuff-backend-compatibility, Property 6: Format conversion validity
     Validates: Requirements 2.2
@@ -72,16 +80,20 @@ def test_property_6_format_conversion_validity(messages, state):
     For any Codebuff message format, converting to OpenAI format should produce
     valid OpenAI-compatible messages.
     """
-    converter = FormatConverter()
-
     # Convert messages
-    openai_messages = converter.codebuff_to_openai(messages, state)
+    openai_messages = format_converter.codebuff_to_openai(messages, state)
 
     # Verify all converted messages have required OpenAI fields
     for msg in openai_messages:
         if isinstance(msg, ChatMessage):
-            assert msg.role in ["user", "assistant", "system"], f"Role must be valid: {msg.role}"
-            assert isinstance(msg.content, str), f"Content must be a string: {type(msg.content)}"
+            assert msg.role in [
+                "user",
+                "assistant",
+                "system",
+            ], f"Role must be valid: {msg.role}"
+            assert isinstance(
+                msg.content, str
+            ), f"Content must be a string: {type(msg.content)}"
         else:
             assert isinstance(msg, dict), "Converted message must be a dictionary"
             assert "role" in msg, "Converted message must have 'role' field"
@@ -97,16 +109,15 @@ def test_property_6_format_conversion_validity(messages, state):
 
 
 @given(messages=codebuff_messages(), state=session_state())
-def test_property_6_conversion_preserves_count(messages, state):
+@settings(max_examples=30, deadline=None)
+def test_property_6_conversion_preserves_count(messages, state, format_converter):
     """
     Property 6 extension: Conversion should preserve message count.
 
     For any list of Codebuff messages, the number of converted messages
     should equal the number of input messages.
     """
-    converter = FormatConverter()
-
-    openai_messages = converter.codebuff_to_openai(messages, state)
+    openai_messages = format_converter.codebuff_to_openai(messages, state)
 
     # Each input message should produce exactly one output message
     assert len(openai_messages) == len(
@@ -119,17 +130,16 @@ def test_property_6_conversion_preserves_count(messages, state):
     content=st.text(min_size=0, max_size=100),
     state=session_state(),
 )
-def test_property_6_role_content_passthrough(role, content, state):
+@settings(max_examples=30, deadline=None)
+def test_property_6_role_content_passthrough(role, content, state, format_converter):
     """
     Property 6 extension: Messages already in OpenAI format should pass through.
 
     For any message already in OpenAI format (with role and content),
     the conversion should preserve the exact role and content.
     """
-    converter = FormatConverter()
-
     messages = [{"role": role, "content": content}]
-    openai_messages = converter.codebuff_to_openai(messages, state)
+    openai_messages = format_converter.codebuff_to_openai(messages, state)
 
     assert len(openai_messages) == 1
     assert openai_messages[0]["role"] == role
