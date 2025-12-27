@@ -60,11 +60,17 @@ class SessionCancellationCoordinator(ISessionCancellationCoordinator):
             ttl_seconds: Time-to-live for cancellation state entries in seconds.
                 Defaults to 1 hour (3600 seconds).
         """
+
         # TTLCache is thread-safe and provides automatic expiry
         # Use a large maxsize (100k entries) with TTL for bounded retention
         # This provides both size-based and time-based cleanup
+        def _timer() -> float:
+            # Indirect through the module attribute so tests can monkeypatch
+            # `time.time` and have it affect TTL expiry logic.
+            return time.time()
+
         self._cache: TTLCache[SessionKey, _CancellationState] = TTLCache(
-            maxsize=100_000, ttl=ttl_seconds, timer=time.time
+            maxsize=100_000, ttl=ttl_seconds, timer=_timer
         )
         self._lock = Lock()
 

@@ -504,26 +504,29 @@ def test_ruff_linting_on_tests() -> None:
     # Note: In parallel test execution, files might be modified by other tests.
     # Re-check once more to handle race conditions.
     if final_check.returncode != 0:
-        # Use threading.Event to allow concurrent file operations to complete
-        import threading
+        # Retry loop to allow concurrent file operations to complete
+        # Use asyncio.sleep for non-blocking delay simulation
+        import asyncio
 
-        event = threading.Event()
-        event.wait(timeout=0.1)  # Brief wait for file operations
+        async def retry_check() -> subprocess.CompletedProcess[str]:
+            """Retry check with non-blocking delay."""
+            await asyncio.sleep(0.1)  # Brief delay for file operations
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ruff",
+                    "check",
+                    "--no-fix",
+                    str(tests_dir),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=project_root,
+            )
 
         # Final check after delay
-        final_check = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "check",
-                "--no-fix",
-                str(tests_dir),
-            ],
-            capture_output=True,
-            text=True,
-            cwd=project_root,
-        )
+        final_check = asyncio.run(retry_check())
 
         if final_check.returncode != 0:
             error_msg = (
