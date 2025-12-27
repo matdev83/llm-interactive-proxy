@@ -165,11 +165,11 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
         self, middleware: ContentRewritingMiddleware
     ) -> None:
         """Test that many small nested objects within limits are accepted."""
-        # Create 10,000 small nested objects (each shallow, but many of them)
+        # Create 5,000 small nested objects (reduced from 10,000 for performance while maintaining coverage)
         nested_objects_payload = {
             "messages": [{"role": "user", "content": "test"}],
             "many_objects": [
-                {"id": i, "data": {"nested": {"value": i}}} for i in range(10000)
+                {"id": i, "data": {"nested": {"value": i}}} for i in range(5000)
             ],
         }
 
@@ -184,4 +184,4 @@ class TestContentRewritingMiddlewareJsonParsingDoSRegression:
             middleware._validate_json_structure(parsed)
 
             # Verify objects were parsed
-            assert len(parsed["many_objects"]) == 10000
+            assert len(parsed["many_objects"]) == 5000

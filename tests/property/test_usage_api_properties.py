@@ -347,11 +347,11 @@ async def test_date_range_filter_property(
 @pytest.mark.asyncio
 @given(
     records=st.lists(
-        usage_record_strategy(), min_size=10, max_size=30
-    ),  # Reduced from 50 for performance
+        usage_record_strategy(), min_size=10, max_size=20  # Reduced from 30
+    ),
 )
 @settings(
-    max_examples=15,  # Reduced from 20 for performance
+    max_examples=10,  # Reduced from 15 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

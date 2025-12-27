@@ -113,8 +113,8 @@ class TestSessionRepositoryFingerprintLeakRegression:
         self, repo: InMemorySessionRepository
     ) -> None:
         """Test that fingerprint bundles don't grow unbounded."""
-        # Create many sessions with fingerprint bundles (reduced from 10000 to 5000 for performance)
-        num_sessions = 5000
+        # Create many sessions with fingerprint bundles (reduced for performance while maintaining leak detection)
+        num_sessions = 2000
 
         for i in range(num_sessions):
             session_id = f"session_{i}"

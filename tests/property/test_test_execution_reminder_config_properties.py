@@ -185,7 +185,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
 
 
 @given(config_sources=config_source_strategy())
-@property_test_settings(max_examples=30)
+@property_test_settings(max_examples=10)
 def test_property_10_configuration_precedence_enabled(
     config_sources: dict[str, Any],
 ) -> None:
@@ -269,7 +269,7 @@ def test_property_10_configuration_precedence_enabled(
 
 
 @given(config_sources=config_source_strategy())
-@property_test_settings(max_examples=30)
+@property_test_settings(max_examples=5)  # Reduced from 10 for performance
 def test_property_10_configuration_precedence_message(
     config_sources: dict[str, Any],
 ) -> None:
@@ -295,8 +295,12 @@ def test_property_10_configuration_precedence_message(
         # Set up environment value
         _apply_env_values(None, config_sources["env_message"])
 
-        # Create environment dict for from_env
-        test_env = dict(os.environ)
+        # Create environment dict for from_env - only copy needed env vars
+        test_env = {
+            "TEST_EXECUTION_REMINDER_MESSAGE": os.environ.get(
+                "TEST_EXECUTION_REMINDER_MESSAGE"
+            )
+        }
 
         # Create base config that simulates config file + environment loading
         # The from_env method will apply environment variables

@@ -189,13 +189,13 @@ async def test_property_19_authorization_api_request_payload(
 # Feature: sso-authentication, Property 20: Authorization API Success Path
 @pytest.mark.asyncio
 @settings(
-    max_examples=10,
+    max_examples=5,  # Reduced from 10 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(
     user_email=st.emails(),
-    user_id=st.text(min_size=1, max_size=100),
+    user_id=st.text(min_size=1, max_size=50),  # Reduced from 100 for performance
     client_ip=st.ip_addresses(v=4).map(str),
     # Test both boolean and integer (0/1) responses
     authorized_value=st.sampled_from([True, 1]),

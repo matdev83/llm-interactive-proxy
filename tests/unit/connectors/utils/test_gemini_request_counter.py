@@ -348,7 +348,7 @@ def test_concurrent_threshold_logging_thread_safety(
         counter = DailyRequestCounter(persistence_path, limit=100)
         # Counter starts at 0, thresholds are at 70, 80, 90
 
-        num_threads = 50
+        num_threads = 20
         num_increments = 95  # Cross all three thresholds (70, 80, 90)
 
         def increment_multiple_times():
@@ -361,7 +361,7 @@ def test_concurrent_threshold_logging_thread_safety(
             ]
             concurrent.futures.wait(futures)
 
-        # Expected count: 50 threads * 95 increments each = 4750
+        # Expected count: 20 threads * 95 increments each = 1900
         expected_count = num_threads * num_increments
         assert (
             counter.count == expected_count

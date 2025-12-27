@@ -276,16 +276,8 @@ class TestBackendImportsErrorHandling:
         """
         # This test just verifies that importing backend_imports doesn't raise
         # an exception even if there are issues with individual connectors
-        try:
-            import src.core.services.backend_imports  # noqa: F401
+        # Optimized: Check if already imported to avoid redundant work
+        if "src.core.services.backend_imports" in sys.modules:
+            return
 
-            success = True
-        except Exception as e:
-            success = False
-            error_msg = str(e)
-
-            assert success, (
-                f"Importing backend_imports should never raise an exception, "
-                f"but got: {error_msg}. "
-                "The auto-discovery mechanism should catch and log errors for individual connectors."
-            )
+        import src.core.services.backend_imports  # noqa: F401

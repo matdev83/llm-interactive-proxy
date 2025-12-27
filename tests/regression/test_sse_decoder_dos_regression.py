@@ -81,7 +81,8 @@ class TestSSEDecoderDoSRegression:
     def test_large_breadth_json_handled(self, decoder: SSEDecoder) -> None:
         """Test that wide JSON structures are handled correctly."""
         # Test with many properties (but within size limit)
-        breadth_json = self.create_breadth_json(10000)
+        # Reduced from 10000 to 5000 for faster test execution
+        breadth_json = self.create_breadth_json(5000)
         breadth_payload = f"data: {breadth_json}"
 
         # Should process if under size limit

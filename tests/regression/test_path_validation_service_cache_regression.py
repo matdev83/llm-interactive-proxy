@@ -92,8 +92,8 @@ class TestPathValidationServiceCacheRegression:
         # Generate unique paths - reduced iterations but still enough to test cache limit
         # We only need enough to fill cache + some overflow to verify bounded growth
         for i in range(
-            125
-        ):  # Reduced from 150 - enough to exceed cache limit (100 + 25 overflow)
+            110
+        ):  # Reduced from 125 - enough to exceed cache limit (100 + 10 overflow)
             unique_path = f"/tmp/memory_test_{i}/file_{i}.txt"
             with contextlib.suppress(ValueError, OSError):
                 service.normalize_path(unique_path)

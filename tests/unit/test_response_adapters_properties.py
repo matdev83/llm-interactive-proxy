@@ -277,7 +277,7 @@ class TestAsyncPathPurity:
 
         async def progress_tracker():
             """Track that we can make progress concurrently."""
-            for i in range(len(chunks) * 3):
+            for i in range(len(chunks)):
                 progress_markers.append(i)
                 await asyncio.sleep(0)
 

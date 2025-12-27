@@ -407,7 +407,7 @@ def test_property_12_timing_statistics_correctness(values: list[float]) -> None:
 
 
 @given(record=usage_record_strategy(), filter_obj=statistics_filter_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
 def test_property_15_filter_correctness(
     record: UsageRecord, filter_obj: StatisticsFilter
 ) -> None:
@@ -602,8 +602,8 @@ def test_property_20_thread_safe_concurrent_access(
 # ============================================================================
 
 
-@given(records=st.lists(usage_record_strategy(), min_size=1, max_size=20))
-@property_test_settings(max_examples=20)
+@given(records=st.lists(usage_record_strategy(), min_size=1, max_size=10))  # Reduced from 20
+@property_test_settings(max_examples=10)  # Reduced from 20 for performance
 def test_property_21_persistence_dirty_flag_correctness(
     records: list[UsageRecord],
 ) -> None:

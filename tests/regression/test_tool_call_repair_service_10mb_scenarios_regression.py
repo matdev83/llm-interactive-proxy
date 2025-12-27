@@ -51,7 +51,9 @@ class TestToolCallRepairService10MBScenariosRegression:
         medium_data = {
             "function_call": {
                 "name": "test",
-                "arguments": {"data": "x" * (1 * 1024 * 1024)},  # 1MB (reduced from 5MB)
+                "arguments": {
+                    "data": "x" * (1 * 1024 * 1024)
+                },  # 1MB (reduced from 5MB)
             }
         }
         medium_payload = json.dumps(medium_data)
@@ -118,7 +120,9 @@ class TestToolCallRepairService10MBScenariosRegression:
         # Create payload that's just over 10MB
         # Calculate string size needed: JSON overhead is ~50 bytes
         json_overhead = 50  # Approximate overhead for JSON structure
-        target_size = MAX_JSON_PARSE_SIZE - json_overhead + 100  # Reduced from 1000 for performance
+        target_size = (
+            MAX_JSON_PARSE_SIZE - json_overhead + 100
+        )  # Reduced from 1000 for performance
 
         # Create minimal dict structure and serialize efficiently
         # Using a single large string is faster than many small objects
@@ -134,9 +138,9 @@ class TestToolCallRepairService10MBScenariosRegression:
 
         # Verify payload size
         payload_size = len(over_payload.encode("utf-8"))
-        assert payload_size > MAX_JSON_PARSE_SIZE, (
-            f"Payload size ({payload_size}) should exceed limit ({MAX_JSON_PARSE_SIZE})"
-        )
+        assert (
+            payload_size > MAX_JSON_PARSE_SIZE
+        ), f"Payload size ({payload_size}) should exceed limit ({MAX_JSON_PARSE_SIZE})"
 
         result = repair_service.repair_tool_calls(f"```json\n{over_payload}\n```")
 

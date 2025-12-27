@@ -324,10 +324,8 @@ def test_tokens_per_session_calculation(records, temp_dir_module, store_counter)
 # Property 10: Tokens Per Second (TPS) Calculation
 # Feature: detailed-usage-tracking, Property 10: Tokens Per Second (TPS) Calculation
 # Validates: Requirements 5.5
-@settings(max_examples=30, deadline=None)  # Reduced from 50 for performance
-@given(
-    records=usage_record_list_strategy(min_size=2, max_size=30)
-)  # Reduced max_size from 50
+@settings(max_examples=15, deadline=None)  # Reduced from 30 for performance
+@given(records=usage_record_list_strategy(min_size=2, max_size=15))  # Reduced from 30
 def test_tps_calculation(records, temp_dir_module, store_counter):
     """Property 10: Tokens Per Second (TPS) Calculation.
 
@@ -482,8 +480,8 @@ def test_status_code_aggregation(records, temp_dir_module, store_counter):
 # Property 17: Date Range Filter Correctness
 # Feature: detailed-usage-tracking, Property 17: Date Range Filter Correctness
 # Validates: Requirements 9.6
-@settings(max_examples=20, deadline=None)
-@given(records=usage_record_list_strategy(min_size=5, max_size=30))
+@settings(max_examples=10, deadline=None)  # Reduced from 20 for performance
+@given(records=usage_record_list_strategy(min_size=5, max_size=20))  # Reduced max_size
 def test_date_range_filter_correctness(records, temp_dir_module, store_counter):
     """Property 17: Date Range Filter Correctness.
 

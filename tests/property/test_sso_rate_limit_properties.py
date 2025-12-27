@@ -28,17 +28,17 @@ def temp_db_path():
 
 @given(
     num_failures=st.integers(
-        min_value=1, max_value=8
-    ),  # Reduced from 10 for performance
+        min_value=1, max_value=6
+    ),  # Reduced from 8 for performance
 )
-@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
+@property_test_settings(max_examples=15)  # Reduced from 20 for performance
 def test_property_17_exponential_backoff_enforcement(
     num_failures: int,
 ) -> None:
     """
     Property 17: Exponential Backoff Enforcement.
 
-    For any sequence of N failed confirmation code attempts, the required wait
+    For any sequence of N failed confirmation code attempts, required wait
     time before the next SSO attempt SHALL increase exponentially
     (e.g., 2^N seconds, capped at a maximum).
 

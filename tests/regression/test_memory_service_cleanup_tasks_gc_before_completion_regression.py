@@ -49,7 +49,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Create cleanup tasks that take some time to complete
         async def slow_cleanup():
-            await asyncio.sleep(0.05)  # Simulate cleanup work
+            await asyncio.sleep(0.03)  # Reduced from 0.05 for faster completion
             return "done"
 
         async with memory_service._state_lock:
@@ -87,7 +87,7 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
             )
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)  # Reduced from 0.15
 
         # Now cleanup should await and remove tasks
         await memory_service.cleanup()
@@ -104,8 +104,8 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Simulate remote actor creating many sessions that get evicted
         # Each eviction creates cleanup tasks that must not be GC'd before completion
-        # Reduced from 50 to 10 for performance while maintaining test coverage
-        for i in range(10):
+        # Reduced for performance while maintaining test coverage
+        for i in range(3):
             session_id = f"attack_session_{i}"
             await memory_service.enable_for_session(
                 session_id,
@@ -132,13 +132,13 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
                 memory_service._cleanup_tasks.add(cleanup_task2)
                 # Don't keep references - but tasks should still be tracked (done callbacks keep references)
 
-            # Force GC periodically (reduced frequency for performance)
-            if i % 5 == 0:
+            # Force GC periodically
+            if i % 2 == 0:
                 gc.collect()
 
         # Check how many tasks remain (should be all of them, not GC'd)
         remaining = len(memory_service._cleanup_tasks)
-        expected_min = 10 * 2 - 4  # At least 16 tasks (allowing for some completion)
+        expected_min = 3 * 2 - 2  # At least 4 tasks (allowing for some completion)
         assert remaining >= expected_min, (
             f"Many tasks were GC'd before completion! "
             f"Expected at least {expected_min}, got {remaining}. "

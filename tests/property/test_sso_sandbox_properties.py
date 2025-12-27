@@ -418,7 +418,7 @@ def test_property_26_sandbox_session_isolation_marker_detection(
     auth_url=url_strategy(),
     override_url=url_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_5_sandbox_response_url_override(
     auth_url: str,
     override_url: str,

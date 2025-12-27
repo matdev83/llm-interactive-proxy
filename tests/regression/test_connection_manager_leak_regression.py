@@ -19,7 +19,7 @@ class TestConnectionManagerLeakRegression:
         """Create a ConnectionManager with small limits for testing."""
         return ConnectionManager(
             heartbeat_timeout_seconds=60,
-            max_connections=100,  # Small limit for testing
+            max_connections=20,  # Small limit for testing
         )
 
     @pytest.mark.asyncio

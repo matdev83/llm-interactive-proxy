@@ -113,10 +113,10 @@ class TestConstantMemoryUsage:
 
     @pytest.mark.asyncio
     @pytest.mark.uses_tracemalloc
-    @settings(max_examples=5, deadline=None)
+    @settings(max_examples=3, deadline=None)  # Reduced from 5 for performance
     @given(
-        chunk_count=st.integers(min_value=200, max_value=400),
-        chunk_size=st.integers(min_value=1024, max_value=4096),
+        chunk_count=st.integers(min_value=100, max_value=200),  # Reduced from 200-400
+        chunk_size=st.integers(min_value=512, max_value=2048),  # Reduced from 1024-4096
     )
     async def test_constant_memory_usage_property(
         self, chunk_count: int, chunk_size: int

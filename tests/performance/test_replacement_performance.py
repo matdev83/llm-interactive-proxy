@@ -302,7 +302,7 @@ def test_memory_efficiency(replacement_service, request_context):
     initial_size = sys.getsizeof(replacement_service._session_states)
 
     # Create many sessions
-    num_sessions = 10000
+    num_sessions = 5000
     for i in range(num_sessions):
         session_id = f"session-{i}"
         replacement_service.should_replace(session_id, request_context)

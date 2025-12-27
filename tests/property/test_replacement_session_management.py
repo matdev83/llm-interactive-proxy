@@ -103,7 +103,7 @@ def test_property_19_session_cleanup(
 @given(
     session_id=st.text(min_size=1, max_size=10).filter(lambda x: x.isalnum()),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much], max_examples=20)
 @pytest.mark.asyncio
 async def test_property_32_35_session_disable_and_deactivation(
     session_id: str,

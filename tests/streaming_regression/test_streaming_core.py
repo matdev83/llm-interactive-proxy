@@ -151,13 +151,13 @@ async def test_openai_streaming_incremental_delivery() -> None:
 @pytest.mark.asyncio
 async def test_anthropic_streaming_incremental_delivery() -> None:
     """Test that Anthropic streaming delivers chunks incrementally, not buffered."""
-    text = "This is a test response that should be streamed in multiple chunks to verify incremental delivery."
+    text = "Test response streamed in chunks."  # Reduced length for faster test execution
     chunks = cast(
         list[str | bytes],
-        AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=10),
+        AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=8),  # Smaller chunks for faster execution
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.001)  # Reduced from 0.02 to 0.001
+    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.0005)  # Further reduced for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

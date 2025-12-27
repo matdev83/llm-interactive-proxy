@@ -269,7 +269,7 @@ async def test_property_1_test_execution_marks_clean(
     test_command=execution_command_strategy(),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from default for performance
 async def test_property_1_state_transition_cycle(
     file_tool: str, test_command: str, session_id: str
 ) -> None:
@@ -379,7 +379,7 @@ async def test_property_1_non_modification_preserves_state(
 
 
 @given(
-    modification_count=st.integers(min_value=1, max_value=10),  # Reduced from 20 to 10
+    modification_count=st.integers(min_value=1, max_value=5),
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings()

@@ -86,7 +86,7 @@ class TestMiddlewareIdempotence:
 
     @pytest.mark.asyncio
     @given(chunk=non_done_streaming_content_strategy())
-    @settings(max_examples=20, deadline=None)
+    @settings(max_examples=10, deadline=None)  # Reduced from 20 for performance
     async def test_loop_detection_processor_idempotence(self, chunk):
         """Loop detection processor should be idempotent."""
         processor = LoopDetectionProcessor()

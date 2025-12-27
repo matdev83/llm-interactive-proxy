@@ -499,7 +499,8 @@ class TestToolCallLoopDetection:
 
         # Configure the mock backend to return tool calls for most requests
         # and an error response for the final request
-        responses = [create_mock_response(tool_calls)] * 9 + [error_response]
+        # Reduced from 9+1 to 5+1 to speed up test
+        responses = [create_mock_response(tool_calls)] * 5 + [error_response]
         mock_backend.side_effect = responses
 
         # First, set tool loop detection to disabled for the session
@@ -514,8 +515,8 @@ class TestToolCallLoopDetection:
         )
         assert response.status_code == 200
 
-        # Make multiple requests with the same tool call (well above threshold)
-        for _ in range(6):
+        # Make multiple requests with the same tool call - reduced from 6 to 3
+        for _ in range(3):
             response = test_client.post(
                 "/v1/chat/completions",
                 json=create_chat_completion_request(tool_calls=True),

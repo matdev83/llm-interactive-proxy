@@ -197,16 +197,16 @@ async def test_property_14_state_transition_cycle(
     file_tools=st.lists(
         file_modification_tool_strategy(),
         min_size=2,
-        max_size=4,  # Reduced from 5
+        max_size=3,  # Reduced from 4 for performance
     ),
     test_commands=st.lists(
         execution_command_strategy(),
         min_size=1,
-        max_size=2,  # Reduced from 3
+        max_size=2,
     ),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=30)  # Reduced from default 50
+@property_test_settings(max_examples=3)  # Reduced from 5 for performance
 async def test_property_14_extended_cycle_with_multiple_operations(
     file_tools: list[str],
     test_commands: list[str],

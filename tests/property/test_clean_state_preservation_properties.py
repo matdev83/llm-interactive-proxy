@@ -197,10 +197,10 @@ async def test_property_3_non_modification_in_clean_state_remains_clean(
 
 
 @given(
-    test_commands=st.lists(execution_command_strategy(), min_size=1, max_size=10),
+    test_commands=st.lists(execution_command_strategy(), min_size=1, max_size=5),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)
 async def test_property_3_multiple_test_runs_maintain_clean_state(
     test_commands: list[str], session_id: str
 ) -> None:

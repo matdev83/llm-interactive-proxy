@@ -712,14 +712,14 @@ def test_property_9_missing_required_field_rejection(
         st.dictionaries(st.text(), st.text()),
     ),
 )
-@property_test_settings()
+@property_test_settings(max_examples=20)
 def test_property_9_invalid_field_type_rejection(
     message_data: dict[str, Any], invalid_txid: Any
 ) -> None:
     """
     Property 9: Invalid Field Type Rejection.
 
-    For any message with a field of the wrong type, the schema should
+    For any message with a field of wrong type, schema should
     reject it with a validation error.
 
     Validates: Requirements 6.3

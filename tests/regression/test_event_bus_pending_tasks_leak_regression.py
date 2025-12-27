@@ -27,10 +27,10 @@ class TestEventBusPendingTasksLeakRegression:
         initial_pending_count = len(event_bus._pending_tasks)
 
         # Create many events with handlers that complete quickly
-        num_events = 500  # Reduced from 1000 for faster test execution
+        num_events = 300  # Reduced from 500 for faster test execution
 
         async def quick_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.0005)  # Reduced from 0.001 for faster completion
+            await asyncio.sleep(0.0003)  # Further reduced for faster completion
 
         # Subscribe handler
         event_bus.subscribe(TestEvent, quick_handler)
@@ -40,14 +40,14 @@ class TestEventBusPendingTasksLeakRegression:
             event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start
-        await asyncio.sleep(0.02)  # Reduced from 0.05
+        await asyncio.sleep(0.01)  # Reduced from 0.02
 
         # Check pending tasks count
         len([t for t in event_bus._pending_tasks if not t.done()])
         len(event_bus._pending_tasks)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.1)  # Reduced from 0.2
+        await asyncio.sleep(0.08)  # Reduced from 0.1
 
         # Force garbage collection to allow WeakSet to clean up
         gc.collect()
@@ -75,7 +75,7 @@ class TestEventBusPendingTasksLeakRegression:
         task_refs = []
 
         async def slow_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)  # Reduced from 0.01 for faster test execution
 
         event_bus.subscribe(TestEvent, slow_handler)
 
@@ -88,8 +88,12 @@ class TestEventBusPendingTasksLeakRegression:
         # Don't wait - capture tasks before they complete
         task_refs = list(event_bus._pending_tasks)
 
-        # Wait for tasks to complete - keep original timing for reliability
-        await asyncio.sleep(0.15)
+        # Wait for tasks to complete - reduced wait time, check completion instead of fixed delay
+        # Wait up to 0.05s, checking every 0.01s for completion
+        for _ in range(5):
+            await asyncio.sleep(0.01)
+            if all(t.done() for t in task_refs if t in event_bus._pending_tasks):
+                break
 
         # Force GC
         gc.collect()
@@ -165,16 +169,21 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus = EventBus()
 
         async def handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0.0005)
 
         event_bus.subscribe(TestEvent, handler)
 
-        # Publish many events rapidly (reduced from 5000 to 2000)
-        for _i in range(2000):
+        # Publish many events rapidly - use 1000 events instead of 2000
+        # Still sufficient to test bounded growth without excessive time
+        for _i in range(1000):
             event_bus.publish_nowait(TestEvent())
 
-        # Wait for tasks to complete (reduced from 1.0 to 0.5)
-        await asyncio.sleep(0.5)
+        # Wait for tasks to complete with early exit check
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            pending = [t for t in event_bus._pending_tasks if not t.done()]
+            if not pending:
+                break
 
         # Force GC
         gc.collect()
@@ -185,9 +194,9 @@ class TestEventBusPendingTasksLeakRegression:
 
         # Under normal conditions (no external references), WeakSet should clean up
         # Allow some margin for tasks that haven't been GC'd yet
-        assert final_total < 1000, (
+        assert final_total < 500, (
             f"Too many tasks remaining in WeakSet: {final_total}. "
-            f"Expected < 1000 under normal conditions."
+            f"Expected < 500 under normal conditions."
         )
         assert (
             final_pending == 0

@@ -276,7 +276,7 @@ def test_property_9_specific_pattern_beats_general(base_priority: int) -> None:
     priority1=st.integers(min_value=1, max_value=100),
     priority2=st.integers(min_value=1, max_value=100),
 )
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
 def test_property_9_equal_priority_first_registered_wins(
     priority1: int,
     priority2: int,

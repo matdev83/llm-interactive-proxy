@@ -138,11 +138,11 @@ async def test_loop_detection_in_streaming_response():
     from src.core.domain.chat import StreamingChatResponse
 
     async def generate_repeating_chunks():
-        for _ in range(30):
+        for _ in range(20):
             yield StreamingChatResponse(
                 model="test-model", content="I will repeat myself. "
             )
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0)
 
 
     # Patch the backend service to return the streaming response

@@ -313,7 +313,7 @@ def test_property_10_token_response_indistinguishability(
 
 
 @given(request=request_with_malformed_auth_strategy())
-@property_test_settings(max_examples=15)  # Reduced from 20 for performance
+@property_test_settings(max_examples=10)  # Reduced from 15 for performance
 def test_property_4_malformed_auth_header_sandbox_response(
     request: dict,
 ) -> None:
@@ -647,7 +647,7 @@ def test_property_4_consistent_sandbox_responses(
     ),
     user_email=st.emails(),
 )
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)  # Reduced from 10 for performance
 def test_property_12_reauthentication_status_update(
     session_lifetime_hours: int,
     user_id: str,
