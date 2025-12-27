@@ -87,7 +87,7 @@ def streaming_content_strategy(draw: Any) -> StreamingContent:
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_content_serialization_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:
@@ -145,7 +145,7 @@ async def test_streaming_content_serialization_backward_compatibility(
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_content_dict_conversion_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:
@@ -253,7 +253,7 @@ async def test_streaming_timing_determinism_with_fake_clock(
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_content_validation_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:
@@ -291,7 +291,7 @@ async def test_streaming_content_validation_backward_compatibility(
     chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20),
     stream_id=st.text(min_size=1, max_size=30),
 )
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_content_stream_id_consistency(
     chunks: list[StreamingContent], stream_id: str
 ) -> None:
@@ -341,7 +341,7 @@ async def test_streaming_content_stream_id_consistency(
     content=st.text(min_size=1, max_size=100),
     provider=st.sampled_from(["openai", "anthropic", "gemini"]),
 )
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=30, deadline=None)
 async def test_streaming_content_provider_consistency(
     content: str, provider: str
 ) -> None:

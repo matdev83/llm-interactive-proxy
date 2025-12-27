@@ -65,7 +65,21 @@ def test_property_11_turn_counter_initialization(
 
     Validates: Requirements 3.4
     """
-    service = create_test_service(turn_count=turn_count)
+
+    def mock_factory() -> None:
+        pass
+
+    registry = BackendRegistry()
+    registry.register_backend("test-backend", mock_factory)
+
+    config = ReplacementConfig(
+        enabled=True,
+        probability=0.5,
+        backend_model="test-backend:test-model",
+        turn_count=turn_count,
+    )
+
+    service = ModelReplacementService(config, registry)
     session_id = "test-session"
 
     # Activate replacement
@@ -119,10 +133,22 @@ def test_property_21_activation_logging(
     if not backend_name or not backend_name.replace("-", "").replace("_", "").isalnum():
         replacement_backend_model = "test-backend:test-model"
 
-    service = create_test_service(
-        turn_count=turn_count,
+    def mock_factory() -> None:
+        pass
+
+    # Register the test backend
+    test_backend_name = replacement_backend_model.split(":", 1)[0]
+    registry = BackendRegistry()
+    registry.register_backend(test_backend_name, mock_factory)
+
+    config = ReplacementConfig(
+        enabled=True,
+        probability=0.5,
         backend_model=replacement_backend_model,
+        turn_count=turn_count,
     )
+
+    service = ModelReplacementService(config, registry)
     session_id = "test-session"
 
     # Create a mock logger to capture log calls
