@@ -46,7 +46,8 @@ class TestGeminiAreadDoSRegression:
         mock_response.headers = {}
 
         # Simulate large body using aiter_bytes (preferred method)
-        large_body = b"x" * (11 * 1024 * 1024)  # 11MB > 10MB limit
+        # Reduced from 11MB to 10.5MB for performance while still exceeding 10MB limit
+        large_body = b"x" * (10 * 1024 * 1024 + 512 * 1024)  # 10.5MB > 10MB limit
         chunks = [large_body[i : i + 1024] for i in range(0, len(large_body), 1024)]
 
         async def aiter_bytes():

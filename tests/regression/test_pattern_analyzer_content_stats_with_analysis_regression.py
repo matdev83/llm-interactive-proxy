@@ -15,11 +15,16 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
 
     @pytest.fixture
     def config(self):
-        """Create config with large max_history_length to prevent truncation."""
+        """Create config tuned for fast regression coverage.
+
+        The goal is to verify that `_content_stats` stays bounded and that index
+        cleanup behaves correctly when history truncation happens, without
+        turning the regression suite into a multi-minute stress test.
+        """
         return InternalLoopDetectionConfig(
-            content_chunk_size=50,
+            content_chunk_size=200,
             content_loop_threshold=3,
-            max_history_length=1000000,  # Very large to prevent truncation
+            max_history_length=5000,
             whitelist=None,
         )
 
@@ -37,12 +42,10 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
         self, analyzer: PatternAnalyzer
     ) -> None:
         """Test that _content_stats is bounded when analyze_pending_stream is called regularly."""
-        print(f"Initial _content_stats size: {len(analyzer._content_stats)}")
-
         # Simulate many unique content chunks being processed
         # Each unique chunk creates a new entry in _content_stats when analyzed
         # We call analyze_pending_stream every 100 chunks to trigger _is_loop_detected_for_chunk
-        num_chunks = 10000
+        num_chunks = 400
         for i in range(num_chunks):
             # Create unique content chunks
             unique_content = (
@@ -50,75 +53,56 @@ class TestPatternAnalyzerContentStatsWithAnalysisRegression:
             )
             analyzer.ingest_chunk(unique_content)
 
-            # Trigger analysis every 100 chunks to simulate real usage
+            # Trigger analysis periodically to simulate real usage
             # This is what populates _content_stats
-            if i % 100 == 0 and i > 0:
+            if i % 25 == 0 and i > 0:
                 # Build buffer content for analysis
                 buffer_content = analyzer._stream_history[-100:]
                 analyzer.analyze_pending_stream(buffer_content)
 
-            if i % 1000 == 0:
-                print(
-                    f"After {i} chunks: "
-                    f"{len(analyzer._content_stats)} unique hashes, "
-                    f"stream_history length: {len(analyzer._stream_history)}"
-                )
-
         final_stats_size = len(analyzer._content_stats)
         final_history_length = len(analyzer._stream_history)
 
-        print(f"Final _content_stats size: {final_stats_size}")
-        print(f"Final stream_history length: {final_history_length}")
-
         # Content stats should be bounded relative to history length
         # Even with many unique chunks and regular analysis, stats shouldn't grow unbounded
-        # The analyzer should have cleanup mechanisms when history is truncated
-        assert final_stats_size <= analyzer.config.max_history_length, (
-            f"_content_stats size ({final_stats_size}) exceeded max_history_length "
-            f"({analyzer.config.max_history_length}). Stats are not being cleaned up."
-        )
+        assert final_stats_size <= analyzer.config.max_history_length
 
         # Stats should be proportional to history, not orders of magnitude larger
         if final_history_length > 0:
             stats_to_history_ratio = final_stats_size / final_history_length
             # Ratio should be reasonable (e.g., < 100x)
-            assert stats_to_history_ratio < 100, (
-                f"_content_stats ({final_stats_size}) is growing independently "
-                f"of stream_history ({final_history_length}). "
-                f"Ratio: {stats_to_history_ratio:.2f}x"
-            )
+            assert stats_to_history_ratio < 100
 
     def test_content_stats_cleaned_when_history_truncated_with_analysis(
         self, analyzer: PatternAnalyzer
     ) -> None:
         """Test that _content_stats entries are cleaned when history is truncated with analysis."""
         # Process chunks to fill history
-        initial_chunks = 5000
+        initial_chunks = 150
         for i in range(initial_chunks):
             content = f"chunk_{i}_with_content"
             analyzer.ingest_chunk(content)
-            if i % 100 == 0 and i > 0:
+            if i % 25 == 0 and i > 0:
                 buffer_content = analyzer._stream_history[-100:]
                 analyzer.analyze_pending_stream(buffer_content)
 
         len(analyzer._content_stats)
-        len(analyzer._stream_history)
+        assert len(analyzer._stream_history) <= analyzer.config.max_history_length
 
         # Process more chunks with analysis to trigger potential truncation
-        additional_chunks = 50000
+        additional_chunks = 400
         for i in range(additional_chunks):
             unique_content = f"unique_chunk_{i}_with_different_content"
             analyzer.ingest_chunk(unique_content)
-            if i % 100 == 0:
+            if i % 25 == 0:
                 buffer_content = analyzer._stream_history[-100:]
                 analyzer.analyze_pending_stream(buffer_content)
 
         final_stats_size = len(analyzer._content_stats)
-        len(analyzer._stream_history)
+        final_history_length = len(analyzer._stream_history)
 
-        # Stats should not grow unbounded even with many unique chunks and regular analysis
-        # The analyzer should have cleanup mechanisms
-        assert final_stats_size <= analyzer.config.max_history_length, (
-            f"_content_stats size ({final_stats_size}) exceeded max_history_length "
-            f"({analyzer.config.max_history_length}). Stats are not being cleaned up."
-        )
+        # History should be truncated and indices should remain in-range.
+        assert final_history_length <= analyzer.config.max_history_length
+        assert final_stats_size <= analyzer.config.max_history_length
+        for indices in analyzer._content_stats.values():
+            assert all(0 <= idx < final_history_length for idx in indices)

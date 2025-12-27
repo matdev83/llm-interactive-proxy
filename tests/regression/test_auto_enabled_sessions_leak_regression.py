@@ -40,8 +40,8 @@ class TestAutoEnabledSessionsLeakRegression:
         assert hasattr(middleware._auto_enabled_sessions, "maxsize")
         assert hasattr(middleware._auto_enabled_sessions, "ttl")
 
-        # Auto-enable many sessions (more than maxsize)
-        num_sessions = middleware._auto_enabled_sessions.maxsize + 1000
+        # Auto-enable many sessions (more than maxsize, reduced from +1000 to +500 for performance)
+        num_sessions = int(middleware._auto_enabled_sessions.maxsize) + 500
 
         for i in range(num_sessions):
             session_id = f"session_{i}"
@@ -136,7 +136,7 @@ class TestAutoEnabledSessionsLeakRegression:
     ) -> None:
         """Test that cache respects maxsize limit."""
         middleware = MemoryCaptureMiddleware(mock_memory_service, config)
-        maxsize = middleware._auto_enabled_sessions.maxsize
+        maxsize = int(middleware._auto_enabled_sessions.maxsize)
 
         # Add sessions up to maxsize
         for i in range(maxsize):
