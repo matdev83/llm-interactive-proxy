@@ -176,8 +176,15 @@ def _canonical_request(model: str = "gemini-2.5-pro") -> CanonicalChatRequest:
     )
 
 
+@pytest.fixture
+def client_experience_connector() -> ClientExperienceConnector:
+    """Cached fixture to avoid repeated connector creation."""
+    return ClientExperienceConnector()
+
+
 @pytest.mark.asyncio
 async def test_retry_success_returns_pro_response_no_fallback(
+    client_experience_connector: ClientExperienceConnector,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that _handle_429_with_graceful_degradation propagates 429s to the resilience layer.
@@ -190,7 +197,6 @@ async def test_retry_success_returns_pro_response_no_fallback(
     1. The method raises BackendError (not returns a response)
     2. The error includes retry_after info when available
     """
-    connector = ClientExperienceConnector()
 
     # Create error with retry_after
     original_error = BackendError(
@@ -201,7 +207,7 @@ async def test_retry_success_returns_pro_response_no_fallback(
 
     # The method should raise BackendError to propagate to resilience layer
     with pytest.raises(BackendError) as exc:
-        await connector._handle_429_with_graceful_degradation(
+        await client_experience_connector._handle_429_with_graceful_degradation(
             original_model="gemini-2.5-pro",
             request_data=_canonical_request(),
             processed_messages=[],
@@ -215,15 +221,15 @@ async def test_retry_success_returns_pro_response_no_fallback(
 
 @pytest.mark.asyncio
 async def test_rate_limit_error_propagated_with_details(
+    client_experience_connector: ClientExperienceConnector,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that 429 errors are propagated with error details intact.
 
-    As of the Resilience Layer implementation, the connector no longer handles
+    As of Resilience Layer implementation, the connector no longer handles
     retries or fallbacks internally. It propagates the error to the BackendService
     failure handling strategy, which manages retries and circuit breaking.
     """
-    connector = ClientExperienceConnector()
     rate_limit = BackendError(
         "Rate limit exceeded",
         status_code=429,
@@ -235,7 +241,7 @@ async def test_rate_limit_error_propagated_with_details(
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
     with pytest.raises(BackendError) as exc:
-        await connector._handle_429_with_graceful_degradation(
+        await client_experience_connector._handle_429_with_graceful_degradation(
             original_model="gemini-2.5-pro",
             request_data=_canonical_request(),
             processed_messages=[],
@@ -249,13 +255,13 @@ async def test_rate_limit_error_propagated_with_details(
 
 @pytest.mark.asyncio
 async def test_error_includes_retry_after_metadata(
+    client_experience_connector: ClientExperienceConnector,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that 429 errors include retry_after info when available.
 
     The Resilience Layer uses this info to determine appropriate retry delays.
     """
-    connector = ClientExperienceConnector()
 
     # Create error with retry_after metadata
     rate_limit = BackendError(
@@ -268,7 +274,7 @@ async def test_error_includes_retry_after_metadata(
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
     with pytest.raises(BackendError) as exc:
-        await connector._handle_429_with_graceful_degradation(
+        await client_experience_connector._handle_429_with_graceful_degradation(
             original_model="gemini-2.5-pro",
             request_data=_canonical_request(),
             processed_messages=[],
@@ -284,23 +290,25 @@ async def test_error_includes_retry_after_metadata(
 
 @pytest.mark.asyncio
 async def test_streaming_envelope_carries_response_text(
+    client_experience_connector: ClientExperienceConnector,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that streaming envelope carries response text from successful calls.
 
     This tests the normal streaming path without error handling.
     """
-    connector = ClientExperienceConnector()
     # Set up successful response
-    connector.set_behavior("gemini-2.5-pro", ["streamed-response"])
+    client_experience_connector.set_behavior("gemini-2.5-pro", ["streamed-response"])
 
     # Mock sleep to avoid real delay
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    stream_envelope = await connector._chat_completions_code_assist_streaming(
-        request_data=_canonical_request(),
-        processed_messages=[],
-        effective_model="gemini-2.5-pro",
+    stream_envelope = (
+        await client_experience_connector._chat_completions_code_assist_streaming(
+            request_data=_canonical_request(),
+            processed_messages=[],
+            effective_model="gemini-2.5-pro",
+        )
     )
     assert isinstance(stream_envelope, StreamingResponseEnvelope)
 

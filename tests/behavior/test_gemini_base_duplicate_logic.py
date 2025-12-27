@@ -7,10 +7,19 @@ Requirement 4.3. Uses static analysis to detect duplicate patterns.
 
 import ast
 import inspect
+from functools import cache
 
 import pytest
 
 pytestmark = [pytest.mark.behavior]
+
+
+@cache
+def _get_cached_source_and_ast(module) -> tuple[str, ast.AST]:
+    """Cache source code and AST parsing to avoid repeated I/O."""
+    source = inspect.getsource(module)
+    tree = ast.parse(source)
+    return source, tree
 
 
 class TestNoDuplicateLogic:
@@ -31,14 +40,13 @@ class TestNoDuplicateLogic:
         )
         from src.connectors.gemini_base.credential_loader import CredentialLoader
 
-        connector_source = inspect.getsource(GeminiOAuthBaseConnector)
-        coordinator_source = inspect.getsource(GeminiCredentialCoordinator)
-        loader_source = inspect.getsource(CredentialLoader)
-
-        # Parse source code to find validation logic
-        connector_tree = ast.parse(connector_source)
-        coordinator_tree = ast.parse(coordinator_source)
-        loader_tree = ast.parse(loader_source)
+        connector_source, connector_tree = _get_cached_source_and_ast(
+            GeminiOAuthBaseConnector
+        )
+        coordinator_source, coordinator_tree = _get_cached_source_and_ast(
+            GeminiCredentialCoordinator
+        )
+        loader_source, loader_tree = _get_cached_source_and_ast(CredentialLoader)
 
         # Find validation function definitions
         def find_validation_functions(tree: ast.AST) -> list[str]:
@@ -85,9 +93,11 @@ class TestNoDuplicateLogic:
         )
         from src.connectors.gemini_base.token_manager import TokenManager
 
-        connector_source = inspect.getsource(GeminiOAuthBaseConnector)
-        inspect.getsource(GeminiCredentialCoordinator)
-        inspect.getsource(TokenManager)
+        connector_source, _connector_tree = _get_cached_source_and_ast(
+            GeminiOAuthBaseConnector
+        )
+        _get_cached_source_and_ast(GeminiCredentialCoordinator)
+        _get_cached_source_and_ast(TokenManager)
 
         # Check that connector refresh methods delegate
         if "_refresh_token_if_needed" in connector_source:
@@ -109,8 +119,10 @@ class TestNoDuplicateLogic:
         from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
         from src.connectors.gemini_base.model_registry import GeminiModelRegistry
 
-        connector_source = inspect.getsource(GeminiOAuthBaseConnector)
-        inspect.getsource(GeminiModelRegistry)
+        connector_source, _connector_tree = _get_cached_source_and_ast(
+            GeminiOAuthBaseConnector
+        )
+        _get_cached_source_and_ast(GeminiModelRegistry)
 
         # Check that connector model loading delegates
         if "_ensure_models_loaded" in connector_source:
@@ -148,8 +160,10 @@ class TestNoDuplicateLogic:
         from src.connectors.gemini_base.connector import GeminiOAuthBaseConnector
         from src.connectors.gemini_base.error_mapper import GeminiErrorMapper
 
-        connector_source = inspect.getsource(GeminiOAuthBaseConnector)
-        inspect.getsource(GeminiErrorMapper)
+        connector_source, _connector_tree = _get_cached_source_and_ast(
+            GeminiOAuthBaseConnector
+        )
+        _get_cached_source_and_ast(GeminiErrorMapper)
 
         # Check that connector uses error mapper for mapping
         # (connector should not reimplement error mapping logic)
@@ -179,8 +193,10 @@ class TestNoDuplicateLogic:
             GeminiHealthCheckService,
         )
 
-        connector_source = inspect.getsource(GeminiOAuthBaseConnector)
-        inspect.getsource(GeminiHealthCheckService)
+        connector_source, _connector_tree = _get_cached_source_and_ast(
+            GeminiOAuthBaseConnector
+        )
+        _get_cached_source_and_ast(GeminiHealthCheckService)
 
         # Check that connector delegates health checks
         if "_health_check_service" in connector_source:
@@ -210,9 +226,15 @@ class TestNoDuplicateLogic:
         )
         from src.connectors.gemini_base.model_registry import GeminiModelRegistry
 
-        coordinator_source = inspect.getsource(GeminiCredentialCoordinator)
-        registry_source = inspect.getsource(GeminiModelRegistry)
-        health_source = inspect.getsource(GeminiHealthCheckService)
+        coordinator_source, _coordinator_tree = _get_cached_source_and_ast(
+            GeminiCredentialCoordinator
+        )
+        registry_source, _registry_tree = _get_cached_source_and_ast(
+            GeminiModelRegistry
+        )
+        health_source, _health_tree = _get_cached_source_and_ast(
+            GeminiHealthCheckService
+        )
 
         # Credential coordinator should not contain model discovery logic
         assert (
@@ -244,8 +266,10 @@ class TestNoDuplicateLogic:
             ChatRequestPreparer,
         )
 
-        coordinator_source = inspect.getsource(GeminiChatCompletionCoordinator)
-        inspect.getsource(ChatRequestPreparer)
+        coordinator_source, _coordinator_tree = _get_cached_source_and_ast(
+            GeminiChatCompletionCoordinator
+        )
+        _get_cached_source_and_ast(ChatRequestPreparer)
 
         # Chat completion coordinator should delegate to preparer
         if "execute" in coordinator_source:
@@ -266,8 +290,10 @@ class TestNoDuplicateLogic:
         )
         from src.connectors.gemini_base.orchestrator import CodeAssistOrchestrator
 
-        coordinator_source = inspect.getsource(GeminiChatCompletionCoordinator)
-        inspect.getsource(CodeAssistOrchestrator)
+        coordinator_source, _coordinator_tree = _get_cached_source_and_ast(
+            GeminiChatCompletionCoordinator
+        )
+        _get_cached_source_and_ast(CodeAssistOrchestrator)
 
         # Chat completion coordinator should delegate to orchestrator
         if "execute" in coordinator_source:

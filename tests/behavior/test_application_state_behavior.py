@@ -18,7 +18,6 @@ Key behaviors specified:
 
 import asyncio
 import threading
-import time
 from unittest.mock import Mock
 
 import pytest
@@ -356,7 +355,6 @@ class TestConcurrentStateAccessBehavior:
             """Worker that switches providers."""
             for _i, provider in enumerate(providers):
                 service.set_state_provider(provider)
-                time.sleep(0.001)  # Small delay to allow interleaving
 
         # When
         threads = [
