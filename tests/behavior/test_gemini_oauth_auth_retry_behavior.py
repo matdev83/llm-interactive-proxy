@@ -165,7 +165,7 @@ class TestAuthRetryIntegration:
 
         mock_translation = MagicMock()
 
-        client = httpx.AsyncClient()
+        client = MagicMock(spec=httpx.AsyncClient)
         connector = AntigravityOAuthConnector(
             client=client,
             config=mock_config,
@@ -183,8 +183,6 @@ class TestAuthRetryIntegration:
         assert hasattr(
             connector, "_chat_completions_code_assist_streaming"
         ), "Connector should have _chat_completions_code_assist_streaming method"
-
-        await client.aclose()
 
     def test_auth_code_constant_is_set_for_401(self) -> None:
         """

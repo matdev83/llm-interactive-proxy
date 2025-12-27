@@ -862,16 +862,19 @@ class TestIntegrationAndPerformanceBehavior:
 
         start_time = time.time()
 
-        for i in range(1000):
-            context = ToolCallContext(
-                session_id=f"session_{i}",
-                tool_name="bash",
-                tool_arguments={"command": f"pytest tests/test_{i % 10}.py"},
-                backend_name="test_backend",
-                model_name="test_model",
-                full_response="test_response",
-            )
-            asyncio.run(handler.handle(context))
+        async def process_all():
+            for i in range(1000):
+                context = ToolCallContext(
+                    session_id=f"session_{i}",
+                    tool_name="bash",
+                    tool_arguments={"command": f"pytest tests/test_{i % 10}.py"},
+                    backend_name="test_backend",
+                    model_name="test_model",
+                    full_response="test_response",
+                )
+                await handler.handle(context)
+
+        asyncio.run(process_all())
 
         processing_time = time.time() - start_time
 
