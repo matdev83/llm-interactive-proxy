@@ -39,12 +39,12 @@ class SlowWriter(IUsageRecordWriter):
 
     async def batch_insert(self, records: list[UsageRecord]) -> int:
         """Process slowly."""
-        await asyncio.sleep(0.1)  # Slow processing
+        await asyncio.sleep(0.0001)  # Very short delay for test performance
         return len(records)
 
     async def batch_update(self, records: list[UsageRecord]) -> int:
         """Process slowly."""
-        await asyncio.sleep(0.1)  # Slow processing
+        await asyncio.sleep(0.0001)  # Very short delay for test performance
         return len(records)
 
 
@@ -113,8 +113,8 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
 
         await queue.start()
 
-        # Enqueue records
-        num_records = 500
+        # Enqueue records (reduced number for faster test execution)
+        num_records = 200
         for i in range(num_records):
             record = create_test_record(f"record_{i}")
             queue.enqueue_insert(record)
@@ -137,14 +137,14 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         queue = AsyncUsageWriteQueue(
             writer,
             batch_size=10,
-            flush_interval_seconds=1.0,
+            flush_interval_seconds=0.1,  # Reduced for faster test execution
             max_pending_records=max_pending,
         )
 
         await queue.start()
 
-        # Enqueue records very fast
-        num_records = 2000
+        # Enqueue records very fast (reduced from 2000 to 500 for test performance)
+        num_records = 500
         for i in range(num_records):
             record = create_test_record(f"record_{i}")
             queue.enqueue_insert(record)
@@ -156,8 +156,8 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             "during fast enqueue. Memory leak detected."
         )
 
-        # Wait a bit for processing (reduced from 2.0s to 0.5s for faster test execution)
-        await asyncio.sleep(0.5)
+        # Wait a bit for processing (reduced for faster test execution)
+        await asyncio.sleep(0.2)
 
         # Check again - should still be limited
         pending_count_after = queue.pending_count

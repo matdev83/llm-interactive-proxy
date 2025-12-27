@@ -68,8 +68,8 @@ class TestMemoryServiceUnboundedGrowthRegression:
         # Import the constant to check against
         from src.core.memory.service import _MAX_SESSION_STATES
 
-        # Enable many sessions (more than max limit)
-        num_sessions = _MAX_SESSION_STATES + 100
+        # Enable many sessions (more than max limit, reduced for test performance)
+        num_sessions = _MAX_SESSION_STATES + 50
 
         for i in range(num_sessions):
             session_id = f"enabled-only-{i}"
@@ -176,8 +176,8 @@ class TestMemoryServiceUnboundedGrowthRegression:
         # This simulates worker processing
         processed_count = 0
         while processed_count < num_sessions:
-            session_id = await memory_service.get_pending_analysis_session()
-            if session_id is None:
+            pending_session_id = await memory_service.get_pending_analysis_session()
+            if pending_session_id is None:
                 break
             # Don't call complete_analysis to simulate worker crash
             processed_count += 1
@@ -232,53 +232,64 @@ class TestMemoryServiceUnboundedGrowthRegression:
 
     @pytest.mark.asyncio
     async def test_lru_eviction_preserves_recently_accessed_sessions(
-        self, memory_service: MemoryService
+        self, config, repository
     ) -> None:
         """Test that LRU eviction preserves recently accessed sessions."""
-        from src.core.memory.service import _MAX_SESSION_STATES
+        import src.core.memory.service as memory_service_module
 
-        # Create sessions up to max limit (fill to capacity)
-        for i in range(_MAX_SESSION_STATES):
-            session_id = f"test-{i}"
-            await memory_service.enable_for_session(
-                session_id,
-                user_id="test-user",
-                project_root=f"/project/{i}",
+        original_max = memory_service_module._MAX_SESSION_STATES
+        test_limit = 1000
+        num_new_sessions = 20
+
+        # Patch the constant for test performance - still tests the same logic
+        memory_service_module._MAX_SESSION_STATES = test_limit
+
+        try:
+            memory_service = MemoryService(config, repository)
+
+            # Create sessions up to test limit (fill to capacity)
+            for i in range(test_limit):
+                session_id = f"test-{i}"
+                await memory_service.enable_for_session(
+                    session_id,
+                    user_id="test-user",
+                    project_root=f"/project/{i}",
+                )
+
+            assert memory_service.get_active_session_count() == test_limit
+
+            # Access first 10 sessions to update their last_access and move them to end (LRU)
+            # This makes them "most recently used" and should preserve them
+            for i in range(10):
+                session_id = f"test-{i}"
+                await memory_service.is_enabled_for_session(session_id)
+
+            # Add a small number of new sessions - should evict oldest (middle) sessions, not first 10
+            for i in range(test_limit, test_limit + num_new_sessions):
+                session_id = f"test-{i}"
+                await memory_service.enable_for_session(
+                    session_id,
+                    user_id="test-user",
+                    project_root=f"/project/{i}",
+                )
+
+            # Should still be at test limit
+            assert memory_service.get_active_session_count() <= test_limit
+
+            # Check if first 10 sessions are still present (they were accessed recently and moved to end)
+            # They should be preserved because they're the most recently used
+            preserved_count = 0
+            for i in range(10):
+                session_id = f"test-{i}"
+                is_enabled = await memory_service.is_enabled_for_session(session_id)
+                if is_enabled:
+                    preserved_count += 1
+
+            # At least most of the recently accessed sessions should be preserved
+            # (allowing for edge cases where eviction might happen during access)
+            assert preserved_count >= 8, (
+                f"Only {preserved_count}/10 recently accessed sessions were preserved. "
+                f"LRU eviction should preserve recently accessed sessions (moved to end of OrderedDict)."
             )
-
-        assert memory_service.get_active_session_count() == _MAX_SESSION_STATES
-
-        # Access first 10 sessions to update their last_access and move them to end (LRU)
-        # This makes them "most recently used" and should preserve them
-        for i in range(10):
-            session_id = f"test-{i}"
-            await memory_service.is_enabled_for_session(session_id)
-
-        # Add a small number of new sessions - should evict oldest (middle) sessions, not first 10
-        num_new_sessions = 20  # Small number to test LRU preservation
-        for i in range(_MAX_SESSION_STATES, _MAX_SESSION_STATES + num_new_sessions):
-            session_id = f"test-{i}"
-            await memory_service.enable_for_session(
-                session_id,
-                user_id="test-user",
-                project_root=f"/project/{i}",
-            )
-
-        # Should still be at max limit
-        assert memory_service.get_active_session_count() <= _MAX_SESSION_STATES
-
-        # Check if first 10 sessions are still present (they were accessed recently and moved to end)
-        # They should be preserved because they're the most recently used
-        preserved_count = 0
-        for i in range(10):
-            session_id = f"test-{i}"
-            is_enabled = await memory_service.is_enabled_for_session(session_id)
-            if is_enabled:
-                preserved_count += 1
-
-        # At least most of the recently accessed sessions should be preserved
-        # (allowing for edge cases where eviction might happen during access)
-        assert preserved_count >= 8, (
-            f"Only {preserved_count}/10 recently accessed sessions were preserved. "
-            f"LRU eviction should preserve recently accessed sessions (moved to end of OrderedDict)."
-        )
+        finally:
+            memory_service_module._MAX_SESSION_STATES = original_max

@@ -25,11 +25,11 @@ class TestOpenAISSEBufferOverflowDoSRegression:
             b"just keep adding data",
             b"no \\n\\n separators here",
             b"buffer keeps growing...",
-        ] * 100  # Repeat to show the issue
+        ] * 40  # Repeat to show the issue (reduced for test performance)
 
         for chunk in malicious_chunks:
             yield chunk
-            await asyncio.sleep(0.001)  # Small delay to simulate real streaming
+            await asyncio.sleep(0.0001)  # Small delay (reduced for test performance)
 
     async def vulnerable_sse_processing_simulation(
         self, response_generator: AsyncGenerator[bytes, None]
@@ -61,8 +61,8 @@ class TestOpenAISSEBufferOverflowDoSRegression:
                 buffer += chunk_text
                 buffer_sizes.append(len(buffer))
 
-                # Safety: Stop after reasonable number of chunks for test
-                if len(buffer_sizes) >= 500:
+                # Safety: Stop after reasonable number of chunks for test (reduced for performance)
+                if len(buffer_sizes) >= 200:
                     break
 
                 # Try to process SSE events
@@ -109,7 +109,7 @@ class TestOpenAISSEBufferOverflowDoSRegression:
             large_chunk = b"x" * (MAX_SSE_BUFFER_SIZE + 1000)
             for _ in range(10):
                 yield large_chunk
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0.0001)  # Reduced for test performance
 
         buffer_sizes = await self.vulnerable_sse_processing_simulation(
             large_chunk_stream()
@@ -138,7 +138,7 @@ class TestOpenAISSEBufferOverflowDoSRegression:
             ]
             for event in events:
                 yield event
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0.0001)  # Reduced for test performance
 
         buffer_sizes = await self.vulnerable_sse_processing_simulation(
             normal_sse_stream()

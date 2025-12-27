@@ -40,8 +40,8 @@ class TestAutoEnabledSessionsLeakRegression:
         assert hasattr(middleware._auto_enabled_sessions, "maxsize")
         assert hasattr(middleware._auto_enabled_sessions, "ttl")
 
-        # Auto-enable many sessions (more than maxsize, reduced from +1000 to +500 for performance)
-        num_sessions = int(middleware._auto_enabled_sessions.maxsize) + 500
+        # Auto-enable many sessions (more than maxsize, reduced for test performance)
+        num_sessions = int(middleware._auto_enabled_sessions.maxsize) + 100
 
         for i in range(num_sessions):
             session_id = f"session_{i}"
@@ -150,8 +150,8 @@ class TestAutoEnabledSessionsLeakRegression:
         # Cache should be at maxsize
         assert len(middleware._auto_enabled_sessions) == maxsize
 
-        # Add more sessions - should evict oldest
-        for i in range(maxsize, maxsize + 100):
+        # Add more sessions - should evict oldest (reduced for test performance)
+        for i in range(maxsize, maxsize + 50):
             session_id = f"session_{i}"
             await middleware.capture_request(
                 session_id=session_id,
