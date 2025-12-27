@@ -375,11 +375,16 @@ def create_sso_router(
 
                 if not state:
                     form_relay = form.get("RelayState")
-                    if isinstance(form_relay, str):
+                if isinstance(form_relay, str):
                         state = form_relay
-            except Exception:
+            except Exception as e:
                 # Continue with query params if form parsing fails
-                pass
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "SAML POST form parsing failed, continuing with query params: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         relay_state = request.query_params.get("RelayState") or state
 

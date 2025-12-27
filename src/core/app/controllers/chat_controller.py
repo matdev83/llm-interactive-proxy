@@ -43,7 +43,7 @@ class ChatController:
 
     def __init__(
         self,
-        request_processor: IRequestProcessor,
+        request_processor: IRequestProcessor | None,
         translation_service: ITranslationService | None = None,
         wire_capture: Any | None = None,
     ) -> None:
@@ -369,7 +369,7 @@ class ChatController:
                     from src.core.interfaces.di_interface import IServiceProvider
 
                     sp = await _gspd(request)
-                    service_provider = _cast(IServiceProvider, sp)
+                    service_provider = sp  # type: ignore[assignment]
 
                     translation_service = service_provider.get_service(
                         _cast(type, ITranslationService)
@@ -402,7 +402,14 @@ class ChatController:
                         import json as _json
 
                         anth_json = _json.loads(body_content.decode())
-                    except Exception:
+                    except Exception as e:
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to parse Anthropic JSON response: %s",
+                                e,
+                                exc_info=True,
+                            )
                         return anth_response  # type: ignore[return-value]
 
                     # Convert Anthropic JSON to domain then return domain response
@@ -437,7 +444,7 @@ class ChatController:
             )
 
             # Set protocol identifier for normalization (Requirement 1.9)
-            if ctx.extensions is None:
+            if not ctx.extensions:
                 ctx.extensions = {}
             ctx.extensions["protocol"] = "openai"
 
@@ -511,8 +518,8 @@ class ChatController:
                         return _inject_reasoning_aliases(content)
 
                     # If metadata contains tool_calls, construct OpenAI response preserving them
-                    if metadata and isinstance(metadata, dict):
-                        tool_calls = metadata.get("tool_calls")
+                    if metadata:
+                        tool_calls = metadata.get("tool_calls")  # type: ignore[arg-type]
                         if tool_calls:
                             import json as _json
                             import time as _time
@@ -526,7 +533,7 @@ class ChatController:
                                     text_content = stripped
                             elif isinstance(content, dict):
                                 # If content is partial dict without choices, try to pull text field
-                                potential_text = content.get("content") if isinstance(content.get("content"), str) else None  # type: ignore[assignment]
+                                potential_text = content.get("content") if isinstance(content.get("content"), str) else None  # type: ignore[arg-type, assignment]
                                 if potential_text:
                                     text_content = potential_text
 
@@ -589,8 +596,8 @@ class ChatController:
 
                             return _inject_reasoning_aliases(response.model_dump())
 
-                    if metadata and isinstance(metadata, dict):
-                        meta_role = metadata.get("role")
+                    if metadata:
+                        meta_role = metadata.get("role")  # type: ignore[arg-type]
                         if meta_role == "tool":
                             import time as _time
                             import uuid as _uuid
@@ -734,7 +741,14 @@ class ChatController:
                                 )
 
                                 return response.model_dump()
-                        except Exception:
+                        except Exception as e:
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
+                                    "Failed to parse Anthropic message dict: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             # If parsing fails, continue to other handlers
                             pass
 
@@ -846,7 +860,14 @@ class ChatController:
                                 dict(content) if isinstance(content, dict) else content
                             )
                             text = _json.dumps(safe_content)
-                        except Exception:
+                        except Exception as e:
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
+                                    "Failed to JSON-serialize content, falling back to str: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             text = str(content)
 
                     # Fallback: treat remaining content as assistant text
