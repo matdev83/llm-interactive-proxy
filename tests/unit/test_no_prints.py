@@ -92,6 +92,7 @@ def print_check_cache() -> dict[str, Any]:
 
                 if (
                     path_str in cache
+                    and cache[path_str].get("mtime", 0) == file_mtime
                     and cache[path_str].get("hash") == file_hash
                     and current_time - cache[path_str].get("timestamp", 0)
                     < cache_timeout

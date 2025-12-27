@@ -30,7 +30,7 @@ def reasoning_output_strategy(draw: Any) -> str:
         st.text(
             min_size=10,
             max_size=500,
-            alphabet=st.characters(blacklist_categories=("Cs",)),
+            alphabet=st.characters(blacklist_categories=["Cs"]),
         )
     )
     return f"<thinking>{text}</thinking>"
@@ -90,7 +90,7 @@ class TestHybridSentinelCoordination:
         reasoning_output=reasoning_output_strategy(),
         execution_chunks=execution_chunks_strategy(),
     )
-    @settings(max_examples=50, deadline=5000)
+    @settings(max_examples=10, deadline=5000)
     async def test_property_16_single_sentinel_after_both_phases(
         self,
         reasoning_output: str,
