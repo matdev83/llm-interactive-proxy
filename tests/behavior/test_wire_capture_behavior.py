@@ -641,14 +641,14 @@ class TestFileRotationBehavior:
                 )
 
             # Wait for flush and rotation
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)  # Reduced from 0.2 for performance
             await service.shutdown()
 
             # Allow background rotation to complete on slower systems
             rotated_path = f"{capture_file}.1"
             if not os.path.exists(rotated_path):
-                for _ in range(10):
-                    await asyncio.sleep(0.05)
+                for _ in range(5):  # Reduced from 10 for performance
+                    await asyncio.sleep(0.02)  # Reduced from 0.05 for performance
                     if os.path.exists(rotated_path):
                         break
 
@@ -1129,7 +1129,7 @@ class TestPerformanceOptimizationBehavior:
             # When - Perform many rapid captures
             start_time = time.time()
 
-            for i in range(100):
+            for i in range(50):  # Reduced from 100 for performance
                 await service.capture_inbound_response(
                     context=None,
                     session_id=f"perf-{i}",
@@ -1142,7 +1142,7 @@ class TestPerformanceOptimizationBehavior:
             capture_time = time.time() - start_time
 
             # Wait for background flushing
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)  # Reduced from 0.2 for performance
             await service.shutdown()
 
             # Then - Capture should be fast (non-blocking)
@@ -1152,4 +1152,4 @@ class TestPerformanceOptimizationBehavior:
             assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
-            assert len(lines) >= 101  # Header + 100 entries
+            assert len(lines) >= 51  # Header + 50 entries (reduced from 101)

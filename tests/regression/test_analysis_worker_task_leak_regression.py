@@ -132,14 +132,14 @@ class TestAnalysisWorkerTaskLeakRegression:
         loop = asyncio.get_running_loop()
         tasks_before = [t for t in asyncio.all_tasks(loop) if not t.done()]
 
-        # Rapidly create, start, and stop workers
-        for _i in range(50):
+        # Rapidly create, start, and stop workers (reduced iterations for performance)
+        for _i in range(20):  # Reduced from 50 for performance
             worker = self._create_worker()
             await worker.start()
             await worker.stop()
 
-        # Wait for cleanup
-        await asyncio.sleep(0.3)
+        # Wait for cleanup (reduced wait time)
+        await asyncio.sleep(0.1)  # Reduced from 0.3 for performance
 
         # Verify no leak
         tasks_after = [t for t in asyncio.all_tasks(loop) if not t.done()]

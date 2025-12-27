@@ -139,7 +139,7 @@ def test_property_23_message_logging(session_id, message_type):
 
 # Property 24: Error logging
 @given(session_id=session_id_strategy())
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None)  # Reduced from 50 for performance
 @pytest.mark.asyncio
 async def test_property_24_error_logging(session_id):
     """
@@ -230,7 +230,7 @@ async def test_property_25_disconnect_logging(session_id):
 
 # Property 26: Sensitive data exclusion
 @given(session_id=session_id_strategy(), auth_token=auth_token_strategy())
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=20, deadline=None)  # Reduced from 50 for performance
 async def test_property_26_sensitive_data_exclusion(session_id, auth_token):
     """
     Feature: codebuff-backend-compatibility, Property 26: Sensitive data exclusion

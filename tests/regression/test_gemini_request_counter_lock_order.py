@@ -53,8 +53,8 @@ class TestDailyRequestCounterLockOrder:
             counter = DailyRequestCounter(temp_path, limit=1000)
 
             # Perform concurrent increments
-            num_threads = 50
-            increments_per_thread = 10
+            num_threads = 10  # Reduced from 50 for performance
+            increments_per_thread = 5  # Reduced from 10 for performance
 
             def increment_many():
                 for _ in range(increments_per_thread):

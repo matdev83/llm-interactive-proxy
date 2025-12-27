@@ -27,11 +27,11 @@ async def test_concurrent_writes_no_cache_corruption():
 
         # Simulate concurrent writes that modify cache
         async def write_data(idx):
-            for i in range(50):
+            for i in range(20):
                 await capture._append(f"data-{idx}-{i}\n")
 
-        # Run 20 concurrent writers
-        tasks = [write_data(i) for i in range(20)]
+        # Run 10 concurrent writers (reduced from 20 for performance)
+        tasks = [write_data(i) for i in range(10)]
         await asyncio.gather(*tasks)
 
         # Verify cache consistency

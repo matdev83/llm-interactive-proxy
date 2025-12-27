@@ -53,7 +53,7 @@ class TestAutoEnabledSessionsLeakRegression:
         # Auto-enable many sessions (more than maxsize, reduced for test performance)
         # Use smaller number but still exceed maxsize to test eviction
         maxsize = int(middleware._auto_enabled_sessions.maxsize)
-        num_sessions = maxsize + 50  # Reduced from +100 for performance
+        num_sessions = maxsize + 10  # Reduced from +50 for performance
 
         for i in range(num_sessions):
             session_id = f"session_{i}"
@@ -168,7 +168,7 @@ class TestAutoEnabledSessionsLeakRegression:
         assert len(middleware._auto_enabled_sessions) == maxsize
 
         # Add more sessions - should evict oldest (reduced for test performance)
-        for i in range(maxsize, maxsize + 25):  # Reduced from 50 for performance
+        for i in range(maxsize, maxsize + 10):  # Reduced from +25 for performance
             session_id = f"session_{i}"
             await middleware.capture_request(
                 session_id=session_id,

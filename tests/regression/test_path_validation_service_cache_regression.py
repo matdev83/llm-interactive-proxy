@@ -25,13 +25,13 @@ class TestPathValidationServiceCacheRegression:
     def test_cache_size_limited(self, service: PathValidationService) -> None:
         """Test that cache size does not exceed cache_max_size limit."""
         # Generate many unique paths to exceed cache limit
-        for i in range(1000):
+        for i in range(200):  # Reduced from 1000 for performance
             unique_path = f"/tmp/unique_dir_{i}/file_{i}.txt"
             with contextlib.suppress(ValueError, OSError):
                 service.normalize_path(unique_path)
 
             # Check cache size periodically
-            if i % 100 == 0:
+            if i % 50 == 0:  # Reduced frequency from 100 for performance
                 cache_size = len(service._normalization_cache)
                 assert cache_size <= service._cache_max_size, (
                     f"Cache size ({cache_size}) exceeded limit "

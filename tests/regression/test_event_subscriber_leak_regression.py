@@ -33,7 +33,8 @@ class TestEventSubscriberLeakRegression:
 
         # Verify handlers are called before shutdown
         await event_bus.publish("test_event_before_shutdown")
-        await asyncio.sleep(0.1)
+        # Give handlers time to execute (reduced from 0.1s for performance)
+        await asyncio.sleep(0.001)
 
         # All handlers should have been called
         for handler in handlers:
@@ -50,8 +51,8 @@ class TestEventSubscriberLeakRegression:
         # Publish should return early without calling handlers
         await event_bus.publish("test_event_after_shutdown")
 
-        # Give handlers time to be called if they were still subscribed
-        await asyncio.sleep(0.1)
+        # Give handlers time to be called if they were still subscribed (reduced from 0.1s for performance)
+        await asyncio.sleep(0.001)
 
         # Handlers should not be called after shutdown
         for handler in handlers:
@@ -79,7 +80,7 @@ class TestEventSubscriberLeakRegression:
 
         # Verify no handlers are called
         await event_bus.publish("test_event")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.001)  # Reduced from 0.1s for performance
 
         for handler in [*handlers, additional_handler]:
             handler.assert_not_called()
@@ -103,7 +104,7 @@ class TestEventSubscriberLeakRegression:
 
         # Publish event - handler2 should not be called
         await event_bus.publish("test_event")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.001)  # Reduced from 0.1s for performance
 
         handler1.assert_called_once()
         handler2.assert_not_called()
@@ -114,7 +115,7 @@ class TestEventSubscriberLeakRegression:
 
         # Publish again - no handlers should be called
         await event_bus.publish("test_event2")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.001)  # Reduced from 0.1s for performance
 
         # handler1 and handler3 should not be called again (only once from before shutdown)
         assert handler1.call_count == 1
@@ -150,7 +151,7 @@ class TestEventSubscriberLeakRegression:
         await event_bus.publish(EventType1())
         await event_bus.publish(EventType2())
         await event_bus.publish(EventType3())
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.001)  # Reduced from 0.1s for performance
 
         # All handlers should not be called
         for handler in handlers.values():
@@ -170,6 +171,6 @@ class TestEventSubscriberLeakRegression:
 
         # Should not raise exceptions and handlers should not be called
         await event_bus.publish("test_event")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.001)  # Reduced from 0.1s for performance
 
         handler.assert_not_called()

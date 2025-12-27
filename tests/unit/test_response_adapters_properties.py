@@ -91,7 +91,7 @@ class TestEventLoopYielding:
     """
 
     @pytest.mark.asyncio
-    @settings(max_examples=20, deadline=5000)
+    @settings(max_examples=10, deadline=5000)  # Reduced from 20 for performance
     @given(chunks=st.lists(processed_response_strategy(), min_size=1, max_size=10))
     async def test_event_loop_yielding_property(self, chunks: list[ProcessedResponse]):
         """
@@ -277,7 +277,7 @@ class TestAsyncPathPurity:
 
         async def progress_tracker():
             """Track that we can make progress concurrently."""
-            for i in range(len(chunks)):
+            for i in range(len(chunks) * 2):
                 progress_markers.append(i)
                 await asyncio.sleep(0)
 

@@ -272,7 +272,11 @@ class TestRealCodebaseValidation:
     """Test that validates the actual codebase against guardrails."""
 
     def test_streaming_contracts_refactor_scope_meets_thresholds(self):
-        """Verify that all files in streaming-contracts refactor scope meet thresholds."""
+        """Verify that all files in streaming-contracts refactor scope meet thresholds.
+        
+        Note: This test scans and analyzes the codebase, which is inherently slow.
+        Optimizing further would compromise the test's purpose of validating the entire refactor scope.
+        """
         base_path = Path(__file__).parent.parent.parent.parent.parent
         scope_files = get_streaming_contracts_scope_files(base_path)
 

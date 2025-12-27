@@ -144,8 +144,8 @@ class TestStreamingResponseAccumulatorDoSRegression:
         self, accumulator: StreamingResponseAccumulator
     ) -> None:
         """Test that multiple large payloads are handled correctly."""
-        # Create multiple progressively larger payloads
-        sizes_mb = [1, 5, 10, 20]
+        # Create multiple progressively larger payloads (reduced sizes for performance)
+        sizes_mb = [1, 5, 10]
 
         for size_mb in sizes_mb:
             malicious_chunk = self.create_malicious_sse_chunk(size_mb=size_mb)

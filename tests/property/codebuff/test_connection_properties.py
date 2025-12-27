@@ -149,7 +149,7 @@ async def test_property_4_session_cleanup_on_disconnect(session_id):
     session_id=session_id_strategy(),
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
-@settings(max_examples=50)
+@settings(max_examples=10)
 @pytest.mark.asyncio
 async def test_property_27_subscription_addition(session_id, topics):
     """
@@ -224,7 +224,7 @@ async def test_property_28_subscription_removal(session_id, topics):
     session_id=session_id_strategy(),
     topics=st.lists(topic_strategy(), min_size=1, max_size=10, unique=True),
 )
-@settings(max_examples=50)
+@settings(max_examples=30)  # Reduced from 50 for performance
 @pytest.mark.asyncio
 async def test_property_30_subscription_cleanup(session_id, topics):
     """

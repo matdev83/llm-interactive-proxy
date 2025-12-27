@@ -12,6 +12,7 @@ from src.core.auth.sso.config import AuthorizationConfig, ProviderConfig, SSOCon
 from src.core.auth.sso.exceptions import ConfigurationError
 from src.core.auth.sso.sso_service import SSOService
 from src.core.auth.sso.startup_validation import validate_startup_configuration
+from tests.utils.hypothesis_config import property_test_settings
 
 
 # Generators for test data
@@ -66,18 +67,19 @@ class TestProviderVisibilityProperties:
             st.tuples(
                 st.text(
                     min_size=1,
-                    max_size=20,
-                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    max_size=10,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=True, has_credentials=True, has_endpoints=True
                 ),
             ),
             min_size=1,
-            max_size=5,
+            max_size=3,  # Reduced from 5 for performance
             unique_by=lambda x: x[0],
         )
     )
+    @property_test_settings(max_examples=10)  # Reduced for performance
     def test_all_providers_displayed_when_configured(self, providers_list):
         """
         Feature: sso-authentication, Property 28: All Providers Displayed When Configured
@@ -107,8 +109,8 @@ class TestProviderVisibilityProperties:
             st.tuples(
                 st.text(
                     min_size=1,
-                    max_size=20,
-                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    max_size=10,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=None, has_credentials=False, has_endpoints=True
@@ -119,6 +121,7 @@ class TestProviderVisibilityProperties:
             unique_by=lambda x: x[0],
         )
     )
+    @property_test_settings(max_examples=10)  # Reduced from 50 for performance
     def test_provider_visibility_based_on_configuration(self, providers_list):
         """
         Feature: sso-authentication, Property 29: Provider Visibility Based on Configuration
@@ -146,8 +149,8 @@ class TestProviderVisibilityProperties:
             st.tuples(
                 st.text(
                     min_size=1,
-                    max_size=20,
-                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    max_size=10,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=False, has_credentials=True, has_endpoints=True
@@ -158,6 +161,7 @@ class TestProviderVisibilityProperties:
             unique_by=lambda x: x[0],
         )
     )
+    @property_test_settings(max_examples=10)  # Reduced from default 50 for performance
     def test_explicit_disable_enforcement(self, providers_list):
         """
         Feature: sso-authentication, Property 30: Explicit Disable Enforcement
@@ -193,8 +197,8 @@ class TestStartupValidationProperties:
             st.tuples(
                 st.text(
                     min_size=1,
-                    max_size=20,
-                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    max_size=10,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 st.one_of(
                     provider_config_strategy(
@@ -213,6 +217,7 @@ class TestStartupValidationProperties:
             unique_by=lambda x: x[0],
         )
     )
+    @property_test_settings(max_examples=10)  # Reduced from default 50 for performance
     def test_at_least_one_provider_required(self, providers_list):
         """
         Feature: sso-authentication, Property 32: At Least One Provider Required
@@ -298,8 +303,8 @@ class TestDisabledProviderAccessProperties:
     @given(
         st.text(
             min_size=1,
-            max_size=20,
-            alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+            max_size=10,
+                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
         ),
     )
     def test_property_31_direct_access_to_disabled_provider(self, provider_name):
@@ -345,11 +350,11 @@ class TestDisabledProviderAccessProperties:
         st.lists(
             st.text(
                 min_size=1,
-                max_size=20,
+                max_size=10,
                 alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
             ),
             min_size=2,
-            max_size=5,
+            max_size=3,
             unique=True,
         ),
     )

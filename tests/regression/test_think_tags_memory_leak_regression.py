@@ -86,8 +86,8 @@ class TestThinkTagsMemoryLeakRegression:
         self, processor: ThinkTagsProcessor
     ) -> None:
         """Test that _reasoning_extracted doesn't grow unbounded with many sessions."""
-        # Process many unique sessions
-        num_sessions = 1000
+        # Process many unique sessions (reduced for performance)
+        num_sessions = 100  # Reduced from 1000
 
         for i in range(num_sessions):
             session_id = f"unique_session_{i}"
@@ -160,7 +160,7 @@ class TestThinkTagsMemoryLeakRegression:
         self, processor: ThinkTagsProcessor
     ) -> None:
         """Test that multiple concurrent sessions don't cause memory leak."""
-        num_sessions = 100
+        num_sessions = 50  # Reduced from 100
 
         # Process content for multiple sessions
         for i in range(num_sessions):

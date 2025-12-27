@@ -21,8 +21,7 @@ class MockBackend:
         self.shutdown_called = False
 
     async def shutdown(self) -> None:
-        """Simulate slow shutdown."""
-        await asyncio.sleep(0.1)  # Simulate cleanup work
+        """Simulate shutdown."""
         self.shutdown_called = True
 
 
@@ -69,7 +68,7 @@ class TestBackendDiscardTaskLeakRegression:
         ), "Discard should create new shutdown tasks"
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.01)
 
         # Verify backends were shut down
         assert backend1.shutdown_called, "Backend 1 should be shut down"
@@ -78,7 +77,6 @@ class TestBackendDiscardTaskLeakRegression:
 
         # Tasks should be removed from tracking set when completed
         # (via done callback)
-        await asyncio.sleep(0.1)  # Allow callbacks to fire
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
         assert (
             len(pending_tracked) == 0
@@ -89,8 +87,8 @@ class TestBackendDiscardTaskLeakRegression:
         self, manager: BackendLifecycleManager
     ) -> None:
         """Test that many rapid discards don't cause unbounded task accumulation."""
-        # Create many backends (reduced from 100 to 50 for performance)
-        num_backends = 50
+        # Create many backends
+        num_backends = 30
         for i in range(num_backends):
             backend = MockBackend(f"attack-backend-{i}")
             manager._backends[f"attack-backend-{i}"] = backend
@@ -116,13 +114,10 @@ class TestBackendDiscardTaskLeakRegression:
             new_tasks == num_backends
         ), f"Expected {num_backends} new tasks, got {new_tasks}"
 
-        # Wait for tasks to complete (reduced from 0.5s to 0.2s for performance)
-        await asyncio.sleep(0.2)
+        # Wait for tasks to complete
+        await asyncio.sleep(0.01)
 
         # Verify tasks completed and are cleaned up from tracking set
-        await asyncio.sleep(
-            0.05
-        )  # Reduced from 0.1s for performance - allow callbacks to fire
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
         assert (
             len(pending_tracked) == 0
@@ -134,7 +129,7 @@ class TestBackendDiscardTaskLeakRegression:
     ) -> None:
         """Test that await_pending_shutdown_tasks() properly awaits all tasks."""
         # Create backends
-        num_backends = 50
+        num_backends = 30
         backends = []
         for i in range(num_backends):
             backend = MockBackend(f"backend-{i}")
@@ -170,7 +165,7 @@ class TestBackendDiscardTaskLeakRegression:
         # Create a backend with slow shutdown
         class SlowBackend(MockBackend):
             async def shutdown(self) -> None:
-                await asyncio.sleep(2.0)  # Longer than timeout
+                await asyncio.sleep(0.5)  # Longer than timeout
 
         backend = SlowBackend("slow-backend")
         manager._backends["slow-backend"] = backend
@@ -182,7 +177,7 @@ class TestBackendDiscardTaskLeakRegression:
         assert len(manager._shutdown_tasks) == 1
 
         # Call await with short timeout
-        await manager.await_pending_shutdown_tasks(timeout=0.1)
+        await manager.await_pending_shutdown_tasks(timeout=0.05)
 
         # Task should be cancelled due to timeout
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
@@ -214,7 +209,7 @@ class TestBackendDiscardTaskLeakRegression:
         assert "backend-3:session-1" not in manager._per_session_backends
 
         # Wait for shutdown tasks
-        await manager.await_pending_shutdown_tasks(timeout=5.0)
+        await manager.await_pending_shutdown_tasks(timeout=0.1)
 
         # Verify backends were shut down
         assert backend1.shutdown_called

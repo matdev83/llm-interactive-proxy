@@ -10,6 +10,9 @@ from typing import Any
 from src.core.config.app_config import AppConfig
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.simulation.capture_reader import CaptureReader
 from src.core.simulation.timing_controller import TimingController
@@ -108,10 +111,12 @@ class CaptureReplayEmulator(StreamingEmulatorBase):
 
     async def chat_completions(
         self,
-        request_data: Any,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
         effective_model: str,
-        identity: Any = None,
+        identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: Any | None = None,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Replay captured streaming response with timing."""

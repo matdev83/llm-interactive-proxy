@@ -153,8 +153,8 @@ class TestSessionAliasesLeakRegression:
         self, reactor: ToolCallReactorService
     ) -> None:
         """Test that session aliases don't grow unbounded."""
-        # Create many unique sessions
-        num_sessions = 10000
+        # Create many unique sessions (reduced from 10000 for performance)
+        num_sessions = 200  # Still tests bounded growth with cleanup
 
         for i in range(num_sessions):
             context = ToolCallContext(

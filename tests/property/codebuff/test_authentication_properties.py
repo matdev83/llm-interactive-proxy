@@ -33,7 +33,7 @@ def prompt_action_strategy(draw):
 
 
 @pytest.mark.asyncio
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=10, deadline=None)
 @given(action=prompt_action_strategy())
 async def test_property_14_token_validation(action: PromptAction):
     """

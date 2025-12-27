@@ -146,7 +146,7 @@ async def test_all_subscribers_receive_eos_event(
     # Give subscribers time to process (they run concurrently)
     import asyncio
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
 
     # Verify ProxyMem subscriber was called
     mock_memory_service.mark_session_complete.assert_called_once_with(
@@ -221,7 +221,7 @@ async def test_subscriber_failures_are_isolated(
     # Give subscribers time to process
     import asyncio
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
 
     # Verify other subscribers still processed the event
     # UsageTracking should have been called
@@ -368,7 +368,7 @@ async def test_multiple_subscriber_failures_isolated(
     # Give subscribers time to process
     import asyncio
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
 
     # Verify remaining subscribers were still called
     mock_session_repo.create.assert_called_once()
@@ -447,7 +447,7 @@ async def test_subscriber_payload_preserved_on_failure(
     # Give subscribers time to process
     import asyncio
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
 
     # Verify usage subscriber received correct payload despite other failure
     mock_session_repo.create.assert_called_once()
@@ -504,7 +504,7 @@ async def test_subscriber_non_blocking_under_load(
     await asyncio.gather(*[event_bus.publish(event) for event in events])
 
     # Give subscribers time to process
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(0.01)  # Reduced from 0.2 for performance
 
     # Verify all events were processed (usage subscriber should have been called for all)
     assert mock_session_repo.create.call_count == 10

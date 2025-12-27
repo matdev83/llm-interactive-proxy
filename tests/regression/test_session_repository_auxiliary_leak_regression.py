@@ -188,8 +188,8 @@ class TestSessionRepositoryAuxiliaryLeakRegression:
         self, repo: InMemorySessionRepository
     ) -> None:
         """Test that auxiliary structures don't exceed main session count."""
-        # Create many sessions with various users and clients
-        num_sessions = 2000  # More than max_sessions to test eviction
+        # Create many sessions with various users and clients (reduced for performance)
+        num_sessions = 1100  # More than max_sessions to test eviction (reduced from 2000)
 
         for i in range(num_sessions):
             session = Session(

@@ -123,7 +123,7 @@ async def test_streaming_429_invokes_failure_strategy(
                 message="Resource has been exhausted (e.g. check quota).",
                 code="rate_limit_exceeded",
                 status_code=429,
-                details={"retry_after": 0.2},  # 200ms retry
+                details={"retry_after": 0.01},  # Reduced from 0.2 for performance
                 backend_name="mock-backend",
             )
         return success_response
@@ -206,7 +206,9 @@ async def test_streaming_429_invokes_failure_strategy(
                 # Wait and retry
                 import asyncio
 
-                await asyncio.sleep(decision.wait_seconds or 0.1)
+                await asyncio.sleep(
+                    decision.wait_seconds or 0.01
+                )  # Reduced from 0.1 for performance
                 # Retry - call backend again (this time it will succeed)
                 return await mock_backend.chat_completions(request, [], "model")
             raise

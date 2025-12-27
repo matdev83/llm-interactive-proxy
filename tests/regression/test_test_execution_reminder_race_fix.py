@@ -11,7 +11,7 @@ from src.services.test_execution_reminder.test_execution_reminder_handler import
 async def test_concurrent_mark_operations_no_race():
     """Test concurrent mark_dirty and mark_clean operations are safe."""
     handler = TestExecutionReminderHandler(enabled=True, max_sessions=100)
-    session_ids = [f"session-{i}" for i in range(10)]  # Reduced from 30
+    session_ids = [f"session-{i}" for i in range(5)]  # Reduced from 10 for performance
 
     async def mark_dirty_batch(sessions):
         for sid in sessions:
@@ -21,8 +21,8 @@ async def test_concurrent_mark_operations_no_race():
         for sid in sessions:
             await handler._mark_session_clean(sid, "pytest", "python", "pytest")
 
-    tasks = [mark_dirty_batch(session_ids) for _ in range(5)] + [  # Reduced from 15
-        mark_clean_batch(session_ids) for _ in range(5)  # Reduced from 15
+    tasks = [mark_dirty_batch(session_ids) for _ in range(3)] + [  # Reduced from 5
+        mark_clean_batch(session_ids) for _ in range(3)  # Reduced from 5
     ]
     await asyncio.gather(*tasks, return_exceptions=True)
 

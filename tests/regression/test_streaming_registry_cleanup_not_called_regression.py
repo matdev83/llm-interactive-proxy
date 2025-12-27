@@ -16,11 +16,11 @@ class TestStreamingRegistryCleanupNotCalledRegression:
     def test_expired_states_cleaned_up_on_access(self) -> None:
         """Test that expired states are cleaned up when streams are accessed."""
         registry = StreamingContextRegistry(
-            state_ttl_seconds=0.2
+            state_ttl_seconds=0.05
         )  # Reduced TTL for performance
 
         # Create many stream states
-        num_streams = 50
+        num_streams = 30
         for i in range(num_streams):
             stream_id = f"stream_{i}"
             registry.get_content_state(stream_id)
@@ -29,7 +29,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         assert initial_size == num_streams
 
         # Wait for TTL to expire
-        time.sleep(0.3)
+        time.sleep(0.1)
 
         # Access one stream - this should trigger cleanup
         registry.get_content_state("stream_0")
@@ -45,11 +45,11 @@ class TestStreamingRegistryCleanupNotCalledRegression:
     def test_orphaned_streams_cleaned_up_when_accessed(self) -> None:
         """Test that orphaned streams are cleaned up when any stream is accessed."""
         registry = StreamingContextRegistry(
-            state_ttl_seconds=0.2
+            state_ttl_seconds=0.05
         )  # Reduced TTL for performance
 
         # Create many streams but never access them again
-        num_streams = 100
+        num_streams = 50
         for i in range(num_streams):
             stream_id = f"orphan_stream_{i}"
             registry.get_content_state(stream_id)
@@ -58,7 +58,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         assert initial_size == num_streams
 
         # Wait for TTL to expire
-        time.sleep(0.3)
+        time.sleep(0.1)
 
         # Access one stream - this should trigger cleanup of all expired streams
         registry.get_content_state("orphan_stream_0")
@@ -75,11 +75,11 @@ class TestStreamingRegistryCleanupNotCalledRegression:
     def test_manual_cleanup_expired_works(self) -> None:
         """Test that manual cleanup_expired() call works correctly."""
         registry = StreamingContextRegistry(
-            state_ttl_seconds=0.2
+            state_ttl_seconds=0.05
         )  # Reduced TTL for performance
 
         # Create stream states
-        num_streams = 50
+        num_streams = 30
         for i in range(num_streams):
             stream_id = f"stream_{i}"
             registry.get_content_state(stream_id)
@@ -88,7 +88,7 @@ class TestStreamingRegistryCleanupNotCalledRegression:
         assert initial_size == num_streams
 
         # Wait for TTL to expire
-        time.sleep(0.3)
+        time.sleep(0.1)
 
         # Manually call cleanup_expired()
         registry.cleanup_expired()

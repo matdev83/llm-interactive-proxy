@@ -286,68 +286,20 @@ def test_property_18_serialization_roundtrip_consistency(
         deserialized, UsageRecord
     ), "from_dict() must return a UsageRecord"
 
-    # Compare all fields
-    assert deserialized.id == record.id, "id mismatch"
-    assert deserialized.timestamp == record.timestamp, "timestamp mismatch"
-    assert deserialized.session_id == record.session_id, "session_id mismatch"
-    assert deserialized.turn_number == record.turn_number, "turn_number mismatch"
+    # Use direct equality comparison (dataclass __eq__) for performance
+    # This is faster than field-by-field comparison while maintaining precision
+    if deserialized != record:
+        # Only compute differences if assertion fails (for error message)
+        import dataclasses
 
-    assert deserialized.backend_type == record.backend_type, "backend_type mismatch"
-    assert deserialized.model == record.model, "model mismatch"
-    assert deserialized.frontend_type == record.frontend_type, "frontend_type mismatch"
-    assert deserialized.leg == record.leg, "leg mismatch"
-
-    assert (
-        deserialized.verbatim_prompt_tokens == record.verbatim_prompt_tokens
-    ), "verbatim_prompt_tokens mismatch"
-    assert (
-        deserialized.verbatim_completion_tokens == record.verbatim_completion_tokens
-    ), "verbatim_completion_tokens mismatch"
-    assert (
-        deserialized.mutated_prompt_tokens == record.mutated_prompt_tokens
-    ), "mutated_prompt_tokens mismatch"
-    assert (
-        deserialized.mutated_completion_tokens == record.mutated_completion_tokens
-    ), "mutated_completion_tokens mismatch"
-    assert deserialized.total_tokens == record.total_tokens, "total_tokens mismatch"
-
-    # Compare backend_reported_usage
-    if record.backend_reported_usage is None:
-        assert (
-            deserialized.backend_reported_usage is None
-        ), "backend_reported_usage should be None"
-    else:
-        assert (
-            deserialized.backend_reported_usage is not None
-        ), "backend_reported_usage should not be None"
-        assert (
-            deserialized.backend_reported_usage.prompt_tokens
-            == record.backend_reported_usage.prompt_tokens
-        ), "backend_reported_usage.prompt_tokens mismatch"
-        assert (
-            deserialized.backend_reported_usage.completion_tokens
-            == record.backend_reported_usage.completion_tokens
-        ), "backend_reported_usage.completion_tokens mismatch"
-
-    assert (
-        deserialized.http_status_code == record.http_status_code
-    ), "http_status_code mismatch"
-    assert (
-        deserialized.tool_call_count == record.tool_call_count
-    ), "tool_call_count mismatch"
-    assert deserialized.tool_names == record.tool_names, "tool_names mismatch"
-
-    assert deserialized.ttft_ms == record.ttft_ms, "ttft_ms mismatch"
-    assert (
-        deserialized.proxy_processing_ms == record.proxy_processing_ms
-    ), "proxy_processing_ms mismatch"
-    assert (
-        deserialized.total_duration_ms == record.total_duration_ms
-    ), "total_duration_ms mismatch"
-
-    assert deserialized.user_agent == record.user_agent, "user_agent mismatch"
-    assert deserialized.app_title == record.app_title, "app_title mismatch"
-    assert deserialized.proxy_user == record.proxy_user, "proxy_user mismatch"
+        differences = [
+            (f.name, getattr(deserialized, f.name), getattr(record, f.name))
+            for f in dataclasses.fields(UsageRecord)
+            if getattr(deserialized, f.name) != getattr(record, f.name)
+        ]
+        raise AssertionError(
+            f"Deserialized record should equal original. Differences: {differences}"
+        )
 
 
 # ============================================================================
@@ -495,7 +447,9 @@ def test_property_15_filter_correctness(
 
 
 @given(
-    records=st.lists(usage_record_strategy(), min_size=3, max_size=15),  # Reduced sizes for performance
+    records=st.lists(
+        usage_record_strategy(), min_size=3, max_size=15
+    ),  # Reduced sizes for performance
     num_threads=st.integers(min_value=2, max_value=4),  # Reduced max threads
 )
 @property_test_settings(max_examples=20)  # Reduced from 30 for performance
@@ -575,7 +529,7 @@ def test_property_20_thread_safe_concurrent_access(
 
         # Wait for all threads to complete
         for thread in threads:
-            thread.join(timeout=5.0)  # Reduced from 10.0 for performance
+            thread.join(timeout=3.0)  # Reduced from 5.0 for performance
 
         # Check for errors
         assert len(errors) == 0, f"Concurrent operations produced errors: {errors}"
@@ -602,7 +556,9 @@ def test_property_20_thread_safe_concurrent_access(
 # ============================================================================
 
 
-@given(records=st.lists(usage_record_strategy(), min_size=1, max_size=10))  # Reduced from 20
+@given(
+    records=st.lists(usage_record_strategy(), min_size=1, max_size=10)
+)  # Reduced from 20
 @property_test_settings(max_examples=10)  # Reduced from 20 for performance
 def test_property_21_persistence_dirty_flag_correctness(
     records: list[UsageRecord],

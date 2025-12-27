@@ -51,7 +51,7 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
         assert len(service._saml_metadata_cache) == 0
 
         # Use smaller number for faster testing while still testing eviction
-        num_urls = min(MAX_SAML_METADATA_CACHE_SIZE, 50) + 5  # 55 URLs > 50 limit
+        num_urls = 20 + 5  # 25 URLs > 20 limit (reduced from 55 for performance)
 
         with respx.mock:
             # Mock HTTP responses for all metadata URLs

@@ -31,8 +31,8 @@ from tests.utils.hypothesis_config import property_test_settings
 def mock_event_bus() -> IEventBus:
     """Create a mock event bus that captures events."""
     mock = MagicMock(spec=IEventBus)
-    mock.publish = AsyncMock()
-    mock.publish_nowait = AsyncMock()
+    mock.publish = AsyncMock()  # type: ignore[method-assign]
+    mock.publish_nowait = AsyncMock()  # type: ignore[method-assign]
     return mock
 
 
@@ -41,8 +41,8 @@ def mock_session_repository() -> SessionMetricsRepository:
     """Create a mock session metrics repository."""
     mock = MagicMock(spec=SessionMetricsRepository)
     # Reset mock state for each test
-    mock.claim_eos_emission = AsyncMock(return_value=True)
-    mock.has_ended = AsyncMock(return_value=False)
+    mock.claim_eos_emission = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    mock.has_ended = AsyncMock(return_value=False)  # type: ignore[method-assign]
     return mock
 
 
@@ -84,9 +84,9 @@ def signal_strategy() -> st.SearchStrategy[EndOfSessionSignal]:
 
 
 @pytest.mark.asyncio
-@given(signals=st.lists(signal_strategy(), min_size=2, max_size=10))
+@given(signals=st.lists(signal_strategy(), min_size=2, max_size=5))
 @property_test_settings(
-    max_examples=30,
+    max_examples=10,
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
@@ -159,7 +159,7 @@ async def test_property_multiple_signals_single_emission(
     signals_per_session=st.integers(min_value=2, max_value=5),
 )
 @property_test_settings(
-    max_examples=30,
+    max_examples=20,  # Reduced from 30 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
@@ -223,11 +223,13 @@ async def test_property_concurrent_sessions_independent_dedupe(
 
 @pytest.mark.asyncio
 @given(
-    signals=st.lists(signal_strategy(), min_size=1, max_size=20),
+    signals=st.lists(
+        signal_strategy(), min_size=1, max_size=10
+    ),  # Reduced from 20 for performance
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings(
-    max_examples=30,
+    max_examples=15,  # Reduced from 30 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,

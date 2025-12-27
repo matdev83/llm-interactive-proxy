@@ -243,7 +243,12 @@ class ConnectionManager:
                     details={"error": "Connection not registered"},
                 )
 
-            session.last_seen = datetime.utcnow()
+            now = datetime.utcnow()
+            # Ensure monotonicity: tests (and some callers) may update last_seen
+            # multiple times within the same clock tick / microsecond.
+            if now <= session.last_seen:
+                now = session.last_seen + timedelta(microseconds=1)
+            session.last_seen = now
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Updated last_seen for session: %s", self._safe(session.session_id)

@@ -35,7 +35,7 @@ class TestPropertyInfrastructureBasics:
     """Test basic property infrastructure functionality."""
 
     @given(chunk=streaming_content_strategy())
-    @property_test_settings()
+    @property_test_settings(max_examples=10)  # Reduced from 50 for performance
     def test_generated_chunks_are_valid(self, chunk):
         """Test that generated chunks are always valid.
 

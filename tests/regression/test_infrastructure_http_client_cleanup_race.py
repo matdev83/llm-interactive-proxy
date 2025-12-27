@@ -73,19 +73,21 @@ class TestInfrastructureStageHttpClientCleanup:
                 self.is_closed = False
 
             async def aclose(self):
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
                 self.is_closed = True
 
         mock_clients = [MockClient(i) for i in range(3)]
 
         # Manually simulate cleanup tasks being created
+        tasks = []
         for client in mock_clients:
             cleanup_task = asyncio.create_task(client.aclose())
             stage._cleanup_tasks.add(cleanup_task)
             cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
+            tasks.append(cleanup_task)
 
-        # Wait for all cleanup tasks to complete
-        await asyncio.sleep(0.3)
+        # Wait for all cleanup tasks to complete explicitly
+        await asyncio.gather(*tasks)
 
         # All clients should be closed
         for client in mock_clients:

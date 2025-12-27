@@ -148,8 +148,8 @@ async def test_property_36_streaming_with_replacement(
 
 
 @given(
-    turn_count=st.integers(min_value=1, max_value=5),
-    num_turns=st.integers(min_value=1, max_value=10),
+    turn_count=st.integers(min_value=1, max_value=3),  # Reduced from 5 for performance
+    num_turns=st.integers(min_value=1, max_value=5),  # Reduced from 10 for performance
 )
 @pytest.mark.asyncio
 async def test_property_36_streaming_across_multiple_turns(

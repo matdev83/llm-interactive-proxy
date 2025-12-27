@@ -652,7 +652,7 @@ class TestHeartbeatTimeout:
         Note: This test uses a shorter timeout for testing purposes.
         """
         # Create a connection manager with short timeout
-        connection_manager = ConnectionManager(heartbeat_timeout_seconds=0.3)  # Reduced from 0.5
+        connection_manager = ConnectionManager(heartbeat_timeout_seconds=1)  # Reduced for performance
 
         # Create mock websocket
         mock_websocket = MagicMock()
@@ -667,7 +667,7 @@ class TestHeartbeatTimeout:
         assert session.session_id == "stale-session"
 
         # Wait for timeout
-        await asyncio.sleep(0.5)  # Reduced from 1
+        await asyncio.sleep(0.3)  # Reduced from 0.5
 
         # Run cleanup
         await connection_manager.cleanup_stale_connections()

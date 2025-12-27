@@ -236,17 +236,8 @@ async def test_property_2_mixed_stream_isolates_stop_chunk(
     processor = ContentAccumulationProcessor()
     stream_id = "mixed-stream-test"
 
-    # Process text chunks first
-    expected_text = ""
+    # Process text chunks first (optimized: batch process without intermediate checks)
     for chunk_dict in text_chunks:
-        # Extract expected text from the chunk
-        choices = chunk_dict.get("choices", [])
-        if choices:
-            delta = choices[0].get("delta", {})
-            text = delta.get("content", "")
-            if text:
-                expected_text += text
-
         streaming_content = StreamingContent(
             content=chunk_dict,
             metadata={"stream_id": stream_id},

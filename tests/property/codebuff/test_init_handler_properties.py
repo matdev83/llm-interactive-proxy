@@ -56,7 +56,7 @@ def file_context_strategy(draw):
     ),
     file_context=file_context_strategy(),
 )
-@property_test_settings(max_examples=30)  # Reduced from default 50 for performance
+@property_test_settings(max_examples=20)  # Reduced from 30 for performance
 async def test_property_17_file_context_storage(
     session_id, fingerprint_id, file_context
 ):

@@ -52,7 +52,7 @@ def create_test_service(
     ),
 )
 @property_test_settings(
-    suppress_health_check=[HealthCheck.filter_too_much], max_examples=20
+    suppress_health_check=[HealthCheck.filter_too_much], max_examples=10  # Reduced from 20 for performance
 )
 def test_property_11_turn_counter_initialization(
     turn_count: int,

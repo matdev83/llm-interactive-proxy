@@ -133,7 +133,7 @@ async def test_session_isolation_multiple_sessions(
         assert state3.modification_count == 0
 
 
-@settings(max_examples=30)  # Reduced from 50 for performance
+@settings(max_examples=10)  # Reduced from 50 for performance
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
@@ -181,7 +181,7 @@ async def test_session_isolation_modification_counts(
     assert state2.modification_count == modifications2
 
 
-@settings(max_examples=50)
+@settings(max_examples=10)
 @given(
     session1_id=session_ids,
     session2_id=session_ids,

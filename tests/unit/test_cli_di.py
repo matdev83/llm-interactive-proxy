@@ -71,30 +71,32 @@ def test_app_config_from_env_loads_zenmux(monkeypatch: pytest.MonkeyPatch) -> No
 def test_configuration_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # Use with statement to auto-cleanup environment variables
+    monkeypatch.delenv("APP_HOST", raising=False)
     cfg_file = tmp_path / "proxy.yaml"
     cfg_file.write_text("host: config-host\n")
 
     # config-only
-    monkeypatch.delenv("APP_HOST", raising=False)
     config_only = load_config(str(cfg_file))
     assert config_only.host == "config-host"
 
     # env overrides config
-    monkeypatch.setenv("APP_HOST", "env-host")
-    env_args = parse_cli_args(["--config", str(cfg_file)])
-    env_config, _ = apply_cli_args(env_args, return_resolution=True)
-    assert env_config.host == "env-host"
+    with monkeypatch.context() as m:
+        m.setenv("APP_HOST", "env-host")
+        env_args = parse_cli_args(["--config", str(cfg_file)])
+        env_config, _ = apply_cli_args(env_args, return_resolution=True)
+        assert env_config.host == "env-host"
 
     # CLI overrides env
-    cli_args = parse_cli_args(["--config", str(cfg_file), "--host", "cli-host"])
-    cli_config, resolution = apply_cli_args(cli_args, return_resolution=True)
-    assert cli_config.host == "cli-host"
-    assert any(
-        entry.source.name == "CLI" and entry.name == "host"
-        for entry in resolution.build_report(cli_config)
-    )
-
-    monkeypatch.delenv("APP_HOST", raising=False)
+    with monkeypatch.context() as m:
+        m.setenv("APP_HOST", "cli-host")
+        cli_args = parse_cli_args(["--config", str(cfg_file), "--host", "cli-host"])
+        cli_config, resolution = apply_cli_args(cli_args, return_resolution=True)
+        assert cli_config.host == "cli-host"
+        assert any(
+            entry.source.name == "CLI" and entry.name == "host"
+            for entry in resolution.build_report(cli_config)
+        )
 
 
 def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -664,6 +666,7 @@ async def test_main_disable_auth_forces_localhost() -> None:
         # main_server = uvicorn.Server(main_config)
 
         # Let's patch uvicorn.Config as well to check arguments easily
+        # Optimize: Check config in single call instead of patching twice
         with patch(
             "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
         ) as mock_config_cls:
@@ -674,12 +677,12 @@ async def test_main_disable_auth_forces_localhost() -> None:
                 ANY, host="127.0.0.1", port=8080, log_config=ANY
             )
 
-        # Should log warning about auth being disabled
-        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [
-            call for call in warning_calls if "authentication is DISABLED" in call
-        ]
-        assert len(auth_disabled_warnings) >= 1
+            # Should log warning about auth being disabled
+            warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
+            auth_disabled_warnings = [
+                call for call in warning_calls if "authentication is DISABLED" in call
+            ]
+            assert len(auth_disabled_warnings) >= 1
 
 
 @pytest.mark.asyncio

@@ -80,10 +80,9 @@ def test_responses_api_endpoint_exists(client: TestClient) -> None:
         },
     }
 
-    # Mock the backend service to avoid actual API calls - use return_value directly for faster execution
+    # Mock the backend service to avoid actual API calls
     with patch(
-        "src.core.services.backend_service.BackendService.call_completion",
-        new_callable=lambda: lambda *args, **kwargs: None,  # Faster mock setup
+        "src.core.services.backend_service.BackendService.call_completion"
     ) as mock_call_completion:
         from src.core.domain.responses import ResponseEnvelope
 

@@ -163,7 +163,7 @@ def test_property_25_configuration_loading_logging(
     turn_count=st.integers(min_value=1, max_value=100),
     random_value=st.floats(min_value=0.0, max_value=1.0),
 )
-@property_test_settings(max_examples=30, suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(max_examples=20, suppress_health_check=[HealthCheck.filter_too_much])  # Reduced from 30 for performance
 def test_property_24_probability_check_logging(
     probability: float,
     turn_count: int,

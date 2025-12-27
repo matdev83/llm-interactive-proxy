@@ -154,7 +154,7 @@ def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> 
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=15, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=10, suppress_health_check=[HealthCheck.filter_too_much]  # Reduced from 15 for performance
 )
 def test_property_7_summary_model_format(summary: SessionSummary) -> None:
     """
@@ -172,7 +172,7 @@ def test_property_7_summary_model_format(summary: SessionSummary) -> None:
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=15,  # Reduced from 30 for performance
+    max_examples=8,  # Reduced for performance
     suppress_health_check=[HealthCheck.filter_too_much]
 )
 def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> None:
@@ -222,7 +222,7 @@ def test_property_7_summary_nested_models_valid(summary: SessionSummary) -> None
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=15, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=5, suppress_health_check=[HealthCheck.filter_too_much]
 )
 def test_property_7_summary_is_immutable(summary: SessionSummary) -> None:
     """

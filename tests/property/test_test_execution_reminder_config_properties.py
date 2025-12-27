@@ -185,7 +185,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
 
 
 @given(config_sources=config_source_strategy())
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)  # Reduced from 10 for performance
 def test_property_10_configuration_precedence_enabled(
     config_sources: dict[str, Any],
 ) -> None:

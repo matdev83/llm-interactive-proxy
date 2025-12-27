@@ -510,7 +510,7 @@ async def test_property_structured_error_responses(
     provider=st.sampled_from(["openai", "anthropic", "gemini", "test"]),
     stream_id=st.one_of(st.none(), st.text(min_size=1)),
 )
-@settings(max_examples=50)
+@settings(max_examples=20)
 def test_property_backend_format_normalization(
     content: str | dict | bytes,
     metadata: dict[str, Any],

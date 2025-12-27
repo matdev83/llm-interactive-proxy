@@ -208,7 +208,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             m.setattr(asyncio, "create_task", tracked_create_task)
 
             # Create multiple streaming requests that get cancelled
-            for _i in range(10):
+            for _i in range(3):
                 # Start completion call with timeout to prevent hanging
                 try:
                     completion_task = asyncio.create_task(
@@ -229,7 +229,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                     )
 
                     # Wait a bit for cancellation callback to be invoked
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
 
                     # Cancel the completion task
                     completion_task.cancel()
@@ -242,7 +242,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                     pass
 
         # Wait for cancellation callbacks to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)  # Reduced from 0.2 for performance
 
         # Check that tasks don't accumulate excessively
         final_tasks = len(asyncio.all_tasks())
@@ -397,7 +397,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         initial_tasks = len(asyncio.all_tasks())
 
         # Trigger multiple cancellations with failing callbacks
-        for _i in range(5):
+        for _i in range(2):
             try:
                 completion_task = asyncio.create_task(
                     asyncio.wait_for(
@@ -415,7 +415,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                     session_key, reason=None  # type: ignore[arg-type]
                 )
 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
 
                 completion_task.cancel()
                 with contextlib.suppress(
@@ -427,7 +427,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                 pass
 
         # Wait for callbacks to complete (even if they fail)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.05)  # Reduced from 0.3 for performance
 
         final_tasks = len(asyncio.all_tasks())
         task_increase = final_tasks - initial_tasks

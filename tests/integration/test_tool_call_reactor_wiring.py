@@ -20,7 +20,7 @@ async def test_tool_call_reactor_handlers_are_wired_up(
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)  # Allow time for handlers to register
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -74,7 +74,7 @@ async def test_pytest_context_saving_handler_wires_when_enabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -102,7 +102,7 @@ async def test_reactor_middleware_only_processes_new_tool_calls():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -174,7 +174,7 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -224,7 +224,7 @@ async def test_all_reactor_handlers_work_with_filtering():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -294,7 +294,7 @@ async def test_droid_path_fix_handler_wires_when_enabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -319,7 +319,7 @@ async def test_droid_path_fix_handler_not_wired_when_disabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -362,7 +362,7 @@ async def test_unified_steering_policy_priority_overrides():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)  # Allow time for handlers to register
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
 
     from src.services.steering import UnifiedSteeringHandler
@@ -402,7 +402,7 @@ async def test_unified_steering_legacy_log_enabled(
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
 
     from src.services.steering import UnifiedSteeringHandler
@@ -430,7 +430,7 @@ async def test_unified_steering_emits_both_log_formats_when_legacy_enabled(
     config = app_config_legacy_log_enabled
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
 
     reactor_middleware = service_provider.get_required_service(
@@ -486,7 +486,7 @@ async def test_unified_steering_emits_only_structured_log_when_legacy_disabled(
     config = app_config_legacy_log_disabled
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
     service_provider = app.state.service_provider
 
     reactor_middleware = service_provider.get_required_service(

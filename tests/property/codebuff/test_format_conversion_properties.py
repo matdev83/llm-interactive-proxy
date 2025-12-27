@@ -71,7 +71,7 @@ def session_state(draw):
 
 
 @given(messages=codebuff_messages(), state=session_state())
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=10, deadline=None)
 def test_property_6_format_conversion_validity(messages, state, format_converter):
     """
     Feature: codebuff-backend-compatibility, Property 6: Format conversion validity
@@ -109,7 +109,7 @@ def test_property_6_format_conversion_validity(messages, state, format_converter
 
 
 @given(messages=codebuff_messages(), state=session_state())
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=15, deadline=None)  # Reduced from 30 for performance
 def test_property_6_conversion_preserves_count(messages, state, format_converter):
     """
     Property 6 extension: Conversion should preserve message count.
@@ -130,7 +130,7 @@ def test_property_6_conversion_preserves_count(messages, state, format_converter
     content=st.text(min_size=0, max_size=100),
     state=session_state(),
 )
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=15, deadline=None)  # Reduced from 30 for performance
 def test_property_6_role_content_passthrough(role, content, state, format_converter):
     """
     Property 6 extension: Messages already in OpenAI format should pass through.

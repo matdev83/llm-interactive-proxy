@@ -272,6 +272,15 @@ class ToolCallRepairService(IToolCallRepairService):
         """Helper to process a detected JSON string."""
         try:
             # DoS protection: Check JSON size before parsing
+            if len(json_string) > MAX_JSON_PARSE_SIZE:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Tool call JSON too large for repair (%d characters, limit: %d bytes)",
+                        len(json_string),
+                        MAX_JSON_PARSE_SIZE,
+                    )
+                return None
+
             json_size = len(json_string.encode("utf-8"))
             if json_size > MAX_JSON_PARSE_SIZE:
                 if logger.isEnabledFor(logging.WARNING):
@@ -329,18 +338,28 @@ class ToolCallRepairService(IToolCallRepairService):
             stripped_args = args_string.strip()
             try:
                 # DoS protection: Check JSON size before parsing
-                args_size = len(stripped_args.encode("utf-8"))
-                if args_size > MAX_JSON_PARSE_SIZE:
+                if len(stripped_args) > MAX_JSON_PARSE_SIZE:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Tool call arguments too large for repair (%d bytes, limit: %d bytes)",
-                            args_size,
+                            "Tool call arguments too large for repair (%d characters, limit: %d bytes)",
+                            len(stripped_args),
                             MAX_JSON_PARSE_SIZE,
                         )
                     arguments = json.dumps({"args": stripped_args})
                 else:
+                    args_size = len(stripped_args.encode("utf-8"))
+                    if args_size > MAX_JSON_PARSE_SIZE:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Tool call arguments too large for repair (%d bytes, limit: %d bytes)",
+                                args_size,
+                                MAX_JSON_PARSE_SIZE,
+                            )
+                        arguments = json.dumps({"args": stripped_args})
+                    else:
+                        # Parse JSON to validate it, then use original string to avoid round-trip
+                        json.loads(stripped_args)
                     # Parse JSON to validate it, then use original string to avoid round-trip
-                    json.loads(stripped_args)
                 arguments = (
                     stripped_args
                     if stripped_args.startswith(("{", "["))

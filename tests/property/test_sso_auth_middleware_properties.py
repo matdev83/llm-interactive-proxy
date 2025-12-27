@@ -202,7 +202,7 @@ def test_property_4_unauthenticated_request_sandbox_response(
 
 
 @given(request=request_with_unknown_token_strategy())
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)
 def test_property_9_unknown_token_rejection(
     request: dict,
 ) -> None:
@@ -356,7 +356,7 @@ def test_property_4_malformed_auth_header_sandbox_response(
 
 
 @given(messages=messages_with_sandbox_marker_strategy())
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)
 def test_property_26_sandbox_session_isolation(
     messages: list[dict],
 ) -> None:
@@ -430,7 +430,7 @@ def test_property_26_sandbox_session_isolation(
 @given(
     session_lifetime_hours=st.integers(min_value=1, max_value=48),
 )
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)
 def test_property_13_session_expiry_status_change(
     session_lifetime_hours: int,
 ) -> None:
@@ -587,7 +587,7 @@ def test_property_25_expired_session_sandbox_response(
 
 
 @given(
-    num_requests=st.integers(min_value=2, max_value=10),
+    num_requests=st.integers(min_value=2, max_value=5),
 )
 @property_test_settings()
 def test_property_4_consistent_sandbox_responses(

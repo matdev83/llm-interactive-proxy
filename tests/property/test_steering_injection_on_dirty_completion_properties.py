@@ -92,7 +92,7 @@ def session_id_strategy(draw: Any) -> str:
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
 async def test_property_5_steering_injection_on_dirty_completion(
     file_tool: str,
     completion_signal: tuple[str, dict[str, Any], str | None],
@@ -189,7 +189,7 @@ async def test_property_5_steering_injection_on_dirty_completion(
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced for performance
 async def test_property_5_custom_steering_message(
     file_tool: str,
     completion_signal: tuple[str, dict[str, Any], str | None],
@@ -249,7 +249,7 @@ async def test_property_5_custom_steering_message(
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)
 async def test_property_5_default_steering_message(
     file_tool: str,
     completion_signal: tuple[str, dict[str, Any], str | None],
@@ -377,7 +377,7 @@ async def test_property_5_multiple_modifications_before_completion(
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced for performance
 async def test_property_5_metadata_includes_tool_name(
     file_tool: str,
     completion_signal: tuple[str, dict[str, Any], str | None],

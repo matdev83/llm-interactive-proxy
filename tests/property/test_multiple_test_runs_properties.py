@@ -301,7 +301,7 @@ async def test_property_13_no_errors_during_multiple_test_runs(
     test_commands=st.lists(execution_command_strategy(), min_size=2, max_size=10),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=20)
+@property_test_settings(max_examples=10)  # Reduced from 20 for performance
 async def test_property_13_test_timestamps_update_correctly(
     test_commands: list[str], session_id: str
 ) -> None:

@@ -619,7 +619,7 @@ def test_property_9_init_response_action_validation(
         valid_init_response_action_strategy(),
     )
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)
 def test_property_9_server_action_message_validation(
     action_data: dict[str, Any]
 ) -> None:

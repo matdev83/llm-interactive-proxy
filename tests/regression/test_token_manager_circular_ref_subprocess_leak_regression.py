@@ -98,9 +98,9 @@ async def test_cleanup_explicitly_prevents_leak_with_circular_ref() -> None:
 
     # Launch subprocess
     if sys.platform == "win32":
-        cmd = ["python", "-c", "import time; time.sleep(1)"]
+        cmd = ["python", "-c", "import time; time.sleep(0.2)"]  # Reduced from 1
     else:
-        cmd = ["python3", "-c", "import time; time.sleep(1)"]
+        cmd = ["python3", "-c", "import time; time.sleep(0.2)"]  # Reduced from 1
 
     try:
         process = subprocess.Popen(

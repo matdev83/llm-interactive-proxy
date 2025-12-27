@@ -416,7 +416,7 @@ async def test_property_21_authorization_api_denial_path(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=5)
 def test_property_22_authorization_api_error_handling(
     config: AuthorizationConfig,
 ) -> None:

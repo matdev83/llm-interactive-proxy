@@ -269,7 +269,7 @@ async def test_property_4_text_preserved_through_accumulation(
 
 
 @given(text_chunks=st.lists(openai_text_chunk_strategy(), min_size=2, max_size=5))
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 @pytest.mark.asyncio
 async def test_property_4_multiple_text_chunks_accumulated(
     text_chunks: list[dict[str, Any]],
@@ -467,7 +467,7 @@ def openai_chunk_with_text_and_tool_calls_strategy(draw: Any) -> dict[str, Any]:
 
 
 @given(chunk=openai_chunk_with_text_and_tool_calls_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 def test_property_5_openai_format_preserves_both(
     chunk: dict[str, Any],
 ) -> None:

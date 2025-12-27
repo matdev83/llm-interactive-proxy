@@ -104,7 +104,7 @@ def create_ping_message(txid: int = 2) -> str:
 
 @pytest.mark.asyncio
 @given(session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True))
-@settings(max_examples=15, deadline=None)
+@settings(max_examples=10, deadline=None)  # Reduced from 15 for performance
 async def test_property_19_session_isolation(
     session_ids: list[str], mock_server_components
 ) -> None:
@@ -164,7 +164,7 @@ async def test_property_19_session_isolation(
     session_ids=st.lists(session_id_strategy, min_size=2, max_size=5, unique=True),
     operation_count=st.integers(min_value=1, max_value=3),
 )
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=10, deadline=None)  # Reduced from 30 for performance
 async def test_property_20_operation_isolation(
     session_ids: list[str], operation_count: int
 ) -> None:

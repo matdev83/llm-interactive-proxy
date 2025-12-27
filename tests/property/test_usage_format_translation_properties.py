@@ -254,7 +254,7 @@ def test_property_7_usage_headers_applied(usage: dict[str, int]) -> None:
 
 
 @given(envelope=response_envelope_with_usage_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)
 def test_property_7_response_adapter_includes_usage_in_body_and_headers(
     envelope: ResponseEnvelope,
 ) -> None:

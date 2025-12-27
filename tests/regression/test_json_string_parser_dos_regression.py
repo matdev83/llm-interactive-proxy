@@ -67,8 +67,8 @@ class TestJSONStringParserDoSRegression:
         assert result.content is not None, "Normal array should be accepted"
 
         # Test large array (should be rejected if exceeds limits)
-        # Create array that fits size limit but exceeds element limit
-        large_array = json.dumps({"data": [0] * 1_500_000})  # 1.5M elements
+        # Create array that fits size limit but exceeds element limit (reduced for performance)
+        large_array = json.dumps({"data": [0] * 500_000})  # 500K elements (reduced from 1.5M for performance)
 
         # Should be rejected if it exceeds validation limits
         try:

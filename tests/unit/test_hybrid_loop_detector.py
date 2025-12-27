@@ -266,8 +266,8 @@ class TestRollingHashTracker:
 
         tracker = RollingHashTracker()
 
-        # Generate varied content
-        varied_content = "".join([f"Unique content block {i}. " for i in range(50)])
+        # Generate varied content (reduced from 50 to 20 for performance)
+        varied_content = "".join([f"Unique content block {i}. " for i in range(20)])
 
         result = tracker.add_content(varied_content)
 

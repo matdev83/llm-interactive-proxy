@@ -44,6 +44,24 @@ class AppConfig(AppConfigModel):
     that retains legacy convenience methods and factories.
     """
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Backward-compatible initializer.
+
+        Pydantic v2 models accept only keyword arguments; older call sites (and
+        tests) sometimes pass a single mapping positionally (e.g. `AppConfig({})`).
+        """
+        if args:
+            if len(args) != 1:
+                raise TypeError("AppConfig accepts at most one positional argument")
+            if not isinstance(args[0], Mapping):
+                raise TypeError(
+                    "AppConfig positional argument must be a mapping of fields"
+                )
+            positional = dict(cast(Mapping[str, Any], args[0]))
+            positional.update(kwargs)
+            kwargs = positional
+        super().__init__(**kwargs)
+
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         p = Path(path)

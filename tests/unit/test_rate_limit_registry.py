@@ -62,14 +62,14 @@ class TestRateLimitRegistry:
         backend, model, key = "openai", "gpt-4", "user1"
 
         # Set a very short delay
-        registry.set(backend, model, key, 0.1)
+        registry.set(backend, model, key, 0.05)  # Reduced from 0.1 for faster test
 
         # Should return the delay initially
         result = registry.get(backend, model, key)
         assert result is not None
 
         # Wait for expiration
-        time.sleep(0.2)
+        time.sleep(0.1)  # Reduced from 0.2 for faster test
 
         # Should return None and clean up the entry
         result = registry.get(backend, model, key)

@@ -67,7 +67,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
     )
 
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.02
+        chunks=reasoning_chunks, chunk_delay=0.01
     )
 
     # Execution backend (won't be called in this test)
@@ -144,7 +144,7 @@ async def test_hybrid_execution_phase_streaming() -> None:
         execution_text, chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.02
+        chunks=execution_chunks, chunk_delay=0.005
     )
 
     app = build_test_app()
@@ -201,7 +201,7 @@ async def test_hybrid_combined_streaming() -> None:
         reasoning_text, "Initial thoughts"
     )
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.02
+        chunks=reasoning_chunks, chunk_delay=0.005
     )
 
     execution_text = "Final comprehensive answer based on reasoning"
@@ -209,7 +209,7 @@ async def test_hybrid_combined_streaming() -> None:
         execution_text, chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.02
+        chunks=execution_chunks, chunk_delay=0.005
     )
 
     app = build_test_app()
@@ -269,7 +269,7 @@ async def test_hybrid_with_tool_calls_streaming() -> None:
     # Reasoning phase with tool call
     reasoning_chunks = OpenAIStreamingEmulator.create_tool_call_chunks()
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.02
+        chunks=reasoning_chunks, chunk_delay=0.01
     )
 
     # Execution phase after tool call

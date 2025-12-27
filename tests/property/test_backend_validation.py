@@ -46,7 +46,9 @@ def backend_model_strategy(draw: st.DrawFn) -> str:
     backend_model=backend_model_strategy(),
     turn_count=st.integers(min_value=1, max_value=100),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=20, suppress_health_check=[HealthCheck.filter_too_much]
+)
 def test_property_4_registered_backend_validation(
     probability: float, backend_model: str, turn_count: int
 ) -> None:

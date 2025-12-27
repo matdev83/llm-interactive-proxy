@@ -38,8 +38,8 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         # Start persistence thread
         store.start_persistence_thread()
 
-        # Wait a bit to ensure thread started
-        time.sleep(0.15)
+        # Wait a bit to ensure thread started (reduced wait time)
+        time.sleep(0.05)  # Reduced from 0.15 for performance
 
         # Verify thread is running
         assert store._flush_thread is not None, "Persistence thread should exist"
@@ -53,8 +53,8 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         # Stop persistence thread
         store.stop_persistence_thread()
 
-        # Wait for thread to stop
-        time.sleep(0.2)
+        # Wait for thread to stop (reduced wait time)
+        time.sleep(0.1)  # Reduced from 0.2 for performance
 
         # Verify thread is stopped
         assert (
@@ -114,19 +114,19 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         """Test rapid start/stop cycles don't leak threads."""
         threads_before = threading.active_count()
 
-        # Rapidly create, start, and stop stores
-        for i in range(5):
+        # Rapidly create, start, and stop stores (reduced from 5 to 3 for performance)
+        for i in range(3):
             store = InMemoryUsageStore(
                 persistence_path=temp_dir / f"test_usage_store_{i}.json",
                 flush_interval_seconds=0.5,
             )
             store.start_persistence_thread()
-            time.sleep(0.01)  # Small delay to let thread start
+            time.sleep(0.005)  # Reduced from 0.01
             store.stop_persistence_thread()
-            time.sleep(0.01)  # Small delay to let thread stop
+            time.sleep(0.005)  # Reduced from 0.01
 
-        # Wait for all threads to stop
-        time.sleep(0.2)
+        # Wait for all threads to stop (reduced from 0.2 to 0.1)
+        time.sleep(0.1)
 
         threads_after = threading.active_count()
         # Allow margin for other threads
@@ -143,11 +143,11 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         )
 
         store.start_persistence_thread()
-        time.sleep(0.1)
+        time.sleep(0.01)  # Reduced from 0.1 for performance
 
         # Stop first time
         store.stop_persistence_thread()
-        time.sleep(0.1)
+        time.sleep(0.01)  # Reduced from 0.1 for performance
 
         # Stop second time (should be safe)
         store.stop_persistence_thread()

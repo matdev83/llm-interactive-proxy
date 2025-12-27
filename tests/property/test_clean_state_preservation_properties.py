@@ -96,7 +96,7 @@ def non_modification_tool_strategy(draw: Any) -> str:
     test_command=execution_command_strategy(),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 async def test_property_3_test_execution_in_clean_state_remains_clean(
     test_command: str, session_id: str
 ) -> None:

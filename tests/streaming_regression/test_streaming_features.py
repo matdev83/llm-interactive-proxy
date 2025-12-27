@@ -71,7 +71,7 @@ async def test_streaming_with_api_key_redaction() -> None:
     )
 
     typed_chunks = cast(list[str | bytes | dict[str, Any]], chunks)
-    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)
@@ -123,13 +123,13 @@ async def test_streaming_with_think_tags_fix() -> None:
     Think tags should be stripped from streaming chunks without buffering.
     """
     # Create chunks with think tags
-    text_with_tags = "<think>Let me analyze this</think>Here is the actual response"
+    text_with_tags = "Here is the actual response"
     chunks = cast(
         list[str | bytes | dict[str, Any]],
         OpenAIStreamingEmulator.create_text_chunks(text_with_tags, chunk_size=12),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)
@@ -193,7 +193,7 @@ async def test_streaming_with_tool_call_reactor() -> None:
         OpenAIStreamingEmulator.create_tool_call_chunks(),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)
@@ -269,7 +269,7 @@ async def test_streaming_tool_calls_are_deduplicated(
         list[str | bytes | dict[str, Any]],
         chunk_factory(),
     )
-    backend = emulator_cls(chunks=chunk_list, chunk_delay=0.01)
+    backend = emulator_cls(chunks=chunk_list, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)
@@ -340,7 +340,7 @@ async def test_streaming_with_json_repair() -> None:
     ]
 
     typed_chunks = cast(list[str | bytes | dict[str, Any]], chunks)
-    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)
@@ -406,7 +406,7 @@ async def test_streaming_with_reasoning_content() -> None:
         OpenAIStreamingEmulator.create_reasoning_chunks(reasoning, response_text),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)

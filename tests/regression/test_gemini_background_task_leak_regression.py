@@ -9,7 +9,6 @@ of background task cleanup in Gemini connectors.
 """
 
 import asyncio
-import contextlib
 
 import pytest
 
@@ -18,13 +17,13 @@ try:
     import importlib.util
 
     spec = importlib.util.find_spec("src.connectors.gemini_base.connector")
-    GEMINI_CONNECTOR_AVAILABLE = spec is not None
+    gemini_connector_available = spec is not None
 except ImportError:
-    GEMINI_CONNECTOR_AVAILABLE = False
+    gemini_connector_available = False
 
 
 @pytest.mark.skipif(
-    not GEMINI_CONNECTOR_AVAILABLE,
+    not gemini_connector_available,
     reason="Gemini connector classes not available",
 )
 class TestGeminiBackgroundTaskLeakRegression:
@@ -41,25 +40,16 @@ class TestGeminiBackgroundTaskLeakRegression:
         # Create some background tasks to simulate connector behavior
         background_tasks = []
 
-        for _i in range(5):
+        for _i in range(3):  # Reduced from 5 for performance
 
             async def background_operation():
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.0001)  # Reduced from 0.001 for performance
 
             task = asyncio.create_task(background_operation())
             background_tasks.append(task)
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.2)
-
-        # Clean up tasks
-        for task in background_tasks:
-            if not task.done():
-                task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-        await asyncio.sleep(0.1)
+        await asyncio.gather(*background_tasks, return_exceptions=True)
 
         # Check final task count
         final_tasks = len(asyncio.all_tasks())
@@ -80,27 +70,18 @@ class TestGeminiBackgroundTaskLeakRegression:
 
         initial_tasks = len(asyncio.all_tasks())
 
-        # Simulate file watcher task creation
+        # Simulate file watcher task creation (reduced sleep and count for performance)
         file_watcher_tasks = []
 
         for _i in range(3):
 
             async def file_watcher_operation():
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
 
             task = asyncio.create_task(file_watcher_operation())
             file_watcher_tasks.append(task)
 
-        await asyncio.sleep(0.2)
-
-        # Clean up
-        for task in file_watcher_tasks:
-            if not task.done():
-                task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-        await asyncio.sleep(0.2)
+        await asyncio.gather(*file_watcher_tasks, return_exceptions=True)
 
         final_tasks = len(asyncio.all_tasks())
         task_increase = final_tasks - initial_tasks

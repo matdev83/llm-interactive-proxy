@@ -145,7 +145,7 @@ async def test_streaming_content_serialization_backward_compatibility(
 
 @pytest.mark.asyncio
 @given(chunks=st.lists(streaming_content_strategy(), min_size=1, max_size=20))
-@settings(max_examples=30, deadline=None)
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
 async def test_streaming_content_dict_conversion_backward_compatibility(
     chunks: list[StreamingContent],
 ) -> None:

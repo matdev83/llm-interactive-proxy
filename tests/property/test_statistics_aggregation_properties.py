@@ -86,8 +86,8 @@ def usage_record_list_strategy(draw, min_size=1, max_size=50):
 # Property 4: Request/Response Counter Consistency
 # Feature: detailed-usage-tracking, Property 4: Request/Response Counter Consistency
 # Validates: Requirements 2.1, 2.2, 2.3, 2.4
-@settings(max_examples=20, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=20))
+@settings(max_examples=10, deadline=None)  # Reduced from 20 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=10))  # Reduced max_size from 20
 def test_request_response_counter_consistency(records, temp_dir_module, store_counter):
     """Property 4: Request/Response Counter Consistency.
 
@@ -128,8 +128,8 @@ def test_request_response_counter_consistency(records, temp_dir_module, store_co
 # Property 6: Tool Call Aggregation Correctness
 # Feature: detailed-usage-tracking, Property 6: Tool Call Aggregation Correctness
 # Validates: Requirements 3.4
-@settings(max_examples=30, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=30))
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=20))  # Reduced from 30
 def test_tool_call_aggregation_correctness(records, temp_dir_module, store_counter):
     """Property 6: Tool Call Aggregation Correctness.
 
@@ -277,10 +277,10 @@ def test_turn_counter_accuracy(records, temp_dir_module, store_counter):
 # Property 9: Tokens Per Session Calculation
 # Feature: detailed-usage-tracking, Property 9: Tokens Per Session Calculation
 # Validates: Requirements 4.3
-@settings(max_examples=30, deadline=None)  # Reduced from 50 for performance
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
 @given(
-    records=usage_record_list_strategy(min_size=1, max_size=30)
-)  # Reduced from 50 for performance
+    records=usage_record_list_strategy(min_size=1, max_size=20)
+)  # Reduced from 30 for performance
 def test_tokens_per_session_calculation(records, temp_dir_module, store_counter):
     """Property 9: Tokens Per Session Calculation.
 

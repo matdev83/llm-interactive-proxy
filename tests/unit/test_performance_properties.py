@@ -5,7 +5,6 @@ This module contains property-based tests for performance characteristics
 of the streaming pipeline, focusing on memory usage and incremental processing.
 """
 
-import asyncio
 import gc
 import tracemalloc
 from typing import Any
@@ -168,8 +167,7 @@ class TestConstantMemoryUsage:
                     current_memory = tracemalloc.get_traced_memory()[0]
                     memory_samples.append(current_memory)
 
-                # Yield to event loop
-                await asyncio.sleep(0)
+                # Removed unnecessary sleep - async iterator already yields control
 
             # Get final memory
             final_memory = tracemalloc.get_traced_memory()[0]
@@ -260,8 +258,7 @@ class TestConstantMemoryUsage:
                 current_memory = tracemalloc.get_traced_memory()[0]
                 peak_memory = max(peak_memory, current_memory)
 
-                # Yield to event loop
-                await asyncio.sleep(0)
+                # Removed unnecessary sleep - async generator already yields control
 
             # Calculate memory overhead
             memory_overhead = peak_memory - baseline_memory
@@ -328,12 +325,11 @@ class TestIncrementalMiddlewareProcessing:
         # Track when chunks are yielded
         processed_chunks = []
 
-        # Process chunks through middleware
+        # Process chunks through middleware (removed unnecessary sleep for performance)
         processed_count = 0
         async for chunk in self._process_chunks_through_middleware(chunks, processor):
             processed_chunks.append(chunk)
             processed_count += 1
-            await asyncio.sleep(0)
 
         # Verify all chunks were processed
         assert processed_count == len(chunks), "Not all chunks were processed"
@@ -396,7 +392,7 @@ class TestIncrementalMiddlewareProcessing:
                 current_memory = tracemalloc.get_traced_memory()[0]
                 peak_memory = max(peak_memory, current_memory)
 
-                await asyncio.sleep(0)
+                # Removed unnecessary sleep - async generator already yields control
 
             # Calculate memory overhead
             memory_overhead = peak_memory - baseline_memory
@@ -462,10 +458,9 @@ class TestIncrementalMiddlewareProcessing:
         # Track yielding behavior
         processed_chunks = []
 
-        # Process through chain
+        # Process through chain (removed unnecessary sleep for performance)
         async for chunk in self._process_through_chain(chunks, processors):
             processed_chunks.append(chunk)
-            await asyncio.sleep(0)
 
         # Verify all chunks were processed
         assert len(processed_chunks) == len(chunks), (

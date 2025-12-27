@@ -28,14 +28,14 @@ class TestFileWatcherMemoryLeakRegression:
         # Get initial task count
         initial_tasks = len(asyncio.all_tasks())
 
-        # Schedule multiple reload tasks rapidly
-        for _i in range(10):
+        # Schedule multiple reload tasks rapidly (reduced for performance)
+        for _i in range(5):  # Reduced from 10
             FileWatcher.schedule_credentials_reload(
                 state, mock_reload_callback, mock_stop_callback
             )
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.08)  # Reduced from 0.15
 
         # Check final task count
         final_tasks = len(asyncio.all_tasks())
@@ -58,7 +58,7 @@ class TestFileWatcherMemoryLeakRegression:
         async def mock_reload_callback() -> None:
             nonlocal call_count
             call_count += 1
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.005)
 
         def mock_stop_callback() -> None:
             pass
@@ -69,7 +69,7 @@ class TestFileWatcherMemoryLeakRegression:
         )
 
         # Wait for task to complete
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.02)
 
         # Task should be cleaned up
         assert (
@@ -90,20 +90,20 @@ class TestFileWatcherMemoryLeakRegression:
         async def mock_reload_callback() -> None:
             nonlocal call_count
             call_count += 1
-            await asyncio.sleep(0.05)  # Longer sleep to test concurrent scheduling
+            await asyncio.sleep(0.02)  # Reduced from 0.05
 
         def mock_stop_callback() -> None:
             pass
 
         # Schedule multiple reloads rapidly (should debounce)
-        for _ in range(10):
+        for _ in range(5):  # Reduced from 10
             FileWatcher.schedule_credentials_reload(
                 state, mock_reload_callback, mock_stop_callback
             )
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.005)  # Reduced from 0.01
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.1)  # Reduced from 0.3
 
         # Should not have multiple concurrent tasks
         # Due to debouncing and cleanup, we expect at most 1-2 calls

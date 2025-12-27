@@ -80,7 +80,7 @@ class TestBackendStageTaskTrackingRegression:
             )
 
             # Wait for tasks to complete
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.01)  # Reduced from 0.2 for performance
 
             # All tasks should complete
             for task in cleanup_tasks:

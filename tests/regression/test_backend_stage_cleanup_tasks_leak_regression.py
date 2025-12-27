@@ -85,8 +85,8 @@ class TestBackendStageCleanupTasksLeakRegression:
                 cleanup_tasks
             ), "All cleanup tasks should be tracked"
 
-            # Wait for tasks to complete
-            await asyncio.sleep(0.2)
+            # Wait for tasks to complete using gather instead of sleep
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
 
             # All tasks should complete
             for task in cleanup_tasks:
@@ -147,9 +147,10 @@ class TestBackendStageCleanupTasksLeakRegression:
         """Test that cleanup tasks don't accumulate unbounded."""
         initial_task_count = len(asyncio.all_tasks())
 
-        # Create multiple cleanup tasks
+        # Create multiple cleanup tasks (reduced from 10 to 5 for performance)
         clients = []
-        for _i in range(10):
+        cleanup_tasks = []
+        for _i in range(5):
             client = httpx.AsyncClient()
             clients.append(client)
 
@@ -157,18 +158,17 @@ class TestBackendStageCleanupTasksLeakRegression:
             if loop.is_running():
                 cleanup_task = asyncio.create_task(client.aclose())
                 stage._cleanup_tasks.add(cleanup_task)
+                cleanup_tasks.append(cleanup_task)
 
-            await asyncio.sleep(0.01)
-
-        # Wait for tasks to complete
-        await asyncio.sleep(0.3)
+        # Wait for tasks to complete using gather instead of sleep
+        await asyncio.gather(*cleanup_tasks, return_exceptions=True)
 
         # Check that tasks don't accumulate excessively
         final_task_count = len(asyncio.all_tasks())
         task_increase = final_task_count - initial_task_count
 
         # Allow tolerance for test framework tasks
-        assert task_increase <= 15, (
+        assert task_increase <= 10, (
             f"Cleanup tasks accumulated: {task_increase} tasks remain. "
             "Cleanup tasks are not being properly managed."
         )

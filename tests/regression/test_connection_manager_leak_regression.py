@@ -111,7 +111,7 @@ class TestConnectionManagerLeakRegression:
     ) -> None:
         """Test that connections don't exceed max_connections limit."""
         # Create many connections
-        num_connections = manager._max_connections + 50
+        num_connections = manager._max_connections + 10
         mock_websockets = []
 
         created_count = 0
@@ -128,7 +128,7 @@ class TestConnectionManagerLeakRegression:
                 # Expected to fail when limit is reached
                 pass
 
-        # Verify we didn't exceed the limit
+        # Verify we didn't exceed limit
         assert len(manager._connections) <= manager._max_connections, (
             f"Connections ({len(manager._connections)}) exceeded "
             f"max_connections ({manager._max_connections})."

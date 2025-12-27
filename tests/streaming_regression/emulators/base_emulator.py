@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 from src.connectors.base import LLMBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -26,7 +29,7 @@ class StreamingEmulatorBase(LLMBackend):
 
     def __init__(
         self,
-        chunks: list[str | bytes | dict],
+        chunks: Sequence[str | bytes | dict[str, Any]],
         chunk_delay: float = 0.01,
         config: AppConfig | None = None,
     ) -> None:
@@ -42,17 +45,19 @@ class StreamingEmulatorBase(LLMBackend):
 
             config = create_test_config()
         super().__init__(config=config)
-        self.chunks = chunks
+        self.chunks = list(chunks)
         self.chunk_delay = chunk_delay
         self.chunk_timestamps: list[float] = []
         self.chunks_sent = 0
 
     async def chat_completions(
         self,
-        request_data: Any,
-        processed_messages: list,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        processed_messages: list[Any],
         effective_model: str,
-        identity: Any = None,
+        identity: IAppIdentityConfig | None = None,
+        cancellation_token: SessionKey | None = None,
+        cancellation_coordinator: Any | None = None,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Simulate streaming chat completion."""
@@ -70,11 +75,16 @@ class StreamingEmulatorBase(LLMBackend):
             for chunk in self.chunks:
                 # Simulate network delay
                 if self.chunk_delay > 0:
+                    start = time.perf_counter()
                     await asyncio.sleep(self.chunk_delay)
+                    elapsed = time.perf_counter() - start
+                    remaining = self.chunk_delay - elapsed
+                    if remaining > 0:
+                        await asyncio.to_thread(time.sleep, remaining)
 
                 # Record timestamp after delay, right before yielding
                 # This reflects when chunks are actually sent, not when they're queued
-                self.chunk_timestamps.append(time.time())
+                self.chunk_timestamps.append(time.perf_counter())
 
                 # Convert to ProcessedResponse
                 if isinstance(chunk, bytes):

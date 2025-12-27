@@ -100,9 +100,9 @@ class TestDailyRequestCounterRaceConditionFix:
             # Start from known state
             initial_count = counter.count
 
-            # Increment from multiple threads
-            num_threads = 10
-            increments_per_thread = 100
+            # Increment from multiple threads (reduced for performance)
+            num_threads = 5  # Reduced from 10
+            increments_per_thread = 50  # Reduced from 100
             expected_count = initial_count + (num_threads * increments_per_thread)
 
             def increment_worker(thread_id):

@@ -66,7 +66,7 @@ def _build_error(error_type: str) -> Exception:
 
 
 @given(chunk=streaming_content_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)
 def test_property_1_and_3_streaming_content_validation(chunk: StreamingContent) -> None:
     """
     Property 1 & 3: Chunk validation and metadata schema conformance.
@@ -117,7 +117,7 @@ async def test_property_17_stream_normalizer_preserves_structure(
 
 
 @given(chunk=streaming_content_with_reasoning_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 def test_property_18_reasoning_isolation(chunk: StreamingContent) -> None:
     """
     Property 18: Reasoning isolation.
@@ -131,7 +131,7 @@ def test_property_18_reasoning_isolation(chunk: StreamingContent) -> None:
 
 @pytest.mark.asyncio
 @given(chunk=done_streaming_content_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=50)  # Explicitly set to reduce runtime
 async def test_property_19_done_marker_passthrough(chunk: StreamingContent) -> None:
     """
     Property 19: Done marker passthrough.

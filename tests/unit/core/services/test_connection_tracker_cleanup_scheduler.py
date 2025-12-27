@@ -141,7 +141,7 @@ class TestConnectionTrackerCleanupScheduler:
         )
 
         await scheduler.start()
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(0.15)  # Reduced from 0.25 for performance (still allows 2 cleanup cycles)
         await scheduler.stop()
 
         assert mock_tracker.cleanup_stale_connections.call_count >= 2

@@ -222,12 +222,15 @@ def test_property_layer_separation() -> None:
 
     # Check each module's dependencies
     violations = []
-
+    
+    # Pre-compute module layers to avoid repeated path operations
+    module_layers = {}
     for module_path in modules:
-        module_layer = get_layer_for_module(module_path)
-        if not module_layer:
-            continue
+        layer = get_layer_for_module(module_path)
+        if layer:
+            module_layers[module_path] = layer
 
+    for module_path, module_layer in module_layers.items():
         dependencies = get_module_dependencies(module_path)
 
         # Check each dependency

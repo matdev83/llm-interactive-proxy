@@ -74,8 +74,8 @@ class TestToolCallHistoryCleanupLeakRegression:
                     "model_name": "test",
                 },
             )
-            # Small delay to ensure different last_access times
-            await asyncio.sleep(0.01)
+            # Yield control to ensure different last_access times (no actual delay)
+            await asyncio.sleep(0)
 
         # Record which sessions exist before cleanup
         sessions_before = set(tracker._history.keys())

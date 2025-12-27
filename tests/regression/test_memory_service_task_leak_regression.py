@@ -121,8 +121,8 @@ class TestMemoryServiceTaskLeakRegression:
             memory_service._cleanup_tasks.add(cleanup_task1)
             memory_service._cleanup_tasks.add(cleanup_task2)
 
-        # Wait for all tasks to complete (reduced from 0.5s to 0.05s)
-        await asyncio.sleep(0.05)
+        # Wait for all tasks to complete (reduced wait time - tasks complete quickly)
+        await asyncio.sleep(0.01)  # Minimal wait for async operations
 
         # WeakSet should allow garbage collection of completed tasks
         # So the count may decrease, but shouldn't grow unbounded
@@ -162,8 +162,8 @@ class TestMemoryServiceTaskLeakRegression:
         # (exact count depends on implementation, but should be > 0 if eviction happened)
         assert tracked_count >= 0, "Cleanup tasks should be tracked"
 
-        # Wait a bit for tasks to complete (reduced from 0.5s to 0.05s)
-        await asyncio.sleep(0.05)
+        # Wait for tasks to complete (reduced wait time)
+        await asyncio.sleep(0.01)  # Minimal wait for async operations
 
     @pytest.mark.asyncio
     async def test_cleanup_tasks_weakset_allows_gc(

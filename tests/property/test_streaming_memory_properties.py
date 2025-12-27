@@ -11,8 +11,8 @@ from tests.utils.property_test_generators import chunk_stream_with_done_strategy
 
 
 @pytest.mark.asyncio
-@given(chunks=chunk_stream_with_done_strategy(min_size=5, max_size=30))
-@property_test_settings(max_examples=15)
+@given(chunks=chunk_stream_with_done_strategy(min_size=5, max_size=15))
+@property_test_settings(max_examples=10)
 async def test_property_26_constant_memory_usage(chunks) -> None:
     """
     Property 26: Constant memory usage.

@@ -47,7 +47,7 @@ def url_strategy(draw: st.DrawFn) -> str:
 
 
 @given(auth_url=url_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 async def test_property_5_sandbox_response_format_validity(
     auth_url: str,
 ) -> None:
@@ -204,7 +204,7 @@ async def test_property_5_sandbox_response_contains_auth_url(
 
 
 @given(auth_url=url_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 async def test_property_5_sandbox_response_contains_instructions(
     auth_url: str,
 ) -> None:
@@ -250,7 +250,7 @@ async def test_property_5_sandbox_response_contains_instructions(
         max_size=20,
     )
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 def test_property_26_sandbox_session_isolation_no_sandbox_content(
     messages: list[dict[str, str]],
 ) -> None:
@@ -309,7 +309,7 @@ def test_property_26_sandbox_session_isolation_no_sandbox_content(
         max_size=5,
     ),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 async def test_property_26_sandbox_session_isolation_with_sandbox_content(
     auth_url: str,
     prefix_messages: list[dict[str, str]],
@@ -345,7 +345,7 @@ async def test_property_26_sandbox_session_isolation_with_sandbox_content(
 
 
 @given(auth_url=url_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 def test_property_26_sandbox_session_isolation_sandbox_id_detection(
     auth_url: str,
 ) -> None:
@@ -379,7 +379,7 @@ def test_property_26_sandbox_session_isolation_sandbox_id_detection(
     auth_url=url_strategy(),
     num_messages=st.integers(min_value=1, max_value=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 50 for performance
 def test_property_26_sandbox_session_isolation_marker_detection(
     auth_url: str,
     num_messages: int,

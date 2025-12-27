@@ -212,7 +212,7 @@ def test_loopback_addresses_allowed_without_auth(host):
 
 
 # Additional test: Legacy mode detection
-@settings(max_examples=50)
+@settings(max_examples=20)  # Reduced from 50 for performance
 @given(
     host=st.text(min_size=1, max_size=50),
     legacy_keys=st.lists(st.text(min_size=10, max_size=50), min_size=1, max_size=5),

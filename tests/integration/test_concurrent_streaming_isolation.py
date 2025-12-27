@@ -158,7 +158,7 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
                 if text:
                     chunks.append(text)
             # Ensure stream is fully consumed and generator is closed
-            await asyncio.sleep(0.01)  # Reduced from 0.05 for performance
+            await asyncio.sleep(0.005)  # Reduced from 0.01 for performance
             return chunks
 
     try:
@@ -175,10 +175,10 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
     # Give streams time to fully complete and cleanup
     # The finally blocks in async generators execute when the generator is closed
     # Wait for streams to complete and cleanup to happen
-    max_wait = 3  # Reduced from 5 for performance
+    max_wait = 2  # Reduced from 3 for performance
     waited = 0
     while backend.active_sessions and waited < max_wait:
-        await asyncio.sleep(0.02)  # Reduced from 0.05 for performance
+        await asyncio.sleep(0.01)  # Reduced from 0.02 for performance
         waited += 1
 
     # Sessions should be cleaned up after streams complete

@@ -1,7 +1,7 @@
 import logging
 
 import pytest
-from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
+from src.core.config.app_config import AppConfig
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 

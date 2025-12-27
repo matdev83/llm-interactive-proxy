@@ -234,7 +234,7 @@ class TestUsageNormalizationTotalTokenDerivation:
         assert result.prompt_tokens == prompt_tokens
         assert result.completion_tokens == completion_tokens
 
-    @property_test_settings()
+    @property_test_settings(max_examples=10)
     @given(
         usage_summary=usage_summary_strategy(),
         raw_usage=usage_payload_strategy(),

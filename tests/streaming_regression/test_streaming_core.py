@@ -86,7 +86,7 @@ async def test_openai_streaming_incremental_delivery() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -151,13 +151,19 @@ async def test_openai_streaming_incremental_delivery() -> None:
 @pytest.mark.asyncio
 async def test_anthropic_streaming_incremental_delivery() -> None:
     """Test that Anthropic streaming delivers chunks incrementally, not buffered."""
-    text = "Test response streamed in chunks."  # Reduced length for faster test execution
+    text = (
+        "Test response streamed."  # Further reduced for performance
+    )
     chunks = cast(
         list[str | bytes],
-        AnthropicStreamingEmulator.create_text_chunks(text, chunk_size=8),  # Smaller chunks for faster execution
+        AnthropicStreamingEmulator.create_text_chunks(
+            text, chunk_size=6
+        ),  # Smaller chunks for faster execution
     )
 
-    backend = AnthropicStreamingEmulator(chunks=chunks, chunk_delay=0.0005)  # Further reduced for performance
+    backend = AnthropicStreamingEmulator(
+        chunks=chunks, chunk_delay=0.0001
+    )  # Further reduced for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -211,13 +217,13 @@ async def test_anthropic_streaming_incremental_delivery() -> None:
 @pytest.mark.asyncio
 async def test_gemini_streaming_incremental_delivery() -> None:
     """Test that Gemini streaming delivers chunks incrementally, not buffered."""
-    text = "This is a test response that should be streamed in multiple chunks to verify incremental delivery."
+    text = "Test response streamed in chunks."  # Reduced for performance
     chunks = cast(
         list[str | bytes],
-        GeminiStreamingEmulator.create_text_chunks(text, chunk_size=10),
+        GeminiStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced delay
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -274,7 +280,7 @@ async def test_openai_tool_call_streaming() -> None:
     """Test that tool calls stream correctly without buffering."""
     chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

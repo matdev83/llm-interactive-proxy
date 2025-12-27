@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.streaming_regression.emulators.base_emulator import StreamingEmulatorBase
 
 
@@ -11,7 +13,7 @@ class OpenAIStreamingEmulator(StreamingEmulatorBase):
     backend_type = "openai"
 
     @staticmethod
-    def create_text_chunks(text: str, chunk_size: int = 10) -> list[dict]:
+    def create_text_chunks(text: str, chunk_size: int = 10) -> list[dict[str, Any]]:
         """Create realistic OpenAI chunks from text.
 
         Args:
@@ -80,7 +82,7 @@ class OpenAIStreamingEmulator(StreamingEmulatorBase):
         return chunks
 
     @staticmethod
-    def create_tool_call_chunks() -> list[dict]:
+    def create_tool_call_chunks() -> list[dict[str, Any]]:
         """Create OpenAI chunks with tool calls.
 
         Returns:
@@ -148,7 +150,7 @@ class OpenAIStreamingEmulator(StreamingEmulatorBase):
         return chunks
 
     @staticmethod
-    def create_reasoning_chunks(reasoning: str, response: str) -> list[dict]:
+    def create_reasoning_chunks(reasoning: str, response: str) -> list[dict[str, Any]]:
         """Create OpenAI chunks with reasoning content.
 
         Args:

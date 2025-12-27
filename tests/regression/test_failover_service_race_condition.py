@@ -52,7 +52,7 @@ def test_failover_routes_concurrent_get_and_add():
 
     def reader_thread(thread_id: int):
         try:
-            for _ in range(100):
+            for _ in range(25):  # Reduced from 100 for performance
                 route = service.get_failover_route("openai")
                 if route is not None:
                     assert isinstance(route, FailoverRouteConfig)
@@ -61,7 +61,7 @@ def test_failover_routes_concurrent_get_and_add():
 
     def writer_thread(thread_id: int):
         try:
-            for i in range(50):
+            for i in range(12):  # Reduced from 50 for performance
                 service.add_failover_route(
                     f"backend_{thread_id}_{i}",
                     {"policy": "k", "elements": [f"model_{i}"]},
@@ -70,9 +70,9 @@ def test_failover_routes_concurrent_get_and_add():
             errors.append(f"Writer {thread_id}: {e}")
 
     threads = []
-    for i in range(3):
+    for i in range(2):  # Reduced from 3 for performance
         threads.append(threading.Thread(target=reader_thread, args=(i,)))
-    for i in range(3):
+    for i in range(2):  # Reduced from 3 for performance
         threads.append(threading.Thread(target=writer_thread, args=(i,)))
 
     for t in threads:

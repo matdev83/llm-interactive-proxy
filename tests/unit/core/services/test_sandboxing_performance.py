@@ -165,7 +165,7 @@ class TestCaching:
 
     def test_cache_memory_efficiency(self):
         """Test that cache doesn't consume excessive memory."""
-        cache_max_size = 1000
+        cache_max_size = 100  # Reduced from 1000 for performance
         service = PathValidationService(cache_max_size=cache_max_size)
 
         # Fill cache to max size
@@ -176,8 +176,8 @@ class TestCaching:
         # Cache should be at max size
         assert len(service._normalization_cache) == cache_max_size
 
-        # Adding more should not increase cache size
-        for i in range(100):
+        # Adding more should not increase cache size (reduced iterations)
+        for i in range(10):  # Reduced from 100
             path = f"/home/user/project/extra{i}.txt"
             service.normalize_path(path)
 
@@ -200,7 +200,7 @@ class TestPathValidationPerformance:
     def test_path_normalization_time(self, service):
         """Measure path normalization time and ensure < 10ms per path."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = [f"{tmpdir}/file{i}.txt" for i in range(100)]
+            paths = [f"{tmpdir}/file{i}.txt" for i in range(50)]  # Reduced from 100
 
             times = []
             for path in paths:

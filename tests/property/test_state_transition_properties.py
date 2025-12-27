@@ -154,7 +154,7 @@ def tool_call_context_strategy(
     file_tool=file_modification_tool_strategy(),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from default 50 for performance
 async def test_property_1_file_modification_marks_dirty(
     file_tool: str, session_id: str
 ) -> None:

@@ -22,12 +22,15 @@ class TestContentRewritingMiddlewareDoSRegression:
         self, size_mb: int
     ) -> AsyncGenerator[bytes, None]:
         """Generate a streaming response of specified size."""
-        chunk_size = 1024 * 1024  # 1MB chunks
-        total_chunks = (size_mb * 1024 * 1024) // chunk_size
+        chunk_size = 5 * 1024 * 1024  # 5MB chunks for faster generation
+        remaining_bytes = size_mb * 1024 * 1024
 
-        for _i in range(total_chunks):
-            chunk = b"x" * chunk_size
-            yield chunk
+        while remaining_bytes >= chunk_size:
+            yield b"x" * chunk_size
+            remaining_bytes -= chunk_size
+
+        if remaining_bytes > 0:
+            yield b"x" * remaining_bytes
 
     async def simulate_middleware_accumulation(
         self, response: StreamingResponse
@@ -67,8 +70,8 @@ class TestContentRewritingMiddlewareDoSRegression:
     @pytest.mark.asyncio
     async def test_large_response_truncated(self) -> None:
         """Test that large streaming responses (>50MB) are truncated."""
-        # Create a response larger than 50MB limit
-        response_size_mb = 60
+        # Create a response larger than 50MB limit (reduced for performance)
+        response_size_mb = 55
         generator = self.generate_large_streaming_response(response_size_mb)
 
         response = StreamingResponse(generator)
@@ -87,8 +90,8 @@ class TestContentRewritingMiddlewareDoSRegression:
     @pytest.mark.asyncio
     async def test_small_response_not_truncated(self) -> None:
         """Test that small streaming responses (<50MB) are not truncated."""
-        # Create a response smaller than 50MB limit
-        response_size_mb = 10
+        # Create a response smaller than 50MB limit (reduced for performance)
+        response_size_mb = 5
         generator = self.generate_large_streaming_response(response_size_mb)
 
         response = StreamingResponse(generator)

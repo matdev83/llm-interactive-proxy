@@ -143,13 +143,13 @@ class TestReplacementMetricsTimestampLeakRegression:
         assert initial_count > 0, "Should have some timestamps before pruning."
 
         # Prune with very short window (should remove all recent timestamps)
-        # Note: This tests the prune logic, but in practice timestamps are recent
-        # so they won't be pruned. The important thing is that the method exists
+        # Note: This tests prune logic, but in practice timestamps are recent
+        # so they won't be pruned. The important thing is that method exists
         # and works correctly when timestamps are old.
         metrics.prune_history(max_age_seconds=0.1)
 
         # Wait a bit and prune again
-        time.sleep(0.2)
+        time.sleep(0.15)
         metrics.prune_history(max_age_seconds=0.1)
 
         # Verify prune_history method exists and works
@@ -157,6 +157,6 @@ class TestReplacementMetricsTimestampLeakRegression:
             metrics, "prune_history"
         ), "ReplacementMetrics should have prune_history method."
 
-        # The actual count depends on timing, but the method should work
+        # The actual count depends on timing, but method should work
         final_count = len(metrics.activation_timestamps)
         assert final_count >= 0, "Timestamp count should be non-negative."
