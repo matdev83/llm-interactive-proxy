@@ -111,8 +111,9 @@ async def test_ttlcache_respects_max_size():
             user_id=f"user-{i % 100}",  # 100 users
         )
 
-    # Try to enable 12000 sessions (more than maxsize, reduced from 15000 for performance)
-    tasks = [enable_session(i) for i in range(12000)]
+    # Try to enable 10100 sessions (more than maxsize, reduced from 12000 for performance)
+    # Still exceeds maxsize of 10000 to test eviction behavior
+    tasks = [enable_session(i) for i in range(10100)]
     await asyncio.gather(*tasks)
 
     # Cache should not grow unbounded (cachetools TTLCache handles this)

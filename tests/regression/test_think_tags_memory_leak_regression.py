@@ -51,11 +51,18 @@ class TestThinkTagsMemoryLeakRegression:
         assert session_id not in processor._reasoning_extracted
 
     async def test_reasoning_extracted_cleaned_on_eviction(
-        self, processor: ThinkTagsProcessor
+        self,
     ) -> None:
         """Test that _reasoning_extracted is cleaned up when sessions are evicted."""
+        # Create processor with smaller max_session_states for faster test execution
+        # Reduced from default 10,000 to 100 to enable eviction testing with fewer sessions
+        max_states = 100
+        processor = ThinkTagsProcessor(enabled=True, max_session_states=max_states)
+
         # Create many sessions to trigger eviction
-        num_sessions = processor._max_session_states + 10
+        # Reduced from _max_session_states + 10 (10,010) to 100 + 10 (110) for performance
+        # while still testing eviction behavior
+        num_sessions = max_states + 10
 
         # Process content for many sessions
         for i in range(num_sessions):

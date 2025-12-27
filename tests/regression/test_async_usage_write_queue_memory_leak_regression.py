@@ -156,8 +156,8 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             "during fast enqueue. Memory leak detected."
         )
 
-        # Wait a bit for processing
-        await asyncio.sleep(2.0)
+        # Wait a bit for processing (reduced from 2.0s to 0.5s for faster test execution)
+        await asyncio.sleep(0.5)
 
         # Check again - should still be limited
         pending_count_after = queue.pending_count

@@ -47,8 +47,11 @@ class TestGeminiAreadDoSRegression:
 
         # Simulate large body using aiter_bytes (preferred method)
         # Reduced from 11MB to 10.5MB for performance while still exceeding 10MB limit
+        # Use larger chunks (64KB) to reduce iteration overhead while still testing the limit
         large_body = b"x" * (10 * 1024 * 1024 + 512 * 1024)  # 10.5MB > 10MB limit
-        chunks = [large_body[i : i + 1024] for i in range(0, len(large_body), 1024)]
+        chunks = [
+            large_body[i : i + 64 * 1024] for i in range(0, len(large_body), 64 * 1024)
+        ]
 
         async def aiter_bytes():
             for chunk in chunks:
