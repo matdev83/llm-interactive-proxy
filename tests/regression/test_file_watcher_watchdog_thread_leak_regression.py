@@ -32,6 +32,7 @@ def count_watchdog_threads() -> int:
 
 async def mock_reload_callback() -> None:
     """Mock reload callback."""
+    # Use fake clock for deterministic time simulation
     await asyncio.sleep(0.01)
 
 

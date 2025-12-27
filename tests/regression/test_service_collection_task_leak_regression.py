@@ -12,6 +12,7 @@ import asyncio
 import httpx
 import pytest
 from src.core.di.container import ServiceCollection
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestServiceCollectionTaskLeakRegression:
@@ -65,7 +66,10 @@ class TestServiceCollectionTaskLeakRegression:
             clients.append(client)
 
             # Small delay to allow tasks to complete
-            await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Reduced from 0.01 for performance
+                await sleep_task
 
         # Verify cleanup tasks were created (one per replacement)
         # After replacements, some tasks may have completed
@@ -73,7 +77,10 @@ class TestServiceCollectionTaskLeakRegression:
         assert tracked_count >= 0, "Cleanup tasks should be tracked"
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.01)  # Reduced from 0.05 for performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)  # Reduced from 0.05 for performance
+            await sleep_task
 
 
         # Check that tasks don't accumulate unbounded
@@ -135,10 +142,16 @@ class TestServiceCollectionTaskLeakRegression:
                 limits=httpx.Limits(max_connections=10),
             )
             services.add_instance(httpx.AsyncClient, client)
-            await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Reduced from 0.01 for performance
+                await sleep_task
 
         # Wait for tasks to complete naturally
-        await asyncio.sleep(0.02)  # Reduced from 0.1 for performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.02))
+            clock.advance(0.02)  # Reduced from 0.1 for performance
+            await sleep_task
 
 
         # Tasks should complete even without dispose()
@@ -172,7 +185,10 @@ class TestServiceCollectionTaskLeakRegression:
             services.add_instance(httpx.AsyncClient, client)
 
         # Wait for tasks to process
-        await asyncio.sleep(0.02)  # Reduced from 0.1 for performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.02))
+            clock.advance(0.02)  # Reduced from 0.1 for performance
+            await sleep_task
 
 
         # Check that tasks don't accumulate excessively

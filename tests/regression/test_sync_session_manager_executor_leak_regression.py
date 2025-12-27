@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.domain.session import Session, SessionState
 from src.core.services.sync_session_manager import SyncSessionManager
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestSyncSessionManagerExecutorLeakRegression:
@@ -42,18 +43,21 @@ class TestSyncSessionManagerExecutorLeakRegression:
 
         # Run in async context to trigger executor path
         async def run_test():
-            asyncio.get_running_loop()
-            # Create a task to simulate running event loop
-            task = asyncio.create_task(asyncio.sleep(0.01))
-            try:
-                # This should use ThreadPoolExecutor
-                session = sync_manager.get_session("test-session")
-                assert session is not None
-                assert session.session_id == "test-session"
-            finally:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            async with FakeClockContext() as clock:
+                asyncio.get_running_loop()
+                # Create a task to simulate running event loop
+                task = asyncio.create_task(asyncio.sleep(0.01))
+                try:
+                    # This should use ThreadPoolExecutor
+                    session = sync_manager.get_session("test-session")
+                    assert session is not None
+                    assert session.session_id == "test-session"
+                    # Advance clock to allow sleep to complete
+                    clock.advance(0.01)
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
         asyncio.run(run_test())
 
@@ -66,23 +70,26 @@ class TestSyncSessionManagerExecutorLeakRegression:
         """Test that exceptions during executor.submit don't cause leaks."""
 
         async def run_test():
-            asyncio.get_running_loop()
-            task = asyncio.create_task(asyncio.sleep(0.01))
-            try:
-                # Simulate exception scenario
+            async with FakeClockContext() as clock:
+                asyncio.get_running_loop()
+                task = asyncio.create_task(asyncio.sleep(0.01))
                 try:
-                    raise ValueError("Simulated exception")
-                except ValueError:
-                    # Exception caught, executor should still be properly managed
-                    pass
+                    # Simulate exception scenario
+                    try:
+                        raise ValueError("Simulated exception")
+                    except ValueError:
+                        # Exception caught, executor should still be properly managed
+                        pass
 
-                # Executor should still work after exception
-                session = sync_manager.get_session("test-session")
-                assert session is not None
-            finally:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                    # Executor should still work after exception
+                    session = sync_manager.get_session("test-session")
+                    assert session is not None
+                    # Advance clock to allow sleep to complete
+                    clock.advance(0.01)
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
         asyncio.run(run_test())
 
@@ -98,16 +105,19 @@ class TestSyncSessionManagerExecutorLeakRegression:
         )
 
         async def run_test():
-            asyncio.get_running_loop()
-            task = asyncio.create_task(asyncio.sleep(0.01))
-            try:
-                # This should raise exception from thread
-                with pytest.raises(RuntimeError):
-                    sync_manager.get_session("test-session")
-            finally:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            async with FakeClockContext() as clock:
+                asyncio.get_running_loop()
+                task = asyncio.create_task(asyncio.sleep(0.01))
+                try:
+                    # This should raise exception from thread
+                    with pytest.raises(RuntimeError):
+                        sync_manager.get_session("test-session")
+                    # Advance clock to allow sleep to complete
+                    clock.advance(0.01)
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
         asyncio.run(run_test())
 
@@ -122,17 +132,20 @@ class TestSyncSessionManagerExecutorLeakRegression:
         initial_thread_count = threading.active_count()
 
         async def run_test():
-            asyncio.get_running_loop()
-            task = asyncio.create_task(asyncio.sleep(0.01))
-            try:
-                # Create multiple sessions (each creates an executor)
-                for i in range(10):
-                    session = sync_manager.get_session(f"test-session-{i}")
-                    assert session is not None
-            finally:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            async with FakeClockContext() as clock:
+                asyncio.get_running_loop()
+                task = asyncio.create_task(asyncio.sleep(0.01))
+                try:
+                    # Create multiple sessions (each creates an executor)
+                    for i in range(10):
+                        session = sync_manager.get_session(f"test-session-{i}")
+                        assert session is not None
+                    # Advance clock to allow sleep to complete
+                    clock.advance(0.01)
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
         asyncio.run(run_test())
 
@@ -161,6 +174,8 @@ class TestSyncSessionManagerExecutorLeakRegression:
         executor_refs = []
 
         def run_in_thread():
+            # Note: FakeClockContext doesn't work across threads with new event loops
+            # This is a thread-local operation, so we keep real sleep here
             new_loop = asyncio.new_event_loop()
             try:
                 return new_loop.run_until_complete(asyncio.sleep(0.01))

@@ -68,8 +68,11 @@ class TestBackendDiscardTaskLeakRegression:
             tasks_before
         ), "Discard should create new shutdown tasks"
 
-        # Wait for tasks to complete
-        await asyncio.sleep(0.01)
+        # Wait for tasks to complete (using fake clock for deterministic timing)
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            clock.advance(0.01)
 
         # Verify backends were shut down
         assert backend1.shutdown_called, "Backend 1 should be shut down"
@@ -115,8 +118,11 @@ class TestBackendDiscardTaskLeakRegression:
             new_tasks == num_backends
         ), f"Expected {num_backends} new tasks, got {new_tasks}"
 
-        # Wait for tasks to complete
-        await asyncio.sleep(0.01)
+        # Wait for tasks to complete (using fake clock for deterministic timing)
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            clock.advance(0.01)
 
         # Verify tasks completed and are cleaned up from tracking set
         pending_tracked = [t for t in manager._shutdown_tasks if not t.done()]
@@ -166,6 +172,7 @@ class TestBackendDiscardTaskLeakRegression:
         # Create a backend with slow shutdown
         class SlowBackend(MockBackend):
             async def shutdown(self) -> None:
+                # Use fake clock for deterministic time simulation
                 await asyncio.sleep(0.5)  # Longer than timeout
 
         backend = SlowBackend("slow-backend")

@@ -82,6 +82,7 @@ async def test_cleanup_handles_timeout():
     async with FakeClockContext() as clock:
         # Create a task that takes longer than timeout
         async def slow_task():
+            # Use fake clock for deterministic time simulation
             await asyncio.sleep(5.1)  # Just longer than 5s timeout
 
         task = asyncio.create_task(slow_task())
@@ -89,11 +90,12 @@ async def test_cleanup_handles_timeout():
         task.add_done_callback(lambda t: memory_service._cleanup_tasks.discard(t))
         memory_service._cleanup_tasks.add(task)
 
+        # Start cleanup in background
+        cleanup_task = asyncio.create_task(memory_service.cleanup())
         # Advance clock to trigger timeout logic
         clock.advance(5.1)
-
-        # Call cleanup() - should timeout and cancel task
-        await memory_service.cleanup()
+        # Wait for cleanup to complete
+        await cleanup_task
 
         # Verify task was cancelled
         assert task.cancelled()

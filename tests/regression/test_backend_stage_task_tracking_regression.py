@@ -11,6 +11,7 @@ import pytest
 from src.core.app.stages.backend import BackendStage
 from src.core.config.app_config import AppConfig
 from src.core.config.models import BackendSettings
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestBackendStageTaskTrackingRegression:
@@ -41,7 +42,10 @@ class TestBackendStageTaskTrackingRegression:
                 )
 
                 # Wait for task to complete
-                await asyncio.sleep(0.1)
+                async with FakeClockContext() as clock:
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                    clock.advance(0.1)
+                    await sleep_task
 
                 # Task should complete successfully
                 assert cleanup_task.done(), "Cleanup task did not complete."
@@ -80,7 +84,10 @@ class TestBackendStageTaskTrackingRegression:
             )
 
             # Wait for tasks to complete
-            await asyncio.sleep(0.01)  # Reduced from 0.2 for performance
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)  # Reduced from 0.2 for performance
+                await sleep_task
 
             # All tasks should complete
             for task in cleanup_tasks:
@@ -119,7 +126,10 @@ class TestBackendStageTaskTrackingRegression:
         # Wait for all tasks to complete (reduced sleep time for performance)
         if cleanup_tasks:
             await asyncio.gather(*cleanup_tasks, return_exceptions=True)
-        await asyncio.sleep(0.05)  # Reduced from 0.3 for performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)  # Reduced from 0.3 for performance
+            await sleep_task
 
         # Check that tasks don't accumulate excessively
         final_task_count = len(asyncio.all_tasks())

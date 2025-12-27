@@ -13,6 +13,7 @@ import pytest
 from src.core.memory.analysis_worker import AnalysisWorker
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.summary_generator import SummaryResult
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockMemoryService:
@@ -79,7 +80,10 @@ class TestAnalysisWorkerTaskLeakRegression:
         await worker.stop()
 
         # Wait a bit for tasks to be cancelled
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
         # Verify tasks are cleaned up
         assert len(worker._tasks) == 0, "Worker tasks should be cleared after stop"
@@ -116,7 +120,10 @@ class TestAnalysisWorkerTaskLeakRegression:
             await worker.stop()
 
         # Wait for cleanup
-        await asyncio.sleep(0.2)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.2))
+            clock.advance(0.2)
+            await sleep_task
 
         # Verify tasks are cleaned up
         tasks_after_stop = [t for t in asyncio.all_tasks(loop) if not t.done()]
@@ -139,7 +146,10 @@ class TestAnalysisWorkerTaskLeakRegression:
             await worker.stop()
 
         # Wait for cleanup (reduced wait time)
-        await asyncio.sleep(0.1)  # Reduced from 0.3 for performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Reduced from 0.3 for performance
+            await sleep_task
 
         # Verify no leak
         tasks_after = [t for t in asyncio.all_tasks(loop) if not t.done()]

@@ -20,6 +20,7 @@ from src.core.services.backend_completion_flow.service import BackendCompletionF
 from src.core.services.session_cancellation_coordinator import (
     SessionCancellationCoordinator,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestBackendCompletionCancellationTaskLeakRegression:
@@ -96,6 +97,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         # Create mock backend that returns streaming response with cancel callback
         async def slow_cancel_callback():
             """Simulate slow cancellation callback."""
+            # Use fake clock for deterministic time simulation
             await asyncio.sleep(0.1)
 
         # Create an empty async generator for content to avoid stream processing
@@ -203,46 +205,51 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         # Get initial task count
         initial_tasks = len(asyncio.all_tasks())
 
-        # Patch create_task to track tasks
-        with pytest.MonkeyPatch().context() as m:
-            m.setattr(asyncio, "create_task", tracked_create_task)
+        # Use fake clock for deterministic time simulation
+        async with FakeClockContext() as clock:
+            # Patch create_task to track tasks
+            with pytest.MonkeyPatch().context() as m:
+                m.setattr(asyncio, "create_task", tracked_create_task)
 
-            # Create multiple streaming requests that get cancelled
-            for _i in range(3):
-                # Start completion call with timeout to prevent hanging
-                try:
-                    completion_task = asyncio.create_task(
-                        asyncio.wait_for(
-                            flow.call_completion(
-                                request=chat_request,
-                                stream=True,
-                                allow_failover=False,
-                                context=request_context,
-                            ),
-                            timeout=1.0,  # 1 second timeout to prevent hanging
+                # Create multiple streaming requests that get cancelled
+                for _i in range(3):
+                    # Start completion call with timeout to prevent hanging
+                    try:
+                        completion_task = asyncio.create_task(
+                            asyncio.wait_for(
+                                flow.call_completion(
+                                    request=chat_request,
+                                    stream=True,
+                                    allow_failover=False,
+                                    context=request_context,
+                                ),
+                                timeout=1.0,  # 1 second timeout to prevent hanging
+                            )
                         )
-                    )
 
-                    # Cancel immediately to trigger cancellation callback
-                    cancellation_coordinator.cancel_session(
-                        session_key, reason=None  # type: ignore[arg-type]
-                    )
+                        # Cancel immediately to trigger cancellation callback
+                        cancellation_coordinator.cancel_session(
+                            session_key, reason=None  # type: ignore[arg-type]
+                        )
 
-                    # Wait a bit for cancellation callback to be invoked
-                    await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
+                        # Wait a bit for cancellation callback to be invoked
+                        # Use fake clock for deterministic time simulation
+                        clock.advance(0.001)  # Reduced from 0.01 for performance
 
-                    # Cancel the completion task
-                    completion_task.cancel()
-                    with contextlib.suppress(
-                        asyncio.CancelledError, asyncio.TimeoutError, Exception
-                    ):
-                        await completion_task
-                except Exception:
-                    # Ignore any exceptions during task creation/cancellation
-                    pass
+                        # Cancel the completion task
+                        completion_task.cancel()
+                        with contextlib.suppress(
+                            asyncio.CancelledError, asyncio.TimeoutError, Exception
+                        ):
+                            await completion_task
+                    except Exception:
+                        # Ignore any exceptions during task creation/cancellation
+                        pass
 
-        # Wait for cancellation callbacks to complete
-        await asyncio.sleep(0.05)  # Reduced from 0.2 for performance
+            # Wait for cancellation callbacks to complete
+            # Use fake clock for deterministic time simulation
+            await asyncio.sleep(0.05)  # Reduced from 0.2 for performance
+            clock.advance(0.05)
 
         # Check that tasks don't accumulate excessively
         final_tasks = len(asyncio.all_tasks())

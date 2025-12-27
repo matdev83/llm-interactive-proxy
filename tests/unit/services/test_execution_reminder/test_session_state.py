@@ -203,7 +203,11 @@ class TestTimestampTracking:
             "src.services.test_execution_reminder.session_state.time", fake_time
         )
 
-        state = TestExecutionSessionState()
+        # Create state with explicit initial values to avoid default_factory issues
+        state = TestExecutionSessionState(
+            last_modification_time=current_time["value"],
+            last_seen=current_time["value"],
+        )
         initial_time = state.last_seen
 
         # Advance time to ensure time difference
@@ -259,7 +263,12 @@ class TestTimestampTracking:
             "src.services.test_execution_reminder.session_state.time", fake_time
         )
 
-        state = TestExecutionSessionState(is_dirty=True)
+        # Create state with explicit initial values to avoid default_factory issues
+        state = TestExecutionSessionState(
+            is_dirty=True,
+            last_modification_time=current_time["value"],
+            last_seen=current_time["value"],
+        )
         initial_time = state.last_seen
 
         # Advance time to ensure time difference
@@ -287,7 +296,11 @@ class TestTimestampTracking:
             "src.services.test_execution_reminder.session_state.time", fake_time
         )
 
-        state = TestExecutionSessionState()
+        # Create state with explicit initial values to avoid default_factory issues
+        state = TestExecutionSessionState(
+            last_modification_time=current_time["value"],
+            last_seen=current_time["value"],
+        )
         initial_modification_time = state.last_modification_time
         initial_test_time = state.last_test_time
         initial_last_seen = state.last_seen
@@ -342,7 +355,11 @@ class TestTimestampTracking:
             "src.services.test_execution_reminder.session_state.time", fake_time
         )
 
-        state = TestExecutionSessionState()
+        # Create state with explicit initial values to avoid default_factory issues
+        state = TestExecutionSessionState(
+            last_modification_time=current_time["value"],
+            last_seen=current_time["value"],
+        )
 
         # Record initial timestamps
         timestamps = [state.last_seen]

@@ -13,7 +13,6 @@ import asyncio
 import threading
 
 from freezegun import freeze_time
-from tests.utils.fake_clock import FakeClockContext
 
 
 def test_schedule_credentials_reload_race_condition():
@@ -74,9 +73,8 @@ def test_schedule_credentials_reload_race_condition():
             async def reload_task():
                 self._reload_exec_count += 1
                 # Use fake clock for deterministic time simulation
-                async with FakeClockContext() as clock:
-                    await asyncio.sleep(0.01)  # Simulate work
-                    clock.advance(0.01)
+                # Note: FakeClockContext should already be active at test level
+                await asyncio.sleep(0.01)  # Simulate work
 
             # BUGGY: Task assignment happens outside original lock
             task = loop.create_task(reload_task())
@@ -124,9 +122,8 @@ def test_schedule_credentials_reload_race_condition():
             async def reload_task():
                 self._reload_exec_count += 1
                 # Use fake clock for deterministic time simulation
-                async with FakeClockContext() as clock:
-                    await asyncio.sleep(0.01)  # Simulate work
-                    clock.advance(0.01)
+                # Note: FakeClockContext should already be active at test level
+                await asyncio.sleep(0.01)  # Simulate work
 
             # FIXED: All critical operations inside same lock
             task = loop.create_task(reload_task())

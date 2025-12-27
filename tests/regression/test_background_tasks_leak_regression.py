@@ -13,6 +13,7 @@ from src.core.app.lifecycle import AppLifecycle
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestBackgroundTasksLeakRegression:
@@ -38,7 +39,10 @@ class TestBackgroundTasksLeakRegression:
             task.add_done_callback(lifecycle._remove_completed_task)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)
+            await sleep_task
 
         # Check if tasks are cleaned up
         final_count = len(lifecycle._background_tasks)
@@ -80,7 +84,10 @@ class TestBackgroundTasksLeakRegression:
             processor.add_background_task(task)
 
         # Wait for all tasks to complete
-        await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)
+            await sleep_task
 
         # Check if tasks are cleaned up
         final_count = len(processor._background_tasks)

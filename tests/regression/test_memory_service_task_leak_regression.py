@@ -12,6 +12,7 @@ from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
 from src.core.memory.tool_event_collector import DeterministicToolEventCollector
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestMemoryServiceTaskLeakRegression:
@@ -122,7 +123,10 @@ class TestMemoryServiceTaskLeakRegression:
             memory_service._cleanup_tasks.add(cleanup_task2)
 
         # Wait for all tasks to complete (reduced wait time - tasks complete quickly)
-        await asyncio.sleep(0.01)  # Minimal wait for async operations
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)  # Minimal wait for async operations
+            await sleep_task
 
         # WeakSet should allow garbage collection of completed tasks
         # So the count may decrease, but shouldn't grow unbounded
@@ -163,7 +167,10 @@ class TestMemoryServiceTaskLeakRegression:
         assert tracked_count >= 0, "Cleanup tasks should be tracked"
 
         # Wait for tasks to complete (reduced wait time)
-        await asyncio.sleep(0.01)  # Minimal wait for async operations
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)  # Minimal wait for async operations
+            await sleep_task
 
     @pytest.mark.asyncio
     async def test_cleanup_tasks_weakset_allows_gc(

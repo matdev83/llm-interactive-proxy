@@ -145,6 +145,7 @@ class TestTimeoutCase:
         from tests.utils.fake_clock import FakeClockContext
 
         async def slow_upsert(metrics: SessionMetricsTable) -> SessionMetricsTable:
+            # Use fake clock for deterministic time simulation
             await asyncio.sleep(DEFAULT_TIMEOUT_SECONDS + 0.5)
             return metrics
 
@@ -159,12 +160,20 @@ class TestTimeoutCase:
         # Execute: should not raise, should return after timeout
         # Use fake clock to control time progression
         async with FakeClockContext() as clock:
-            start_time = datetime.now(timezone.utc)
-            await initializer.ensure_session_metrics(
-                sample_session_key, observed_at=sample_observed_at
+            start_time = clock.now()
+            # Start the async operation
+            task = asyncio.create_task(
+                initializer.ensure_session_metrics(
+                    sample_session_key, observed_at=sample_observed_at
+                )
             )
+            # Advance clock to allow timeout to trigger
+            clock.advance(0.1)
+            # Wait for timeout to complete
+            await task
+            # Advance clock further to allow slow_upsert to complete (if it hadn't timed out)
             clock.advance(DEFAULT_TIMEOUT_SECONDS + 0.5)
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            elapsed = clock.now() - start_time
 
         # Verify: returned quickly (within timeout + small buffer)
         assert elapsed < DEFAULT_TIMEOUT_SECONDS
@@ -209,6 +218,7 @@ class TestDatabaseUnavailable:
         # Setup: mock slow upsert that exceeds timeout
 
         async def slow_upsert(metrics: SessionMetricsTable) -> SessionMetricsTable:
+            # Use fake clock for deterministic time simulation
             await asyncio.sleep(0.2)
             return metrics
 
@@ -223,9 +233,17 @@ class TestDatabaseUnavailable:
         # Execute: should not raise
         # Use fake clock to control time progression for timeout test
         async with FakeClockContext() as clock:
-            await initializer.ensure_session_metrics(
-                sample_session_key, observed_at=sample_observed_at
+            # Start the async operation
+            task = asyncio.create_task(
+                initializer.ensure_session_metrics(
+                    sample_session_key, observed_at=sample_observed_at
+                )
             )
+            # Advance clock to allow timeout to trigger
+            clock.advance(0.05)
+            # Wait for timeout to complete
+            await task
+            # Advance clock further to allow slow_upsert to complete (if it hadn't timed out)
             clock.advance(0.2)
 
         # Verify: upsert was called

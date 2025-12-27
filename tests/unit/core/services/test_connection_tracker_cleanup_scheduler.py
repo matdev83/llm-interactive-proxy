@@ -159,6 +159,7 @@ class TestConnectionTrackerCleanupScheduler:
         mock_tracker = MagicMock()
 
         async def slow_cleanup():
+            # Use fake clock for deterministic time simulation
             await asyncio.sleep(0.4)
             return 1
 
@@ -171,9 +172,12 @@ class TestConnectionTrackerCleanupScheduler:
 
         async with FakeClockContext() as clock:
             await scheduler.start()
+            # Advance clock to trigger cleanup cycle
             clock.advance(0.1)
-
+            # Stop scheduler (should handle slow cleanup gracefully)
             await scheduler.stop()
+            # Advance clock to allow slow cleanup to complete
+            clock.advance(0.4)
         assert not scheduler.is_running
 
     @pytest.mark.asyncio
