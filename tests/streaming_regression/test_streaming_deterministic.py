@@ -255,12 +255,21 @@ async def test_streaming_contract_validation_deterministic() -> None:
     assert len(received_chunks) > 0, "Should receive chunks"
 
     # Verify SSE format compliance
+    # Note: Chunks may contain multiple SSE events or partial events
+    # Split by double newlines to handle multiple events per chunk
+    all_sse_lines = []
     for chunk in received_chunks:
-        decoded = chunk.decode("utf-8")
-        # All chunks should follow SSE format
-        assert (
-            decoded.startswith("data: ") or decoded.strip() == ""
-        ), "Chunks should follow SSE format"
+        decoded = chunk.decode("utf-8", errors="ignore")
+        # Split by double newlines (SSE event separator)
+        events = decoded.split("\n\n")
+        for event in events:
+            lines = [line.strip() for line in event.split("\n") if line.strip()]
+            all_sse_lines.extend(lines)
+
+    # Verify all non-empty SSE lines start with "data: "
+    for line in all_sse_lines:
+        if line:  # Skip empty lines
+            assert line.startswith(("data: ", ":")), f"SSE line should start with 'data: ' or ':', got: {line[:50]}"
 
     # Verify backend behavior (deterministic check)
     stats = backend.get_timing_stats()

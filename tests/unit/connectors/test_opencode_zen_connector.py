@@ -639,9 +639,13 @@ class TestChatCompletions:
             }
         }
         temp_credentials_file.write_text(json.dumps(expired_creds), encoding="utf-8")
+        # Ensure file is flushed and mtime is updated (important on Windows)
+        temp_credentials_file.stat()  # Force stat to ensure mtime is updated
 
         # Also force in-memory credentials to appear expired to trigger reload
         connector._oauth_credentials["expires"] = time.time() - 100
+        # Reset last_modified to force reload on next check
+        connector._last_modified = 0
 
         chat_request = ChatRequest(
             model="opencode-zen/anthropic/claude-sonnet-4",

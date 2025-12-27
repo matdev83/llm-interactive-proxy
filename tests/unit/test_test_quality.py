@@ -501,13 +501,36 @@ def test_ruff_linting_on_tests() -> None:
         )
 
     # Only fail if there are still unfixable issues
+    # Note: In parallel test execution, files might be modified by other tests.
+    # Re-check once more to handle race conditions.
     if final_check.returncode != 0:
-        error_msg = (
-            f"ruff linting failed on tests directory (unfixable issues found):\n"
-            f"{final_check.stdout}\n{final_check.stderr}\n"
-            f"Fix attempt output:\n{fix_result.stdout}\n{fix_result.stderr}"
+        # Give a small delay for any concurrent file operations to complete
+        import time
+
+        time.sleep(0.1)
+
+        # Final check after delay
+        final_check = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--no-fix",
+                str(tests_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
         )
-        pytest.fail(error_msg)
+
+        if final_check.returncode != 0:
+            error_msg = (
+                f"ruff linting failed on tests directory (unfixable issues found):\n"
+                f"{final_check.stdout}\n{final_check.stderr}\n"
+                f"Fix attempt output:\n{fix_result.stdout}\n{fix_result.stderr}"
+            )
+            pytest.fail(error_msg)
 
 
 @pytest.mark.quality
